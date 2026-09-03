@@ -1,0 +1,44 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Runtime data, database dumps and library content
+/data/
+/music/
+# Database dumps. The root patterns cover the documented backup steps; the
+# backups/ directory is ignored wholesale, because a dump carries the entire
+# catalogue and has no business in version control wherever it is written.
+/*.dump
+/*.sql
+/*.sql.gz
+/backups/
+
+# Temporary downloads and scratch output
+/tmp/
+*.part
+*.ytdl
+*.opus
+*.ogg
+*.m4a
+*.mp3
+*.flac
+*.webm
+
+# Build artefacts
+/bin/
+/out/
+/backend/musicdl
+/backend/server
+*.test
+*.out
+
+# Logs
+*.log
+
+# IDE and OS files
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,11 @@
+.git
+.gitignore
+.claude
+.env
+.DS_Store
+**/.DS_Store
+data
+music
+docs
+*.md
+*.log

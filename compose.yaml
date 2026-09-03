@@ -1,0 +1,137 @@
+# Deployment layout
+#
+#   ytmdl-frontend   Nginx, static Web frontend, reverse proxy /api/ -> backend:8080
+#         │
+#         ▼
+#   ytmdl-backend    Go backend, job queue, workers, yt-dlp, ffmpeg, ffprobe
+#         │
+#         ▼
+#   ytmdl-db         PostgreSQL 18
+#
+# All containers share the dedicated bridge network ytmdl-net and address each
+# other by service name, never by IP address. See docs/DEPLOYMENT.md.
+name: ytmdl
+
+services:
+  db:
+    image: docker.io/library/postgres:18-alpine
+    container_name: ytmdl-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ytmdl}
+      POSTGRES_USER: ${POSTGRES_USER:-ytmdl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      # Keep the cluster's collation independent of the host locale.
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C
+    volumes:
+      # postgres:18 stores its cluster in $PGDATA=/var/lib/postgresql/18/docker
+      # and declares its volume one level up. The image refuses to start when a
+      # volume is mounted at the older /var/lib/postgresql/data, so the mount
+      # has to sit at /var/lib/postgresql.
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - ytmdl-net
+    # No host port: only ytmdl-net reaches the database.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Containerfile
+      args:
+        VERSION: ${YTMDL_VERSION:-}
+    image: ytmdl-backend:${YTMDL_VERSION:-local}
+    container_name: ytmdl-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    # The startup retry in the backend is the actual guarantee; depends_on only
+    # spares it the first few attempts.
+    environment:
+      MUSICDL_DATABASE_URL: ${MUSICDL_DATABASE_URL:?MUSICDL_DATABASE_URL must be set in .env}
+      MUSICDL_LISTEN_ADDR: ${MUSICDL_LISTEN_ADDR:-0.0.0.0:8080}
+      MUSICDL_LIBRARY: ${MUSICDL_LIBRARY:-/music}
+      MUSICDL_TRUSTED_PROXIES: ${MUSICDL_TRUSTED_PROXIES:-127.0.0.1/32,::1/128,172.31.250.0/28}
+    env_file:
+      # Optional settings such as Spotify credentials, a cookie file or the log
+      # level. The three variables above stay explicit because the deployment
+      # depends on them.
+      - ${YTMDL_ENV_FILE:-.env}
+    volumes:
+      # /data is optional runtime state such as a cookies.txt; the catalogue
+      # itself lives in PostgreSQL.
+      - ${YTMDL_DATA_PATH:-./data}:/data:Z
+      - ${YTMDL_MUSIC_PATH:-./music}:/music:Z
+    networks:
+      - ytmdl-net
+    # Map the rootless Podman user onto the image's dedicated UID/GID. This
+    # keeps bind mounts writable without running the backend as root.
+    userns_mode: "keep-id:uid=10001,gid=10001"
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8080/api/v1/health?scope=essential
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+    # Long enough for the tested shutdown: stop admitting jobs, close the event
+    # streams, cancel the yt-dlp process groups, persist the recovery state and
+    # close the database pool.
+    stop_grace_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Containerfile
+    image: ytmdl-frontend:${YTMDL_VERSION:-local}
+    container_name: ytmdl-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${YTMDL_HOST_PORT:-8080}:8080"
+    networks:
+      - ytmdl-net
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8080/
+      interval: 15s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+    name: ytmdl-postgres-data
+
+networks:
+  ytmdl-net:
+    name: ytmdl-net
+    driver: bridge
+    # Deliberately not internal:true — the backend needs outbound HTTPS for the
+    # provider APIs, yt-dlp and cover downloads.
+    ipam:
+      config:
+        # A /28 is enough for this stack. Change it here if it collides with a
+        # LAN, VPN or another container network; nothing references IPs.
+        - subnet: 172.31.250.0/28

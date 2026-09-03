@@ -1,0 +1,39 @@
+# Stage 1: Build the frontend with Bun
+FROM --platform=$BUILDPLATFORM docker.io/oven/bun:alpine AS builder
+
+WORKDIR /app
+
+# Copy dependency manifests
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+
+# Copy source code and build config
+COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json ./
+COPY src/ ./src/
+COPY public/ ./public/
+
+# Build static bundle to dist/
+RUN bun run build
+
+# Stage 2: Serve with Nginx Alpine
+FROM docker.io/library/nginx:alpine AS runner
+
+# Remove default nginx static files
+RUN rm -rf /usr/share/nginx/html/*
+
+# Copy built frontend assets
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# The configuration is a template: the entrypoint fills in the DNS resolver
+# before nginx starts. The .envsh script is sourced by the image's entrypoint,
+# which is what lets it export a value the template rendering can see.
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY 15-resolver.envsh /docker-entrypoint.d/15-resolver.envsh
+RUN chmod +x /docker-entrypoint.d/15-resolver.envsh
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

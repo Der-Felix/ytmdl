@@ -1,0 +1,5 @@
+[test]
+# The component tests need a DOM. dom.ts registers happy-dom and must be
+# preloaded before setup.ts, which imports the testing library: that library
+# binds its queries to document.body as it is evaluated.
+preload = ["./src/test/dom.ts", "./src/test/setup.ts"]

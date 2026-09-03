@@ -1,0 +1,57 @@
+name: Bug Report
+description: Report an issue or unexpected behavior in YTMDL
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Please ensure no sensitive information (API keys, session cookies, internal hostnames, passwords) is included in your report.
+  - type: input
+    id: version
+    attributes:
+      label: YTMDL Version
+      placeholder: "e.g. 0.14.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment Method
+      options:
+        - "Podman Compose"
+        - "Docker Compose"
+        - "Local Source Build"
+        - "Other"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS & Runtime
+      placeholder: "e.g. Linux (Ubuntu 24.04), macOS Sonoma, Podman 5.0"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the Bug
+      description: A clear and concise description of what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Relevant log snippets (redact passwords, tokens, cookies!).
+      render: shell

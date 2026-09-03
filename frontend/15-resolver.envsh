@@ -1,0 +1,16 @@
+#!/bin/sh
+# Publishes the container's DNS server to the nginx template.
+#
+# nginx needs an explicit resolver to look a host up at request time, and the
+# address of Podman's DNS depends on the network's subnet. Reading it from
+# /etc/resolv.conf keeps the configuration independent of that subnet.
+#
+# The .envsh suffix matters: the nginx entrypoint sources these files, so the
+# export below reaches the envsubst step that renders the template.
+
+NGINX_RESOLVER="$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf)"
+export NGINX_RESOLVER="${NGINX_RESOLVER:-127.0.0.11}"
+
+# Only NGINX_-prefixed variables are substituted, so nginx's own $variables
+# survive the template rendering untouched.
+export NGINX_ENVSUBST_FILTER="NGINX_"
