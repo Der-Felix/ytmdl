@@ -2,6 +2,8 @@
 
 Artist subscriptions automate library growth by periodically polling metadata providers for newly released singles, EPs, and studio albums.
 
+![YTMDL Artist Subscriptions](/screenshots/subscriptions.webp)
+
 ## How Subscriptions Work
 
 1. **Periodic Synchronization:** The backend scheduler checks active artist subscriptions against provider APIs.

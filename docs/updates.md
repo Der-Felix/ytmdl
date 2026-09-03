@@ -2,6 +2,8 @@
 
 Starting with **v0.15**, YTMDL introduces native update detection within the WebUI, allowing administrators to monitor new official stable releases.
 
+![YTMDL System & Updates](/screenshots/updates.webp)
+
 ## Stable Release Distribution
 
 YTMDL uses a two-tier repository architecture:

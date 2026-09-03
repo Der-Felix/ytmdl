@@ -2,6 +2,8 @@
 
 YTMDL organizes music into a media-server-ready folder hierarchy with strict metadata standards.
 
+![YTMDL Library](/screenshots/library.webp)
+
 ## Directory Layout
 
 ```text

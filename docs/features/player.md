@@ -2,6 +2,8 @@
 
 YTMDL features a full-featured, in-browser HTML5 audio player designed for seamless music listening without external desktop applications.
 
+![YTMDL Web Player](/screenshots/player.webp)
+
 ## Player Capabilities
 
 - **Gapless Playback & Crossfade:** Web Audio API engine supporting smooth transitions or crossfades between consecutive tracks.
