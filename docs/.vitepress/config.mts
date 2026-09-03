@@ -7,14 +7,20 @@ export default defineConfig({
   srcExclude: ['superpowers/**', '**/superpowers/**', 'superpowers/**/*', '**/superpowers/**/*'],
   cleanUrls: true,
   lastUpdated: true,
+  appearance: 'dark',
 
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/ytmdl/favicon.svg' }],
-    ['meta', { name: 'theme-color', content: '#0ea5e9' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/ytmdl/favicon-32x32.png' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '256x256', href: '/ytmdl/favicon.png' }],
+    ['link', { rel: 'apple-touch-icon', href: '/ytmdl/favicon.png' }],
+    ['meta', { name: 'theme-color', content: '#07080d' }],
+    ['meta', { property: 'og:image', content: 'https://der-felix.github.io/ytmdl/social-preview.png' }],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+    ['meta', { name: 'twitter:image', content: 'https://der-felix.github.io/ytmdl/social-preview.png' }],
   ],
 
   themeConfig: {
-    logo: '/favicon.svg',
+    logo: '/logo-mark.png',
     siteTitle: 'YTMDL',
 
     nav: [

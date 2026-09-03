@@ -1,0 +1,731 @@
+/**
+ * YTMDL VitePress Custom Theme
+ * Aligned with the official YTMDL Web App design system:
+ * - Deep navy/almost-black background (#07080d, #0b0d14)
+ * - Brand neon gradient (#f43f5e rose -> #d946ef magenta -> #8b5cf6 violet)
+ * - Restrained atmospheric ambient glow
+ * - Glassy panels & refined micro-borders
+ * - High-contrast readable typography
+ */
+
+/* ==========================================================================
+   1. Brand Palette & Color Scale
+   ========================================================================== */
+
+:root {
+  /* Brand colors (Rose / Magenta / Violet) */
+  --ytmdl-rose: #f43f5e;
+  --ytmdl-rose-hover: #fb7185;
+  --ytmdl-rose-active: #e11d48;
+  --ytmdl-magenta: #d946ef;
+  --ytmdl-violet: #8b5cf6;
+  --ytmdl-brand-gradient: linear-gradient(135deg, #f43f5e 0%, #d946ef 50%, #8b5cf6 100%);
+  --ytmdl-brand-gradient-hover: linear-gradient(135deg, #fb7185 0%, #e879f9 50%, #a78bfa 100%);
+
+  /* Light Theme Overrides (clean, high-contrast slate with brand accents) */
+  --vp-c-brand-1: #e11d48;
+  --vp-c-brand-2: #be123c;
+  --vp-c-brand-3: #9f1239;
+  --vp-c-brand-soft: rgba(225, 29, 72, 0.10);
+
+  --vp-c-bg: #fbfcfd;
+  --vp-c-bg-alt: #f1f5f9;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #f1f5f9;
+
+  --vp-c-border: #cbd5e1;
+  --vp-c-divider: #e2e8f0;
+
+  --vp-c-text-1: #0f172a;
+  --vp-c-text-2: #475569;
+  --vp-c-text-3: #94a3b8;
+
+  --vp-font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --vp-font-family-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --vp-radius-base: 10px;
+}
+
+/* ==========================================================================
+   2. Dark Theme (Primary & Default Experience)
+   ========================================================================== */
+
+.dark {
+  /* Brand colors */
+  --vp-c-brand-1: #f43f5e;
+  --vp-c-brand-2: #fb7185;
+  --vp-c-brand-3: #e11d48;
+  --vp-c-brand-soft: rgba(244, 63, 94, 0.14);
+
+  /* Deep Space Navy / Black Backgrounds */
+  --vp-c-bg: #07080d;
+  --vp-c-bg-alt: #0d0f18;
+  --vp-c-bg-elv: #131622;
+  --vp-c-bg-soft: #111420;
+
+  /* Subtle Glassy Borders */
+  --vp-c-border: rgba(255, 255, 255, 0.08);
+  --vp-c-divider: rgba(255, 255, 255, 0.06);
+  --vp-c-gutter: #000000;
+
+  /* Typography */
+  --vp-c-text-1: #f1f3f9;
+  --vp-c-text-2: #9da4b5;
+  --vp-c-text-3: #646c82;
+
+  /* Code & Syntax */
+  --vp-code-bg: rgba(255, 255, 255, 0.04);
+  --vp-code-block-bg: #0b0d15;
+  --vp-code-block-color: #e2e8f0;
+  --vp-code-copy-code-bg: #131622;
+  --vp-code-copy-code-hover-bg: #1e2235;
+
+  /* Shadows */
+  --vp-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --vp-shadow-2: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --vp-shadow-3: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+/* ==========================================================================
+   3. Atmospheric Ambient Glow Background
+   ========================================================================== */
+
+.dark body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(55rem 36rem at 10% -8%, rgba(244, 63, 94, 0.14), transparent 68%),
+    radial-gradient(48rem 32rem at 92% 5%, rgba(139, 92, 246, 0.11), transparent 64%),
+    radial-gradient(52rem 38rem at 78% 85%, rgba(217, 70, 239, 0.08), transparent 66%),
+    linear-gradient(175deg, #0d0f18 0%, #07080d 45%);
+  filter: blur(48px);
+}
+
+@media (max-width: 768px) {
+  .dark body::before {
+    background:
+      radial-gradient(30rem 20rem at 50% 0%, rgba(244, 63, 94, 0.10), transparent 70%),
+      linear-gradient(180deg, #0d0f18 0%, #07080d 100%);
+    filter: blur(30px);
+  }
+}
+
+/* Selection Highlight */
+::selection {
+  background: rgba(244, 63, 94, 0.28);
+  color: #ffffff;
+}
+
+/* ==========================================================================
+   4. Navigation Bar
+   ========================================================================== */
+
+.VPNav {
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+.dark .VPNav {
+  background-color: rgba(7, 8, 13, 0.78) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.VPNavBarTitle .title {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.VPNavBarMenuLink.active {
+  color: var(--vp-c-brand-1) !important;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   5. Sidebar Navigation
+   ========================================================================== */
+
+.VPSidebar {
+  background-color: transparent !important;
+}
+
+.dark .VPSidebar {
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.VPSidebarItem.level-0 > .item > .text {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--vp-c-text-3);
+  padding: 8px 0;
+}
+
+.VPSidebarItem .link {
+  border-radius: 8px;
+  padding: 6px 12px;
+  margin: 2px 0;
+  transition: all 0.2s ease;
+}
+
+@media (hover: hover) {
+  .VPSidebarItem .link:hover {
+    background-color: rgba(255, 255, 255, 0.04);
+    color: var(--vp-c-text-1);
+  }
+}
+
+.VPSidebarItem.is-active > .item > .link {
+  background: linear-gradient(90deg, rgba(244, 63, 94, 0.15) 0%, rgba(217, 70, 239, 0.06) 100%) !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  border-left: 3px solid #f43f5e;
+}
+
+/* ==========================================================================
+   6. Buttons & CTAs
+   ========================================================================== */
+
+.VPButton {
+  border-radius: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  transition: all 0.2s ease !important;
+}
+
+/* Primary Brand Button (Glowing Gradient) */
+.VPButton.brand {
+  background: var(--ytmdl-brand-gradient) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 4px 18px rgba(244, 63, 94, 0.32) !important;
+}
+
+@media (hover: hover) {
+  .VPButton.brand:hover {
+    background: var(--ytmdl-brand-gradient-hover) !important;
+    box-shadow: 0 6px 24px rgba(244, 63, 94, 0.45) !important;
+    transform: translateY(-1px);
+  }
+}
+
+/* Alt Button (Glassy Slate Panel) */
+.dark .VPButton.alt {
+  background: rgba(255, 255, 255, 0.045) !important;
+  color: var(--vp-c-text-1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(12px);
+}
+
+@media (hover: hover) {
+  .dark .VPButton.alt:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(244, 63, 94, 0.4) !important;
+    color: #ffffff !important;
+    transform: translateY(-1px);
+  }
+}
+
+/* ==========================================================================
+   7. Home / Hero Section
+   ========================================================================== */
+
+.VPHero {
+  padding-top: calc(var(--vp-nav-height) + 48px) !important;
+  padding-bottom: 64px !important;
+}
+
+.VPHero .name {
+  background: var(--ytmdl-brand-gradient) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+}
+
+.VPHero .text {
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--vp-c-text-1) !important;
+}
+
+.VPHero .tagline {
+  font-size: 1.15rem !important;
+  line-height: 1.6 !important;
+  color: var(--vp-c-text-2) !important;
+  max-width: 620px;
+}
+
+/* Hero Image / Brand Logo Container */
+.VPHero .image-bg {
+  background: radial-gradient(circle, rgba(244, 63, 94, 0.20) 0%, rgba(139, 92, 246, 0.10) 50%, transparent 70%) !important;
+  filter: blur(36px) !important;
+}
+
+.VPHero .image-src {
+  filter: drop-shadow(0 16px 36px rgba(244, 63, 94, 0.30)) drop-shadow(0 4px 16px rgba(0, 0, 0, 0.5));
+}
+
+/* ==========================================================================
+   8. Home Features Cards
+   ========================================================================== */
+
+.VPFeatures {
+  padding-bottom: 60px !important;
+}
+
+.VPFeature {
+  border-radius: 14px !important;
+  transition: all 0.25s ease !important;
+}
+
+.dark .VPFeature {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  backdrop-filter: blur(8px);
+}
+
+@media (hover: hover) {
+  .dark .VPFeature:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(244, 63, 94, 0.35) !important;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45) !important;
+    transform: translateY(-2px);
+  }
+}
+
+.VPFeature .icon {
+  border-radius: 10px;
+  background: rgba(244, 63, 94, 0.1) !important;
+  border: 1px solid rgba(244, 63, 94, 0.2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.VPFeature .title {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--vp-c-text-1);
+}
+
+.VPFeature .details {
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+}
+
+/* ==========================================================================
+   9. Documentation Typography & Content Layout
+   ========================================================================== */
+
+.vp-doc {
+  font-size: 15.5px;
+  line-height: 1.7;
+}
+
+.vp-doc h1 {
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: var(--vp-c-text-1);
+  margin-bottom: 16px;
+}
+
+.vp-doc h2 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--vp-c-text-1);
+  border-top: 1px solid var(--vp-c-divider);
+  padding-top: 28px;
+  margin-top: 36px;
+}
+
+.vp-doc h3 {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--vp-c-text-1);
+}
+
+.vp-doc a {
+  color: var(--vp-c-brand-1);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  transition: color 0.15s ease;
+}
+
+.vp-doc a:hover {
+  color: var(--vp-c-brand-2);
+}
+
+/* Inline Code */
+.vp-doc :not(pre) > code {
+  border-radius: 6px;
+  padding: 2.5px 6px;
+  font-size: 0.88em;
+  font-weight: 500;
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.16);
+  color: #f43f5e;
+}
+
+/* ==========================================================================
+   10. Code Blocks
+   ========================================================================== */
+
+.vp-doc div[class*='language-'] {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: #0b0d15 !important;
+  margin: 20px 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.vp-doc div[class*='language-'] .lang {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--vp-c-text-3);
+  padding-right: 12px;
+}
+
+/* ==========================================================================
+   11. Callout Containers / Custom Blocks
+   ========================================================================== */
+
+.custom-block {
+  border-radius: 12px !important;
+  padding: 16px 20px !important;
+  margin: 24px 0 !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+}
+
+/* Tip (Rose/Magenta themed) */
+.dark .custom-block.tip {
+  background: rgba(244, 63, 94, 0.06) !important;
+  border-color: rgba(244, 63, 94, 0.3) !important;
+}
+.dark .custom-block.tip .custom-block-title {
+  color: #fb7185 !important;
+  font-weight: 700;
+}
+
+/* Info (Violet/Blue themed) */
+.dark .custom-block.info {
+  background: rgba(139, 92, 246, 0.06) !important;
+  border-color: rgba(139, 92, 246, 0.3) !important;
+}
+.dark .custom-block.info .custom-block-title {
+  color: #a78bfa !important;
+  font-weight: 700;
+}
+
+/* Warning */
+.dark .custom-block.warning {
+  background: rgba(234, 179, 8, 0.06) !important;
+  border-color: rgba(234, 179, 8, 0.3) !important;
+}
+.dark .custom-block.warning .custom-block-title {
+  color: #facc15 !important;
+  font-weight: 700;
+}
+
+/* Danger / Caution */
+.dark .custom-block.danger {
+  background: rgba(239, 68, 68, 0.06) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+.dark .custom-block.danger .custom-block-title {
+  color: #f87171 !important;
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   12. Screenshot & Media Presentation
+   ========================================================================== */
+
+/* Universal screenshot styling */
+.vp-doc img {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  margin: 24px auto;
+  display: block;
+  max-width: 100%;
+}
+
+/* Hero Showcase Frame (Clean & Neutral) */
+.hero-showcase {
+  margin: 48px auto 24px auto;
+  max-width: 1100px;
+  position: relative;
+}
+
+.hero-showcase-window {
+  background: rgba(13, 15, 24, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+}
+
+.hero-showcase img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Quick Start Banner */
+.home-quickstart {
+  margin: 40px auto 60px auto;
+  max-width: 900px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 28px;
+}
+
+.home-quickstart-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--vp-c-text-1);
+}
+
+.home-quickstart-desc {
+  font-size: 0.95rem;
+  color: var(--vp-c-text-2);
+  margin-bottom: 16px;
+}
+
+/* ==========================================================================
+   13. Tables
+   ========================================================================== */
+
+.vp-doc table {
+  border-collapse: collapse;
+  margin: 24px 0;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dark .vp-doc th {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: var(--vp-c-text-1);
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dark .vp-doc td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dark .vp-doc tr:hover td {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* ==========================================================================
+   14. Footer
+   ========================================================================== */
+
+.VPFooter {
+  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+  background-color: transparent !important;
+  padding: 32px 24px !important;
+}
+
+.VPFooter .message,
+.VPFooter .copyright {
+  font-size: 13px;
+  color: var(--vp-c-text-3);
+}
+
+/* ==========================================================================
+   15. Light Mode Refinements & Brand Polish
+   ========================================================================== */
+
+html:not(.dark) .VPHero .image-bg {
+  background: radial-gradient(circle, rgba(225, 29, 72, 0.08) 0%, rgba(139, 92, 246, 0.04) 50%, transparent 70%) !important;
+  filter: blur(20px) !important;
+  opacity: 0.5 !important;
+}
+
+html:not(.dark) .VPHero .image-src {
+  filter: drop-shadow(0 6px 16px rgba(15, 23, 42, 0.10)) !important;
+}
+
+html:not(.dark) .VPNav {
+  background-color: rgba(251, 252, 253, 0.88) !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+html:not(.dark) .VPSidebar {
+  border-right: 1px solid #e2e8f0 !important;
+}
+
+html:not(.dark) .VPButton.brand {
+  background: linear-gradient(135deg, #e11d48 0%, #c026d3 50%, #7c3aed 100%) !important;
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.22) !important;
+}
+
+html:not(.dark) .VPButton.alt {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05) !important;
+}
+
+@media (hover: hover) {
+  html:not(.dark) .VPButton.alt:hover {
+    background: #f8fafc !important;
+    border-color: #e11d48 !important;
+    color: #e11d48 !important;
+  }
+}
+
+html:not(.dark) .VPFeature {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.03) !important;
+}
+
+@media (hover: hover) {
+  html:not(.dark) .VPFeature:hover {
+    border-color: rgba(225, 29, 72, 0.35) !important;
+    box-shadow: 0 6px 18px rgba(225, 29, 72, 0.08), 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+    transform: translateY(-2px);
+  }
+}
+
+html:not(.dark) .VPFeature .icon {
+  background: rgba(225, 29, 72, 0.06) !important;
+  border: 1px solid rgba(225, 29, 72, 0.14) !important;
+}
+
+html:not(.dark) .hero-showcase-window {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08) !important;
+}
+
+html:not(.dark) .home-quickstart {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04) !important;
+}
+
+/* ==========================================================================
+   16. Mobile Responsive Optimization (< 768px)
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .VPHero {
+    padding-top: calc(var(--vp-nav-height) + 16px) !important;
+    padding-bottom: 32px !important;
+  }
+
+  /* Logo scaled down from 300px+ to ~150px */
+  .VPHero .image {
+    max-width: 160px !important;
+    max-height: 160px !important;
+    margin: 0 auto 12px auto !important;
+  }
+
+  .VPHero .image-src {
+    max-width: 150px !important;
+    max-height: 150px !important;
+    filter: drop-shadow(0 8px 20px rgba(244, 63, 94, 0.25)) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4)) !important;
+  }
+
+  .VPHero .image-bg {
+    filter: blur(18px) !important;
+  }
+
+  /* Headline "Self-Hosted Music Hub" */
+  .VPHero .text {
+    font-size: 38px !important;
+    line-height: 1.15 !important;
+    letter-spacing: -0.02em !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* "YTMDL" Wordmark */
+  .VPHero .name {
+    font-size: 28px !important;
+    line-height: 1.2 !important;
+    margin-bottom: 6px !important;
+  }
+
+  /* Tagline */
+  .VPHero .tagline {
+    font-size: 18px !important;
+    line-height: 1.45 !important;
+    margin: 0 auto 20px auto !important;
+    max-width: 340px !important;
+  }
+
+  /* Buttons: Clean vertical stack */
+  .VPHero .actions {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+    width: 100% !important;
+    max-width: 320px !important;
+    margin: 0 auto !important;
+  }
+
+  .VPHero .action {
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .VPHero .action .VPButton {
+    width: 100% !important;
+    justify-content: center !important;
+    padding: 10px 20px !important;
+    font-size: 15px !important;
+  }
+
+  /* Feature Cards: 10-15% more compact */
+  .VPFeatures {
+    padding-top: 12px !important;
+    padding-bottom: 32px !important;
+  }
+
+  .VPFeature {
+    padding: 18px 18px !important;
+  }
+
+  .VPFeature .icon {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 19px !important;
+    margin-bottom: 8px !important;
+  }
+
+  .VPFeature .title {
+    font-size: 1.05rem !important;
+    margin-bottom: 6px !important;
+  }
+
+  .VPFeature .details {
+    font-size: 0.92rem !important;
+    line-height: 1.5 !important;
+  }
+
+  /* Quick Start & Showcase margins */
+  .home-quickstart {
+    margin: 24px 16px 40px 16px !important;
+    padding: 20px !important;
+  }
+}
