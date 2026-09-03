@@ -145,3 +145,33 @@ State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid CSRF 
 | `POST` | `/api/v1/storage/probe` | Admin | Re-probe storage accessibility and guard token. |
 | `POST` | `/api/v1/storage/queue/pause` | Admin | Manually pause queue processing for storage maintenance. |
 | `POST` | `/api/v1/storage/queue/resume` | Admin | Resume queue processing after storage maintenance. |
+| `GET` | `/api/v1/system/update` | Admin | Get current or cached GitHub release update status. |
+| `POST` | `/api/v1/system/update/check` | Admin | Force a fresh update check against the official release repository (CSRF required). |
+
+### Update Status Schema
+
+Endpoints under `/api/v1/system/update` require Administrator privileges. `POST /api/v1/system/update/check` requires a valid `X-CSRF-Token` header.
+
+**Response Structure (`{"data": ...}`):**
+```json
+{
+  "current_version": "0.14.1",
+  "latest_version": "0.15.0",
+  "state": "update_available",
+  "release_name": "YTMDL v0.15.0",
+  "published_at": "2026-09-03T12:00:00Z",
+  "release_url": "https://github.com/Der-Felix/ytmdl/releases/tag/v0.15.0",
+  "release_notes": "...",
+  "checked_at": "2026-09-03T14:30:00Z",
+  "cached": true
+}
+```
+
+**Possible `state` Values:**
+- `up_to_date`: The installed version is identical to or newer than the latest stable release.
+- `update_available`: A newer stable release is available on GitHub.
+- `no_public_release`: The repository has no published releases yet (HTTP 404 handled gracefully).
+- `disabled`: Update checks are disabled (`MUSICDL_UPDATE_CHECKS_ENABLED=false`).
+- `unavailable`: GitHub is unreachable, timed out, or rate-limited (403/429).
+- `invalid_release`: The remote release tag cannot be parsed as valid SemVer, or is a draft/prerelease.
+- `development_version`: The installed version is a local dev build (`"dev"`).

@@ -65,7 +65,7 @@ export interface PlayerState {
   sleepTimer: SleepTimerOption
   sleepTimerEndsAt: number | null // timestamp ms
   stopAfter: StopAfterOption
-
+  
   // DSP & EQ
   eqEnabled: boolean
   eqMode: EQMode
@@ -79,7 +79,7 @@ export interface PlayerState {
   balance: number // -1 (L) to +1 (R)
   mono: boolean
   bassBoost: number // 0 to 100%
-
+  
   // Visualizer & UI
   visualizerMode: VisualizerMode
   peakWarning: boolean

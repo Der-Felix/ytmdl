@@ -76,7 +76,7 @@ export function MiniPlayer() {
       </div>
 
       <div className="mx-auto flex h-full max-w-[94rem] items-center justify-between px-3 sm:px-6 gap-3 sm:gap-6">
-
+        
         {/* ======================================================== */}
         {/* LEFT ZONE (~25%): Cover + Track Metadata (Click -> /player) */}
         {/* ======================================================== */}
@@ -115,7 +115,7 @@ export function MiniPlayer() {
         {/* CENTER ZONE (~50%): Centered Playback Controls + Seekbar */}
         {/* ======================================================== */}
         <div className="flex flex-col items-center justify-center flex-1 max-w-2xl px-2 sm:px-4">
-
+          
           {/* Top Controls Row */}
           <div className="flex items-center gap-3 sm:gap-4">
             {/* Shuffle */}
@@ -241,7 +241,7 @@ export function MiniPlayer() {
         {/* RIGHT ZONE (~25%): Volume, Queue & Clean Expand Icon     */}
         {/* ======================================================== */}
         <div className="flex items-center justify-end gap-1.5 sm:gap-3 sm:w-64 lg:w-72">
-
+          
           {/* Volume Control (Slider with quiet thumb) */}
           <div className="hidden lg:flex items-center gap-2 pr-1">
             <Button

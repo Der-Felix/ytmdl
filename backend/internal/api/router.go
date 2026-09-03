@@ -248,6 +248,14 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					})
 				})
 
+				admin.Route("/system", func(systemRouter chi.Router) {
+					systemRouter.Get("/update", h.GetUpdateStatus)
+					systemRouter.Group(func(mutating chi.Router) {
+						mutating.Use(middleware.CSRF)
+						mutating.Post("/update/check", h.CheckUpdate)
+					})
+				})
+
 				admin.Group(func(mutating chi.Router) {
 					mutating.Use(middleware.CSRF)
 					mutating.Put("/settings", h.UpdateSettings)

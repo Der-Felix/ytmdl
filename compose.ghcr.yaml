@@ -1,0 +1,106 @@
+# Production deployment layout using official prebuilt GHCR container images.
+#
+#   ytmdl-frontend   Nginx, static Web frontend, reverse proxy /api/ -> backend:8080
+#         │
+#         ▼
+#   ytmdl-backend    Go backend, job queue, workers, yt-dlp, ffmpeg, ffprobe
+#         │
+#         ▼
+#   ytmdl-db         PostgreSQL 18
+#
+# For building locally from source, use compose.yaml instead.
+name: ytmdl
+
+services:
+  db:
+    image: docker.io/library/postgres:18-alpine
+    container_name: ytmdl-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ytmdl}
+      POSTGRES_USER: ${POSTGRES_USER:-ytmdl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - ytmdl-net
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  backend:
+    image: ghcr.io/der-felix/ytmdl-backend:${YTMDL_VERSION:-latest}
+    container_name: ytmdl-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MUSICDL_DATABASE_URL: ${MUSICDL_DATABASE_URL:?MUSICDL_DATABASE_URL must be set in .env}
+      MUSICDL_LISTEN_ADDR: ${MUSICDL_LISTEN_ADDR:-0.0.0.0:8080}
+      MUSICDL_LIBRARY: ${MUSICDL_LIBRARY:-/music}
+      MUSICDL_TRUSTED_PROXIES: ${MUSICDL_TRUSTED_PROXIES:-127.0.0.1/32,::1/128,172.31.250.0/28}
+    env_file:
+      - ${YTMDL_ENV_FILE:-.env}
+    volumes:
+      - ${YTMDL_DATA_PATH:-./data}:/data:Z
+      - ${YTMDL_MUSIC_PATH:-./music}:/music:Z
+    networks:
+      - ytmdl-net
+    userns_mode: "keep-id:uid=10001,gid=10001"
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8080/api/v1/health?scope=essential
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+    stop_grace_period: 40s
+
+  frontend:
+    image: ghcr.io/der-felix/ytmdl-frontend:${YTMDL_VERSION:-latest}
+    container_name: ytmdl-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${YTMDL_HOST_PORT:-8080}:8080"
+    networks:
+      - ytmdl-net
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8080/
+      interval: 15s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+    name: ytmdl-postgres-data
+
+networks:
+  ytmdl-net:
+    name: ytmdl-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.250.0/28

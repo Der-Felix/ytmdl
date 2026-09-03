@@ -2,6 +2,36 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.15.0 — 2026-09-03
+
+### Added
+
+- Public VitePress documentation foundation with local search, dark mode, and comprehensive feature guides.
+- GitHub Pages deployment workflow (`.github/workflows/pages.yml`).
+- Stable GHCR container publishing workflow (`.github/workflows/ghcr.yml`) for `linux/amd64`.
+- Public deployment configuration (`compose.ghcr.yaml`) with configurable `YTMDL_VERSION`.
+- GitHub Releases based update detection via official REST API with strict SemVer 2.0 comparison.
+- System & Updates status panel in Settings WebUI with safe plain text release notes rendering.
+- Manual update check endpoint (`POST /api/v1/system/update/check`) with CSRF protection and singleflight deduplication.
+
+### Security / Privacy
+
+- Hardcoded `https://api.github.com` host guaranteeing protection against SSRF attempts.
+- Update checks are completely optional and can be disabled via `MUSICDL_UPDATE_CHECKS_ENABLED=false`.
+- Zero telemetry: no user identifiers, music library metrics, or host statistics are transmitted.
+- Release notes are rendered strictly as plain text (pre-wrap) with zero HTML execution.
+
+### Distribution
+
+- Support for prebuilt public OCI images via GitHub Container Registry (`ghcr.io/der-felix/ytmdl-*`).
+- Source builds remain fully supported via `compose.yaml`.
+- Clean separation between internal development repository and public GitHub release repository.
+
+### Important
+
+- Update detection is informational only; v0.15.0 does not perform automatic updates or container restarts.
+- No database migration required (Schema remains 8).
+
 ## 0.14.1 — 2026-09-03
 
 ### Added

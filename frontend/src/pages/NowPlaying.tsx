@@ -291,7 +291,7 @@ export function NowPlaying() {
 
   return (
     <div className="player-enter relative min-h-dvh flex flex-col bg-[#05070d] text-foreground select-none overflow-x-hidden">
-
+      
       {/* Dynamic Immersive Background Atmosphere from Cover Art */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25 filter blur-3xl scale-125 transition-all duration-1000">
         <div
@@ -413,12 +413,12 @@ export function NowPlaying() {
       {/* Main Responsive Grid Layout (Top-Aligned, Viewport-Constrained) */}
       <main className="relative z-10 flex-1 flex items-start justify-center px-4 py-2 sm:px-8 lg:px-12 max-w-[1440px] mx-auto w-full">
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 xl:gap-14 items-start">
-
+          
           {/* ======================================================== */}
           {/* LEFT COLUMN (42%): Height-Aware Artwork + Meta + Controls */}
           {/* ======================================================== */}
           <div className="lg:col-span-5 flex flex-col items-center lg:items-start space-y-4 max-w-md mx-auto lg:mx-0 w-full">
-
+            
             {/* Artwork Cover (Height-Responsive, Max 420px, Fits on 768p/900p/1080p) */}
             <div className="relative group w-full max-w-[clamp(240px,36vh,420px)] aspect-square rounded-[22px] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.65)] bg-black/40 border border-white/[0.06] mx-auto lg:mx-0">
               <Cover
@@ -694,7 +694,7 @@ export function NowPlaying() {
           {/* RIGHT COLUMN (58%): Soft Glass Panel (Top-Aligned)       */}
           {/* ======================================================== */}
           <div className="lg:col-span-7 flex flex-col rounded-[22px] bg-white/[0.02] border border-white/[0.05] backdrop-blur-xl shadow-2xl overflow-hidden max-h-[calc(100dvh-96px)] min-h-[500px]">
-
+            
             {/* Panel Tabs Navigation (Subtle Underline Active) */}
             <div className="flex items-center border-b border-white/[0.05] px-4 pt-2 bg-white/[0.01]">
               <button
@@ -760,7 +760,7 @@ export function NowPlaying() {
 
             {/* Panel Tab Content (Internally Scrollable) */}
             <div className="p-5 sm:p-6 flex-1 overflow-y-auto">
-
+              
               {/* ---------------------------------------------------- */}
               {/* TAB 1: LYRICS                                        */}
               {/* ---------------------------------------------------- */}
@@ -1296,7 +1296,7 @@ export function NowPlaying() {
                   {/* Section 1: Preamp & Headroom Schutz */}
                   <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-3">
                     <h3 className="text-[11px] font-semibold text-neutral-300 uppercase tracking-wider">Klang & Pegelschutz</h3>
-
+                    
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between text-xs text-neutral-300">
                         <span>Vorverstärkung (Preamp)</span>

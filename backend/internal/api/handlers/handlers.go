@@ -28,6 +28,7 @@ import (
 	"ytdm/backend/internal/settings"
 	"ytdm/backend/internal/storage"
 	"ytdm/backend/internal/subscriptions"
+	"ytdm/backend/internal/update"
 )
 
 // Checker reports whether an external dependency is usable.
@@ -54,6 +55,7 @@ type Deps struct {
 	Resolver       *resolve.Service
 	Auth           *auth.Service
 	Database       Pinger
+	Updates        *update.Service
 
 	// Tools are the external programs shown by the health endpoint.
 	Tools map[string]Checker
@@ -95,6 +97,9 @@ func New(deps Deps) (*Handlers, error) {
 	if deps.StartedAt.IsZero() {
 		deps.StartedAt = time.Now()
 	}
+	if deps.Updates == nil {
+		deps.Updates = update.NewService(update.Config{Enabled: false}, deps.Version, nil, deps.Logger)
+	}
 	return &Handlers{deps: deps, healthCache: make(map[string]checkResult)}, nil
 }
 
@@ -105,6 +110,9 @@ func NewForTest(deps Deps) *Handlers {
 	}
 	if deps.StartedAt.IsZero() {
 		deps.StartedAt = time.Now()
+	}
+	if deps.Updates == nil {
+		deps.Updates = update.NewService(update.Config{Enabled: false}, deps.Version, nil, deps.Logger)
 	}
 	return &Handlers{deps: deps, healthCache: make(map[string]checkResult)}
 }

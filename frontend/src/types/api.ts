@@ -1039,3 +1039,24 @@ export interface RepairApplyResult {
   failed: number
   warnings?: string[]
 }
+
+export type UpdateState =
+  | 'up_to_date'
+  | 'update_available'
+  | 'no_public_release'
+  | 'disabled'
+  | 'unavailable'
+  | 'invalid_release'
+  | 'development_version'
+
+export interface UpdateStatus {
+  current_version: string
+  latest_version?: string
+  state: UpdateState
+  release_name?: string
+  published_at?: string
+  release_url?: string
+  release_notes?: string
+  checked_at: string
+  cached: boolean
+}

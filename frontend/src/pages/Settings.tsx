@@ -29,6 +29,8 @@ import {
 } from '@/lib/api/settings'
 import { getStorageStatus } from '@/lib/api/storage'
 import { StoragePanel } from '@/components/storage/StoragePanel'
+import { getUpdateStatus } from '@/lib/api/system'
+import { UpdatePanel } from '@/components/system/UpdatePanel'
 import { errorMessage, isAbortError } from '@/lib/api/client'
 import { formatNumber } from '@/lib/utils/format'
 import { cn } from '@/lib/utils'
@@ -42,6 +44,7 @@ import type {
 
 function Settings() {
   const health = useAsync((signal) => getHealth({ signal }), [])
+  const updateStatus = useAsync((signal) => getUpdateStatus(signal), [])
   const storageStatus = useAsync((signal) => getStorageStatus(signal), [])
   const providers = useAsync((signal) => listProviders(signal), [])
   const settings = useAsync((signal) => getSettings(signal), [])
@@ -75,6 +78,30 @@ function Settings() {
         )}
         {health.state.status === 'success' && (
           <HealthPanel health={health.state.data} onReload={health.reload} />
+        )}
+      </section>
+
+      <section id="updates" aria-labelledby="updates-heading" className="space-y-3 scroll-mt-24">
+        <PanelHeader
+          title={<span id="updates-heading">System & Updates</span>}
+          description="Versionsprüfung und offizielle GitHub-Releases."
+        />
+
+        {updateStatus.state.status === 'loading' && (
+          <LoadingRegion label="Update-Status wird geladen">
+            <ListSkeleton rows={2} />
+          </LoadingRegion>
+        )}
+        {updateStatus.state.status === 'error' && (
+          <Panel>
+            <ErrorState error={updateStatus.state.error} onRetry={updateStatus.reload} />
+          </Panel>
+        )}
+        {updateStatus.state.status === 'success' && (
+          <UpdatePanel
+            initialData={updateStatus.state.data}
+            onReload={updateStatus.reload}
+          />
         )}
       </section>
 

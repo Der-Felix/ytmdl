@@ -364,7 +364,7 @@ func (a *Audit) ListFindings(ctx context.Context, runID string, opts ListFinding
 	}
 
 	selectQuery := fmt.Sprintf(`
-		SELECT
+		SELECT 
 			f.id, f.run_id, f.finding_code, f.severity, f.relative_path,
 			f.artist_id, f.release_id, f.track_id, f.evidence, f.created_at,
 			COALESCE(a.name, '') AS artist_name,
@@ -375,12 +375,12 @@ func (a *Audit) ListFindings(ctx context.Context, runID string, opts ListFinding
 		LEFT JOIN releases r ON f.release_id = r.id
 		LEFT JOIN tracks t ON f.track_id = t.id
 		WHERE %s
-		ORDER BY
-			CASE f.severity
-				WHEN 'error' THEN 1
-				WHEN 'warning' THEN 2
-				WHEN 'info' THEN 3
-				ELSE 4
+		ORDER BY 
+			CASE f.severity 
+				WHEN 'error' THEN 1 
+				WHEN 'warning' THEN 2 
+				WHEN 'info' THEN 3 
+				ELSE 4 
 			END ASC,
 			f.relative_path ASC,
 			f.id ASC
@@ -476,7 +476,7 @@ func attachSuggestedAction(f *music.AuditFinding) {
 // GetFinding retrieves a single finding by ID.
 func (a *Audit) GetFinding(ctx context.Context, id string) (*music.AuditFinding, error) {
 	row := a.db.QueryRowContext(ctx, `
-		SELECT
+		SELECT 
 			f.id, f.run_id, f.finding_code, f.severity, f.relative_path,
 			f.artist_id, f.release_id, f.track_id, f.evidence, f.created_at,
 			COALESCE(a.name, '') AS artist_name,

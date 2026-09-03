@@ -10,6 +10,7 @@ The backend is written in Go and utilizes the following direct third-party modul
 | --------- | ------- | ------- | ----------- |
 | `github.com/go-chi/chi/v5` | HTTP routing & middleware | MIT | https://github.com/go-chi/chi |
 | `github.com/jackc/pgx/v5` | PostgreSQL driver and toolkit | MIT | https://github.com/jackc/pgx |
+| `golang.org/x/sync` | Concurrency primitives & singleflight | BSD-3-Clause | https://pkg.go.dev/golang.org/x/sync |
 | `gopkg.in/yaml.v3` | YAML parsing & configuration | MIT / Apache-2.0 | https://github.com/go-yaml/yaml |
 
 ## Frontend Dependencies (TypeScript / React)
@@ -25,6 +26,14 @@ The frontend web application utilizes the following direct production dependenci
 | `clsx`, `tailwind-merge` | Class name utilities | MIT | https://github.com/lukeed/clsx |
 | `class-variance-authority` | Component variant styling | MIT | https://cva.style |
 | `@fontsource-variable/geist` | Typography | MIT / SIL OFL | https://fontsource.org |
+
+## Documentation Tooling
+
+The official documentation site utilizes the following tooling:
+
+| Component | Purpose | License | Project URL |
+| --------- | ------- | ------- | ----------- |
+| `vitepress` | Static documentation site generator | MIT | https://vitepress.dev |
 
 ## External Command-Line Utilities
 

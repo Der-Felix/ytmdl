@@ -50,7 +50,7 @@ func TestMigration0007_FreshDB(t *testing.T) {
 		var exists bool
 		err := db.QueryRowContext(ctx, `
 			SELECT EXISTS (
-				SELECT 1 FROM pg_indexes
+				SELECT 1 FROM pg_indexes 
 				WHERE schemaname = CURRENT_SCHEMA() AND indexname = $1
 			)`, idx).Scan(&exists)
 		if err != nil {
@@ -576,7 +576,7 @@ func TestMigration0007_UpgradeFromV011(t *testing.T) {
 		var exists bool
 		err := conn.QueryRowContext(ctx, `
 			SELECT EXISTS (
-				SELECT 1 FROM pg_indexes
+				SELECT 1 FROM pg_indexes 
 				WHERE schemaname = $1 AND indexname = $2
 			)`, schema, idx).Scan(&exists)
 		if err != nil {
@@ -671,14 +671,14 @@ func TestMigration0008_UpgradeFromV012(t *testing.T) {
 	var runsExists, findingsExists bool
 	if err := db.QueryRowContext(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM information_schema.tables
+			SELECT 1 FROM information_schema.tables 
 			WHERE table_schema = $1 AND table_name = 'library_audit_runs'
 		)`, schema).Scan(&runsExists); err != nil || !runsExists {
 		t.Fatalf("expected library_audit_runs table to exist: %v", err)
 	}
 	if err := db.QueryRowContext(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM information_schema.tables
+			SELECT 1 FROM information_schema.tables 
 			WHERE table_schema = $1 AND table_name = 'library_audit_findings'
 		)`, schema).Scan(&findingsExists); err != nil || !findingsExists {
 		t.Fatalf("expected library_audit_findings table to exist: %v", err)

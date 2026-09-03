@@ -267,3 +267,4 @@ export function section(job: Job): 'active' | 'queued' | 'done' | 'failed' {
   if (isTerminal(job)) return 'done'
   return 'active'
 }
+

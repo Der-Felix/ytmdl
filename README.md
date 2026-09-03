@@ -4,6 +4,8 @@
 
 YTMDL is an independent open-source project by Felix Möschen. It resolves artist discographies through structured metadata providers, matches tracks against audio streams, downloads native Opus audio using `yt-dlp`, verifies streams with `ffprobe`, embeds Vorbis comments and cover art, and organizes files into a standardized music library compatible with Plex, Jellyfin, Navidrome, and Emby.
 
+📖 **Official Documentation:** [https://der-felix.github.io/ytmdl/](https://der-felix.github.io/ytmdl/)
+
 > [!NOTE]
 > **Project Status:** Pre-1.0 / Active Development. APIs, database schemas, and configuration options may evolve between minor versions.
 
@@ -67,7 +69,7 @@ YTMDL is an independent open-source project by Felix Möschen. It resolves artis
 ### 1. Clone the Repository
 
 ```sh
-git clone https://github.com/ytmdl/ytmdl.git
+git clone https://github.com/Der-Felix/ytmdl.git
 cd ytmdl
 ```
 
@@ -109,7 +111,7 @@ http://localhost:8080
 1. **First-Run Setup:** The setup wizard will prompt you to create the initial administrator account.
 2. **Library Configuration:** Verify that your music folder is mapped to `/music` and accessible.
 
-For detailed production deployment guides, reverse proxy configurations, and advanced parameters, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+For detailed production deployment guides, reverse proxy configurations, and prebuilt GHCR images, see [docs/deployment.md](docs/deployment.md).
 
 ---
 

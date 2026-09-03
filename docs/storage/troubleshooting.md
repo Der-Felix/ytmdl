@@ -78,3 +78,4 @@ When comparing the total count of physical audio files on disk with the database
 - In modernized versions (v0.10.0+), tracks are catalogued and placed strictly according to the Plex/Jellyfin/Emby compatible path standard (e.g. `Album Artist/Year - Title/Track - Title.opus`).
 - Legacy files remaining in older directory locations are treated as unmanaged files. They represent **no data corruption** and are **never automatically deleted or overwritten** by YTMDL.
 - Operators can identify and manage unreferenced files via the Library Scan API (`GET /api/v1/library/scan`) and safely remove specific orphan issues via `DELETE /api/v1/library/scan/issues/{id}` if desired.
+

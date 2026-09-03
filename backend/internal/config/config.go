@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,14 @@ type Config struct {
 
 	Subscriptions SubscriptionsConfig `yaml:"subscriptions"`
 	Logging       LoggingConfig       `yaml:"logging"`
+	Update        UpdateConfig        `yaml:"update"`
+}
+
+// UpdateConfig tunes GitHub release update detection.
+type UpdateConfig struct {
+	Enabled       bool          `yaml:"enabled"`
+	Repository    string        `yaml:"repository"`
+	CheckInterval time.Duration `yaml:"check_interval"`
 }
 
 // ServerConfig describes the HTTP listener.
@@ -313,6 +322,11 @@ func Default() Config {
 			BatchSize:     25,
 		},
 		Logging: LoggingConfig{Level: "info", Format: "json"},
+		Update: UpdateConfig{
+			Enabled:       true,
+			Repository:    "Der-Felix/ytmdl",
+			CheckInterval: 1 * time.Hour,
+		},
 	}
 }
 
@@ -562,6 +576,10 @@ func (c *Config) applyEnv() error {
 	dur("MUSICDL_SUBSCRIPTION_SYNC_TIMEOUT", &c.Subscriptions.SyncTimeout)
 	num("MUSICDL_SUBSCRIPTION_BATCH_SIZE", &c.Subscriptions.BatchSize)
 
+	boolean("MUSICDL_UPDATE_CHECKS_ENABLED", &c.Update.Enabled)
+	str("MUSICDL_UPDATE_REPOSITORY", &c.Update.Repository)
+	dur("MUSICDL_UPDATE_CHECK_INTERVAL", &c.Update.CheckInterval)
+
 	// The backend no longer runs on a local database file. Naming the removed
 	// variables explicitly turns a silent fallback to the default URL into a
 	// clear startup error.
@@ -778,5 +796,18 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	if c.Update.Enabled {
+		if c.Update.Repository == "" {
+			c.Update.Repository = "Der-Felix/ytmdl"
+		}
+		if !updateRepoRegex.MatchString(c.Update.Repository) {
+			errs = append(errs, fmt.Errorf("update.repository must be in format owner/repo, got %q", c.Update.Repository))
+		}
+		if c.Update.CheckInterval < 5*time.Minute {
+			c.Update.CheckInterval = 5 * time.Minute
+		}
+	}
 	return errors.Join(errs...)
 }
+
+var updateRepoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$`)

@@ -41,6 +41,7 @@ import (
 	"ytdm/backend/internal/settings"
 	"ytdm/backend/internal/storage"
 	"ytdm/backend/internal/subscriptions"
+	"ytdm/backend/internal/update"
 	"ytdm/backend/internal/ytdlp"
 )
 
@@ -362,6 +363,12 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		return nil, err
 	}
 
+	updateService := update.NewService(update.Config{
+		Enabled:       cfg.Update.Enabled,
+		Repository:    cfg.Update.Repository,
+		CheckInterval: cfg.Update.CheckInterval,
+	}, version, nil, logger)
+
 	handlerSet, err := handlers.New(handlers.Deps{
 		Discography:    discographyService,
 		Registry:       registry,
@@ -375,6 +382,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Resolver:       resolve.NewService(ytdlpClient),
 		Auth:           authService,
 		Database:       db,
+		Updates:        updateService,
 		Tools: map[string]handlers.Checker{
 			"yt-dlp":  ytdlpClient,
 			"ffmpeg":  ffmpegRunner,
