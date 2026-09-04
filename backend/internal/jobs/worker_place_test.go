@@ -28,6 +28,10 @@ func (c *fakeCatalog) FindTrack(context.Context, music.Track, int) (*music.Track
 	return c.known, nil
 }
 
+func (c *fakeCatalog) FindArtistBySource(context.Context, string, string) (*music.Artist, error) {
+	return nil, nil
+}
+
 // fakeFiles answers who owns a library path.
 type fakeFiles struct {
 	byPath map[string]*music.File

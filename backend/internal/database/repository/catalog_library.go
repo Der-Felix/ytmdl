@@ -488,15 +488,64 @@ func (c *Catalog) GetLibraryArtistDetail(ctx context.Context, id string) (*music
 
 	var (
 		subID      string
+		subImage   string
 		subscribed bool
 	)
+	// 1. Authoritative match via artist_sources (Schema 9+)
 	err = c.db.QueryRowContext(ctx,
-		`SELECT id FROM artist_subscriptions WHERE provider = $1 AND artist_source_id = $2`,
-		artist.Provider, artist.SourceID).Scan(&subID)
+		`SELECT s.id, s.artist_image_url
+		 FROM artist_subscriptions s
+		 JOIN artist_sources src ON src.provider = s.provider AND src.source_id = s.artist_source_id
+		 WHERE src.artist_id = $1
+		 LIMIT 1`, id).Scan(&subID, &subImage)
 	if err == nil {
 		subscribed = true
+		if artist.ImageURL == "" && strings.TrimSpace(subImage) != "" {
+			artist.ImageURL = strings.TrimSpace(subImage)
+		}
 	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, wrapDB("check artist subscription", err)
+		return nil, wrapDB("check artist subscription via sources", err)
+	} else {
+		// 2. Direct match on (provider, source_id)
+		err = c.db.QueryRowContext(ctx,
+			`SELECT id, artist_image_url FROM artist_subscriptions
+			 WHERE provider = $1 AND artist_source_id = $2`,
+			artist.Provider, artist.SourceID).Scan(&subID, &subImage)
+		if err == nil {
+			subscribed = true
+			if artist.ImageURL == "" && strings.TrimSpace(subImage) != "" {
+				artist.ImageURL = strings.TrimSpace(subImage)
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return nil, wrapDB("check artist subscription exact", err)
+		} else if strings.HasPrefix(artist.SourceID, "artist:") && artist.Provider != "" {
+			// 3. Restricted safe legacy fallback:
+			// ONLY for synthetic legacy source IDs, ONLY within the same provider,
+			// and ONLY if the pairing is demonstrably unique (no same-name ambiguities).
+			var subCount, artistCount int
+			_ = c.db.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM artist_subscriptions
+				 WHERE provider = $1 AND LOWER(artist_name) = LOWER($2)`,
+				artist.Provider, artist.Name).Scan(&subCount)
+
+			_ = c.db.QueryRowContext(ctx,
+				`SELECT COUNT(*) FROM artists
+				 WHERE provider = $1 AND LOWER(name) = LOWER($2)`,
+				artist.Provider, artist.Name).Scan(&artistCount)
+
+			if subCount == 1 && artistCount == 1 {
+				err = c.db.QueryRowContext(ctx,
+					`SELECT id, artist_image_url FROM artist_subscriptions
+					 WHERE provider = $1 AND LOWER(artist_name) = LOWER($2)`,
+					artist.Provider, artist.Name).Scan(&subID, &subImage)
+				if err == nil {
+					subscribed = true
+					if artist.ImageURL == "" && strings.TrimSpace(subImage) != "" {
+						artist.ImageURL = strings.TrimSpace(subImage)
+					}
+				}
+			}
+		}
 	}
 
 	return &music.LibraryArtistDetail{

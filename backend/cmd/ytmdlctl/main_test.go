@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"ytdm/backend/cmd/ytmdlctl/internal/manifest"
 	"ytdm/backend/cmd/ytmdlctl/internal/runner"
 	"ytdm/backend/cmd/ytmdlctl/internal/state"
 )
@@ -739,5 +740,67 @@ func TestManifestGenCommand(t *testing.T) {
 
 	if codeErr != 2 {
 		t.Fatalf("expected exit code 2 on missing digests, got %d", codeErr)
+	}
+}
+
+func TestManifestGenCommand_V2(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "release-manifest.json")
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(context.Background(), []string{
+		"manifest-gen",
+		"--version", "0.17.0",
+		"--tag", "v0.17.0",
+		"--manifest-version", "2",
+		"--schema", "9",
+		"--update-classification", "schema_forward",
+		"--classification", "backup_restore_required",
+		"--supported-sources", "8",
+		"--min-upgrade", "0.15.0",
+		"--backend-digest", "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"--frontend-digest", "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+		"--output", outPath,
+	}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d. stderr: %s", code, stderr.String())
+	}
+
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("failed reading generated manifest: %v", err)
+	}
+
+	m, err := manifest.Decode(content)
+	if err != nil {
+		t.Fatalf("failed to decode generated manifest: %v", err)
+	}
+	if err := m.Validate("v0.17.0"); err != nil {
+		t.Fatalf("generated v2 manifest validation failed: %v", err)
+	}
+	if m.ManifestVersion != 2 || m.TargetSchema != 9 || !m.IsSchemaForward() {
+		t.Errorf("unexpected manifest fields: %+v", m)
+	}
+
+	// Also test automatic defaulting for schema 9
+	outPathDefault := filepath.Join(tmpDir, "manifest-default.json")
+	var stdout2, stderr2 bytes.Buffer
+	code2 := runCLI(context.Background(), []string{
+		"manifest-gen",
+		"--version", "0.17.0",
+		"--schema", "9",
+		"--backend-digest", "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"--frontend-digest", "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+		"--output", outPathDefault,
+	}, &stdout2, &stderr2)
+
+	if code2 != 0 {
+		t.Fatalf("expected exit code 0 for defaulted schema 9, got %d. stderr: %s", code2, stderr2.String())
+	}
+	content2, _ := os.ReadFile(outPathDefault)
+	m2, err := manifest.Decode(content2)
+	if err != nil || m2.ManifestVersion != 2 || m2.TargetSchema != 9 || !m2.IsSchemaForward() {
+		t.Errorf("defaulted schema 9 manifest failed: %v, %+v", err, m2)
 	}
 }

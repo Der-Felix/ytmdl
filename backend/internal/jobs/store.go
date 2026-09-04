@@ -50,6 +50,8 @@ type Catalog interface {
 	// FindTrack answers whether a recording is already known, which is what
 	// the skip-existing check is built on.
 	FindTrack(ctx context.Context, track music.Track, toleranceMS int) (*music.Track, error)
+	// FindArtistBySource looks up a canonical artist by provider identity.
+	FindArtistBySource(ctx context.Context, provider, sourceID string) (*music.Artist, error)
 	// PersistDownload writes artist, release, recording, sources and file as
 	// one atomic unit once a download has finished.
 	PersistDownload(ctx context.Context, entry music.LibraryEntry, toleranceMS int) (music.StoredEntry, error)

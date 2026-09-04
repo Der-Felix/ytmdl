@@ -232,8 +232,11 @@ jobs:
           go run -C backend ./cmd/ytmdlctl manifest-gen \
             --version "${{ steps.version.outputs.version }}" \
             --tag "${{ steps.version.outputs.tag }}" \
-            --schema 8 \
-            --classification schema_neutral \
+            --manifest-version 2 \
+            --schema 9 \
+            --update-classification schema_forward \
+            --classification backup_restore_required \
+            --supported-sources 8 \
             --min-upgrade 0.15.0 \
             --backend-digest "${{ steps.digests.outputs.backend }}" \
             --frontend-digest "${{ steps.digests.outputs.frontend }}" \

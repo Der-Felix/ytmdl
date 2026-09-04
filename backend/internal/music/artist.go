@@ -7,7 +7,30 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"strings"
+	"time"
 )
+
+// ArtistSourceKind specifies whether an artist source is a real external provider ID
+// or a legacy synthetic key derived from an artist name.
+type ArtistSourceKind string
+
+const (
+	SourceKindExternal        ArtistSourceKind = "external"
+	SourceKindLegacySynthetic ArtistSourceKind = "legacy_synthetic"
+)
+
+// ArtistSource links a canonical artist to a provider identity.
+type ArtistSource struct {
+	ID         string           `json:"id"`
+	ArtistID   string           `json:"artist_id"`
+	Provider   string           `json:"provider"`
+	SourceKind ArtistSourceKind `json:"source_kind"`
+	SourceID   string           `json:"source_id"`
+	SourceURL  string           `json:"source_url"`
+	IsPrimary  bool             `json:"is_primary"`
+	CreatedAt  time.Time        `json:"created_at"`
+	UpdatedAt  time.Time        `json:"updated_at"`
+}
 
 // Artist is a normalised artist as delivered by a metadata provider.
 type Artist struct {
@@ -17,6 +40,9 @@ type Artist struct {
 	SourceID  string `json:"source_id"`
 	SourceURL string `json:"source_url"`
 	ImageURL  string `json:"image_url,omitempty"`
+
+	// Sources attached to this canonical artist (Schema 9+).
+	Sources []ArtistSource `json:"sources,omitempty"`
 
 	// Genres and Popularity are optional enrichments; providers that do not
 	// deliver them leave them empty.

@@ -352,7 +352,14 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
 	defer cancelPersist()
 
-	stored, err := m.persist(persistCtx, track, release, *source, file)
+	canonicalArtistID := job.Options.CanonicalArtistID
+	if canonicalArtistID == "" && job.MetadataProvider != "" && job.TargetID != "" {
+		if a, _ := m.catalog.FindArtistBySource(ctx, job.MetadataProvider, job.TargetID); a != nil {
+			canonicalArtistID = a.ID
+		}
+	}
+
+	stored, err := m.persist(persistCtx, track, release, *source, file, canonicalArtistID)
 	if err != nil {
 		return ItemFailed, err
 	}
@@ -653,15 +660,25 @@ func embedded(artwork *metadata.Artwork, embed bool) *metadata.Artwork {
 
 // persist writes the catalogue entries for a finished track.
 func (m *Manager) persist(ctx context.Context, track music.Track, release music.Release,
-	source provider.MediaSource, file music.File) (music.StoredEntry, error) {
+	source provider.MediaSource, file music.File, canonicalArtistID ...string) (music.StoredEntry, error) {
 
 	entry := music.LibraryEntry{Track: track, File: file}
 
+	var canonID string
+	if len(canonicalArtistID) > 0 {
+		canonID = strings.TrimSpace(canonicalArtistID[0])
+	}
+
 	if release.Provider != "" && release.SourceID != "" {
+		artistName := release.DisplayAlbumArtist()
+		if len(release.Artists) > 0 && music.PrimaryArtist(release.Artists) != "" {
+			artistName = music.PrimaryArtist(release.Artists)
+		}
 		entry.Artist = &music.Artist{
-			Name:     release.DisplayAlbumArtist(),
+			ID:       canonID,
+			Name:     artistName,
 			Provider: release.Provider,
-			SourceID: "artist:" + matcher.NormalizeArtist(release.DisplayAlbumArtist()),
+			SourceID: "artist:" + matcher.NormalizeArtist(artistName),
 		}
 	}
 	if release.SourceID != "" {

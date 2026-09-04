@@ -10,10 +10,13 @@ import (
 
 // GeneratorOptions contains all inputs needed to construct a release-manifest.json.
 type GeneratorOptions struct {
+	ManifestVersion        int
 	ReleaseVersion         string
 	ReleaseTag             string
 	TargetSchema           int
+	UpdateClassification   UpdateClassification
 	RollbackClassification RollbackClassification
+	SupportedSourceSchemas []int
 	MinUpgradeFrom         string
 	BackendDigest          string
 	FrontendDigest         string
@@ -41,9 +44,36 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 		return nil, errors.New("target_schema must be greater than 0")
 	}
 
+	mVer := opts.ManifestVersion
+	if mVer == 0 {
+		if opts.TargetSchema > 8 || opts.UpdateClassification == UpdateSchemaForward || opts.RollbackClassification == RollbackBackupRestoreRequired {
+			mVer = ManifestVersion2
+		} else {
+			mVer = ManifestVersion1
+		}
+	}
+
+	updateClass := opts.UpdateClassification
+	if updateClass == "" {
+		if opts.TargetSchema > 8 || mVer == ManifestVersion2 {
+			updateClass = UpdateSchemaForward
+		} else {
+			updateClass = ""
+		}
+	}
+
 	class := opts.RollbackClassification
 	if class == "" {
-		class = RollbackSchemaNeutral
+		if updateClass == UpdateSchemaForward {
+			class = RollbackBackupRestoreRequired
+		} else {
+			class = RollbackSchemaNeutral
+		}
+	}
+
+	supportedSources := opts.SupportedSourceSchemas
+	if len(supportedSources) == 0 && updateClass == UpdateSchemaForward && opts.TargetSchema == 9 {
+		supportedSources = []int{8}
 	}
 
 	backendDigest := strings.TrimSpace(opts.BackendDigest)
@@ -65,11 +95,13 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 	}
 
 	m := Manifest{
-		ManifestVersion:        CurrentManifestVersion,
+		ManifestVersion:        mVer,
 		ReleaseVersion:         relVer,
 		ReleaseTag:             relTag,
 		TargetSchema:           opts.TargetSchema,
+		UpdateClassification:   updateClass,
 		RollbackClassification: class,
+		SupportedSourceSchemas: supportedSources,
 		MinUpgradeFrom:         minUp,
 		RequiredEnv:            reqEnv,
 	}

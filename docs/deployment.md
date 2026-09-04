@@ -50,7 +50,7 @@ cp .env.example .env
 ```
 
 In `.env` mindestens `POSTGRES_PASSWORD` setzen und denselben Wert in
-`MUSICDL_DATABASE_URL` eintragen. Für ein Deployment mit den offiziellen Images (`compose.ghcr.yaml`) empfiehlt es sich, die Version fest anzugeben (z. B. `YTMDL_VERSION=0.16.0`), um deterministische Updates mit `ytmdlctl` zu ermöglichen.
+`MUSICDL_DATABASE_URL` eintragen. Für ein Deployment mit den offiziellen Images (`compose.ghcr.yaml`) empfiehlt es sich, die Version fest anzugeben (z. B. `YTMDL_VERSION=0.17.0`), um deterministische Updates mit `ytmdlctl` zu ermöglichen.
 
 ```sh
 mkdir -p data music

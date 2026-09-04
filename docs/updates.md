@@ -1,6 +1,6 @@
 # Update Detection & Releases
 
-Starting with **v0.15**, YTMDL provides native update detection within the WebUI. Starting with **v0.16**, YTMDL introduces **`ytmdlctl`**, an official host-side lifecycle and update management CLI for transactional updates, verified database backups, and schema-neutral rollback.
+Starting with **v0.15**, YTMDL provides native update detection within the WebUI. Starting with **v0.16**, YTMDL introduces **`ytmdlctl`**, an official host-side lifecycle and update management CLI for transactional updates, verified database backups, and schema-neutral rollback. Starting with **v0.17**, `ytmdlctl` adds full schema-forward update orchestration (Schema 8 → 9), quiescent pre-migration backups, and explicit crash-boundary recovery (`ytmdlctl recover`).
 
 ![YTMDL System & Updates](/screenshots/updates.webp)
 
@@ -27,7 +27,7 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 ## How Update Detection Works
 
 1. **GitHub Releases API:** The YTMDL backend queries the official GitHub API (`GET /repos/Der-Felix/ytmdl/releases/latest`) on a background schedule (default: once per hour).
-2. **SemVer Comparison:** The installed version (e.g. `0.15.0`) is compared against the latest stable release tag using strict Semantic Versioning. Pre-releases and drafts are filtered out.
+2. **SemVer Comparison:** The installed version (e.g. `0.16.0`) is compared against the latest stable release tag using strict Semantic Versioning. Pre-releases and drafts are filtered out.
 3. **WebUI Notifications:** When a newer stable version is available, the WebUI displays an informational banner and details in **Settings → System & Updates**, including release notes, a direct command to execute on the host, and links to the release and documentation.
 
 ## Privacy & Network Transparency
@@ -53,7 +53,7 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 1. **Download the binary and checksums for your platform:**
    ```sh
    # Example for Linux (x86_64 / amd64):
-   VERSION="0.16.0"
+   VERSION="0.17.0"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/ytmdlctl-linux-amd64"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/SHA256SUMS"
    ```
@@ -148,6 +148,48 @@ ytmdlctl rollback
 
 ---
 
+## Schema-Forward Updates & Disaster Recovery (v0.17+)
+
+Version 0.17 introduces **Schema 9**, which transitions YTMDL to true canonical artist identities (`artists.id` UUIDv4) with lossless multi-provider provenance tracking (`artist_sources`).
+
+### The Quiescent Update Model
+
+Upgrading across database schema boundaries requires strict lifecycle orchestration:
+1. **Drain & Quiesce:** Background queue jobs finish or drain, and the old backend service is stopped. This guarantees zero in-flight database mutations while the pre-migration backup is taken.
+2. **Quiescent Pre-Migration Backup:** A verified PostgreSQL custom archive (`pg_dump -Fc`) of Schema 8 is captured and structurally verified with `pg_restore --list`.
+3. **Migration Boundary:** The new v0.17 container is started to execute migration `0009_artist_sources.sql`.
+4. **Core Safety Invariant:** If an unrecoverable failure occurs *prior* to migration, `ytmdlctl` automatically rolls back to the previous Schema 8 application. If a failure occurs *after* migration has begun or completed, automatic rollback is strictly prohibited to prevent Schema 8 backends from running against Schema 9 tables. Instead, the system halts safely in **`RECOVERY_REQUIRED`**.
+
+### The `ytmdlctl recover` Suite
+
+When a deployment enters `RECOVERY_REQUIRED`, administrators have two deterministic, guided paths:
+
+#### 1. Inspect Recovery Status
+```sh
+ytmdlctl recover status
+```
+Displays current transaction state, active database schema, failure cause, and the path to the verified pre-migration backup.
+
+#### 2. Option A: Resume / Forward Recovery (`recover resume`)
+If the failure was due to a transient issue (e.g. temporary network blip, container startup timeout, or host resource contention):
+```sh
+ytmdlctl recover resume
+```
+Re-evaluates health checks and completes cutover to the target version without repeating database migrations.
+
+#### 3. Option B: Safe Restore & Rollback (`recover restore`)
+If the new release cannot be run and you must roll back to Schema 8:
+```sh
+ytmdlctl recover restore
+```
+- Restores the verified pre-migration backup into an isolated temporary database (`<db>_restore_tmp`).
+- Verifies structural integrity of the restored temporary database.
+- Atomically swaps `<db>_restore_tmp` to the primary database name.
+- Reverts `.env` and restarts the previous Schema 8 backend.
+- Old Schema 8 containers are **NEVER** started until the database is verifiably restored to Schema 8.
+
+---
+
 ## Troubleshooting
 
 ### Incompatible Podman Compose Provider
@@ -175,10 +217,16 @@ ytmdlctl rollback
 - **Symptom:** `system is in RECOVERY_REQUIRED state`
 - **Cause:** An update failed after database mutations occurred or schema could not be verified.
 - **Resolution:**
-  1. Check `.ytmdl/update-state.json` for details on the error and the backup path.
-  2. Inspect the verified backup in `backups/`.
-  3. If needed, manually restore the database using `pg_restore`:
+  1. Inspect the state:
      ```sh
-     podman compose -f compose.ghcr.yaml exec -T db pg_restore -U ytmdl -d ytmdl --clean < backups/backup_v...dump
+     ytmdlctl recover status
      ```
-  4. Once resolved, clear the state file (`.ytmdl/update-state.json`) or reset state to resume normal operation.
+  2. To attempt completing the update to the new version:
+     ```sh
+     ytmdlctl recover resume
+     ```
+  3. To safely restore the pre-migration backup and revert to the previous version:
+     ```sh
+     ytmdlctl recover restore
+     ```
+

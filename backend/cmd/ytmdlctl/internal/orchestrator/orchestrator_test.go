@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"ytdm/backend/cmd/ytmdlctl/internal/backup"
 	"ytdm/backend/cmd/ytmdlctl/internal/discovery"
@@ -567,5 +568,250 @@ func TestRollbackImageIdentityReversedRepoDigests(t *testing.T) {
 	}
 	if res.RestoredVersion != "0.15.0" {
 		t.Errorf("RestoredVersion = %q, want 0.15.0", res.RestoredVersion)
+	}
+}
+
+func TestUpdate_SchemaForward_HappyPath(t *testing.T) {
+	prevBackendDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	prevFrontendDigest := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	targetBackendDigest := "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	targetFrontendDigest := "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+
+	projectDir, composeFile := setupTestEnv(t, "0.15.0")
+	fake := setupHappyFakeRunner(composeFile, prevBackendDigest, prevFrontendDigest, targetBackendDigest, targetFrontendDigest)
+
+	// Register stop backend for quiescence
+	fake.Register("docker", []string{"compose", "-f", composeFile, "stop", "backend"}, &runner.RunResult{ExitCode: 0}, nil)
+
+	// Register DB quiescence check
+	fake.Register("docker", []string{
+		"compose", "-f", composeFile, "exec", "-T", "db",
+		"psql", "-U", "ytmdl", "-d", "ytmdl", "-t", "-A", "-c",
+		"SELECT count(*) FROM pg_stat_activity WHERE datname = 'ytmdl' AND pid <> pg_backend_pid() AND state = 'active' AND application_name NOT IN ('ytmdlctl', 'pg_dump', 'psql');",
+	}, &runner.RunResult{Stdout: []byte("0\n"), ExitCode: 0}, nil)
+
+	eng := engine.NewDocker(fake)
+
+	deps := defaultMockDeps(targetBackendDigest, targetFrontendDigest)
+	deps.ReleaseResolver = func(ctx context.Context, tag string) (*release.ReleaseInfo, error) {
+		return &release.ReleaseInfo{TagName: "v0.17.0"}, nil
+	}
+	deps.ManifestFetcher = func(ctx context.Context, rel *release.ReleaseInfo) (*manifest.Manifest, error) {
+		m := &manifest.Manifest{
+			ManifestVersion:        2,
+			ReleaseVersion:         "0.17.0",
+			ReleaseTag:             "v0.17.0",
+			TargetSchema:           9,
+			UpdateClassification:   manifest.UpdateSchemaForward,
+			RollbackClassification: manifest.RollbackBackupRestoreRequired,
+			SupportedSourceSchemas: []int{8},
+			MinUpgradeFrom:         "0.15.0",
+		}
+		m.Images.Backend.Repository = "ghcr.io/der-felix/ytmdl-backend"
+		m.Images.Backend.Digest = targetBackendDigest
+		m.Images.Frontend.Repository = "ghcr.io/der-felix/ytmdl-frontend"
+		m.Images.Frontend.Digest = targetFrontendDigest
+		return m, nil
+	}
+	deps.StagingVerifier = func(ctx context.Context, eng engine.Engine, opts staging.StageOptions) (*staging.StagingResult, error) {
+		return &staging.StagingResult{
+			TargetVersion:  "0.17.0",
+			BackendImage:   "ghcr.io/der-felix/ytmdl-backend:0.17.0",
+			BackendDigest:  targetBackendDigest,
+			FrontendImage:  "ghcr.io/der-felix/ytmdl-frontend:0.17.0",
+			FrontendDigest: targetFrontendDigest,
+		}, nil
+	}
+	callCount := 0
+	deps.HealthChecker = func(ctx context.Context, baseURL string) (*discovery.BackendHealth, error) {
+		callCount++
+		if callCount == 1 {
+			return &discovery.BackendHealth{Status: "ok", Version: "0.15.0"}, nil
+		}
+		return &discovery.BackendHealth{Status: "ok", Version: "0.17.0"}, nil
+	}
+	schemaCount := 0
+	deps.SchemaChecker = func(ctx context.Context, eng engine.Engine, projectDir, composeFile string) (int, error) {
+		schemaCount++
+		if schemaCount <= 1 {
+			return 8, nil
+		}
+		return 9, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	res, err := orchestrator.Update(context.Background(), eng, deps, orchestrator.UpdateOptions{
+		ProjectDir:  projectDir,
+		ComposeFile: composeFile,
+		AutoConfirm: true,
+		Stdout:      &stdout,
+		Stderr:      &stderr,
+	})
+
+	if err != nil {
+		t.Fatalf("Update failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	if res.CurrentVersion != "0.17.0" || res.TargetSchema != 9 {
+		t.Errorf("unexpected UpdateResult: %+v", res)
+	}
+
+	// Verify .env was updated to 0.17.0
+	dotEnvData, _ := os.ReadFile(filepath.Join(projectDir, ".env"))
+	if !strings.Contains(string(dotEnvData), "YTMDL_VERSION=0.17.0") {
+		t.Errorf(".env does not contain 0.17.0:\n%s", string(dotEnvData))
+	}
+
+	// Verify state is SUCCESS
+	st, err := state.Load(projectDir)
+	if err != nil || st == nil {
+		t.Fatalf("failed loading state: %v", err)
+	}
+	if st.Status != state.StatusSuccess {
+		t.Errorf("state.Status = %q, want %q", st.Status, state.StatusSuccess)
+	}
+	if st.TargetSchema != 9 {
+		t.Errorf("state.TargetSchema = %d, want 9", st.TargetSchema)
+	}
+}
+
+func TestUpdate_SchemaForward_PostMigrationFailure_RecoveryRequired(t *testing.T) {
+	prevBackendDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	prevFrontendDigest := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	targetBackendDigest := "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	targetFrontendDigest := "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+
+	projectDir, composeFile := setupTestEnv(t, "0.15.0")
+	fake := setupHappyFakeRunner(composeFile, prevBackendDigest, prevFrontendDigest, targetBackendDigest, targetFrontendDigest)
+
+	// Stop backend for quiescence
+	fake.Register("docker", []string{"compose", "-f", composeFile, "stop", "backend"}, &runner.RunResult{ExitCode: 0}, nil)
+
+	// DB quiescence check
+	fake.Register("docker", []string{
+		"compose", "-f", composeFile, "exec", "-T", "db",
+		"psql", "-U", "ytmdl", "-d", "ytmdl", "-t", "-A", "-c",
+		"SELECT count(*) FROM pg_stat_activity WHERE datname = 'ytmdl' AND pid <> pg_backend_pid() AND state = 'active' AND application_name NOT IN ('ytmdlctl', 'pg_dump', 'psql');",
+	}, &runner.RunResult{Stdout: []byte("0\n"), ExitCode: 0}, nil)
+
+	eng := engine.NewDocker(fake)
+
+	deps := defaultMockDeps(targetBackendDigest, targetFrontendDigest)
+	deps.ReleaseResolver = func(ctx context.Context, tag string) (*release.ReleaseInfo, error) {
+		return &release.ReleaseInfo{TagName: "v0.17.0"}, nil
+	}
+	deps.ManifestFetcher = func(ctx context.Context, rel *release.ReleaseInfo) (*manifest.Manifest, error) {
+		m := &manifest.Manifest{
+			ManifestVersion:        2,
+			ReleaseVersion:         "0.17.0",
+			ReleaseTag:             "v0.17.0",
+			TargetSchema:           9,
+			UpdateClassification:   manifest.UpdateSchemaForward,
+			RollbackClassification: manifest.RollbackBackupRestoreRequired,
+			SupportedSourceSchemas: []int{8},
+			MinUpgradeFrom:         "0.15.0",
+		}
+		m.Images.Backend.Repository = "ghcr.io/der-felix/ytmdl-backend"
+		m.Images.Backend.Digest = targetBackendDigest
+		m.Images.Frontend.Repository = "ghcr.io/der-felix/ytmdl-frontend"
+		m.Images.Frontend.Digest = targetFrontendDigest
+		return m, nil
+	}
+	deps.StagingVerifier = func(ctx context.Context, eng engine.Engine, opts staging.StageOptions) (*staging.StagingResult, error) {
+		return &staging.StagingResult{
+			TargetVersion:  "0.17.0",
+			BackendImage:   "ghcr.io/der-felix/ytmdl-backend:0.17.0",
+			BackendDigest:  targetBackendDigest,
+			FrontendImage:  "ghcr.io/der-felix/ytmdl-frontend:0.17.0",
+			FrontendDigest: targetFrontendDigest,
+		}, nil
+	}
+
+	callCount := 0
+	deps.HealthChecker = func(ctx context.Context, baseURL string) (*discovery.BackendHealth, error) {
+		callCount++
+		if callCount == 1 {
+			return &discovery.BackendHealth{Status: "ok", Version: "0.15.0"}, nil
+		}
+		// Fails on target version acceptance
+		return nil, errors.New("backend connection refused (crash loop)")
+	}
+
+	schemaCount := 0
+	deps.SchemaChecker = func(ctx context.Context, eng engine.Engine, projectDir, composeFile string) (int, error) {
+		schemaCount++
+		if schemaCount <= 1 {
+			return 8, nil
+		}
+		// Post-migration: DB reached 9 before backend crashed!
+		return 9, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var stdout, stderr bytes.Buffer
+	_, err := orchestrator.Update(ctx, eng, deps, orchestrator.UpdateOptions{
+		ProjectDir:  projectDir,
+		ComposeFile: composeFile,
+		AutoConfirm: true,
+		Stdout:      &stdout,
+		Stderr:      &stderr,
+	})
+
+	if err == nil || !errors.Is(err, orchestrator.ErrRecoveryRequired) {
+		t.Fatalf("expected ErrRecoveryRequired, got: %v", err)
+	}
+
+	// State must be RECOVERY_REQUIRED
+	st, err := state.Load(projectDir)
+	if err != nil || st == nil {
+		t.Fatalf("failed loading state: %v", err)
+	}
+	if st.Status != state.StatusRecoveryRequired {
+		t.Errorf("state.Status = %q, want %q", st.Status, state.StatusRecoveryRequired)
+	}
+
+	// .env must NOT have been changed back to 0.15.0
+	dotEnvData, _ := os.ReadFile(filepath.Join(projectDir, ".env"))
+	if strings.Contains(string(dotEnvData), "YTMDL_VERSION=0.15.0") {
+		t.Errorf(".env was reverted to 0.15.0 after schema migrated to 9:\n%s", string(dotEnvData))
+	}
+}
+
+func TestRollback_SchemaForwardMigrated_Blocked(t *testing.T) {
+	projectDir, composeFile := setupTestEnv(t, "0.17.0")
+	fake := runner.NewFake()
+	eng := engine.NewDocker(fake)
+
+	deps := defaultMockDeps("sha256:3333", "sha256:4444")
+	deps.SchemaChecker = func(ctx context.Context, eng engine.Engine, projectDir, composeFile string) (int, error) {
+		return 9, nil
+	}
+
+	st := &state.State{
+		StateVersion:   2,
+		OperationID:    "op_test_rec",
+		Status:         state.StatusRecoveryRequired,
+		CurrentVersion: "0.15.0",
+		TargetVersion:  "0.17.0",
+		SchemaBefore:   8,
+		TargetSchema:   9,
+		BackupPath:     "backups/test.dump",
+		LastError:      "crashed on startup",
+	}
+	_ = st.Save(projectDir)
+
+	var stdout, stderr bytes.Buffer
+	_, err := orchestrator.Rollback(context.Background(), eng, deps, orchestrator.RollbackOptions{
+		ProjectDir:  projectDir,
+		ComposeFile: composeFile,
+		AutoConfirm: true,
+		Stdout:      &stdout,
+		Stderr:      &stderr,
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "RECOVERY_REQUIRED") {
+		t.Fatalf("expected error mentioning RECOVERY_REQUIRED, got: %v", err)
 	}
 }

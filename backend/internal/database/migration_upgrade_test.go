@@ -26,8 +26,8 @@ func TestMigration0007_FreshDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to query schema_migrations: %v", err)
 	}
-	if count != 8 {
-		t.Fatalf("expected 8 migrations applied, got %d", count)
+	if count != 9 {
+		t.Fatalf("expected 9 migrations applied, got %d", count)
 	}
 
 	// Verify all indexes exist
@@ -45,6 +45,8 @@ func TestMigration0007_FreshDB(t *testing.T) {
 		"idx_audit_findings_run_sev",
 		"idx_audit_findings_run_code",
 		"idx_audit_findings_track",
+		"idx_artist_sources_artist",
+		"idx_artist_sources_lookup",
 	}
 	for _, idx := range expectedIndexes {
 		var exists bool
@@ -658,13 +660,17 @@ func TestMigration0008_UpgradeFromV012(t *testing.T) {
 	}
 	defer db.Close()
 
-	// 4. Verify version is 8
+	// 4. Verify migration 0008 was applied
+	var v8Applied bool
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 8)").Scan(&v8Applied); err != nil || !v8Applied {
+		t.Fatalf("expected migration 0008 to be recorded in schema_migrations: %v", err)
+	}
 	var version int
 	if err := db.QueryRowContext(ctx, "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&version); err != nil {
 		t.Fatalf("query version: %v", err)
 	}
-	if version != 8 {
-		t.Fatalf("expected version 8, got %d", version)
+	if version < 8 {
+		t.Fatalf("expected version >= 8, got %d", version)
 	}
 
 	// 5. Verify tables and indexes exist

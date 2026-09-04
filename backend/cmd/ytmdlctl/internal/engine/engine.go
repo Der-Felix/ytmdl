@@ -36,6 +36,7 @@ type Engine interface {
 	Config(ctx context.Context, projectDir, composeFile string, envOverrides map[string]string) (*runner.RunResult, error)
 	Pull(ctx context.Context, projectDir, composeFile string, envOverrides map[string]string, services ...string) (*runner.RunResult, error)
 	UpServices(ctx context.Context, projectDir, composeFile string, envOverrides map[string]string, services ...string) (*runner.RunResult, error)
+	StopServices(ctx context.Context, projectDir, composeFile string, services ...string) (*runner.RunResult, error)
 	GetServiceContainerID(ctx context.Context, projectDir, composeFile, service string) (string, error)
 	InspectContainerImage(ctx context.Context, containerID string) (imageRef, imageID string, err error)
 	VerifyImageDigest(ctx context.Context, imageRef, expectedDigest string) error
@@ -364,6 +365,17 @@ func (e *BaseEngine) UpServices(ctx context.Context, projectDir, composeFile str
 		Args:       cmdArgs,
 		Dir:        projectDir,
 		Env:        env,
+	})
+}
+
+// StopServices executes compose -f <file> stop <services...>.
+func (e *BaseEngine) StopServices(ctx context.Context, projectDir, composeFile string, services ...string) (*runner.RunResult, error) {
+	cmdArgs := []string{"compose", "-f", composeFile, "stop"}
+	cmdArgs = append(cmdArgs, services...)
+	return e.runner.Run(ctx, runner.RunRequest{
+		Executable: e.binary,
+		Args:       cmdArgs,
+		Dir:        projectDir,
 	})
 }
 

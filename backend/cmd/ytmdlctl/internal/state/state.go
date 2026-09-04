@@ -13,20 +13,24 @@ import (
 )
 
 // CurrentStateVersion is the active schema version for update-state.json.
-const CurrentStateVersion = 1
+const CurrentStateVersion = 2
 
 // Status defines valid lifecycle stages of an update operation.
 type Status string
 
 const (
 	StatusIdle               Status = "idle"
+	StatusQuiescing          Status = "quiescing"
 	StatusPrepared           Status = "prepared"
-	StatusMutating           Status = "mutating"
+	StatusMigrating          Status = "migrating"
+	StatusMutating           Status = "mutating" // backward-compatible alias for v1
 	StatusVerifying          Status = "verifying"
 	StatusSuccess            Status = "success"
 	StatusRollbackInProgress Status = "rollback_in_progress"
 	StatusRolledBack         Status = "rolled_back"
 	StatusRecoveryRequired   Status = "recovery_required"
+	StatusRecoveryInProgress Status = "recovery_in_progress"
+	StatusRecovered          Status = "recovered"
 )
 
 var (
@@ -38,33 +42,38 @@ var (
 
 // State holds transactional metadata about update and rollback operations.
 type State struct {
-	StateVersion            int       `json:"state_version"`
-	OperationID             string    `json:"operation_id"`
-	Status                  Status    `json:"status"`
-	StartedAt               time.Time `json:"started_at"`
-	UpdatedAt               time.Time `json:"updated_at"`
-	CurrentVersion          string    `json:"current_version"`
-	TargetVersion           string    `json:"target_version"`
-	ComposeFile             string    `json:"compose_file"`
-	Engine                  string    `json:"engine"`
-	BaseURL                 string    `json:"base_url,omitempty"`
-	SchemaBefore            int       `json:"schema_before"`
-	TargetSchema            int       `json:"target_schema,omitempty"`
-	BackupPath              string    `json:"backup_path,omitempty"`
-	PreviousBackendImage    string    `json:"previous_backend_image,omitempty"`
-	PreviousBackendImageID  string    `json:"previous_backend_image_id,omitempty"`
-	PreviousBackendDigest   string    `json:"previous_backend_digest,omitempty"`
-	PreviousBackendDigests  []string  `json:"previous_backend_digests,omitempty"`
-	PreviousFrontendImage   string    `json:"previous_frontend_image,omitempty"`
-	PreviousFrontendImageID string    `json:"previous_frontend_image_id,omitempty"`
-	PreviousFrontendDigest  string    `json:"previous_frontend_digest,omitempty"`
-	PreviousFrontendDigests []string  `json:"previous_frontend_digests,omitempty"`
-	TargetBackendImage      string    `json:"target_backend_image,omitempty"`
-	TargetBackendDigest     string    `json:"target_backend_digest,omitempty"`
-	TargetFrontendImage     string    `json:"target_frontend_image,omitempty"`
-	TargetFrontendDigest    string    `json:"target_frontend_digest,omitempty"`
-	RollbackClassification  string    `json:"rollback_classification,omitempty"`
-	LastError               string    `json:"last_error,omitempty"`
+	StateVersion             int       `json:"state_version"`
+	OperationID              string    `json:"operation_id"`
+	Status                   Status    `json:"status"`
+	StartedAt                time.Time `json:"started_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
+	CurrentVersion           string    `json:"current_version"`
+	TargetVersion            string    `json:"target_version"`
+	ComposeFile              string    `json:"compose_file"`
+	Engine                   string    `json:"engine"`
+	BaseURL                  string    `json:"base_url,omitempty"`
+	SchemaBefore             int       `json:"schema_before"`
+	TargetSchema             int       `json:"target_schema,omitempty"`
+	UpdateClassification     string    `json:"update_classification,omitempty"`
+	RollbackClassification   string    `json:"rollback_classification,omitempty"`
+	SupportedSourceSchemas   []int     `json:"supported_source_schemas,omitempty"`
+	BackupPath               string    `json:"backup_path,omitempty"`
+	RecoverySafetyBackupPath string    `json:"recovery_safety_backup_path,omitempty"`
+	QuarantineDBName         string    `json:"quarantine_db_name,omitempty"`
+	RestoredDBName           string    `json:"restored_db_name,omitempty"`
+	PreviousBackendImage     string    `json:"previous_backend_image,omitempty"`
+	PreviousBackendImageID   string    `json:"previous_backend_image_id,omitempty"`
+	PreviousBackendDigest    string    `json:"previous_backend_digest,omitempty"`
+	PreviousBackendDigests   []string  `json:"previous_backend_digests,omitempty"`
+	PreviousFrontendImage    string    `json:"previous_frontend_image,omitempty"`
+	PreviousFrontendImageID  string    `json:"previous_frontend_image_id,omitempty"`
+	PreviousFrontendDigest   string    `json:"previous_frontend_digest,omitempty"`
+	PreviousFrontendDigests  []string  `json:"previous_frontend_digests,omitempty"`
+	TargetBackendImage       string    `json:"target_backend_image,omitempty"`
+	TargetBackendDigest      string    `json:"target_backend_digest,omitempty"`
+	TargetFrontendImage      string    `json:"target_frontend_image,omitempty"`
+	TargetFrontendDigest     string    `json:"target_frontend_digest,omitempty"`
+	LastError                string    `json:"last_error,omitempty"`
 }
 
 // ErrInvalidTransition is returned when an illegal status change is attempted.
@@ -73,20 +82,24 @@ var ErrInvalidTransition = errors.New("invalid state transition")
 // CanTransition returns whether changing from status 'from' to 'to' is legally allowed.
 func CanTransition(from, to Status) bool {
 	switch from {
-	case "", StatusIdle, StatusRolledBack:
-		return to == StatusPrepared
+	case "", StatusIdle, StatusRolledBack, StatusRecovered:
+		return to == StatusQuiescing || to == StatusPrepared
 	case StatusSuccess:
-		return to == StatusPrepared || to == StatusRollbackInProgress
+		return to == StatusQuiescing || to == StatusPrepared || to == StatusRollbackInProgress
+	case StatusQuiescing:
+		return to == StatusPrepared || to == StatusRollbackInProgress || to == StatusRolledBack
 	case StatusPrepared:
-		return to == StatusMutating || to == StatusRolledBack
-	case StatusMutating:
+		return to == StatusMigrating || to == StatusMutating || to == StatusRolledBack || to == StatusRollbackInProgress
+	case StatusMigrating, StatusMutating:
 		return to == StatusVerifying || to == StatusRollbackInProgress || to == StatusRecoveryRequired
 	case StatusVerifying:
 		return to == StatusSuccess || to == StatusRollbackInProgress || to == StatusRecoveryRequired
 	case StatusRollbackInProgress:
 		return to == StatusRolledBack || to == StatusRecoveryRequired
 	case StatusRecoveryRequired:
-		return to == StatusRollbackInProgress
+		return to == StatusRecoveryInProgress || to == StatusRollbackInProgress
+	case StatusRecoveryInProgress:
+		return to == StatusSuccess || to == StatusRecovered || to == StatusRecoveryRequired
 	default:
 		return false
 	}
@@ -104,8 +117,9 @@ func (s *State) TransitionTo(to Status) error {
 // IsValidStatus returns whether s is a recognized status.
 func IsValidStatus(s Status) bool {
 	switch s {
-	case StatusIdle, StatusPrepared, StatusMutating, StatusVerifying,
-		StatusSuccess, StatusRollbackInProgress, StatusRolledBack, StatusRecoveryRequired:
+	case StatusIdle, StatusQuiescing, StatusPrepared, StatusMigrating, StatusMutating, StatusVerifying,
+		StatusSuccess, StatusRollbackInProgress, StatusRolledBack, StatusRecoveryRequired,
+		StatusRecoveryInProgress, StatusRecovered:
 		return true
 	default:
 		return false
@@ -118,7 +132,8 @@ func (s *State) IsInterrupted() bool {
 		return false
 	}
 	switch s.Status {
-	case StatusPrepared, StatusMutating, StatusVerifying, StatusRollbackInProgress:
+	case StatusQuiescing, StatusPrepared, StatusMigrating, StatusMutating, StatusVerifying,
+		StatusRollbackInProgress, StatusRecoveryInProgress:
 		return true
 	default:
 		return false
@@ -142,8 +157,8 @@ func Load(projectDir string) (*State, error) {
 		return nil, fmt.Errorf("state: invalid JSON in %s: %w", path, err)
 	}
 
-	if st.StateVersion != CurrentStateVersion {
-		return nil, fmt.Errorf("%w: %d (expected %d)", ErrUnsupportedVersion, st.StateVersion, CurrentStateVersion)
+	if st.StateVersion != 1 && st.StateVersion != CurrentStateVersion {
+		return nil, fmt.Errorf("%w: %d (expected 1 or %d)", ErrUnsupportedVersion, st.StateVersion, CurrentStateVersion)
 	}
 
 	if !IsValidStatus(st.Status) {

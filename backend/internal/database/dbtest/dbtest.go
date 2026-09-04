@@ -36,7 +36,53 @@ func URL(t *testing.T) string {
 // schema is dropped when the test finishes.
 func Open(t *testing.T) *database.DB {
 	t.Helper()
-	return OpenWithOptions(t, database.Options{})
+	db, _ := OpenWithURL(t)
+	return db
+}
+
+// OpenWithURL returns a migrated database and the connection URL pointing to its dedicated test schema.
+func OpenWithURL(t *testing.T) (*database.DB, string) {
+	t.Helper()
+	base := URL(t)
+	schema := "musicdl_test_" + randomSuffix(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	admin, err := pgx.Connect(ctx, base)
+	if err != nil {
+		t.Fatalf("connect to the test server: %v", err)
+	}
+	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+pgx.Identifier{schema}.Sanitize()); err != nil {
+		admin.Close(ctx)
+		t.Fatalf("create schema %s: %v", schema, err)
+	}
+	if err := admin.Close(ctx); err != nil {
+		t.Fatalf("close the admin connection: %v", err)
+	}
+
+	testURL := withSearchPath(t, base, schema)
+	opts := database.Options{
+		URL:            testURL,
+		MaxConns:       6,
+		ConnectTimeout: 10 * time.Second,
+		StartupTimeout: 20 * time.Second,
+		StartupBackoff: 200 * time.Millisecond,
+	}
+
+	db, err := database.Open(ctx, opts)
+	if err != nil {
+		dropSchema(t, base, schema)
+		t.Fatalf("open the test database: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close the test database: %v", err)
+		}
+		dropSchema(t, base, schema)
+	})
+	return db, testURL
 }
 
 // OpenWithOptions is Open with room to override the pool settings, which the

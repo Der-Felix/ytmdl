@@ -57,6 +57,9 @@ func SanitizeVersion(v string) string {
 func GenerateBackupBaseFilename(currentVersion, targetVersion string, timestamp time.Time) string {
 	cleanCurrent := SanitizeVersion(currentVersion)
 	ts := timestamp.UTC().Format("20060102_150405")
+	if targetVersion == "recovery_safety" {
+		return fmt.Sprintf("ytmdl_%s_recovery_safety_%s", cleanCurrent, ts)
+	}
 	if targetVersion != "" {
 		cleanTarget := SanitizeVersion(targetVersion)
 		return fmt.Sprintf("ytmdl_%s_pre_%s_%s", cleanCurrent, cleanTarget, ts)
@@ -86,10 +89,15 @@ func CreateBackup(ctx context.Context, eng engine.Engine, opts BackupOptions) (*
 		defer lk.Release()
 	}
 
-	// 2. Reject backup if an interrupted update transaction is active
+	// 2. Reject backup if an interrupted update transaction is active (unless taking a recovery safety backup or caller holds the update lock)
 	st, err := state.Load(opts.ProjectDir)
-	if err == nil && st != nil && st.IsInterrupted() {
-		return nil, fmt.Errorf("cannot perform backup: interrupted update transaction detected (status: %s); recovery required", st.Status)
+	if err == nil && st != nil && opts.TargetVersion != "recovery_safety" {
+		if !opts.SkipLock && st.IsInterrupted() {
+			return nil, fmt.Errorf("cannot perform backup: interrupted update transaction detected (status: %s); recovery required", st.Status)
+		}
+		if st.Status == state.StatusRecoveryRequired {
+			return nil, fmt.Errorf("cannot perform backup: interrupted update transaction detected (status: %s); recovery required", st.Status)
+		}
 	}
 
 	// 3. Resolve backup directory

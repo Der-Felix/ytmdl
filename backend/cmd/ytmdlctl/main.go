@@ -12,10 +12,13 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"database/sql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"ytdm/backend/cmd/ytmdlctl/internal/backup"
 	"ytdm/backend/cmd/ytmdlctl/internal/compose"
 	"ytdm/backend/cmd/ytmdlctl/internal/config"
@@ -25,6 +28,8 @@ import (
 	"ytdm/backend/cmd/ytmdlctl/internal/lock"
 	"ytdm/backend/cmd/ytmdlctl/internal/manifest"
 	"ytdm/backend/cmd/ytmdlctl/internal/orchestrator"
+	"ytdm/backend/cmd/ytmdlctl/internal/reconcile"
+	"ytdm/backend/cmd/ytmdlctl/internal/recovery"
 	"ytdm/backend/cmd/ytmdlctl/internal/release"
 	"ytdm/backend/cmd/ytmdlctl/internal/runner"
 	"ytdm/backend/cmd/ytmdlctl/internal/staging"
@@ -41,10 +46,11 @@ var (
 
 // CLIDependencies allows injecting mocks for runners and HTTP clients.
 type CLIDependencies struct {
-	Runner     runner.ProcessRunner
-	HTTPClient *http.Client
-	GitHubURL  string
-	Repository string
+	Runner              runner.ProcessRunner
+	HTTPClient          *http.Client
+	GitHubURL           string
+	Repository          string
+	AllowDirectDBMutate bool
 }
 
 func main() {
@@ -129,6 +135,23 @@ func runCLIWithDeps(ctx context.Context, args []string, stdout, stderr io.Writer
 		return runRollback(ctx, stdout, stderr, projectDir, explicitFile, targetEngine, baseURL, subArgs, deps)
 	case "manifest-gen":
 		return runManifestGen(stdout, stderr, subArgs)
+	case "reconcile-artists":
+		return runReconcileArtists(ctx, stdout, stderr, os.Stdin, projectDir, explicitFile, targetEngine, baseURL, subArgs, deps)
+	case "merge-artists":
+		return runMergeArtists(ctx, stdout, stderr, os.Stdin, projectDir, explicitFile, targetEngine, baseURL, subArgs, deps)
+	case "recover", "recovery":
+		return runRecover(ctx, stdout, stderr, os.Stdin, projectDir, explicitFile, targetEngine, baseURL, subArgs, deps)
+	case "maintenance":
+		if len(subArgs) > 0 {
+			switch subArgs[0] {
+			case "reconcile-artists":
+				return runReconcileArtists(ctx, stdout, stderr, os.Stdin, projectDir, explicitFile, targetEngine, baseURL, subArgs[1:], deps)
+			case "merge-artists":
+				return runMergeArtists(ctx, stdout, stderr, os.Stdin, projectDir, explicitFile, targetEngine, baseURL, subArgs[1:], deps)
+			}
+		}
+		fmt.Fprintf(stderr, "ytmdlctl maintenance: unknown subcommand. Supported: 'reconcile-artists', 'merge-artists'\n")
+		return 2
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return 0
@@ -145,13 +168,16 @@ Usage:
   ytmdlctl [global flags] <command> [command flags]
 
 Commands:
-  version       Display ytmdlctl version and runtime platform
-  status        Inspect local deployment status and configuration
-  check         Check for available releases (Stage 2)
-  update        Safely update the YTMDL deployment (use --dry-run in Stage 2)
-  backup        Create and validate a database backup (Stage 3)
-  rollback      Revert containers to the previous working state (Stage 4)
-  manifest-gen  Generate and validate release-manifest.json (Stage 5)
+  version            Display ytmdlctl version and runtime platform
+  status             Inspect local deployment status and configuration
+  check              Check for available releases (Stage 2)
+  update             Safely update the YTMDL deployment (use --dry-run in Stage 2)
+  backup             Create and validate a database backup (Stage 3)
+  rollback           Revert containers to the previous working state (Stage 4)
+  recover            Inspect and recover from failed or interrupted schema updates
+  reconcile-artists  Safely preview and reconcile proved duplicate artist entities
+  merge-artists      Manually merge duplicate artist entities into a canonical artist
+  manifest-gen       Generate and validate release-manifest.json (Stage 5)
 
 Global Flags:
   --project-dir <path>   Project directory (default: .)
@@ -366,7 +392,10 @@ Flags:
 	}
 	if st != nil {
 		fmt.Fprintf(stdout, "Update state:     %s (updated: %s)\n", st.Status, st.UpdatedAt.Format("2006-01-02 15:04:05 UTC"))
-		if st.IsInterrupted() {
+		if st.Status == state.StatusRecoveryRequired {
+			fmt.Fprintf(stdout, "  [!] RECOVERY REQUIRED: %s\n", st.LastError)
+			fmt.Fprintf(stdout, "      Run 'ytmdlctl recover status' to inspect recovery options.\n")
+		} else if st.IsInterrupted() {
 			fmt.Fprintf(stdout, "  [!] Interrupted update transaction detected! Status: %s\n", st.Status)
 		}
 	} else {
@@ -1195,22 +1224,28 @@ func runManifestGen(stdout, stderr io.Writer, args []string) int {
 Generate and validate release-manifest.json for a release.
 
 Flags:
-  --version <ver>         Release version (e.g. 0.16.0)
-  --tag <tag>             Release git tag (e.g. v0.16.0, optional)
-  --schema <num>          Target database schema (default: 8)
-  --classification <cls>  Rollback classification (default: schema_neutral)
-  --min-upgrade <ver>     Minimum upgradeable version (default: 0.15.0)
-  --backend-digest <d>    sha256 digest of pushed backend image
-  --frontend-digest <d>   sha256 digest of pushed frontend image
-  --required-env <keys>   Comma-separated list of required environment variables
-  -o, --output <path>     Output file path (default: release-manifest.json, - for stdout)
+  --version <ver>                 Release version (e.g. 0.17.0)
+  --tag <tag>                     Release git tag (e.g. v0.17.0, optional)
+  --manifest-version <num>        Manifest schema version (1 or 2, default: 2 if schema > 8, else 1)
+  --schema <num>                  Target database schema (default: 8)
+  --update-classification <cls>   Update classification (schema_neutral or schema_forward)
+  --classification <cls>          Rollback classification (schema_neutral or backup_restore_required)
+  --supported-sources <schemas>   Comma-separated list of supported source schemas (e.g. 8)
+  --min-upgrade <ver>             Minimum upgradeable version (default: 0.15.0)
+  --backend-digest <d>            sha256 digest of pushed backend image
+  --frontend-digest <d>           sha256 digest of pushed frontend image
+  --required-env <keys>           Comma-separated list of required environment variables
+  -o, --output <path>             Output file path (default: release-manifest.json, - for stdout)
 `)
 	}
 
 	version := manifestFlags.String("version", "", "release version without leading 'v'")
 	tag := manifestFlags.String("tag", "", "release git tag (optional)")
+	manifestVer := manifestFlags.Int("manifest-version", 0, "manifest schema version (1 or 2)")
 	schema := manifestFlags.Int("schema", 8, "target database schema")
-	classification := manifestFlags.String("classification", "schema_neutral", "rollback classification")
+	updateClassification := manifestFlags.String("update-classification", "", "update classification (schema_neutral or schema_forward)")
+	classification := manifestFlags.String("classification", "", "rollback classification (schema_neutral or backup_restore_required)")
+	supportedSourcesStr := manifestFlags.String("supported-sources", "", "comma-separated list of supported source schemas")
 	minUpgrade := manifestFlags.String("min-upgrade", "0.15.0", "minimum upgradeable version")
 	backendDigest := manifestFlags.String("backend-digest", "", "sha256 digest of pushed backend image")
 	frontendDigest := manifestFlags.String("frontend-digest", "", "sha256 digest of pushed frontend image")
@@ -1248,11 +1283,29 @@ Flags:
 		}
 	}
 
+	var supportedSources []int
+	if *supportedSourcesStr != "" {
+		for _, s := range strings.Split(*supportedSourcesStr, ",") {
+			tr := strings.TrimSpace(s)
+			if tr != "" {
+				val, err := strconv.Atoi(tr)
+				if err != nil {
+					fmt.Fprintf(stderr, "ytmdlctl manifest-gen: invalid supported-sources value %q: %v\n", tr, err)
+					return 2
+				}
+				supportedSources = append(supportedSources, val)
+			}
+		}
+	}
+
 	data, err := manifest.Generate(manifest.GeneratorOptions{
+		ManifestVersion:        *manifestVer,
 		ReleaseVersion:         *version,
 		ReleaseTag:             *tag,
 		TargetSchema:           *schema,
+		UpdateClassification:   manifest.UpdateClassification(*updateClassification),
 		RollbackClassification: manifest.RollbackClassification(*classification),
+		SupportedSourceSchemas: supportedSources,
 		MinUpgradeFrom:         *minUpgrade,
 		BackendDigest:          *backendDigest,
 		FrontendDigest:         *frontendDigest,
@@ -1275,5 +1328,1184 @@ Flags:
 		}
 		fmt.Fprintf(stdout, "Successfully generated and validated %s\n", *outputFile)
 	}
+	return 0
+}
+
+func runReconcileArtists(ctx context.Context, stdout, stderr io.Writer, stdin io.Reader, projectDir, explicitFile, targetEngine, baseURL string, args []string, deps CLIDependencies) int {
+	recFlags := flag.NewFlagSet("reconcile-artists", flag.ContinueOnError)
+	recFlags.SetOutput(stderr)
+
+	var (
+		subProjectDir    string
+		subFile          string
+		subEngine        string
+		subBackupDir     string
+		dryRun           bool
+		apply            bool
+		autoConfirm      bool
+		autoConfirmShort bool
+		verbose          bool
+		verboseShort     bool
+		dbURL            string
+		subBaseURL       string
+	)
+
+	recFlags.StringVar(&subProjectDir, "project-dir", "", "project root directory")
+	recFlags.StringVar(&subFile, "file", "", "compose file to use")
+	recFlags.StringVar(&subFile, "f", "", "compose file to use (shorthand)")
+	recFlags.StringVar(&subEngine, "engine", "", "container engine to use (docker or podman)")
+	recFlags.StringVar(&subBaseURL, "base-url", "", "frontend base URL")
+	recFlags.StringVar(&subBackupDir, "backup-dir", "", "custom backup destination directory (defaults to backups/)")
+	recFlags.BoolVar(&dryRun, "dry-run", false, "perform read-only simulation without writing changes")
+	recFlags.BoolVar(&apply, "apply", false, "execute proved duplicate reconciliation")
+	recFlags.BoolVar(&autoConfirm, "yes", false, "automatically confirm prompt without asking")
+	recFlags.BoolVar(&autoConfirmShort, "y", false, "automatically confirm prompt without asking (shorthand)")
+	recFlags.BoolVar(&verbose, "verbose", false, "show detailed candidate artist information")
+	recFlags.BoolVar(&verboseShort, "v", false, "show detailed candidate artist information (shorthand)")
+	recFlags.StringVar(&dbURL, "db-url", "", "direct PostgreSQL connection URL (optional, bypasses container engine)")
+
+	if err := recFlags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	if dryRun && apply {
+		fmt.Fprintf(stderr, "ytmdlctl: cannot specify both --dry-run and --apply\n")
+		return 2
+	}
+
+	// Default to dry-run unless --apply is explicitly specified
+	isDryRun := !apply || dryRun
+
+	if subProjectDir != "" {
+		projectDir = subProjectDir
+	}
+	if subFile != "" {
+		explicitFile = subFile
+	}
+	if subEngine != "" {
+		targetEngine = subEngine
+	}
+	if subBaseURL != "" {
+		baseURL = subBaseURL
+	}
+
+	absProjectDir, err := filepath.Abs(projectDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl: failed resolving project directory %q: %v\n", projectDir, err)
+		return 1
+	}
+
+	// 1. Lock check
+	if !isDryRun {
+		fl, err := lock.Acquire(absProjectDir)
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: failed acquiring update lock: %v\n", err)
+			return 1
+		}
+		defer fl.Release()
+	} else {
+		if locked, info, _ := lock.CheckContention(absProjectDir); locked && info != nil {
+			fmt.Fprintf(stderr, "warning: update lock currently held by PID %d\n", info.PID)
+		}
+	}
+
+	// 2. Reject if interrupted transaction
+	st, _ := state.Load(absProjectDir)
+	if st != nil && st.IsInterrupted() {
+		fmt.Fprintf(stderr, "ytmdlctl: cannot reconcile: interrupted update transaction detected (%s); recovery required\n", st.Status)
+		return 1
+	}
+
+	// 3. Resolve configuration and DB settings
+	loadedCfg, _ := config.Load(absProjectDir)
+	persistedFile := ""
+	persistedEngine := ""
+	if loadedCfg != nil {
+		persistedFile = loadedCfg.ComposeFile
+		persistedEngine = loadedCfg.Engine
+	}
+
+	envVars, _ := dotenv.ParseFile(filepath.Join(absProjectDir, ".env"))
+	dbUser := getEffectiveEnv("POSTGRES_USER", envVars)
+	if dbUser == "" {
+		dbUser = "ytmdl"
+	}
+	dbName := getEffectiveEnv("POSTGRES_DB", envVars)
+	if dbName == "" {
+		dbName = "ytmdl"
+	}
+	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
+	if currentVersion == "" {
+		currentVersion = "0.17.0"
+	}
+
+	backupDir := subBackupDir
+	if backupDir != "" && !filepath.IsAbs(backupDir) {
+		backupDir = filepath.Join(absProjectDir, backupDir)
+	}
+
+	var exec reconcile.Executor
+	var eng engine.Engine
+	var composeFile string
+
+	if dbURL != "" {
+		if !isDryRun && !deps.AllowDirectDBMutate {
+			fmt.Fprintf(stderr, "ytmdlctl: mutating maintenance via --db-url is not permitted; mutating operations require the managed container lifecycle (quiescent backend + validated backup)\n")
+			return 1
+		}
+		// Direct PostgreSQL connection
+		db, err := sql.Open("pgx", dbURL)
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: direct database connection failed: %v\n", err)
+			return 1
+		}
+		defer db.Close()
+		if err := db.PingContext(ctx); err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: database ping failed: %v\n", err)
+			return 1
+		}
+		exec = &reconcile.SQLExecutor{DB: db}
+	} else {
+		// Container engine execution
+		composeRes, err := compose.Resolve(compose.ResolveOptions{
+			ProjectDir:    absProjectDir,
+			ExplicitFile:  explicitFile,
+			PersistedFile: persistedFile,
+			IsMutating:    !isDryRun,
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: compose resolution failed: %v\n", err)
+			return 1
+		}
+		composeFile = composeRes.SelectedFile
+
+		eng, err = engine.Resolve(ctx, deps.Runner, engine.ResolveOptions{
+			ProjectDir:      absProjectDir,
+			ComposeFile:     composeFile,
+			ExplicitEngine:  targetEngine,
+			PersistedEngine: persistedEngine,
+			IsMutating:      !isDryRun,
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: engine resolution failed: %v\n", err)
+			return 1
+		}
+
+		// Concurrency guard: reject mutating operation if background jobs are actively running
+		if !isDryRun {
+			qStatus, qErr := discovery.QueryQueueStatus(ctx, eng, absProjectDir, composeFile, dbUser, dbName)
+			if qErr == nil && qStatus != nil && qStatus.ActiveJobs > 0 {
+				fmt.Fprintf(stderr, "ytmdlctl: cannot reconcile: %d active jobs currently running in background queue; please wait for queue to finish or pause queue\n", qStatus.ActiveJobs)
+				return 1
+			}
+		}
+
+		exec = &reconcile.EngineExecutor{
+			Engine:      eng,
+			ProjectDir:  absProjectDir,
+			ComposeFile: composeFile,
+			User:        dbUser,
+			Database:    dbName,
+		}
+	}
+
+	// 4. Confirmation (mutating mode only)
+	confirm := autoConfirm || autoConfirmShort
+	if !isDryRun && !confirm {
+		fmt.Fprintf(stdout, "WARNING: This will merge proved duplicate artist entities in the YTMDL library.\n")
+		fmt.Fprintf(stdout, "A validated database backup will be created before any modifications are applied.\n\n")
+		fmt.Fprintf(stdout, "Are you sure you want to proceed? [y/N]: ")
+
+		var response string
+		if stdin != nil {
+			fmt.Fscanln(stdin, &response)
+		}
+		response = strings.TrimSpace(strings.ToLower(response))
+		if response != "y" && response != "yes" {
+			fmt.Fprintf(stdout, "Reconciliation cancelled by user (0 modifications made).\n")
+			return 0
+		}
+		fmt.Fprintf(stdout, "\n")
+	}
+
+	// 5. Quiescent Backend lifecycle (mutating mode with container engine)
+	var backendStopped bool
+	if !isDryRun && eng != nil {
+		fmt.Fprintf(stdout, "Stopping backend service to ensure database quiescence...\n")
+		stopRes, stopErr := eng.StopServices(ctx, absProjectDir, composeFile, "backend")
+		if stopErr != nil || (stopRes != nil && stopRes.ExitCode != 0) {
+			var errMsg string
+			if stopErr != nil {
+				errMsg = stopErr.Error()
+			} else {
+				errMsg = strings.TrimSpace(string(stopRes.Stderr))
+			}
+			fmt.Fprintf(stderr, "ytmdlctl: failed stopping backend service: %s\n", errMsg)
+			return 1
+		}
+		backendStopped = true
+		defer func() {
+			if backendStopped {
+				fmt.Fprintf(stdout, "Restoring backend service...\n")
+				upEnv := map[string]string{"YTMDL_VERSION": currentVersion}
+				_, _ = eng.UpServices(context.Background(), absProjectDir, composeFile, upEnv, "backend")
+			}
+		}()
+	}
+
+	// 6. Pre-mutation backup (mutating mode only)
+	var backupRes *backup.BackupResult
+	if !isDryRun && eng != nil {
+		fmt.Fprintf(stdout, "Creating pre-reconciliation database backup...\n")
+		bRes, err := backup.CreateBackup(ctx, eng, backup.BackupOptions{
+			ProjectDir:     absProjectDir,
+			ComposeFile:    composeFile,
+			BackupDir:      backupDir,
+			CurrentVersion: currentVersion,
+			TargetVersion:  "reconcile",
+			DBUser:         dbUser,
+			DBName:         dbName,
+			SkipLock:       true, // lock already held above
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: PRE-RECONCILIATION BACKUP FAILED: %v (0 database writes performed)\n", err)
+			return 1
+		}
+		backupRes = bRes
+		fmt.Fprintf(stdout, "Backup created: %s (%s, PASS)\n\n", backupRes.RelativePath, formatFileSize(backupRes.SizeBytes))
+	}
+
+	// 7. Execute reconciliation
+	isVerbose := verbose || verboseShort
+	report, err := reconcile.Run(ctx, exec, reconcile.Options{
+		ProjectDir:     absProjectDir,
+		ComposeFile:    composeFile,
+		BackupDir:      backupDir,
+		CurrentVersion: currentVersion,
+		DBUser:         dbUser,
+		DBName:         dbName,
+		DryRun:         isDryRun,
+		Apply:          !isDryRun,
+		Verbose:        isVerbose,
+		Stdout:         stdout,
+		Stderr:         stderr,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl: reconciliation failed: %v\n", err)
+		return 1
+	}
+
+	// 8. Restart backend service (if stopped)
+	if backendStopped {
+		fmt.Fprintf(stdout, "Restarting backend service...\n")
+		upEnv := map[string]string{"YTMDL_VERSION": currentVersion}
+		upRes, upErr := eng.UpServices(ctx, absProjectDir, composeFile, upEnv, "backend")
+		if upErr != nil || (upRes != nil && upRes.ExitCode != 0) {
+			var errMsg string
+			if upErr != nil {
+				errMsg = upErr.Error()
+			} else {
+				errMsg = strings.TrimSpace(string(upRes.Stderr))
+			}
+			fmt.Fprintf(stderr, "warning: failed restarting backend service: %s\n", errMsg)
+		} else {
+			backendStopped = false
+			fmt.Fprintf(stdout, "Backend service restarted successfully.\n")
+
+			// Health verification
+			persistedBaseURL := ""
+			if loadedCfg != nil {
+				persistedBaseURL = loadedCfg.BaseURL
+			}
+			resolvedURL, _ := discovery.ResolveBaseURL(ctx, discovery.ResolveBaseURLOptions{
+				ExplicitURL:  baseURL,
+				PersistedURL: persistedBaseURL,
+				Engine:       eng,
+				ProjectDir:   absProjectDir,
+				ComposeFile:  composeFile,
+				EnvVars:      envVars,
+			})
+			if resolvedURL != "" {
+				hc := discovery.NewHealthClient(resolvedURL, "reconcile", deps.HTTPClient)
+				deadline := time.Now().Add(15 * time.Second)
+				var lastHealthErr error
+				var h *discovery.BackendHealth
+				for time.Now().Before(deadline) {
+					if ctx.Err() != nil {
+						break
+					}
+					h, lastHealthErr = hc.Check(ctx)
+					if lastHealthErr == nil && h != nil && (h.Status == "ok" || h.DatabaseHealthy) {
+						break
+					}
+					time.Sleep(500 * time.Millisecond)
+				}
+				if h != nil && (h.Status == "ok" || h.DatabaseHealthy) {
+					fmt.Fprintf(stdout, "Backend health verification: PASS (status: %s)\n\n", h.Status)
+				} else if lastHealthErr != nil {
+					fmt.Fprintf(stderr, "warning: backend health check unverified: %v\n\n", lastHealthErr)
+				}
+			}
+		}
+	}
+
+	// 9. Structured Report Output
+	fmt.Fprintf(stdout, "YTMDL ARTIST RECONCILIATION REPORT\n")
+	fmt.Fprintf(stdout, "==================================\n")
+	if isDryRun {
+		fmt.Fprintf(stdout, "Execution mode:       DRY RUN (read-only preview, 0 writes)\n")
+	} else {
+		fmt.Fprintf(stdout, "Execution mode:       MUTATING (applied to database)\n")
+	}
+	fmt.Fprintf(stdout, "Artists scanned:      %d\n", report.ClustersExamined)
+	fmt.Fprintf(stdout, "Proved duplicate:     %d clusters (%d duplicate rows)\n", report.ProvedClusters, report.ProvedDups)
+	fmt.Fprintf(stdout, "Ambiguous clusters:   %d clusters (%d rows preserved untouched)\n\n", report.AmbiguousClusters, report.AmbiguousDups)
+
+	if isDryRun {
+		fmt.Fprintf(stdout, "Planned merges\n")
+		fmt.Fprintf(stdout, "--------------\n")
+		fmt.Fprintf(stdout, "Merged clusters:      %d\n", report.ProvedClusters)
+		fmt.Fprintf(stdout, "Duplicate rows:       %d to be deleted\n", report.ProvedDups)
+		fmt.Fprintf(stdout, "Releases:             %d to be repointed\n", report.ReassignedReleases)
+		fmt.Fprintf(stdout, "Tracks:               %d to be repointed\n\n", report.ReassignedTracks)
+
+		fmt.Fprintf(stdout, "RESULT:\n")
+		fmt.Fprintf(stdout, "PREVIEW COMPLETE\n")
+		fmt.Fprintf(stdout, "[DRY RUN] No modifications made. Pass --apply (with -y to auto-confirm) to execute reconciliation.\n")
+	} else {
+		fmt.Fprintf(stdout, "Reconciliation Results\n")
+		fmt.Fprintf(stdout, "----------------------\n")
+		fmt.Fprintf(stdout, "Merged clusters:      %d\n", report.MergedGroups)
+		fmt.Fprintf(stdout, "Deleted duplicate rows: %d\n", report.MergedRows)
+		fmt.Fprintf(stdout, "Reassigned releases:  %d\n", report.ReassignedReleases)
+		fmt.Fprintf(stdout, "Reassigned tracks:    %d\n", report.ReassignedTracks)
+		if backupRes != nil {
+			fmt.Fprintf(stdout, "Preserved backup:     %s (%s)\n", backupRes.RelativePath, formatFileSize(backupRes.SizeBytes))
+		}
+		fmt.Fprintf(stdout, "Post-integrity check: PASS (0 dangling references, 0 proved duplicates remaining)\n\n")
+
+		fmt.Fprintf(stdout, "RESULT:\n")
+		fmt.Fprintf(stdout, "SUCCESS\n")
+	}
+
+	if isVerbose {
+		if len(report.ProvedDetails) > 0 {
+			fmt.Fprintf(stdout, "\nProved Duplicate Details:\n")
+			for i, pg := range report.ProvedDetails {
+				fmt.Fprintf(stdout, "  [%d] %q (%s)\n", i+1, pg.Winner.Name, pg.Provider)
+				fmt.Fprintf(stdout, "      Canonical Winner: %s (source: %s, sub: %v, items: %d)\n", pg.Winner.ID, pg.Winner.SourceID, pg.Winner.HasSub, pg.Winner.TotalItems())
+				for _, d := range pg.Duplicates {
+					fmt.Fprintf(stdout, "      -> Duplicate:     %s (source: %s, items: %d)\n", d.ID, d.SourceID, d.TotalItems())
+				}
+			}
+		}
+		if len(report.AmbiguousDetails) > 0 {
+			fmt.Fprintf(stdout, "\nAmbiguous Cluster Details (preserved):\n")
+			for i, ag := range report.AmbiguousDetails {
+				fmt.Fprintf(stdout, "  [%d] %q\n", i+1, ag.ClusterName)
+				fmt.Fprintf(stdout, "      Reason: %s\n", ag.Reason)
+				for _, c := range ag.Candidates {
+					fmt.Fprintf(stdout, "      - %s (provider: %s, source: %s, items: %d)\n", c.ID, c.Provider, c.SourceID, c.TotalItems())
+				}
+			}
+		}
+	}
+
+	return 0
+}
+
+func runMergeArtists(ctx context.Context, stdout, stderr io.Writer, stdin io.Reader, projectDir, explicitFile, targetEngine, baseURL string, args []string, deps CLIDependencies) int {
+	mergeFlags := flag.NewFlagSet("merge-artists", flag.ContinueOnError)
+	mergeFlags.SetOutput(stderr)
+
+	var (
+		subProjectDir    string
+		subFile          string
+		subEngine        string
+		subBackupDir     string
+		dryRun           bool
+		apply            bool
+		autoConfirm      bool
+		autoConfirmShort bool
+		verbose          bool
+		verboseShort     bool
+		dbURL            string
+		subBaseURL       string
+	)
+
+	mergeFlags.StringVar(&subProjectDir, "project-dir", "", "project root directory")
+	mergeFlags.StringVar(&subFile, "file", "", "compose file to use")
+	mergeFlags.StringVar(&subFile, "f", "", "compose file to use (shorthand)")
+	mergeFlags.StringVar(&subEngine, "engine", "", "container engine to use (docker or podman)")
+	mergeFlags.StringVar(&subBaseURL, "base-url", "", "frontend base URL")
+	mergeFlags.StringVar(&subBackupDir, "backup-dir", "", "custom backup destination directory (defaults to backups/)")
+	mergeFlags.BoolVar(&dryRun, "dry-run", false, "perform read-only simulation without writing changes")
+	mergeFlags.BoolVar(&apply, "apply", false, "execute manual artist merge")
+	mergeFlags.BoolVar(&autoConfirm, "yes", false, "automatically confirm prompt without asking")
+	mergeFlags.BoolVar(&autoConfirmShort, "y", false, "automatically confirm prompt without asking (shorthand)")
+	mergeFlags.BoolVar(&verbose, "verbose", false, "show detailed artist information")
+	mergeFlags.BoolVar(&verboseShort, "v", false, "show detailed artist information (shorthand)")
+	mergeFlags.StringVar(&dbURL, "db-url", "", "direct PostgreSQL connection URL (optional, bypasses container engine)")
+
+	if err := mergeFlags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	remaining := mergeFlags.Args()
+	if len(remaining) < 2 {
+		fmt.Fprintf(stderr, "ytmdlctl merge-artists: requires at least 2 artist IDs: <canonical-id> <duplicate-id> [duplicate-ids...]\n")
+		fmt.Fprintf(stderr, "Usage: ytmdlctl merge-artists [flags] <canonical-id> <duplicate-id> [duplicate-ids...]\n")
+		return 2
+	}
+
+	if dryRun && apply {
+		fmt.Fprintf(stderr, "ytmdlctl: cannot specify both --dry-run and --apply\n")
+		return 2
+	}
+
+	isDryRun := !apply || dryRun
+
+	canonicalID := strings.TrimSpace(remaining[0])
+	rawDupIDs := remaining[1:]
+
+	// Validate duplicate IDs
+	seenDups := make(map[string]struct{})
+	var dupIDs []string
+	for _, raw := range rawDupIDs {
+		d := strings.TrimSpace(raw)
+		if d == "" {
+			continue
+		}
+		if d == canonicalID {
+			fmt.Fprintf(stderr, "ytmdlctl merge-artists: cannot merge canonical artist %s into itself\n", canonicalID)
+			return 2
+		}
+		if _, exists := seenDups[d]; !exists {
+			seenDups[d] = struct{}{}
+			dupIDs = append(dupIDs, d)
+		}
+	}
+
+	if len(dupIDs) == 0 {
+		fmt.Fprintf(stderr, "ytmdlctl merge-artists: at least one unique duplicate artist ID is required\n")
+		return 2
+	}
+
+	if subProjectDir != "" {
+		projectDir = subProjectDir
+	}
+	if subFile != "" {
+		explicitFile = subFile
+	}
+	if subEngine != "" {
+		targetEngine = subEngine
+	}
+	if subBaseURL != "" {
+		baseURL = subBaseURL
+	}
+
+	absProjectDir, err := filepath.Abs(projectDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl: failed resolving project directory %q: %v\n", projectDir, err)
+		return 1
+	}
+
+	// 1. Lock check
+	if !isDryRun {
+		fl, err := lock.Acquire(absProjectDir)
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: failed acquiring update lock: %v\n", err)
+			return 1
+		}
+		defer fl.Release()
+	} else {
+		if locked, info, _ := lock.CheckContention(absProjectDir); locked && info != nil {
+			fmt.Fprintf(stderr, "warning: update lock currently held by PID %d\n", info.PID)
+		}
+	}
+
+	// 2. Reject if interrupted transaction
+	st, _ := state.Load(absProjectDir)
+	if st != nil && st.IsInterrupted() {
+		fmt.Fprintf(stderr, "ytmdlctl: cannot merge: interrupted update transaction detected (%s); recovery required\n", st.Status)
+		return 1
+	}
+
+	// 3. Resolve configuration and DB settings
+	loadedCfg, _ := config.Load(absProjectDir)
+	persistedFile := ""
+	persistedEngine := ""
+	if loadedCfg != nil {
+		persistedFile = loadedCfg.ComposeFile
+		persistedEngine = loadedCfg.Engine
+	}
+
+	envVars, _ := dotenv.ParseFile(filepath.Join(absProjectDir, ".env"))
+	dbUser := getEffectiveEnv("POSTGRES_USER", envVars)
+	if dbUser == "" {
+		dbUser = "ytmdl"
+	}
+	dbName := getEffectiveEnv("POSTGRES_DB", envVars)
+	if dbName == "" {
+		dbName = "ytmdl"
+	}
+	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
+	if currentVersion == "" {
+		currentVersion = "0.17.0"
+	}
+
+	backupDir := subBackupDir
+	if backupDir != "" && !filepath.IsAbs(backupDir) {
+		backupDir = filepath.Join(absProjectDir, backupDir)
+	}
+
+	var exec reconcile.Executor
+	var eng engine.Engine
+	var composeFile string
+
+	if dbURL != "" {
+		if !isDryRun && !deps.AllowDirectDBMutate {
+			fmt.Fprintf(stderr, "ytmdlctl: mutating maintenance via --db-url is not permitted; mutating operations require the managed container lifecycle (quiescent backend + validated backup)\n")
+			return 1
+		}
+		db, err := sql.Open("pgx", dbURL)
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: direct database connection failed: %v\n", err)
+			return 1
+		}
+		defer db.Close()
+		if err := db.PingContext(ctx); err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: database ping failed: %v\n", err)
+			return 1
+		}
+		exec = &reconcile.SQLExecutor{DB: db}
+	} else {
+		composeRes, err := compose.Resolve(compose.ResolveOptions{
+			ProjectDir:    absProjectDir,
+			ExplicitFile:  explicitFile,
+			PersistedFile: persistedFile,
+			IsMutating:    !isDryRun,
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: compose resolution failed: %v\n", err)
+			return 1
+		}
+		composeFile = composeRes.SelectedFile
+
+		eng, err = engine.Resolve(ctx, deps.Runner, engine.ResolveOptions{
+			ProjectDir:      absProjectDir,
+			ComposeFile:     composeFile,
+			ExplicitEngine:  targetEngine,
+			PersistedEngine: persistedEngine,
+			IsMutating:      !isDryRun,
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: engine resolution failed: %v\n", err)
+			return 1
+		}
+
+		if !isDryRun {
+			qStatus, qErr := discovery.QueryQueueStatus(ctx, eng, absProjectDir, composeFile, dbUser, dbName)
+			if qErr == nil && qStatus != nil && qStatus.ActiveJobs > 0 {
+				fmt.Fprintf(stderr, "ytmdlctl: cannot merge: %d active jobs currently running in background queue; please wait for queue to finish or pause queue\n", qStatus.ActiveJobs)
+				return 1
+			}
+		}
+
+		exec = &reconcile.EngineExecutor{
+			Engine:      eng,
+			ProjectDir:  absProjectDir,
+			ComposeFile: composeFile,
+			User:        dbUser,
+			Database:    dbName,
+		}
+	}
+
+	// 4. Query target artists to validate existence and safety
+	allIDs := append([]string{canonicalID}, dupIDs...)
+	cands, err := exec.GetArtists(ctx, allIDs)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl merge-artists: failed querying artists: %v\n", err)
+		return 1
+	}
+
+	candMap := make(map[string]reconcile.Candidate)
+	for _, c := range cands {
+		candMap[c.ID] = c
+	}
+
+	canonicalCand, ok := candMap[canonicalID]
+	if !ok {
+		fmt.Fprintf(stderr, "ytmdlctl merge-artists: canonical artist %s not found in database\n", canonicalID)
+		return 1
+	}
+
+	var duplicateCands []reconcile.Candidate
+	for _, dID := range dupIDs {
+		dCand, ok := candMap[dID]
+		if !ok {
+			fmt.Fprintf(stderr, "ytmdlctl merge-artists: duplicate artist %s not found in database\n", dID)
+			return 1
+		}
+		duplicateCands = append(duplicateCands, dCand)
+	}
+
+	// Safety check 1: duplicate vs canonical distinct real IDs on same provider
+	for _, d := range duplicateCands {
+		if !canonicalCand.IsSynthetic() && !d.IsSynthetic() && canonicalCand.Provider == d.Provider && canonicalCand.SourceID != d.SourceID {
+			fmt.Fprintf(stderr, "ytmdlctl merge-artists: safety rejection: cannot merge duplicate %s (%s:%s) into canonical %s (%s:%s); distinct real IDs on the same provider represent separate catalog entities\n", d.ID, d.Provider, d.SourceID, canonicalCand.ID, canonicalCand.Provider, canonicalCand.SourceID)
+			return 1
+		}
+	}
+
+	// Safety check 2: duplicate vs duplicate distinct real IDs on same provider
+	provRealMap := make(map[string]map[string]string)
+	for _, d := range duplicateCands {
+		if !d.IsSynthetic() {
+			if provRealMap[d.Provider] == nil {
+				provRealMap[d.Provider] = make(map[string]string)
+			}
+			for prevSource, prevID := range provRealMap[d.Provider] {
+				if prevSource != d.SourceID {
+					fmt.Fprintf(stderr, "ytmdlctl merge-artists: safety rejection: duplicate %s (%s:%s) and %s (%s:%s) have distinct real IDs on provider %s\n", d.ID, d.Provider, d.SourceID, prevID, d.Provider, prevSource, d.Provider)
+					return 1
+				}
+			}
+			provRealMap[d.Provider][d.SourceID] = d.ID
+		}
+	}
+
+	// Calculate counts and best artwork
+	plannedRel := 0
+	plannedTrk := 0
+	bestImage := strings.TrimSpace(canonicalCand.ImageURL)
+	for _, d := range duplicateCands {
+		plannedRel += d.ReleaseCount
+		plannedTrk += d.TrackCount
+		if bestImage == "" && strings.TrimSpace(d.ImageURL) != "" {
+			bestImage = strings.TrimSpace(d.ImageURL)
+		}
+	}
+
+	// 5. Dry-run preview
+	if isDryRun {
+		fmt.Fprintf(stdout, "YTMDL ARTIST MANUAL MERGE REPORT\n")
+		fmt.Fprintf(stdout, "================================\n")
+		fmt.Fprintf(stdout, "Execution mode:       DRY RUN (read-only preview, 0 writes)\n")
+		fmt.Fprintf(stdout, "Canonical Artist:     %s (%q, provider: %s, source: %s, items: %d)\n", canonicalCand.ID, canonicalCand.Name, canonicalCand.Provider, canonicalCand.SourceID, canonicalCand.TotalItems())
+		fmt.Fprintf(stdout, "Duplicate Artists to merge (%d):\n", len(duplicateCands))
+		for _, d := range duplicateCands {
+			fmt.Fprintf(stdout, "  - %s (%q, provider: %s, source: %s, items: %d)\n", d.ID, d.Name, d.Provider, d.SourceID, d.TotalItems())
+		}
+		fmt.Fprintf(stdout, "\nPlanned moves:\n")
+		fmt.Fprintf(stdout, "  Releases:           %d to be repointed\n", plannedRel)
+		fmt.Fprintf(stdout, "  Tracks:             %d to be repointed\n\n", plannedTrk)
+		fmt.Fprintf(stdout, "RESULT:\n")
+		fmt.Fprintf(stdout, "PREVIEW COMPLETE\n")
+		fmt.Fprintf(stdout, "[DRY RUN] No modifications made. Pass --apply (with -y to auto-confirm) to execute merge.\n")
+		return 0
+	}
+
+	// 6. Confirmation (mutating mode only)
+	confirm := autoConfirm || autoConfirmShort
+	if !confirm {
+		fmt.Fprintf(stdout, "WARNING: This will permanently merge %d duplicate artist entities into canonical artist %s (%q).\n", len(duplicateCands), canonicalCand.ID, canonicalCand.Name)
+		fmt.Fprintf(stdout, "A validated database backup will be created before any modifications are applied.\n\n")
+		fmt.Fprintf(stdout, "Are you sure you want to proceed? [y/N]: ")
+
+		var response string
+		if stdin != nil {
+			fmt.Fscanln(stdin, &response)
+		}
+		response = strings.TrimSpace(strings.ToLower(response))
+		if response != "y" && response != "yes" {
+			fmt.Fprintf(stdout, "Merge cancelled by user (0 modifications made).\n")
+			return 0
+		}
+		fmt.Fprintf(stdout, "\n")
+	}
+
+	// 7. Quiescent Backend lifecycle (mutating mode with container engine)
+	var backendStopped bool
+	if eng != nil {
+		fmt.Fprintf(stdout, "Stopping backend service to ensure database quiescence...\n")
+		stopRes, stopErr := eng.StopServices(ctx, absProjectDir, composeFile, "backend")
+		if stopErr != nil || (stopRes != nil && stopRes.ExitCode != 0) {
+			var errMsg string
+			if stopErr != nil {
+				errMsg = stopErr.Error()
+			} else {
+				errMsg = strings.TrimSpace(string(stopRes.Stderr))
+			}
+			fmt.Fprintf(stderr, "ytmdlctl: failed stopping backend service: %s\n", errMsg)
+			return 1
+		}
+		backendStopped = true
+		defer func() {
+			if backendStopped {
+				fmt.Fprintf(stdout, "Restoring backend service...\n")
+				upEnv := map[string]string{"YTMDL_VERSION": currentVersion}
+				_, _ = eng.UpServices(context.Background(), absProjectDir, composeFile, upEnv, "backend")
+			}
+		}()
+	}
+
+	// 8. Pre-mutation backup
+	var backupRes *backup.BackupResult
+	if eng != nil {
+		fmt.Fprintf(stdout, "Creating pre-merge database backup...\n")
+		bRes, err := backup.CreateBackup(ctx, eng, backup.BackupOptions{
+			ProjectDir:     absProjectDir,
+			ComposeFile:    composeFile,
+			BackupDir:      backupDir,
+			CurrentVersion: currentVersion,
+			TargetVersion:  "merge",
+			DBUser:         dbUser,
+			DBName:         dbName,
+			SkipLock:       true, // lock already held above
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl: PRE-MERGE BACKUP FAILED: %v (0 database writes performed)\n", err)
+			return 1
+		}
+		backupRes = bRes
+		fmt.Fprintf(stdout, "Backup created: %s (%s, PASS)\n\n", backupRes.RelativePath, formatFileSize(backupRes.SizeBytes))
+	}
+
+	// 9. Execute manual merge
+	relMoved, trkMoved, err := exec.MergeGroup(ctx, canonicalCand.ID, dupIDs, bestImage)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl: merge failed: %v\n", err)
+		return 1
+	}
+
+	// 10. Integrity check
+	if err := exec.VerifyIntegrity(ctx); err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl: post-merge integrity check failed: %v\n", err)
+		return 1
+	}
+
+	// 11. Restart backend service
+	if backendStopped {
+		fmt.Fprintf(stdout, "Restarting backend service...\n")
+		upEnv := map[string]string{"YTMDL_VERSION": currentVersion}
+		upRes, upErr := eng.UpServices(ctx, absProjectDir, composeFile, upEnv, "backend")
+		if upErr != nil || (upRes != nil && upRes.ExitCode != 0) {
+			var errMsg string
+			if upErr != nil {
+				errMsg = upErr.Error()
+			} else {
+				errMsg = strings.TrimSpace(string(upRes.Stderr))
+			}
+			fmt.Fprintf(stderr, "warning: failed restarting backend service: %s\n", errMsg)
+		} else {
+			backendStopped = false
+			fmt.Fprintf(stdout, "Backend service restarted successfully.\n")
+
+			persistedBaseURL := ""
+			if loadedCfg != nil {
+				persistedBaseURL = loadedCfg.BaseURL
+			}
+			resolvedURL, _ := discovery.ResolveBaseURL(ctx, discovery.ResolveBaseURLOptions{
+				ExplicitURL:  baseURL,
+				PersistedURL: persistedBaseURL,
+				Engine:       eng,
+				ProjectDir:   absProjectDir,
+				ComposeFile:  composeFile,
+				EnvVars:      envVars,
+			})
+			if resolvedURL != "" {
+				hc := discovery.NewHealthClient(resolvedURL, "merge", deps.HTTPClient)
+				deadline := time.Now().Add(15 * time.Second)
+				var lastHealthErr error
+				var h *discovery.BackendHealth
+				for time.Now().Before(deadline) {
+					if ctx.Err() != nil {
+						break
+					}
+					h, lastHealthErr = hc.Check(ctx)
+					if lastHealthErr == nil && h != nil && (h.Status == "ok" || h.DatabaseHealthy) {
+						break
+					}
+					time.Sleep(500 * time.Millisecond)
+				}
+				if h != nil && (h.Status == "ok" || h.DatabaseHealthy) {
+					fmt.Fprintf(stdout, "Backend health verification: PASS (status: %s)\n\n", h.Status)
+				} else if lastHealthErr != nil {
+					fmt.Fprintf(stderr, "warning: backend health check unverified: %v\n\n", lastHealthErr)
+				}
+			}
+		}
+	}
+
+	// 12. Structured Report Output
+	fmt.Fprintf(stdout, "YTMDL ARTIST MANUAL MERGE REPORT\n")
+	fmt.Fprintf(stdout, "================================\n")
+	if isDryRun {
+		fmt.Fprintf(stdout, "Execution mode:       DRY RUN (read-only preview, 0 writes)\n")
+	} else {
+		fmt.Fprintf(stdout, "Execution mode:       MUTATING (applied to database)\n")
+	}
+	fmt.Fprintf(stdout, "Canonical Artist:     %s (%q)\n", canonicalCand.ID, canonicalCand.Name)
+	fmt.Fprintf(stdout, "Merged Duplicates:    %d\n", len(dupIDs))
+	fmt.Fprintf(stdout, "Reassigned Releases:  %d\n", relMoved)
+	fmt.Fprintf(stdout, "Reassigned Tracks:    %d\n", trkMoved)
+	if backupRes != nil {
+		fmt.Fprintf(stdout, "Preserved Backup:     %s (%s)\n", backupRes.RelativePath, formatFileSize(backupRes.SizeBytes))
+	}
+	fmt.Fprintf(stdout, "Post-integrity check: PASS (0 dangling references)\n\n")
+	fmt.Fprintf(stdout, "RESULT:\n")
+	fmt.Fprintf(stdout, "SUCCESS\n")
+
+	return 0
+}
+
+func runRecover(ctx context.Context, stdout, stderr io.Writer, stdin io.Reader, projDir, explicitFile, explicitEngine, cliBaseURL string, args []string, deps CLIDependencies) int {
+	if len(args) == 0 || args[0] == "status" {
+		var subArgs []string
+		if len(args) > 0 {
+			subArgs = args[1:]
+		}
+		return runRecoverStatus(ctx, stdout, stderr, projDir, explicitFile, explicitEngine, cliBaseURL, subArgs, deps)
+	}
+
+	subcommand := args[0]
+	subArgs := args[1:]
+
+	switch subcommand {
+	case "status":
+		return runRecoverStatus(ctx, stdout, stderr, projDir, explicitFile, explicitEngine, cliBaseURL, subArgs, deps)
+	case "resume":
+		return runRecoverResume(ctx, stdout, stderr, stdin, projDir, explicitFile, explicitEngine, cliBaseURL, subArgs, deps)
+	case "restore":
+		return runRecoverRestore(ctx, stdout, stderr, stdin, projDir, explicitFile, explicitEngine, cliBaseURL, subArgs, deps)
+	case "help", "-h", "--help":
+		printRecoverUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "ytmdlctl recover: unknown action %q. Supported: 'status', 'resume', 'restore'\n", subcommand)
+		return 2
+	}
+}
+
+func printRecoverUsage(w io.Writer) {
+	fmt.Fprintf(w, `Usage: ytmdlctl recover <action> [flags]
+
+Manage recovery operations for failed or interrupted schema migrations.
+
+Actions:
+  status   Inspect current deployment state, schema, backups, and suggested action
+  resume   Complete target version deployment when DB schema was successfully migrated
+  restore  Destructively restore Schema 8 database from pre-migration backup
+
+Flags for 'resume' and 'restore':
+  -y, --yes    Automatically confirm prompt without asking
+`)
+}
+
+func runRecoverStatus(ctx context.Context, stdout, stderr io.Writer, projDir, explicitFile, explicitEngine, cliBaseURL string, args []string, deps CLIDependencies) int {
+	projectDir, err := filepath.Abs(projDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover: failed resolving project directory: %v\n", err)
+		return 1
+	}
+
+	loadedCfg, _ := config.Load(projectDir)
+	persistedFile := ""
+	persistedEngine := ""
+	persistedURL := ""
+	if loadedCfg != nil {
+		persistedFile = loadedCfg.ComposeFile
+		persistedEngine = loadedCfg.Engine
+		persistedURL = loadedCfg.BaseURL
+	}
+
+	composeRes, _ := compose.Resolve(compose.ResolveOptions{
+		ProjectDir:    projectDir,
+		ExplicitFile:  explicitFile,
+		PersistedFile: persistedFile,
+		IsMutating:    false,
+	})
+	composeFile := ""
+	if composeRes != nil {
+		composeFile = composeRes.SelectedFile
+	}
+
+	var eng engine.Engine
+	if composeFile != "" {
+		eng, _ = engine.Resolve(ctx, deps.Runner, engine.ResolveOptions{
+			ProjectDir:      projectDir,
+			ComposeFile:     composeFile,
+			ExplicitEngine:  explicitEngine,
+			PersistedEngine: persistedEngine,
+			IsMutating:      false,
+		})
+	}
+
+	envVars, _ := dotenv.ParseFile(filepath.Join(projectDir, ".env"))
+	resolvedURL, _ := discovery.ResolveBaseURL(ctx, discovery.ResolveBaseURLOptions{
+		ExplicitURL:  cliBaseURL,
+		PersistedURL: persistedURL,
+		Engine:       eng,
+		ProjectDir:   projectDir,
+		ComposeFile:  composeFile,
+		EnvVars:      envVars,
+	})
+
+	info, err := recovery.Status(ctx, eng, projectDir, composeFile, resolvedURL)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover status: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "YTMDL RECOVERY STATUS\n")
+	fmt.Fprintf(stdout, "=====================\n")
+	fmt.Fprintf(stdout, "State status:            %s\n", info.StateStatus)
+	if info.OperationID != "" {
+		fmt.Fprintf(stdout, "Operation ID:            %s\n", info.OperationID)
+	}
+	if info.CurrentVersion != "" {
+		fmt.Fprintf(stdout, "Current version:         %s\n", info.CurrentVersion)
+	}
+	if info.TargetVersion != "" {
+		fmt.Fprintf(stdout, "Target version:          %s\n", info.TargetVersion)
+	}
+	if info.SchemaBefore > 0 {
+		fmt.Fprintf(stdout, "Schema before:           %d\n", info.SchemaBefore)
+	}
+	if info.TargetSchema > 0 {
+		fmt.Fprintf(stdout, "Target schema:           %d\n", info.TargetSchema)
+	}
+	if info.ActualSchema > 0 {
+		fmt.Fprintf(stdout, "Actual database schema:  %d\n", info.ActualSchema)
+	} else {
+		fmt.Fprintf(stdout, "Actual database schema:  unknown\n")
+	}
+
+	if info.BackupPath != "" {
+		existsStr := "MISSING"
+		if info.BackupExists {
+			existsStr = fmt.Sprintf("EXISTS (%s)", formatFileSize(info.BackupSizeBytes))
+		}
+		fmt.Fprintf(stdout, "Pre-upgrade backup:      %s [%s]\n", info.BackupPath, existsStr)
+	}
+	if info.RecoverySafetyBackupPath != "" {
+		fmt.Fprintf(stdout, "Recovery safety backup:  %s\n", info.RecoverySafetyBackupPath)
+	}
+	if info.QuarantineDBName != "" {
+		fmt.Fprintf(stdout, "Quarantined database:    %s\n", info.QuarantineDBName)
+	}
+
+	backendStr := "stopped"
+	if info.BackendContainerRunning {
+		backendStr = "running"
+	}
+	fmt.Fprintf(stdout, "Backend container:       %s\n", backendStr)
+
+	prevImgStr := "not found"
+	if info.PreviousImagesAvailable {
+		prevImgStr = "available"
+	}
+	fmt.Fprintf(stdout, "Previous images:         %s\n", prevImgStr)
+
+	if info.LastError != "" {
+		fmt.Fprintf(stdout, "Last recorded error:     %s\n", info.LastError)
+	}
+
+	fmt.Fprintf(stdout, "\nSuggested Action:\n")
+	fmt.Fprintf(stdout, "  %s\n", info.SuggestedAction)
+
+	return 0
+}
+
+func runRecoverResume(ctx context.Context, stdout, stderr io.Writer, stdin io.Reader, projDir, explicitFile, explicitEngine, cliBaseURL string, args []string, deps CLIDependencies) int {
+	flags := flag.NewFlagSet("recover resume", flag.ContinueOnError)
+	flags.SetOutput(stdout)
+	autoConfirm := flags.Bool("yes", false, "automatically confirm prompt")
+	autoConfirmShort := flags.Bool("y", false, "automatically confirm prompt")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	projectDir, err := filepath.Abs(projDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover resume: failed resolving project directory: %v\n", err)
+		return 1
+	}
+
+	fl, err := lock.Acquire(projectDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover resume: failed acquiring lock: %v\n", err)
+		return 1
+	}
+	defer fl.Release()
+
+	loadedCfg, _ := config.Load(projectDir)
+	persistedFile := ""
+	persistedEngine := ""
+	persistedURL := ""
+	if loadedCfg != nil {
+		persistedFile = loadedCfg.ComposeFile
+		persistedEngine = loadedCfg.Engine
+		persistedURL = loadedCfg.BaseURL
+	}
+
+	composeRes, err := compose.Resolve(compose.ResolveOptions{
+		ProjectDir:    projectDir,
+		ExplicitFile:  explicitFile,
+		PersistedFile: persistedFile,
+		IsMutating:    true,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover resume: %v\n", err)
+		return 1
+	}
+	composeFile := composeRes.SelectedFile
+
+	eng, err := engine.Resolve(ctx, deps.Runner, engine.ResolveOptions{
+		ProjectDir:      projectDir,
+		ComposeFile:     composeFile,
+		ExplicitEngine:  explicitEngine,
+		PersistedEngine: persistedEngine,
+		IsMutating:      true,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover resume: %v\n", err)
+		return 1
+	}
+
+	envVars, _ := dotenv.ParseFile(filepath.Join(projectDir, ".env"))
+	resolvedURL, _ := discovery.ResolveBaseURL(ctx, discovery.ResolveBaseURLOptions{
+		ExplicitURL:  cliBaseURL,
+		PersistedURL: persistedURL,
+		Engine:       eng,
+		ProjectDir:   projectDir,
+		ComposeFile:  composeFile,
+		EnvVars:      envVars,
+	})
+
+	confirm := *autoConfirm || *autoConfirmShort
+	res, err := recovery.Resume(ctx, eng, recovery.ResumeOptions{
+		ProjectDir:  projectDir,
+		ComposeFile: composeFile,
+		BaseURL:     resolvedURL,
+		AutoConfirm: confirm,
+		Stdout:      stdout,
+		Stderr:      stderr,
+		Stdin:       stdin,
+	})
+	if err != nil {
+		if errors.Is(err, recovery.ErrCancelled) {
+			fmt.Fprintf(stdout, "Operation cancelled by operator.\n")
+			return 0
+		}
+		fmt.Fprintf(stderr, "ytmdlctl recover resume: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "Successfully resumed deployment of version %s (schema %d)\n", res.TargetVersion, res.TargetSchema)
+	return 0
+}
+
+func runRecoverRestore(ctx context.Context, stdout, stderr io.Writer, stdin io.Reader, projDir, explicitFile, explicitEngine, cliBaseURL string, args []string, deps CLIDependencies) int {
+	flags := flag.NewFlagSet("recover restore", flag.ContinueOnError)
+	flags.SetOutput(stdout)
+	autoConfirm := flags.Bool("yes", false, "automatically confirm destructive restore prompt")
+	autoConfirmShort := flags.Bool("y", false, "automatically confirm destructive restore prompt")
+	backupDir := flags.String("backup-dir", "", "backup directory (defaults to backups/)")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	projectDir, err := filepath.Abs(projDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover restore: failed resolving project directory: %v\n", err)
+		return 1
+	}
+
+	fl, err := lock.Acquire(projectDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover restore: failed acquiring lock: %v\n", err)
+		return 1
+	}
+	defer fl.Release()
+
+	loadedCfg, _ := config.Load(projectDir)
+	persistedFile := ""
+	persistedEngine := ""
+	persistedURL := ""
+	if loadedCfg != nil {
+		persistedFile = loadedCfg.ComposeFile
+		persistedEngine = loadedCfg.Engine
+		persistedURL = loadedCfg.BaseURL
+	}
+
+	composeRes, err := compose.Resolve(compose.ResolveOptions{
+		ProjectDir:    projectDir,
+		ExplicitFile:  explicitFile,
+		PersistedFile: persistedFile,
+		IsMutating:    true,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover restore: %v\n", err)
+		return 1
+	}
+	composeFile := composeRes.SelectedFile
+
+	eng, err := engine.Resolve(ctx, deps.Runner, engine.ResolveOptions{
+		ProjectDir:      projectDir,
+		ComposeFile:     composeFile,
+		ExplicitEngine:  explicitEngine,
+		PersistedEngine: persistedEngine,
+		IsMutating:      true,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl recover restore: %v\n", err)
+		return 1
+	}
+
+	envVars, _ := dotenv.ParseFile(filepath.Join(projectDir, ".env"))
+	resolvedURL, _ := discovery.ResolveBaseURL(ctx, discovery.ResolveBaseURLOptions{
+		ExplicitURL:  cliBaseURL,
+		PersistedURL: persistedURL,
+		Engine:       eng,
+		ProjectDir:   projectDir,
+		ComposeFile:  composeFile,
+		EnvVars:      envVars,
+	})
+
+	confirm := *autoConfirm || *autoConfirmShort
+	res, err := recovery.Restore(ctx, eng, recovery.RestoreOptions{
+		ProjectDir:  projectDir,
+		ComposeFile: composeFile,
+		BaseURL:     resolvedURL,
+		BackupDir:   *backupDir,
+		AutoConfirm: confirm,
+		Stdout:      stdout,
+		Stderr:      stderr,
+		Stdin:       stdin,
+	})
+	if err != nil {
+		if errors.Is(err, recovery.ErrCancelled) {
+			fmt.Fprintf(stdout, "Operation cancelled by operator.\n")
+			return 0
+		}
+		fmt.Fprintf(stderr, "ytmdlctl recover restore: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "Database recovery complete! Version restored: %s (schema %d)\n", res.RestoredVersion, res.RestoredSchema)
 	return 0
 }

@@ -13,7 +13,13 @@ import (
 )
 
 // CurrentManifestVersion is the supported schema version.
-const CurrentManifestVersion = 1
+const CurrentManifestVersion = 2
+
+// Supported manifest versions: 1 and 2.
+const (
+	ManifestVersion1 = 1
+	ManifestVersion2 = 2
+)
 
 // MaxManifestBytes bounds the size of a release manifest asset.
 const MaxManifestBytes = 64 * 1024
@@ -24,11 +30,20 @@ const (
 	ExpectedFrontendRepo = "ghcr.io/der-felix/ytmdl-frontend"
 )
 
+// UpdateClassification defines supported update classifications.
+type UpdateClassification string
+
+const (
+	UpdateSchemaNeutral UpdateClassification = "schema_neutral"
+	UpdateSchemaForward UpdateClassification = "schema_forward"
+)
+
 // RollbackClassification defines supported rollback classifications.
 type RollbackClassification string
 
 const (
-	RollbackSchemaNeutral RollbackClassification = "schema_neutral"
+	RollbackSchemaNeutral         RollbackClassification = "schema_neutral"
+	RollbackBackupRestoreRequired RollbackClassification = "backup_restore_required"
 )
 
 var (
@@ -49,7 +64,9 @@ type Manifest struct {
 	ReleaseVersion         string                 `json:"release_version"`
 	ReleaseTag             string                 `json:"release_tag"`
 	TargetSchema           int                    `json:"target_schema"`
+	UpdateClassification   UpdateClassification   `json:"update_classification,omitempty"`
 	RollbackClassification RollbackClassification `json:"rollback_classification"`
+	SupportedSourceSchemas []int                  `json:"supported_source_schemas,omitempty"`
 	MinUpgradeFrom         string                 `json:"min_upgrade_from"`
 	Images                 struct {
 		Backend  ImageSpec `json:"backend"`
@@ -86,8 +103,8 @@ func Decode(data []byte) (*Manifest, error) {
 
 // Validate executes all integrity, schema, tag consistency, and allowlist checks on the manifest.
 func (m *Manifest) Validate(gitHubTag string) error {
-	if m.ManifestVersion != CurrentManifestVersion {
-		return fmt.Errorf("unsupported manifest version %d (expected %d)", m.ManifestVersion, CurrentManifestVersion)
+	if m.ManifestVersion != ManifestVersion1 && m.ManifestVersion != ManifestVersion2 {
+		return fmt.Errorf("unsupported manifest version %d (expected 1 or 2)", m.ManifestVersion)
 	}
 
 	if m.ReleaseVersion == "" || m.ReleaseTag == "" {
@@ -127,11 +144,44 @@ func (m *Manifest) Validate(gitHubTag string) error {
 		return fmt.Errorf("invalid digest syntax for frontend: %q", m.Images.Frontend.Digest)
 	}
 
-	switch m.RollbackClassification {
-	case RollbackSchemaNeutral:
-		// Valid
-	default:
-		return fmt.Errorf("unsupported rollback classification %q", m.RollbackClassification)
+	if m.ManifestVersion == ManifestVersion1 {
+		if m.RollbackClassification != RollbackSchemaNeutral {
+			return fmt.Errorf("unsupported rollback classification %q for manifest version 1", m.RollbackClassification)
+		}
+		if m.UpdateClassification != "" && m.UpdateClassification != UpdateSchemaNeutral {
+			return fmt.Errorf("unsupported update classification %q for manifest version 1", m.UpdateClassification)
+		}
+	} else if m.ManifestVersion == ManifestVersion2 {
+		switch m.UpdateClassification {
+		case UpdateSchemaForward:
+			if m.RollbackClassification != RollbackBackupRestoreRequired {
+				return fmt.Errorf("schema_forward update requires rollback_classification %q, got %q", RollbackBackupRestoreRequired, m.RollbackClassification)
+			}
+			if len(m.SupportedSourceSchemas) == 0 {
+				return errors.New("schema_forward manifest requires non-empty supported_source_schemas")
+			}
+			has8 := false
+			for _, src := range m.SupportedSourceSchemas {
+				if src >= m.TargetSchema {
+					return fmt.Errorf("supported source schema %d must be strictly less than target_schema %d", src, m.TargetSchema)
+				}
+				if src == 8 {
+					has8 = true
+				}
+			}
+			if m.TargetSchema != 9 {
+				return fmt.Errorf("unsupported target_schema %d for v0.17 schema_forward (expected 9)", m.TargetSchema)
+			}
+			if !has8 {
+				return fmt.Errorf("supported_source_schemas must contain 8 for v0.17 schema_forward update")
+			}
+		case UpdateSchemaNeutral:
+			if m.RollbackClassification != RollbackSchemaNeutral {
+				return fmt.Errorf("schema_neutral update requires rollback_classification %q, got %q", RollbackSchemaNeutral, m.RollbackClassification)
+			}
+		default:
+			return fmt.Errorf("unsupported update classification %q for manifest version 2", m.UpdateClassification)
+		}
 	}
 
 	if m.MinUpgradeFrom == "" {
@@ -167,10 +217,27 @@ func (m *Manifest) Validate(gitHubTag string) error {
 	return nil
 }
 
+// IsSchemaForward returns whether this manifest represents a forward schema migration.
+func (m *Manifest) IsSchemaForward() bool {
+	return m.UpdateClassification == UpdateSchemaForward || m.RollbackClassification == RollbackBackupRestoreRequired
+}
+
 // ValidateSchemaCompatibility verifies semantic consistency between rollback classification and current schema.
 func (m *Manifest) ValidateSchemaCompatibility(currentSchema int) error {
+	if currentSchema <= 0 {
+		return nil
+	}
+	if m.IsSchemaForward() {
+		for _, src := range m.SupportedSourceSchemas {
+			if src == currentSchema {
+				return nil
+			}
+		}
+		return fmt.Errorf("incompatible schema: current schema %d is not in supported source schemas %v for schema_forward update", currentSchema, m.SupportedSourceSchemas)
+	}
+
 	if m.RollbackClassification == RollbackSchemaNeutral {
-		if currentSchema > 0 && m.TargetSchema != currentSchema {
+		if m.TargetSchema != currentSchema {
 			return fmt.Errorf("inconsistent manifest: schema_neutral rollback requires target_schema %d to match current_schema %d", m.TargetSchema, currentSchema)
 		}
 	}

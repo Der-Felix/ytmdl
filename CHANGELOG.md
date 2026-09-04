@@ -2,6 +2,29 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.17.0 — 2026-09-04
+
+### Added
+
+- **Canonical Artist Identity (Schema 9):** Decoupled internal artist identity from external provider IDs using stable UUIDv4 identifiers in `artists.id`.
+- **Multi-Provider Source Preservation:** Introduced `artist_sources` table mapping canonical artists to multiple external providers (Spotify, YouTube Music, Deezer) losslessly with upstream provenance and verification tracking.
+- **Artist Management CLI Commands:**
+  - `ytmdlctl reconcile-artists`: Reconciles artist metadata across multiple providers with dry-run support.
+  - `ytmdlctl merge-artists`: Safely consolidates duplicate artist entries into a canonical entity with complete relationship re-linking.
+- **Release Manifest v2:** Extended `release-manifest.json` specification supporting `manifest_version: 2`, `update_classification: schema_forward`, `rollback_classification: backup_restore_required`, and `supported_source_schemas: [8]`.
+- **Quiescent Pre-Migration Backups:** Enhanced `ytmdlctl update` to drain active jobs, stop old backend services, and capture a verified PostgreSQL custom archive (`pg_dump -Fc`) before executing database migrations.
+- **Disaster Recovery Suite (`ytmdlctl recover`):**
+  - `ytmdlctl recover status`: Inspects current state, failure classification, active schema, and pre-migration backup location.
+  - `ytmdlctl recover resume`: Re-attempts cutover and health validation without re-executing completed migrations.
+  - `ytmdlctl recover restore`: Restores the verified pre-migration backup via isolated temporary database swap (`<db>_restore_tmp`) and safely rolls back to the previous Schema 8 release.
+
+### Security / Safety
+
+- **Core Safety Law Enforcement:** Automatic rollback is strictly prohibited once database schema mutations commence. If a post-migration failure occurs, the system transitions into `RECOVERY_REQUIRED` to guarantee old Schema 8 backends are never started against Schema 9 databases.
+- **Isolated Database Restore Swaps:** Database restoration in `ytmdlctl recover restore` performs `pg_restore` into a temporary staging database before atomically swapping to the live database name, preventing partial or corrupted restore states.
+- **Deterministic State Tracking v2:** Durable state transitions (`PREPARED` → `MUTATING` → `SUCCESS` / `RECOVERY_REQUIRED`) recorded in `.ytmdl/update-state.json` under exclusive host locks.
+- **PostgreSQL 18 Compatibility:** Continuous integration and deployment verified against PostgreSQL 18.
+
 ## 0.16.0 — 2026-09-04
 
 ### Added

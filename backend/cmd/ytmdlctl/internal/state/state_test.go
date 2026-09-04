@@ -93,13 +93,17 @@ func TestInterruptedStatuses(t *testing.T) {
 		interrupted bool
 	}{
 		{state.StatusIdle, false},
+		{state.StatusQuiescing, true},
 		{state.StatusPrepared, true},
+		{state.StatusMigrating, true},
 		{state.StatusMutating, true},
 		{state.StatusVerifying, true},
 		{state.StatusSuccess, false},
 		{state.StatusRollbackInProgress, true},
 		{state.StatusRolledBack, false},
 		{state.StatusRecoveryRequired, false},
+		{state.StatusRecoveryInProgress, true},
+		{state.StatusRecovered, false},
 	}
 
 	for _, tc := range cases {
@@ -126,7 +130,7 @@ func TestLoadUnknownStatus(t *testing.T) {
 	tmpDir := t.TempDir()
 	dotDir := filepath.Join(tmpDir, ".ytmdl")
 	_ = os.MkdirAll(dotDir, 0700)
-	_ = os.WriteFile(filepath.Join(dotDir, "update-state.json"), []byte(`{"state_version": 1, "status": "bogus_status"}`), 0600)
+	_ = os.WriteFile(filepath.Join(dotDir, "update-state.json"), []byte(`{"state_version": 2, "status": "bogus_status"}`), 0600)
 
 	_, err := state.Load(tmpDir)
 	if !errors.Is(err, state.ErrUnknownStatus) {
@@ -151,12 +155,25 @@ func TestStateTransitions(t *testing.T) {
 		from state.Status
 		to   state.Status
 	}{
+		{state.StatusIdle, state.StatusQuiescing},
 		{state.StatusIdle, state.StatusPrepared},
+		{state.StatusSuccess, state.StatusQuiescing},
 		{state.StatusSuccess, state.StatusPrepared},
 		{state.StatusSuccess, state.StatusRollbackInProgress},
+		{state.StatusRolledBack, state.StatusQuiescing},
 		{state.StatusRolledBack, state.StatusPrepared},
+		{state.StatusRecovered, state.StatusQuiescing},
+		{state.StatusRecovered, state.StatusPrepared},
+		{state.StatusQuiescing, state.StatusPrepared},
+		{state.StatusQuiescing, state.StatusRollbackInProgress},
+		{state.StatusQuiescing, state.StatusRolledBack},
+		{state.StatusPrepared, state.StatusMigrating},
 		{state.StatusPrepared, state.StatusMutating},
 		{state.StatusPrepared, state.StatusRolledBack},
+		{state.StatusPrepared, state.StatusRollbackInProgress},
+		{state.StatusMigrating, state.StatusVerifying},
+		{state.StatusMigrating, state.StatusRollbackInProgress},
+		{state.StatusMigrating, state.StatusRecoveryRequired},
 		{state.StatusMutating, state.StatusVerifying},
 		{state.StatusMutating, state.StatusRollbackInProgress},
 		{state.StatusMutating, state.StatusRecoveryRequired},
@@ -165,7 +182,11 @@ func TestStateTransitions(t *testing.T) {
 		{state.StatusVerifying, state.StatusRecoveryRequired},
 		{state.StatusRollbackInProgress, state.StatusRolledBack},
 		{state.StatusRollbackInProgress, state.StatusRecoveryRequired},
+		{state.StatusRecoveryRequired, state.StatusRecoveryInProgress},
 		{state.StatusRecoveryRequired, state.StatusRollbackInProgress},
+		{state.StatusRecoveryInProgress, state.StatusSuccess},
+		{state.StatusRecoveryInProgress, state.StatusRecovered},
+		{state.StatusRecoveryInProgress, state.StatusRecoveryRequired},
 	}
 
 	for _, tc := range legal {
@@ -184,8 +205,10 @@ func TestStateTransitions(t *testing.T) {
 	}{
 		{state.StatusIdle, state.StatusMutating},
 		{state.StatusIdle, state.StatusSuccess},
+		{state.StatusQuiescing, state.StatusSuccess},
 		{state.StatusPrepared, state.StatusSuccess},
 		{state.StatusPrepared, state.StatusRecoveryRequired},
+		{state.StatusMigrating, state.StatusSuccess},
 		{state.StatusMutating, state.StatusSuccess},
 		{state.StatusVerifying, state.StatusPrepared},
 		{state.StatusSuccess, state.StatusMutating},
@@ -193,6 +216,7 @@ func TestStateTransitions(t *testing.T) {
 		{state.StatusRolledBack, state.StatusMutating},
 		{state.StatusRecoveryRequired, state.StatusSuccess},
 		{state.StatusRecoveryRequired, state.StatusRolledBack},
+		{state.StatusRecoveryInProgress, state.StatusPrepared},
 	}
 
 	for _, tc := range illegal {

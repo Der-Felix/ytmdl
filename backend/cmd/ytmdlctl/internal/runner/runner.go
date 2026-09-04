@@ -183,9 +183,17 @@ type FakeProcessRunner struct {
 	mu        sync.Mutex
 	calls     []FakeCall
 	responses map[string]*fakeResponse
+	sequences map[string][]*fakeResponse
+	prefixes  map[string][]*prefixResponse
 }
 
 type fakeResponse struct {
+	result *RunResult
+	err    error
+}
+
+type prefixResponse struct {
+	prefix string
 	result *RunResult
 	err    error
 }
@@ -194,6 +202,8 @@ type fakeResponse struct {
 func NewFake() *FakeProcessRunner {
 	return &FakeProcessRunner{
 		responses: make(map[string]*fakeResponse),
+		sequences: make(map[string][]*fakeResponse),
+		prefixes:  make(map[string][]*prefixResponse),
 	}
 }
 
@@ -210,6 +220,27 @@ func (f *FakeProcessRunner) Register(executable string, args []string, res *RunR
 		result: res,
 		err:    err,
 	}
+}
+
+// RegisterSequence stubs multiple responses for an exact command invocation that are returned in order.
+func (f *FakeProcessRunner) RegisterSequence(executable string, args []string, resps ...*RunResult) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := Key(executable, args...)
+	for _, r := range resps {
+		f.sequences[key] = append(f.sequences[key], &fakeResponse{result: r})
+	}
+}
+
+// RegisterPrefix stubs a response when command invocation starts with a given prefix.
+func (f *FakeProcessRunner) RegisterPrefix(executable, prefix string, res *RunResult, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prefixes[executable] = append(f.prefixes[executable], &prefixResponse{
+		prefix: prefix,
+		result: res,
+		err:    err,
+	})
 }
 
 // Run looks up registered response or returns an error.
@@ -231,8 +262,28 @@ func (f *FakeProcessRunner) Run(_ context.Context, req RunRequest) (*RunResult, 
 	})
 
 	key := Key(req.Executable, req.Args...)
-	resp, ok := f.responses[key]
-	if !ok {
+	var resp *fakeResponse
+
+	if seq, ok := f.sequences[key]; ok && len(seq) > 0 {
+		resp = seq[0]
+		if len(seq) > 1 {
+			f.sequences[key] = seq[1:]
+		} else {
+			delete(f.sequences, key)
+		}
+	} else if r, ok := f.responses[key]; ok {
+		resp = r
+	} else if prefList, ok := f.prefixes[req.Executable]; ok {
+		cmdStr := strings.Join(req.Args, " ")
+		for _, p := range prefList {
+			if strings.HasPrefix(cmdStr, p.prefix) || strings.HasPrefix(key, p.prefix) {
+				resp = &fakeResponse{result: p.result, err: p.err}
+				break
+			}
+		}
+	}
+
+	if resp == nil {
 		return nil, fmt.Errorf("fake runner: unexpected call %q", key)
 	}
 

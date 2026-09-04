@@ -95,6 +95,9 @@ func (f *fakeCatalog) FindTrack(context.Context, music.Track, int) (*music.Track
 func (f *fakeCatalog) PersistDownload(context.Context, music.LibraryEntry, int) (music.StoredEntry, error) {
 	return music.StoredEntry{}, nil
 }
+func (f *fakeCatalog) FindArtistBySource(context.Context, string, string) (*music.Artist, error) {
+	return nil, nil
+}
 
 type fakeFiles struct{}
 

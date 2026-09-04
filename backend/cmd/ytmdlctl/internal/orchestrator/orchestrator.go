@@ -251,10 +251,11 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 		return nil, fmt.Errorf("release manifest validation failed: %w", err)
 	}
 
-	// Schema neutrality policy
-	if targetManifest.RollbackClassification != manifest.RollbackSchemaNeutral || targetManifest.TargetSchema != schemaBefore {
-		return nil, fmt.Errorf("managed update blocked: target release requires schema migration (%d -> %d, classification %q); automatic migration rollback is unsupported in v0.16", schemaBefore, targetManifest.TargetSchema, targetManifest.RollbackClassification)
+	// Schema compatibility validation
+	if err := targetManifest.ValidateSchemaCompatibility(schemaBefore); err != nil {
+		return nil, fmt.Errorf("managed update blocked: %w", err)
 	}
+	isSchemaForward := targetManifest.IsSchemaForward()
 
 	// Verify required environment variables
 	for _, reqKey := range targetManifest.RequiredEnv {
@@ -271,7 +272,14 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 	fmt.Fprintf(stdout, "Database schema: %d -> %d (%s)\n", schemaBefore, targetManifest.TargetSchema, targetManifest.RollbackClassification)
 	fmt.Fprintf(stdout, "Storage Guard:   VERIFIED\n")
 	fmt.Fprintf(stdout, "Active jobs:     %d\n", activeJobs)
-	fmt.Fprintf(stdout, "Database backup: enabled\n\n")
+	fmt.Fprintf(stdout, "Database backup: enabled\n")
+	if isSchemaForward {
+		fmt.Fprintf(stdout, "\nWARNING: SCHEMA-FORWARD UPDATE (%d -> %d)\n", schemaBefore, targetManifest.TargetSchema)
+		fmt.Fprintf(stdout, "- Backend service will be stopped prior to migration to ensure DB quiescence.\n")
+		fmt.Fprintf(stdout, "- Once database schema reaches %d, automatic application rollback is disabled.\n", targetManifest.TargetSchema)
+		fmt.Fprintf(stdout, "- If post-migration issues arise, explicit 'ytmdlctl recover' workflows are provided.\n")
+	}
+	fmt.Fprintf(stdout, "\n")
 
 	if !opts.AutoConfirm {
 		fmt.Fprintf(stdout, "Proceed with update? [y/N]: ")
@@ -323,32 +331,12 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 		return nil, fmt.Errorf("target image staging failed: %w", err)
 	}
 
-	// 10. Transactional Database Backup
-	backupCreator := deps.BackupCreator
-	if backupCreator == nil {
-		backupCreator = backup.CreateBackup
-	}
-	backupRes, err := backupCreator(ctx, eng, backup.BackupOptions{
-		ProjectDir:     opts.ProjectDir,
-		ComposeFile:    opts.ComposeFile,
-		BackupDir:      opts.BackupDir,
-		CurrentVersion: configuredVersion,
-		TargetVersion:  targetVersion,
-		DBUser:         dbUser,
-		DBName:         dbName,
-		SkipLock:       true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("pre-update database backup failed: %w", err)
-	}
-
-	// 11. Persist PREPARED state
+	// 10. Database Backup & Quiescence Preparation
 	opID := generateOperationID()
 	now := time.Now().UTC()
 	st = &state.State{
 		StateVersion:            state.CurrentStateVersion,
 		OperationID:             opID,
-		Status:                  state.StatusPrepared,
 		StartedAt:               now,
 		UpdatedAt:               now,
 		CurrentVersion:          configuredVersion,
@@ -358,7 +346,6 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 		BaseURL:                 opts.BaseURL,
 		SchemaBefore:            schemaBefore,
 		TargetSchema:            targetManifest.TargetSchema,
-		BackupPath:              backupRes.RelativePath,
 		PreviousBackendImage:    prevBackendImg,
 		PreviousBackendImageID:  prevBackendID,
 		PreviousBackendDigest:   primaryDigest(prevBackendDigests),
@@ -373,16 +360,92 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 		TargetFrontendDigest:    stageRes.FrontendDigest,
 		RollbackClassification:  string(targetManifest.RollbackClassification),
 	}
-	if err := st.Save(opts.ProjectDir); err != nil {
-		return nil, fmt.Errorf("failed persisting PREPARED state: %w", err)
+
+	backupCreator := deps.BackupCreator
+	if backupCreator == nil {
+		backupCreator = backup.CreateBackup
 	}
 
-	// 12. Transition to MUTATING (durable before .env write!)
-	if err := st.TransitionTo(state.StatusMutating); err != nil {
-		return nil, err
-	}
-	if err := st.Save(opts.ProjectDir); err != nil {
-		return nil, fmt.Errorf("failed persisting MUTATING state: %w", err)
+	if isSchemaForward {
+		// 10a. Transition to QUIESCING
+		st.Status = state.StatusQuiescing
+		if err := st.Save(opts.ProjectDir); err != nil {
+			return nil, fmt.Errorf("failed persisting QUIESCING state: %w", err)
+		}
+
+		// Stop backend to prevent active database writes
+		fmt.Fprintf(stdout, "Stopping backend service to achieve database writer quiescence...\n")
+		stopRes, stopErr := eng.StopServices(ctx, opts.ProjectDir, opts.ComposeFile, "backend")
+		if stopErr != nil || (stopRes != nil && stopRes.ExitCode != 0) {
+			return nil, handleMutationFailure(eng, deps, opts, st, fmt.Errorf("failed stopping backend service: %v", stopErr))
+		}
+
+		// Verify database quiescence
+		if qErr := discovery.VerifyDBQuiescence(ctx, eng, opts.ProjectDir, opts.ComposeFile, dbUser, dbName); qErr != nil {
+			return nil, handleMutationFailure(eng, deps, opts, st, fmt.Errorf("pre-migration database quiescence check failed: %w", qErr))
+		}
+
+		// Take mandatory pre-migration backup
+		backupRes, err := backupCreator(ctx, eng, backup.BackupOptions{
+			ProjectDir:     opts.ProjectDir,
+			ComposeFile:    opts.ComposeFile,
+			BackupDir:      opts.BackupDir,
+			CurrentVersion: configuredVersion,
+			TargetVersion:  targetVersion,
+			DBUser:         dbUser,
+			DBName:         dbName,
+			SkipLock:       true,
+		})
+		if err != nil {
+			return nil, handleMutationFailure(eng, deps, opts, st, fmt.Errorf("pre-migration database backup failed: %w", err))
+		}
+		st.BackupPath = backupRes.RelativePath
+
+		// Transition to PREPARED
+		if err := st.TransitionTo(state.StatusPrepared); err != nil {
+			return nil, err
+		}
+		if err := st.Save(opts.ProjectDir); err != nil {
+			return nil, fmt.Errorf("failed persisting PREPARED state: %w", err)
+		}
+
+		// Transition to MIGRATING
+		if err := st.TransitionTo(state.StatusMigrating); err != nil {
+			return nil, err
+		}
+		if err := st.Save(opts.ProjectDir); err != nil {
+			return nil, fmt.Errorf("failed persisting MIGRATING state: %w", err)
+		}
+	} else {
+		// Schema-neutral path
+		backupRes, err := backupCreator(ctx, eng, backup.BackupOptions{
+			ProjectDir:     opts.ProjectDir,
+			ComposeFile:    opts.ComposeFile,
+			BackupDir:      opts.BackupDir,
+			CurrentVersion: configuredVersion,
+			TargetVersion:  targetVersion,
+			DBUser:         dbUser,
+			DBName:         dbName,
+			SkipLock:       true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("pre-update database backup failed: %w", err)
+		}
+		st.BackupPath = backupRes.RelativePath
+
+		// Persist PREPARED state
+		st.Status = state.StatusPrepared
+		if err := st.Save(opts.ProjectDir); err != nil {
+			return nil, fmt.Errorf("failed persisting PREPARED state: %w", err)
+		}
+
+		// Transition to MUTATING (durable before .env write!)
+		if err := st.TransitionTo(state.StatusMutating); err != nil {
+			return nil, err
+		}
+		if err := st.Save(opts.ProjectDir); err != nil {
+			return nil, fmt.Errorf("failed persisting MUTATING state: %w", err)
+		}
 	}
 
 	// 13. Surgically update .env
@@ -410,7 +473,7 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 	_ = st.Save(opts.ProjectDir)
 
 	// 16. Verify backend acceptance
-	if err := verifyBackendAcceptance(ctx, eng, deps, opts, targetVersion, stageRes.BackendDigest, schemaBefore, guardID, musicPath); err != nil {
+	if err := verifyBackendAcceptance(ctx, eng, deps, opts, targetVersion, stageRes.BackendDigest, targetManifest.TargetSchema, guardID, musicPath); err != nil {
 		return nil, handleMutationFailure(eng, deps, opts, st, err)
 	}
 
@@ -452,13 +515,13 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 	fmt.Fprintf(stdout, "Previous version: %s\n", configuredVersion)
 	fmt.Fprintf(stdout, "Current version:  %s\n", targetVersion)
 	fmt.Fprintf(stdout, "Database schema:  %d\n", targetManifest.TargetSchema)
-	fmt.Fprintf(stdout, "Backup retained:  %s\n", backupRes.RelativePath)
+	fmt.Fprintf(stdout, "Backup retained:  %s\n", st.BackupPath)
 
 	return &UpdateResult{
 		PreviousVersion: configuredVersion,
 		CurrentVersion:  targetVersion,
 		TargetSchema:    targetManifest.TargetSchema,
-		BackupPath:      backupRes.RelativePath,
+		BackupPath:      st.BackupPath,
 	}, nil
 }
 
@@ -594,16 +657,6 @@ func verifyFrontendAcceptance(ctx context.Context, eng engine.Engine, deps Depen
 
 // handleMutationFailure analyzes failures during MUTATING/VERIFYING and triggers rollback or RECOVERY_REQUIRED.
 func handleMutationFailure(eng engine.Engine, deps Dependencies, opts UpdateOptions, st *state.State, triggerErr error) error {
-	errMsg := triggerErr.Error()
-
-	// Check if this was a critical unexpected schema drift
-	if strings.Contains(errMsg, "CRITICAL_SCHEMA_DRIFT") {
-		st.Status = state.StatusRecoveryRequired
-		st.LastError = redact.String(errMsg)
-		_ = st.Save(opts.ProjectDir)
-		return fmt.Errorf("%w: %s. Automatic rollback refused because database schema has changed. Database backup is preserved at %s", ErrRecoveryRequired, errMsg, st.BackupPath)
-	}
-
 	// Probe actual database schema to determine if schema-neutral rollback is safe
 	schemaChecker := deps.SchemaChecker
 	if schemaChecker == nil {
@@ -618,20 +671,24 @@ func handleMutationFailure(eng engine.Engine, deps Dependencies, opts UpdateOpti
 
 	currentSchema, err := schemaChecker(probeCtx, eng, opts.ProjectDir, opts.ComposeFile)
 	if err != nil || currentSchema != st.SchemaBefore {
+		// Stop any errant target backend container to prevent crash loops / unbounded writes
+		if eng != nil {
+			_, _ = eng.StopServices(context.Background(), opts.ProjectDir, opts.ComposeFile, "backend")
+		}
 		st.Status = state.StatusRecoveryRequired
-		st.LastError = redact.String(fmt.Sprintf("update failed (%v) and database schema cannot be verified (got %d, want %d): %v", triggerErr, currentSchema, st.SchemaBefore, err))
+		st.LastError = redact.String(fmt.Sprintf("update failed (%v); database schema cannot be rolled back automatically (actual: %d, schema_before: %d, err: %v)", triggerErr, currentSchema, st.SchemaBefore, err))
 		_ = st.Save(opts.ProjectDir)
-		return fmt.Errorf("%w: update failed (%v) and current DB schema is %d (expected %d). Automatic rollback refused to protect database integrity. Database backup is preserved at %s", ErrRecoveryRequired, triggerErr, currentSchema, st.SchemaBefore, st.BackupPath)
+		return fmt.Errorf("%w: update failed (%v) and database schema is %d (expected %d). Automatic rollback refused to protect database integrity. Run 'ytmdlctl recover status' for options. Database backup is preserved at %s", ErrRecoveryRequired, triggerErr, currentSchema, st.SchemaBefore, st.BackupPath)
 	}
 
 	// Schema is proven unchanged: execute automatic schema-neutral rollback
-	fmt.Fprintf(opts.Stderr, "Update failed: %v\nTriggering automatic schema-neutral rollback to %s...\n", triggerErr, st.CurrentVersion)
+	fmt.Fprintf(opts.Stderr, "Update failed: %v\nTriggering automatic schema-neutral rollback to %s (database schema unchanged at %d)...\n", triggerErr, st.CurrentVersion, currentSchema)
 	rbErr := executeRollback(context.Background(), eng, deps, opts.ProjectDir, opts.ComposeFile, opts.BaseURL, st, opts.Stdout, opts.Stderr)
 	if rbErr != nil {
 		st.Status = state.StatusRecoveryRequired
 		st.LastError = redact.String(fmt.Sprintf("automatic rollback failed: %v", rbErr))
 		_ = st.Save(opts.ProjectDir)
-		return fmt.Errorf("%w: update failed (%v) and automatic rollback failed (%v). Backup preserved at %s", ErrRecoveryRequired, triggerErr, rbErr, st.BackupPath)
+		return fmt.Errorf("%w: update failed (%v) and automatic rollback failed (%v). Run 'ytmdlctl recover status' for options. Backup preserved at %s", ErrRecoveryRequired, triggerErr, rbErr, st.BackupPath)
 	}
 
 	return fmt.Errorf("%w: update failed (%v); deployment restored to %s", ErrRolledBack, triggerErr, st.CurrentVersion)
@@ -660,6 +717,10 @@ func Rollback(ctx context.Context, eng engine.Engine, deps Dependencies, opts Ro
 		return nil, errors.New("no active or reversible transaction found in update-state.json")
 	}
 
+	if st.Status == state.StatusRecoveryRequired {
+		return nil, fmt.Errorf("automatic rollback blocked: system is in RECOVERY_REQUIRED state (%s). Run 'ytmdlctl recover status' for options", st.LastError)
+	}
+
 	// Rollback from PREPARED when no mutation occurred
 	if st.Status == state.StatusPrepared {
 		dotEnvPath := filepath.Join(opts.ProjectDir, ".env")
@@ -685,7 +746,7 @@ func Rollback(ctx context.Context, eng engine.Engine, deps Dependencies, opts Ro
 	}
 	currentSchema, err := schemaChecker(ctx, eng, opts.ProjectDir, opts.ComposeFile)
 	if err != nil || currentSchema != st.SchemaBefore {
-		return nil, fmt.Errorf("cannot rollback: database schema is %d, but transaction requires schema %d (err: %v); manual recovery required", currentSchema, st.SchemaBefore, err)
+		return nil, fmt.Errorf("cannot rollback: database schema is %d, but transaction requires schema %d (err: %v); manual recovery required. Run 'ytmdlctl recover status' for options", currentSchema, st.SchemaBefore, err)
 	}
 
 	// Verify previous images are locally present

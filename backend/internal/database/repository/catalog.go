@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ytdm/backend/internal/apperr"
+	"ytdm/backend/internal/artistidentity"
 	"ytdm/backend/internal/database"
 	"ytdm/backend/internal/discography"
 	"ytdm/backend/internal/matcher"
@@ -30,32 +31,162 @@ func (c *Catalog) UpsertArtist(ctx context.Context, artist music.Artist) (music.
 
 func upsertArtist(ctx context.Context, exec executor, artist music.Artist) (music.Artist, error) {
 	now := time.Now().UTC()
-	id := artist.ID
+	id := strings.TrimSpace(artist.ID)
+	provider := strings.TrimSpace(artist.Provider)
+	sourceID := strings.TrimSpace(artist.SourceID)
+	displayName := artist.DisplayName()
+	sortKey := matcher.NormalizeArtist(displayName)
+	imageURL := strings.TrimSpace(artist.ImageURL)
+	sourceKind := music.SourceKindExternal
+	if strings.HasPrefix(sourceID, "artist:") {
+		sourceKind = music.SourceKindLegacySynthetic
+	}
+
+	// 1. If explicit ID provided, check if that canonical artist exists.
+	if id != "" {
+		var existing music.Artist
+		err := exec.QueryRowContext(ctx, `
+			SELECT id, name, provider, source_id, source_url, image_url
+			FROM artists WHERE id = $1`, id).Scan(
+			&existing.ID, &existing.Name, &existing.Provider, &existing.SourceID,
+			&existing.SourceURL, &existing.ImageURL)
+		if err == nil && existing.ID != "" {
+			if existing.ImageURL == "" && imageURL != "" {
+				_, _ = exec.ExecContext(ctx, `UPDATE artists SET image_url = $1, updated_at = $2 WHERE id = $3`, imageURL, now, existing.ID)
+				existing.ImageURL = imageURL
+			}
+			if provider != "" && sourceID != "" {
+				_, _ = exec.ExecContext(ctx, `
+					INSERT INTO artist_sources (id, artist_id, provider, source_kind, source_id, source_url, is_primary, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, $5, $6, false, $7, $7)
+					ON CONFLICT (provider, source_id) DO UPDATE SET updated_at = excluded.updated_at`,
+					music.NewID(), existing.ID, provider, string(sourceKind), sourceID, artist.SourceURL, now)
+			}
+			return existing, nil
+		}
+	}
+
+	// 2. Check if (provider, source_id) already exists in artist_sources
+	if provider != "" && sourceID != "" {
+		var existing music.Artist
+		err := exec.QueryRowContext(ctx, `
+			SELECT a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url
+			FROM artists a
+			JOIN artist_sources s ON s.artist_id = a.id
+			WHERE s.provider = $1 AND s.source_id = $2
+			LIMIT 1`, provider, sourceID).Scan(
+			&existing.ID, &existing.Name, &existing.Provider, &existing.SourceID,
+			&existing.SourceURL, &existing.ImageURL)
+		if err == nil && existing.ID != "" {
+			if displayName != "" && displayName != music.UnknownArtist && displayName != existing.Name {
+				existing.Name = displayName
+				_, _ = exec.ExecContext(ctx, `UPDATE artists SET name = $1, sort_key = $2, updated_at = $3 WHERE id = $4`, displayName, sortKey, now, existing.ID)
+			}
+			if existing.ImageURL == "" && imageURL != "" {
+				_, _ = exec.ExecContext(ctx, `UPDATE artists SET image_url = $1, updated_at = $2 WHERE id = $3`, imageURL, now, existing.ID)
+				existing.ImageURL = imageURL
+			}
+			_, _ = exec.ExecContext(ctx, `
+				UPDATE artist_sources SET updated_at = $1 WHERE provider = $2 AND source_id = $3`, now, provider, sourceID)
+			return existing, nil
+		}
+
+		// Fallback check on artists for legacy compatibility before sources populated
+		err = exec.QueryRowContext(ctx, `
+			SELECT id, name, provider, source_id, source_url, image_url
+			FROM artists WHERE provider = $1 AND source_id = $2
+			LIMIT 1`, provider, sourceID).Scan(
+			&existing.ID, &existing.Name, &existing.Provider, &existing.SourceID,
+			&existing.SourceURL, &existing.ImageURL)
+		if err == nil && existing.ID != "" {
+			if displayName != "" && displayName != music.UnknownArtist && displayName != existing.Name {
+				existing.Name = displayName
+				_, _ = exec.ExecContext(ctx, `UPDATE artists SET name = $1, sort_key = $2, updated_at = $3 WHERE id = $4`, displayName, sortKey, now, existing.ID)
+			}
+			if existing.ImageURL == "" && imageURL != "" {
+				_, _ = exec.ExecContext(ctx, `UPDATE artists SET image_url = $1, updated_at = $2 WHERE id = $3`, imageURL, now, existing.ID)
+				existing.ImageURL = imageURL
+			}
+			_, _ = exec.ExecContext(ctx, `
+				INSERT INTO artist_sources (id, artist_id, provider, source_kind, source_id, source_url, is_primary, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, true, $7, $7)
+				ON CONFLICT (provider, source_id) DO UPDATE SET updated_at = excluded.updated_at`,
+				music.NewID(), existing.ID, provider, string(sourceKind), sourceID, artist.SourceURL, now)
+			return existing, nil
+		}
+	}
+
+	// 3. If synthetic source, check if matching subscription or canonical artist exists
+	if sourceKind == music.SourceKindLegacySynthetic && provider != "" {
+		var subProv, subSourceID, subImage string
+		err := exec.QueryRowContext(ctx, `
+			SELECT provider, artist_source_id, artist_image_url
+			FROM artist_subscriptions
+			WHERE provider = $1 AND LOWER(artist_name) = LOWER($2)
+			LIMIT 1`, provider, displayName).Scan(&subProv, &subSourceID, &subImage)
+		if err == nil && subSourceID != "" {
+			var subArtist music.Artist
+			errSub := exec.QueryRowContext(ctx, `
+				SELECT a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url
+				FROM artists a
+				JOIN artist_sources s ON s.artist_id = a.id
+				WHERE s.provider = $1 AND s.source_id = $2
+				LIMIT 1`, subProv, subSourceID).Scan(
+				&subArtist.ID, &subArtist.Name, &subArtist.Provider, &subArtist.SourceID,
+				&subArtist.SourceURL, &subArtist.ImageURL)
+			if errSub == nil && subArtist.ID != "" {
+				_, _ = exec.ExecContext(ctx, `
+					INSERT INTO artist_sources (id, artist_id, provider, source_kind, source_id, source_url, is_primary, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, $5, $6, false, $7, $7)
+					ON CONFLICT (provider, source_id) DO UPDATE SET updated_at = excluded.updated_at`,
+					music.NewID(), subArtist.ID, provider, string(sourceKind), sourceID, artist.SourceURL, now)
+				if subArtist.ImageURL == "" && subImage != "" {
+					subArtist.ImageURL = subImage
+					_, _ = exec.ExecContext(ctx, `UPDATE artists SET image_url = $1, updated_at = $2 WHERE id = $3`, subImage, now, subArtist.ID)
+				}
+				return subArtist, nil
+			}
+		}
+	}
+
+	// 4. Look up image from subscription if not provided
+	if imageURL == "" && provider != "" && sourceID != "" {
+		_ = exec.QueryRowContext(ctx, `
+			SELECT artist_image_url FROM artist_subscriptions
+			WHERE provider = $1 AND artist_source_id = $2
+			LIMIT 1`, provider, sourceID).Scan(&imageURL)
+	}
+
+	// 5. Create new canonical artist
 	if id == "" {
 		id = music.NewID()
 	}
 
-	row := exec.QueryRowContext(ctx, `
+	if _, err := exec.ExecContext(ctx, `
 		INSERT INTO artists (id, name, sort_key, provider, source_id, source_url, image_url, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
-		ON CONFLICT (provider, source_id) DO UPDATE SET
-			name       = excluded.name,
-			sort_key   = excluded.sort_key,
-			source_url = excluded.source_url,
-			image_url  = excluded.image_url,
-			updated_at = excluded.updated_at
-		RETURNING id`,
-		id, artist.DisplayName(), matcher.NormalizeArtist(artist.DisplayName()),
-		artist.Provider, artist.SourceID, artist.SourceURL, artist.ImageURL, now)
-
-	if err := row.Scan(&id); err != nil {
-		return music.Artist{}, wrapDB("upsert artist", err)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+		id, displayName, sortKey, provider, sourceID, artist.SourceURL, imageURL, now); err != nil {
+		return music.Artist{}, wrapDB("insert canonical artist", err)
 	}
+
+	if provider != "" && sourceID != "" {
+		if _, err := exec.ExecContext(ctx, `
+			INSERT INTO artist_sources (id, artist_id, provider, source_kind, source_id, source_url, is_primary, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, true, $7, $7)
+			ON CONFLICT (provider, source_id) DO UPDATE SET
+				artist_id = excluded.artist_id,
+				updated_at = excluded.updated_at`,
+			music.NewID(), id, provider, string(sourceKind), sourceID, artist.SourceURL, now); err != nil {
+			return music.Artist{}, wrapDB("insert artist source", err)
+		}
+	}
+
 	artist.ID = id
+	artist.ImageURL = imageURL
 	return artist, nil
 }
 
-// GetArtist loads an artist by internal id.
+// GetArtist loads an artist by internal id including attached sources.
 func (c *Catalog) GetArtist(ctx context.Context, id string) (*music.Artist, error) {
 	row := c.db.QueryRowContext(ctx, `
 		SELECT id, name, provider, source_id, source_url, image_url
@@ -68,19 +199,86 @@ func (c *Catalog) GetArtist(ctx context.Context, id string) (*music.Artist, erro
 		}
 		return nil, wrapDB("get artist", err)
 	}
+
+	sources, err := c.GetArtistSources(ctx, id)
+	if err == nil {
+		a.Sources = sources
+	}
 	return &a, nil
+}
+
+// GetArtistSources returns all provider identities attached to an artist.
+func (c *Catalog) GetArtistSources(ctx context.Context, artistID string) ([]music.ArtistSource, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT id, artist_id, provider, source_kind, source_id, source_url, is_primary, created_at, updated_at
+		FROM artist_sources WHERE artist_id = $1
+		ORDER BY is_primary DESC, created_at ASC`, artistID)
+	if err != nil {
+		return nil, wrapDB("get artist sources", err)
+	}
+	defer rows.Close()
+
+	var sources []music.ArtistSource
+	for rows.Next() {
+		var s music.ArtistSource
+		if err := rows.Scan(&s.ID, &s.ArtistID, &s.Provider, &s.SourceKind, &s.SourceID, &s.SourceURL, &s.IsPrimary, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, wrapDB("scan artist source", err)
+		}
+		sources = append(sources, s)
+	}
+	return sources, rows.Err()
+}
+
+// AddArtistSource links a new provider source to a canonical artist.
+func (c *Catalog) AddArtistSource(ctx context.Context, source music.ArtistSource) error {
+	now := time.Now().UTC()
+	if source.ID == "" {
+		source.ID = music.NewID()
+	}
+	kind := string(source.SourceKind)
+	if kind == "" {
+		if strings.HasPrefix(source.SourceID, "artist:") {
+			kind = string(music.SourceKindLegacySynthetic)
+		} else {
+			kind = string(music.SourceKindExternal)
+		}
+	}
+	_, err := c.db.ExecContext(ctx, `
+		INSERT INTO artist_sources (id, artist_id, provider, source_kind, source_id, source_url, is_primary, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+		ON CONFLICT (provider, source_id) DO UPDATE SET
+			artist_id = excluded.artist_id,
+			source_url = CASE WHEN excluded.source_url <> '' THEN excluded.source_url ELSE artist_sources.source_url END,
+			updated_at = excluded.updated_at`,
+		source.ID, source.ArtistID, source.Provider, kind, source.SourceID, source.SourceURL, source.IsPrimary, now)
+	if err != nil {
+		return wrapDB("add artist source", err)
+	}
+	return nil
 }
 
 // FindArtistBySource looks an artist up by its provider identity.
 func (c *Catalog) FindArtistBySource(ctx context.Context, provider, sourceID string) (*music.Artist, error) {
 	row := c.db.QueryRowContext(ctx, `
-		SELECT id, name, provider, source_id, source_url, image_url
-		FROM artists WHERE provider = $1 AND source_id = $2`, provider, sourceID)
+		SELECT a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url
+		FROM artists a
+		JOIN artist_sources s ON s.artist_id = a.id
+		WHERE s.provider = $1 AND s.source_id = $2
+		LIMIT 1`, provider, sourceID)
 
 	var a music.Artist
 	if err := row.Scan(&a.ID, &a.Name, &a.Provider, &a.SourceID, &a.SourceURL, &a.ImageURL); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+			fallback := c.db.QueryRowContext(ctx, `
+				SELECT id, name, provider, source_id, source_url, image_url
+				FROM artists WHERE provider = $1 AND source_id = $2`, provider, sourceID)
+			if fErr := fallback.Scan(&a.ID, &a.Name, &a.Provider, &a.SourceID, &a.SourceURL, &a.ImageURL); fErr != nil {
+				if errors.Is(fErr, sql.ErrNoRows) {
+					return nil, nil
+				}
+				return nil, wrapDB("find artist by source fallback", fErr)
+			}
+			return &a, nil
 		}
 		return nil, wrapDB("find artist by source", err)
 	}
@@ -827,4 +1025,258 @@ func (c *Catalog) LyricsStats(ctx context.Context, cutoff time.Time) (LyricsStat
 		return LyricsStats{}, wrapDB("aggregate lyrics stats", err)
 	}
 	return stats, nil
+}
+
+// ReconciliationReport summarizes the results of ReconcileDuplicateArtists.
+type ReconciliationReport struct {
+	ClustersExamined int
+	MergedCount      int
+	AmbiguousCount   int
+}
+
+// MergeArtists atomically reassigns all releases, tracks, and library audit
+// findings from duplicate artist IDs to canonicalID, preserves the best available
+// artwork, and deletes the duplicate artist rows in one transaction.
+func (c *Catalog) MergeArtists(ctx context.Context, canonicalID string, duplicateIDs []string) error {
+	if len(duplicateIDs) == 0 {
+		return nil
+	}
+	return c.db.WithTx(ctx, func(tx *sql.Tx) error {
+		return mergeArtistsTx(ctx, tx, canonicalID, duplicateIDs)
+	})
+}
+
+func mergeArtistsTx(ctx context.Context, tx *sql.Tx, canonicalID string, duplicateIDs []string) error {
+	now := time.Now().UTC()
+
+	// Filter out canonicalID from duplicateIDs to avoid self-referential conflicts
+	dups := make([]string, 0, len(duplicateIDs))
+	seen := make(map[string]struct{}, len(duplicateIDs))
+	seen[canonicalID] = struct{}{}
+	for _, id := range duplicateIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			dups = append(dups, id)
+		}
+	}
+	if len(dups) == 0 {
+		return nil
+	}
+
+	// 1. Lock canonical row and retrieve image
+	var canonicalProvider, canonicalSourceID, canonicalImage string
+	err := tx.QueryRowContext(ctx, `SELECT provider, source_id, image_url FROM artists WHERE id = $1 FOR UPDATE`, canonicalID).Scan(&canonicalProvider, &canonicalSourceID, &canonicalImage)
+	if err != nil {
+		return wrapDB("lock canonical artist", err)
+	}
+
+	// 2. Lock duplicate rows and collect best image
+	rows, err := tx.QueryContext(ctx, `SELECT id, provider, source_id, image_url FROM artists WHERE id = ANY($1) FOR UPDATE`, dups)
+	if err != nil {
+		return wrapDB("lock duplicate artists", err)
+	}
+	defer rows.Close()
+
+	bestImage := strings.TrimSpace(canonicalImage)
+	for rows.Next() {
+		var dupID, dupProv, dupSource, dupImg string
+		if err := rows.Scan(&dupID, &dupProv, &dupSource, &dupImg); err != nil {
+			return wrapDB("scan duplicate artist", err)
+		}
+		// Defensive validation: distinct real provider IDs on the SAME provider
+		// represent distinct catalog entities (e.g. John Williams 1158 vs 8740 on Deezer)
+		// and must never be merged.
+		isDupReal := !strings.HasPrefix(dupSource, "artist:") && strings.TrimSpace(dupSource) != ""
+		isCanonicalReal := !strings.HasPrefix(canonicalSourceID, "artist:") && strings.TrimSpace(canonicalSourceID) != ""
+		if isDupReal && isCanonicalReal && canonicalProvider == dupProv && canonicalSourceID != dupSource {
+			return apperr.Newf(apperr.CodeInvalidRequest, "cannot merge artist %s with distinct real provider ID %s:%s into canonical %s (%s:%s): distinct real provider IDs on the same provider represent separate catalog entities", dupID, dupProv, dupSource, canonicalID, canonicalProvider, canonicalSourceID)
+		}
+		if bestImage == "" && strings.TrimSpace(dupImg) != "" {
+			bestImage = strings.TrimSpace(dupImg)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return wrapDB("scan duplicate artists cursor", err)
+	}
+
+	// Update canonical image if better artwork was found
+	if bestImage != canonicalImage && bestImage != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE artists SET image_url = $1, updated_at = $2 WHERE id = $3`, bestImage, now, canonicalID); err != nil {
+			return wrapDB("update canonical artist image", err)
+		}
+	}
+
+	// 3. Re-link artist_sources from duplicate artists to canonicalID!
+	// Remove duplicate sources that already exist on canonicalID to avoid unique constraint violations
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM artist_sources
+		WHERE artist_id = ANY($1)
+		  AND (provider, source_id) IN (
+			  SELECT provider, source_id FROM artist_sources WHERE artist_id = $2
+		  )`, dups, canonicalID); err != nil {
+		return wrapDB("deduplicate conflicting artist sources", err)
+	}
+
+	// Transfer all remaining sources belonging to duplicates to canonicalID
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE artist_sources
+		SET artist_id = $1, is_primary = false, updated_at = $2
+		WHERE artist_id = ANY($3)`, canonicalID, now, dups); err != nil {
+		return wrapDB("reassign artist sources to canonical artist", err)
+	}
+
+	// 4. Reassign releases
+	if _, err := tx.ExecContext(ctx, `UPDATE releases SET artist_id = $1, updated_at = $2 WHERE artist_id = ANY($3)`, canonicalID, now, dups); err != nil {
+		return wrapDB("reassign releases to canonical artist", err)
+	}
+
+	// 5. Reassign tracks
+	if _, err := tx.ExecContext(ctx, `UPDATE tracks SET artist_id = $1, updated_at = $2 WHERE artist_id = ANY($3)`, canonicalID, now, dups); err != nil {
+		return wrapDB("reassign tracks to canonical artist", err)
+	}
+
+	// 6. Reassign library audit findings (if table exists)
+	_, _ = tx.ExecContext(ctx, `UPDATE library_audit_findings SET artist_id = $1 WHERE artist_id = ANY($2)`, canonicalID, dups)
+
+	// 7. Delete duplicate artist rows (sources were already transferred to canonicalID, so none are lost)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM artists WHERE id = ANY($1)`, dups); err != nil {
+		return wrapDB("delete duplicate artists", err)
+	}
+
+	return nil
+}
+
+// ReconcileDuplicateArtists scans the catalog for proved duplicate artists on the
+// same provider (e.g. synthetic worker rows that can be safely folded into an
+// existing canonical or subscribed row on that provider).
+//
+// Cross-provider records with matching names or synthetic keys without proven
+// provenance, as well as distinct real provider IDs, are classified as AMBIGUOUS
+// and left completely untouched to prevent accidental identity collision.
+func (c *Catalog) ReconcileDuplicateArtists(ctx context.Context) (ReconciliationReport, error) {
+	var report ReconciliationReport
+
+	// Query clusters of artists with identical name having > 1 row
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT LOWER(name), COUNT(*)
+		FROM artists
+		GROUP BY LOWER(name)
+		HAVING COUNT(*) > 1`)
+	if err != nil {
+		return report, wrapDB("find duplicate artist clusters", err)
+	}
+	defer rows.Close()
+
+	var clusterNames []string
+	for rows.Next() {
+		var name string
+		var count int
+		if err := rows.Scan(&name, &count); err == nil {
+			clusterNames = append(clusterNames, name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return report, wrapDB("scan duplicate artist clusters", err)
+	}
+
+	report.ClustersExamined = len(clusterNames)
+
+	for _, name := range clusterNames {
+		// Fetch artists in this cluster
+		cRows, err := c.db.QueryContext(ctx, `
+			SELECT a.id, a.name, a.provider, a.source_id, a.image_url, a.created_at,
+			       COUNT(DISTINCT r.id) AS release_count,
+			       COUNT(DISTINCT t.id) AS track_count,
+			       EXISTS(
+				       SELECT 1 FROM artist_subscriptions s
+				       JOIN artist_sources src ON src.provider = s.provider AND src.source_id = s.artist_source_id
+				       WHERE src.artist_id = a.id
+			       ) AS has_sub
+			FROM artists a
+			LEFT JOIN releases r ON r.artist_id = a.id
+			LEFT JOIN tracks t ON t.artist_id = a.id
+			WHERE LOWER(a.name) = $1
+			GROUP BY a.id
+			ORDER BY a.created_at ASC`, name)
+		if err != nil {
+			return report, wrapDB("fetch cluster artists", err)
+		}
+
+		var candidates []artistidentity.Candidate
+		for cRows.Next() {
+			var cand artistidentity.Candidate
+			if err := cRows.Scan(&cand.ID, &cand.Name, &cand.Provider, &cand.SourceID, &cand.ImageURL, &cand.CreatedAt, &cand.ReleaseCount, &cand.TrackCount, &cand.HasSub); err == nil {
+				if strings.HasPrefix(cand.SourceID, "artist:") {
+					cand.SourceKind = music.SourceKindLegacySynthetic
+				} else {
+					cand.SourceKind = music.SourceKindExternal
+				}
+				candidates = append(candidates, cand)
+			}
+		}
+		cRows.Close()
+
+		if len(candidates) <= 1 {
+			continue
+		}
+
+		// Group candidates by provider.
+		byProvider := make(map[string][]artistidentity.Candidate)
+		for _, cand := range candidates {
+			byProvider[cand.Provider] = append(byProvider[cand.Provider], cand)
+		}
+
+		if len(byProvider) > 1 {
+			report.AmbiguousCount += len(candidates)
+		}
+
+		// Evaluate candidates within each provider
+		for _, provCandidates := range byProvider {
+			if len(provCandidates) <= 1 {
+				continue
+			}
+
+			// Check real source IDs on this provider
+			realIDs := make(map[string]struct{})
+			for _, cand := range provCandidates {
+				if !cand.IsSynthetic() {
+					realIDs[cand.SourceID] = struct{}{}
+				}
+			}
+
+			// If multiple distinct real IDs exist on this provider (e.g. John Williams 1158 vs 8740 on Deezer),
+			// this is AMBIGUOUS. We cannot merge distinct real IDs.
+			if len(realIDs) > 1 {
+				if len(byProvider) == 1 {
+					report.AmbiguousCount += len(provCandidates)
+				}
+				continue
+			}
+
+			winner, duplicates, ok := artistidentity.ChooseWinner(provCandidates)
+			if !ok || len(duplicates) == 0 {
+				continue
+			}
+
+			var dupIDs []string
+			for _, d := range duplicates {
+				if d.IsSynthetic() {
+					dupIDs = append(dupIDs, d.ID)
+				}
+			}
+
+			if len(dupIDs) > 0 {
+				if err := c.MergeArtists(ctx, winner.ID, dupIDs); err != nil {
+					return report, err
+				}
+				report.MergedCount += len(dupIDs)
+			}
+		}
+	}
+
+	return report, nil
 }
