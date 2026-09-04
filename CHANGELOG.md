@@ -2,6 +2,14 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.17.1 — 2026-09-05
+
+### Fixed
+
+- **Public Release CI Pipeline:** Configured a dedicated PostgreSQL 18 test service container, PostgreSQL 18 client toolchain, and fail-closed readiness validation in the GitHub Actions release workflow. Ensures all disaster recovery and schema migration lifecycle tests (`TestE2E_H`, `TestE2E_I`, `TestE2E_J`) execute against real PostgreSQL 18 before publication.
+- **Test Harness Fail-Closed Semantics:** Standardized `ytmdlctl` integration test helpers to skip only when `MUSICDL_TEST_DATABASE_URL` is intentionally unset, and fail hard on any connection or infrastructure failure when configured.
+- **Schema Compatibility:** No database schema changes beyond the v0.17.0 canonical artist architecture; database schema remains at Schema 9.
+
 ## 0.17.0 — 2026-09-04
 
 ### Added

@@ -17,6 +17,23 @@ jobs:
   release:
     name: Build, Verify & Publish Release
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: docker.io/library/postgres:18-alpine
+        env:
+          POSTGRES_DB: ytmdl_test
+          POSTGRES_USER: ytmdl
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ytmdl -d ytmdl_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      MUSICDL_TEST_DATABASE_URL: postgres://ytmdl:ci-only-not-a-secret@127.0.0.1:5432/ytmdl_test?sslmode=disable
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -68,6 +85,54 @@ jobs:
           go-version: '1.26'
           check-latest: true
 
+      - name: Install PostgreSQL 18 Client Tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg lsb-release
+          sudo install -d /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-client-18 ffmpeg
+          pg_dump_ver="$(pg_dump --version)"
+          pg_restore_ver="$(pg_restore --version)"
+          echo "pg_dump: ${pg_dump_ver}"
+          echo "pg_restore: ${pg_restore_ver}"
+          if [[ ! "${pg_dump_ver}" =~ 18\.[0-9]+ ]]; then
+            echo "::error::pg_dump is not version 18 (got ${pg_dump_ver})" >&2
+            exit 1
+          fi
+          if [[ ! "${pg_restore_ver}" =~ 18\.[0-9]+ ]]; then
+            echo "::error::pg_restore is not version 18 (got ${pg_restore_ver})" >&2
+            exit 1
+          fi
+
+      - name: Verify PostgreSQL 18 Test Service Readiness
+        shell: bash
+        env:
+          PGPASSWORD: ci-only-not-a-secret
+        run: |
+          if [ -z "${MUSICDL_TEST_DATABASE_URL}" ]; then
+            echo "::error::MUSICDL_TEST_DATABASE_URL is not configured" >&2
+            exit 1
+          fi
+          echo "Verifying PostgreSQL 18 readiness on 127.0.0.1:5432..."
+          ready=0
+          for i in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U ytmdl -d ytmdl_test >/dev/null 2>&1; then
+              ready=1
+              echo "PostgreSQL 18 test service is ready after ${i} attempt(s)."
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::PostgreSQL 18 test service is unreachable after 30 seconds" >&2
+            exit 1
+          fi
+          psql -h 127.0.0.1 -p 5432 -U ytmdl -d ytmdl_test -c "SELECT version();"
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
 
@@ -89,6 +154,7 @@ jobs:
           fi
           go vet ./...
           go test -count=1 ./...
+          go test -count=1 -race ./...
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0

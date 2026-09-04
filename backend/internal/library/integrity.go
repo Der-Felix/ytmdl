@@ -213,6 +213,10 @@ func (s *Service) executeAudit(ctx context.Context, runID string, mode music.Aud
 	// 2. Fetch Catalog & Files from Database
 	dbFiles, err := s.files.ListAll(ctx)
 	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunCancelled, 0, len(discovered), 0, "Audit cancelled.")
+			return
+		}
 		logger.Error("failed to list database files", logging.KeyError, err.Error())
 		_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunFailed, 0, len(discovered), 0, "Failed to query files database: "+err.Error())
 		return
@@ -220,6 +224,10 @@ func (s *Service) executeAudit(ctx context.Context, runID string, mode music.Aud
 
 	storedTracks, err := s.catalog.ListAllTracks(ctx)
 	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunCancelled, 0, len(discovered), 0, "Audit cancelled.")
+			return
+		}
 		logger.Error("failed to list database tracks", logging.KeyError, err.Error())
 		_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunFailed, 0, len(discovered), 0, "Failed to query catalog tracks: "+err.Error())
 		return
@@ -227,6 +235,10 @@ func (s *Service) executeAudit(ctx context.Context, runID string, mode music.Aud
 
 	storedReleases, err := s.catalog.ListAllReleases(ctx)
 	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunCancelled, 0, len(discovered), 0, "Audit cancelled.")
+			return
+		}
 		logger.Error("failed to list database releases", logging.KeyError, err.Error())
 		_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunFailed, 0, len(discovered), 0, "Failed to query catalog releases: "+err.Error())
 		return
@@ -481,11 +493,24 @@ func (s *Service) executeAudit(ctx context.Context, runID string, mode music.Aud
 			}()
 		}
 		wg.Wait()
+		if ctx.Err() != nil {
+			_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunCancelled, int(scannedCount.Load()), totalItems, len(findings), "Audit cancelled.")
+			return
+		}
 
 		// Deep Audit: Cover Validation
 		for _, rel := range storedReleases {
+			if ctx.Err() != nil {
+				_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunCancelled, int(scannedCount.Load()), totalItems, len(findings), "Audit cancelled.")
+				return
+			}
 			s.validateReleaseCover(rel, addFinding)
 		}
+	}
+
+	if ctx.Err() != nil {
+		_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunCancelled, len(discovered), totalItems, len(findings), "Audit cancelled.")
+		return
 	}
 
 	// 7. Batch insert all findings into repository

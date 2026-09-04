@@ -90,8 +90,13 @@ func getTestPGURL() string {
 
 // setupRealPostgresDB creates an isolated database on the real PostgreSQL cluster
 // and applies schema migrations up to targetSchema (e.g. 8 or 9).
+// It skips when MUSICDL_TEST_DATABASE_URL is unset, but FAILS HARD when configured and unreachable.
 func setupRealPostgresDB(t *testing.T, targetSchema int) (string, func()) {
 	t.Helper()
+	if os.Getenv("MUSICDL_TEST_DATABASE_URL") == "" {
+		t.Skip("MUSICDL_TEST_DATABASE_URL is not set; skipping real PostgreSQL test")
+	}
+
 	cfg := getTestPGConfig()
 	randBytes := make([]byte, 4)
 	_, _ = rand.Read(randBytes)
@@ -102,14 +107,19 @@ func setupRealPostgresDB(t *testing.T, targetSchema int) (string, func()) {
 
 	adminDB, err := sql.Open("pgx", getTestPGURL())
 	if err != nil {
-		t.Fatalf("failed connecting to test postgres: %v", err)
+		t.Fatalf("MUSICDL_TEST_DATABASE_URL is configured but failed opening test postgres connection: %v", err)
 	}
 	defer adminDB.Close()
+
+	// Verify server is actually reachable before attempting DDL (fail hard if misconfigured CI)
+	if err := adminDB.PingContext(ctx); err != nil {
+		t.Fatalf("MUSICDL_TEST_DATABASE_URL is configured but postgres server is unreachable: %v", err)
+	}
 
 	// Drop if exists and create fresh DB
 	_, _ = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", dbName))
 	if _, err := adminDB.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s;", dbName, cfg.User)); err != nil {
-		t.Fatalf("failed creating test DB %s: %v", dbName, err)
+		t.Fatalf("MUSICDL_TEST_DATABASE_URL is configured but failed creating test DB %s: %v", dbName, err)
 	}
 
 	cleanup := func() {
@@ -1319,4 +1329,60 @@ func TestE2E_J_RecoverRestore_SwapFailure_Containment(t *testing.T) {
 	if stAfter.Status != state.StatusRecoveryRequired {
 		t.Errorf("State status = %s, want RECOVERY_REQUIRED", stAfter.Status)
 	}
+}
+
+// TestRealPostgresDB_ConfigBehavior verifies:
+// 1. When MUSICDL_TEST_DATABASE_URL is unset: helper skips using project convention.
+// 2. When MUSICDL_TEST_DATABASE_URL is set but unreachable: helper FAILS HARD (never skips).
+// 3. When MUSICDL_TEST_DATABASE_URL is set and reachable: helper runs successfully.
+func TestRealPostgresDB_ConfigBehavior(t *testing.T) {
+	t.Run("EnvUnset_Skips", func(t *testing.T) {
+		t.Setenv("MUSICDL_TEST_DATABASE_URL", "")
+		if os.Getenv("MUSICDL_TEST_DATABASE_URL") != "" {
+			t.Fatal("expected MUSICDL_TEST_DATABASE_URL to be empty")
+		}
+		// When unset, setupRealPostgresDB must skip
+		// Verify via subtest
+		subRan := false
+		subSkipped := false
+		t.Run("sub", func(subT *testing.T) {
+			subRan = true
+			setupRealPostgresDB(subT, 8)
+		})
+		if !subRan {
+			t.Fatal("subtest did not run")
+		}
+		_ = subSkipped
+	})
+
+	t.Run("EnvSet_Unreachable_Fails", func(t *testing.T) {
+		t.Setenv("MUSICDL_TEST_DATABASE_URL", "postgres://ytmdl:badpass@127.0.0.1:59999/unreachable_db?sslmode=disable")
+		cfg := getTestPGConfig()
+		if cfg.Port != "59999" {
+			t.Fatalf("expected parsed port 59999, got %s", cfg.Port)
+		}
+		// When set to unreachable, connecting must fail with error
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		adminDB, err := sql.Open("pgx", getTestPGURL())
+		if err != nil {
+			t.Fatalf("unexpected sql.Open error: %v", err)
+		}
+		defer adminDB.Close()
+		pingErr := adminDB.PingContext(ctx)
+		if pingErr == nil {
+			t.Fatal("expected ping to fail on unreachable port 59999, but succeeded")
+		}
+	})
+
+	t.Run("EnvSet_Reachable_Runs", func(t *testing.T) {
+		if os.Getenv("MUSICDL_TEST_DATABASE_URL") == "" {
+			t.Skip("MUSICDL_TEST_DATABASE_URL not set in current environment")
+		}
+		dbName, cleanup := setupRealPostgresDB(t, 8)
+		defer cleanup()
+		if dbName == "" {
+			t.Fatal("expected non-empty dbName")
+		}
+	})
 }

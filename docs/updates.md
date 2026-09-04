@@ -53,7 +53,7 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 1. **Download the binary and checksums for your platform:**
    ```sh
    # Example for Linux (x86_64 / amd64):
-   VERSION="0.17.0"
+   VERSION="0.17.1"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/ytmdlctl-linux-amd64"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/SHA256SUMS"
    ```
