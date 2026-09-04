@@ -2,6 +2,15 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.17.2 — 2026-09-05
+
+### Fixed
+
+- **GitHub Release Runner Toolchain Hardening:** Hardened PostgreSQL 18 client tool resolution in GitHub Actions runner (`ubuntu-latest`) by prepending `/usr/lib/postgresql/18/bin` to PATH, ensuring `pg_dump`, `pg_restore`, `psql`, and related tools resolve to PostgreSQL 18 rather than pre-installed runner wrappers.
+- **Pre-Publication Verify-Only Gate:** Added non-publishing `workflow_dispatch` qualification mode to the release workflow to verify the complete runner environment, toolchain versions, build pipeline, and real PostgreSQL 18 lifecycle tests before tags are published.
+- **Binary Resolver Precedence:** Enhanced `resolvePostgresBinary` in test harnesses to honor explicit `MUSICDL_TEST_PG_BIN_DIR` overrides and prioritize PostgreSQL 18 paths.
+- **Schema Compatibility:** Database schema remains at Schema 9; no database migration required from v0.17.0.
+
 ## 0.17.1 — 2026-09-05
 
 ### Fixed

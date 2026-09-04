@@ -116,6 +116,15 @@ func setupRealPostgresDB(t *testing.T, targetSchema int) (string, func()) {
 		t.Fatalf("MUSICDL_TEST_DATABASE_URL is configured but postgres server is unreachable: %v", err)
 	}
 
+	// Verify client tool compatibility when PostgreSQL 18 server is detected
+	var serverVerStr string
+	if err := adminDB.QueryRowContext(ctx, "SELECT version()").Scan(&serverVerStr); err == nil {
+		dumpBin := resolvePostgresBinary("pg_dump")
+		if err := checkPostgresDumpVersionCompatible(dumpBin, serverVerStr); err != nil {
+			t.Fatalf("client tool incompatibility: %v", err)
+		}
+	}
+
 	// Drop if exists and create fresh DB
 	_, _ = adminDB.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", dbName))
 	if _, err := adminDB.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s;", dbName, cfg.User)); err != nil {
@@ -536,24 +545,57 @@ func defaultE2EDeps(targetDigestBackend, targetDigestFrontend string) orchestrat
 }
 
 func resolvePostgresBinary(prog string) string {
-	binary, err := exec.LookPath(prog)
-	if err == nil {
+	// 1. Explicit override via MUSICDL_TEST_PG_BIN_DIR
+	if dir := os.Getenv("MUSICDL_TEST_PG_BIN_DIR"); dir != "" {
+		candidate := filepath.Join(dir, prog)
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+
+	// 2. Prioritize PostgreSQL 18 system path if present
+	if candidate := filepath.Join("/usr/lib/postgresql/18/bin", prog); fileExists(candidate) {
+		return candidate
+	}
+
+	// 3. Check PATH
+	if binary, err := exec.LookPath(prog); err == nil {
 		return binary
 	}
+
+	// 4. Fallback directories
 	for _, dir := range []string{
-		"/usr/lib/postgresql/18/bin",
+		"/opt/homebrew/bin",
+		"/usr/local/bin",
 		"/usr/lib/postgresql/17/bin",
 		"/usr/lib/postgresql/16/bin",
 		"/usr/bin",
-		"/opt/homebrew/bin",
-		"/usr/local/bin",
 	} {
 		candidate := filepath.Join(dir, prog)
-		if _, statErr := os.Stat(candidate); statErr == nil {
+		if fileExists(candidate) {
 			return candidate
 		}
 	}
 	return filepath.Join("/opt/homebrew/bin", prog)
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
+}
+
+func checkPostgresDumpVersionCompatible(dumpBin string, serverVerStr string) error {
+	if !strings.Contains(serverVerStr, "PostgreSQL 18") {
+		return nil
+	}
+	out, err := exec.Command(dumpBin, "--version").Output()
+	if err != nil {
+		return fmt.Errorf("failed to execute %s --version: %w", dumpBin, err)
+	}
+	if !strings.Contains(string(out), "18.") {
+		return fmt.Errorf("server is %s, but resolved pg_dump (%s) reports %s (expected major 18)", strings.TrimSpace(serverVerStr), dumpBin, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // ============================================================================
@@ -1383,6 +1425,86 @@ func TestRealPostgresDB_ConfigBehavior(t *testing.T) {
 		defer cleanup()
 		if dbName == "" {
 			t.Fatal("expected non-empty dbName")
+		}
+	})
+}
+
+func TestResolvePostgresBinary(t *testing.T) {
+	t.Run("OverridePrecedence", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		fakeTool := filepath.Join(tmpDir, "pg_dump")
+		if err := os.WriteFile(fakeTool, []byte("#!/bin/sh\necho \"mock pg_dump\"\n"), 0755); err != nil {
+			t.Fatalf("failed to write fake tool: %v", err)
+		}
+		t.Setenv("MUSICDL_TEST_PG_BIN_DIR", tmpDir)
+
+		resolved := resolvePostgresBinary("pg_dump")
+		if resolved != fakeTool {
+			t.Fatalf("expected resolved path %s, got %s", fakeTool, resolved)
+		}
+	})
+
+	t.Run("PathLookupWhenNoOverride", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		fakeToolName := "fake_pg_tool_override_test"
+		fakeTool := filepath.Join(tmpDir, fakeToolName)
+		if err := os.WriteFile(fakeTool, []byte("#!/bin/sh\necho \"fake tool\"\n"), 0755); err != nil {
+			t.Fatalf("failed to write fake tool: %v", err)
+		}
+		t.Setenv("MUSICDL_TEST_PG_BIN_DIR", "")
+		t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		resolved := resolvePostgresBinary(fakeToolName)
+		if resolved != fakeTool {
+			t.Fatalf("expected resolved path %s, got %s", fakeTool, resolved)
+		}
+	})
+
+	t.Run("FallbackWhenNotFound", func(t *testing.T) {
+		t.Setenv("MUSICDL_TEST_PG_BIN_DIR", "")
+		nonExistent := "non_existent_tool_12345"
+		resolved := resolvePostgresBinary(nonExistent)
+		expected := filepath.Join("/opt/homebrew/bin", nonExistent)
+		if resolved != expected {
+			t.Fatalf("expected default fallback %s, got %s", expected, resolved)
+		}
+	})
+
+	t.Run("RejectOlderPgDumpOnPostgres18", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		fakeDump16 := filepath.Join(tmpDir, "pg_dump_16")
+		script16 := "#!/bin/sh\necho \"pg_dump (PostgreSQL) 16.3 (Ubuntu 16.3-1)\"\n"
+		if err := os.WriteFile(fakeDump16, []byte(script16), 0755); err != nil {
+			t.Fatalf("failed to write fake dump 16: %v", err)
+		}
+
+		fakeDump18 := filepath.Join(tmpDir, "pg_dump_18")
+		script18 := "#!/bin/sh\necho \"pg_dump (PostgreSQL) 18.0 (Debian 18.0-1.pgdg120+1)\"\n"
+		if err := os.WriteFile(fakeDump18, []byte(script18), 0755); err != nil {
+			t.Fatalf("failed to write fake dump 18: %v", err)
+		}
+
+		serverVerStr := "PostgreSQL 18.0 (Debian 18.0-1.pgdg120+1) on x86_64-pc-linux-gnu"
+
+		// Older client against PG18 server must fail
+		err16 := checkPostgresDumpVersionCompatible(fakeDump16, serverVerStr)
+		if err16 == nil {
+			t.Fatal("expected error when running pg_dump 16 against PostgreSQL 18 server, got nil")
+		}
+		if !strings.Contains(err16.Error(), "expected major 18") {
+			t.Fatalf("expected error message to mention 'expected major 18', got: %v", err16)
+		}
+
+		// PG18 client against PG18 server must succeed
+		err18 := checkPostgresDumpVersionCompatible(fakeDump18, serverVerStr)
+		if err18 != nil {
+			t.Fatalf("expected nil error for pg_dump 18, got: %v", err18)
+		}
+
+		// Non-PG18 server (e.g. PG16) should not enforce PG18 pg_dump
+		errNon18 := checkPostgresDumpVersionCompatible(fakeDump16, "PostgreSQL 16.3 on x86_64")
+		if errNon18 != nil {
+			t.Fatalf("expected non-PG18 server to skip version check, got: %v", errNon18)
 		}
 	})
 }

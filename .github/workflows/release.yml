@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      verify_only:
+        description: 'Run qualification tests only (NEVER publishes release or containers)'
+        type: boolean
+        required: true
+        default: true
 
 permissions:
   contents: write
@@ -45,6 +52,18 @@ jobs:
         id: version
         shell: bash
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ ! -f .release-version ]; then
+              echo "::error::.release-version file is missing" >&2
+              exit 1
+            fi
+            clean_version="$(tr -d '[:space:]' < .release-version | sed 's/^v//')"
+            echo "Running in workflow_dispatch verify_only mode for version ${clean_version}"
+            echo "tag=v${clean_version}" >> "$GITHUB_OUTPUT"
+            echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           tag="${GITHUB_REF_NAME}"
           if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             echo "::error::Release tag '$tag' is not a valid SemVer tag (vMAJOR.MINOR.PATCH)" >&2
@@ -68,6 +87,7 @@ jobs:
           echo "Validated release tag ${tag} (version ${clean_version})"
 
       - name: Check for Existing Release Collision
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -95,10 +115,26 @@ jobs:
           echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends postgresql-client-18 ffmpeg
-          pg_dump_ver="$(pg_dump --version)"
-          pg_restore_ver="$(pg_restore --version)"
+
+          # Prepend PostgreSQL 18 tools directory to PATH for all subsequent steps
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/18/bin:$PATH"
+
+          # Verify absolute binaries exist in /usr/lib/postgresql/18/bin
+          for tool in pg_dump pg_restore psql pg_isready createdb dropdb; do
+            if [ ! -x "/usr/lib/postgresql/18/bin/${tool}" ]; then
+              echo "::error::Missing expected binary /usr/lib/postgresql/18/bin/${tool}" >&2
+              exit 1
+            fi
+            echo "Verified binary: /usr/lib/postgresql/18/bin/${tool}"
+          done
+
+          pg_dump_ver="$(/usr/lib/postgresql/18/bin/pg_dump --version)"
+          pg_restore_ver="$(/usr/lib/postgresql/18/bin/pg_restore --version)"
+          psql_ver="$(/usr/lib/postgresql/18/bin/psql --version)"
           echo "pg_dump: ${pg_dump_ver}"
           echo "pg_restore: ${pg_restore_ver}"
+          echo "psql: ${psql_ver}"
           if [[ ! "${pg_dump_ver}" =~ 18\.[0-9]+ ]]; then
             echo "::error::pg_dump is not version 18 (got ${pg_dump_ver})" >&2
             exit 1
@@ -107,6 +143,33 @@ jobs:
             echo "::error::pg_restore is not version 18 (got ${pg_restore_ver})" >&2
             exit 1
           fi
+          if [[ ! "${psql_ver}" =~ 18\.[0-9]+ ]]; then
+            echo "::error::psql is not version 18 (got ${psql_ver})" >&2
+            exit 1
+          fi
+
+      - name: Verify Hardened PostgreSQL 18 Path Resolution
+        shell: bash
+        run: |
+          echo "Verifying PATH lookup order for PostgreSQL client binaries..."
+          for tool in pg_dump pg_restore psql pg_isready createdb dropdb; do
+            resolved="$(command -v "${tool}")"
+            echo "${tool} -> ${resolved}"
+            if [[ ! "${resolved}" =~ ^/usr/lib/postgresql/18/bin/ ]]; then
+              echo "::error::${tool} resolved to ${resolved}, expected /usr/lib/postgresql/18/bin/${tool}" >&2
+              exit 1
+            fi
+          done
+
+          for tool in pg_dump pg_restore psql; do
+            ver="$("${tool}" --version)"
+            echo "${tool}: ${ver}"
+            if [[ ! "${ver}" =~ 18\.[0-9]+ ]]; then
+              echo "::error::${tool} does not report major 18 via PATH (got ${ver})" >&2
+              exit 1
+            fi
+          done
+          echo "Hardened PostgreSQL 18 path resolution verified: all tools resolve to /usr/lib/postgresql/18/bin."
 
       - name: Verify PostgreSQL 18 Test Service Readiness
         shell: bash
@@ -160,6 +223,7 @@ jobs:
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           registry: ghcr.io
@@ -167,6 +231,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Preflight Check for Existing GHCR Version Tags
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           version="${{ steps.version.outputs.version }}"
@@ -207,6 +272,7 @@ jobs:
           echo "Confirmed: GHCR version tags for ${version} do not exist. Safe to proceed with build."
 
       - name: Extract Backend Metadata
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: meta-backend
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
@@ -222,6 +288,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and Push Backend Image
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: build-backend
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
@@ -235,6 +302,7 @@ jobs:
           labels: ${{ steps.meta-backend.outputs.labels }}
 
       - name: Extract Frontend Metadata
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: meta-frontend
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
@@ -250,6 +318,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and Push Frontend Image
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: build-frontend
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
@@ -261,6 +330,7 @@ jobs:
           labels: ${{ steps.meta-frontend.outputs.labels }}
 
       - name: Capture and Validate Image Digests
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: digests
         shell: bash
         run: |
@@ -295,6 +365,14 @@ jobs:
       - name: Generate and Validate release-manifest.json
         shell: bash
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            backend_digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            frontend_digest="sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          else
+            backend_digest="${{ steps.digests.outputs.backend }}"
+            frontend_digest="${{ steps.digests.outputs.frontend }}"
+          fi
+
           go run -C backend ./cmd/ytmdlctl manifest-gen \
             --version "${{ steps.version.outputs.version }}" \
             --tag "${{ steps.version.outputs.tag }}" \
@@ -304,8 +382,8 @@ jobs:
             --classification backup_restore_required \
             --supported-sources 8 \
             --min-upgrade 0.15.0 \
-            --backend-digest "${{ steps.digests.outputs.backend }}" \
-            --frontend-digest "${{ steps.digests.outputs.frontend }}" \
+            --backend-digest "${backend_digest}" \
+            --frontend-digest "${frontend_digest}" \
             --output "${PWD}/dist/release-manifest.json"
 
       - name: Smoke Test Native ytmdlctl Binary
@@ -320,6 +398,7 @@ jobs:
           echo "Native binary smoke check passed."
 
       - name: Publish Stable GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -340,6 +419,7 @@ jobs:
           echo "GitHub Release ${tag} successfully published!"
 
       - name: Promote Qualified Images to latest
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           echo "Promoting qualified release images to :latest using immutable digests..."
@@ -350,3 +430,16 @@ jobs:
             -t ghcr.io/der-felix/ytmdl-frontend:latest \
             ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend }}
           echo "Successfully promoted images to :latest."
+
+      - name: Verify-Only Qualification Summary
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          echo "========================================================================"
+          echo "VERIFY-ONLY QUALIFICATION SUCCESS"
+          echo "========================================================================"
+          echo "All runner hardening, PostgreSQL 18 tooling, readiness checks,"
+          echo "backend tests, full race tests, frontend build, binary compilation,"
+          echo "and manifest validation PASSED on ubuntu-latest."
+          echo "Zero release artifacts or container images were published."
+          echo "========================================================================"
