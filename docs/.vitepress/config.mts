@@ -72,7 +72,7 @@ export default defineConfig({
         text: 'Administration & Operations',
         items: [
           { text: 'Users & Security', link: '/security' },
-          { text: 'Update Detection & Releases', link: '/updates' },
+          { text: 'Updates & ytmdlctl', link: '/updates' },
           { text: 'Local Development', link: '/development' },
         ],
       },

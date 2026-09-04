@@ -45,8 +45,8 @@ The recommended way to deploy YTMDL is using official prebuilt container images 
 mkdir -p ytmdl && cd ytmdl
 
 # Download compose file and sample environment
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.15.0/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.15.0/.env.example
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.16.0/compose.ghcr.yaml
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.16.0/.env.example
 cp .env.example .env
 ```
 
@@ -56,7 +56,7 @@ Edit `.env` to set your music storage path and database password:
 
 ```env
 # Pin a stable release (recommended) or use 'latest'
-YTMDL_VERSION=0.15.0
+YTMDL_VERSION=0.16.0
 
 # Path to your local music directory or host-mounted SMB/CIFS share
 YTMDL_MUSIC_PATH=/path/to/your/music
@@ -129,7 +129,7 @@ Full documentation, configuration guides, and architecture references are availa
 
 ## Container Distribution
 
-Official multi-architecture images are published to the GitHub Container Registry:
+Official container images (built for `linux/amd64`) are published to the GitHub Container Registry:
 
 - **Backend:** `ghcr.io/der-felix/ytmdl-backend`
 - **Frontend:** `ghcr.io/der-felix/ytmdl-frontend`
@@ -137,8 +137,8 @@ Official multi-architecture images are published to the GitHub Container Registr
 Images can be pulled anonymously without authentication:
 
 ```sh
-podman pull ghcr.io/der-felix/ytmdl-backend:0.15.0
-podman pull ghcr.io/der-felix/ytmdl-frontend:0.15.0
+podman pull ghcr.io/der-felix/ytmdl-backend:0.16.0
+podman pull ghcr.io/der-felix/ytmdl-frontend:0.16.0
 ```
 
 For building from source or running a development environment, see [docs/development.md](docs/development.md).
@@ -147,13 +147,19 @@ For building from source or running a development environment, see [docs/develop
 
 ## Updating
 
-In YTMDL v0.15.0+, administrators can check for new releases directly from **Settings → System & Updates**.
+Administrators can check for new releases directly from **Settings → System & Updates**.
 
-Update checks query official GitHub Releases and are informational only. Because YTMDL does not self-mutate container images at runtime, updates are performed by updating `YTMDL_VERSION` in your `.env` file and restarting the compose stack:
+Starting with **v0.16**, updates can be executed safely and transactionally on the host using the official **`ytmdlctl`** CLI:
 
 ```sh
-YTMDL_VERSION=0.15.0 docker compose -f compose.ghcr.yaml up -d
+# Perform preflight check (dry run)
+ytmdlctl update --dry-run
+
+# Apply update with automatic verified backup and rollback protection
+ytmdlctl update
 ```
+
+For complete documentation on installation, backups, rollback, and troubleshooting, see the [Updates & Maintenance Guide](https://der-felix.github.io/ytmdl/updates).
 
 ---
 

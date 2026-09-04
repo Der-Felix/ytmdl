@@ -37,9 +37,10 @@ vollständig in PostgreSQL.
 
 ## Voraussetzungen
 
-* Podman 5 oder neuer, rootless
-* Ein Compose-Provider: `podman-compose` oder Docker Compose als externer
-  Provider (kein Docker-Daemon nötig)
+* Podman 5 oder neuer, rootless (oder Docker Compose V2)
+* Ein Compose-Provider: Empfohlen wird der native Compose V2-Provider (`podman-compose-subcommand` / Docker Compose Plugin).
+  > [!NOTE]
+  > Die Python-Implementierung `podman-compose` (Version 1.3.x oder älter) ist mit den Compose v2-Optionen und User-Namespace-Mappings (`keep-id`) von YTMDL teilweise inkompatibel. Der Host-Updater `ytmdlctl` erkennt diesen Provider im Preflight und blockiert Änderungen zum Schutz der Installation.
 * Ausgehende Netzverbindung für die Provider-APIs und die Downloads
 
 ## Schnellstart
@@ -49,18 +50,12 @@ cp .env.example .env
 ```
 
 In `.env` mindestens `POSTGRES_PASSWORD` setzen und denselben Wert in
-`MUSICDL_DATABASE_URL` eintragen.
+`MUSICDL_DATABASE_URL` eintragen. Für ein Deployment mit den offiziellen Images (`compose.ghcr.yaml`) empfiehlt es sich, die Version fest anzugeben (z. B. `YTMDL_VERSION=0.16.0`), um deterministische Updates mit `ytmdlctl` zu ermöglichen.
 
 ```sh
 mkdir -p data music
 podman compose config
 podman compose up -d --build
-```
-
-Wer den Provider fest wählen möchte:
-
-```sh
-export PODMAN_COMPOSE_PROVIDER=podman-compose
 ```
 
 Compose startet zuerst `ytmdl-db`, wartet auf dessen Healthcheck und startet

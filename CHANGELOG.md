@@ -2,6 +2,30 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.16.0 — 2026-09-04
+
+### Added
+
+- Official host-side lifecycle and update management CLI: `ytmdlctl`.
+- Transactional managed updates (`ytmdlctl update`) with multi-stage verification and automatic rollback.
+- Read-only preflight analysis and dry-run mode (`ytmdlctl update --dry-run`) to check schema, storage, and image readiness without mutation.
+- Verified database backups (`ytmdlctl backup`) producing PostgreSQL custom-format (`pg_dump -Fc`) archives verified via `pg_restore --list`.
+- Schema-neutral rollback orchestrator (`ytmdlctl rollback`) protecting deployments with automatic schema drift safeguards.
+- Strict cryptographic image digest verification using immutable SHA256 hashes published in `release-manifest.json`.
+- Storage Identity Guard verification and active download queue drainage checks before updating.
+- Web UI update instructions with copy-to-clipboard button and direct documentation links in System & Updates.
+- Native binary distribution of `ytmdlctl` for `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64` with `SHA256SUMS`.
+- Podman Compose provider compatibility check to detect and safely block incompatible Python `podman-compose` implementations.
+
+### Security / Safety
+
+- Rollback invariant: automatic rollback is only permitted when the database schema is confirmed identical (`schema == schemaBefore`).
+- Schema drift protection: any detected schema divergence forces `RECOVERY_REQUIRED` state and preserves the pre-update backup without destructive automated modifications.
+- Durable transaction state tracking in `.ytmdl/update-state.json` with exclusive host locking (`.ytmdl/update.lock`).
+- Surgical atomic `.env` modifications preserving user comments, spacing, and custom variables.
+- Zero container socket exposure to application workloads; `ytmdlctl` operates strictly on the host.
+- No database migration required (Schema remains 8).
+
 ## 0.15.0 — 2026-09-03
 
 ### Added

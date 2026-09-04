@@ -36,7 +36,7 @@ services:
     stop_grace_period: 30s
 
   backend:
-    image: ghcr.io/der-felix/ytmdl-backend:${YTMDL_VERSION:-latest}
+    image: ghcr.io/der-felix/ytmdl-backend:${YTMDL_VERSION:?YTMDL_VERSION must be set in .env}
     container_name: ytmdl-backend
     depends_on:
       db:
@@ -70,7 +70,7 @@ services:
     stop_grace_period: 40s
 
   frontend:
-    image: ghcr.io/der-felix/ytmdl-frontend:${YTMDL_VERSION:-latest}
+    image: ghcr.io/der-felix/ytmdl-frontend:${YTMDL_VERSION:?YTMDL_VERSION must be set in .env}
     container_name: ytmdl-frontend
     depends_on:
       backend:

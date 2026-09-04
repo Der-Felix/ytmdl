@@ -6,6 +6,7 @@
 # Runtime data, database dumps and library content
 /data/
 /music/
+/.ytmdl/
 # Database dumps. The root patterns cover the documented backup steps; the
 # backups/ directory is ignored wholesale, because a dump carries the entire
 # catalogue and has no business in version control wherever it is written.

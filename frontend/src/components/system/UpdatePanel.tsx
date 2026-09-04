@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import {
   ArrowUpCircleIcon,
+  BookOpenIcon,
   CheckCircle2Icon,
+  CheckIcon,
   ClockIcon,
+  CopyIcon,
   ExternalLinkIcon,
   HelpCircleIcon,
   MinusCircleIcon,
@@ -28,6 +31,17 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
   const [data, setData] = useState<UpdateStatus | undefined>(initialData)
   const [isChecking, setIsChecking] = useState(false)
   const [checkError, setCheckError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyCommand = async () => {
+    try {
+      await navigator.clipboard.writeText('ytmdlctl update')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Ignore clipboard write failures
+    }
+  }
 
   const handleManualCheck = async () => {
     setIsChecking(true)
@@ -156,17 +170,56 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
               )}
             </div>
 
-            {current.release_url && (
+            <div className="flex flex-wrap items-center gap-2">
               <a
-                href={current.release_url}
+                href="/ytmdl/updates"
                 target="_blank"
                 rel="noopener noreferrer"
-                className={cn(buttonVariants({ variant: 'default', size: 'sm' }), 'gap-1.5 self-start sm:self-auto')}
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-1.5 self-start sm:self-auto')}
               >
-                <ExternalLinkIcon className="h-3.5 w-3.5" />
-                Auf GitHub ansehen
+                <BookOpenIcon className="h-3.5 w-3.5" />
+                Dokumentation
               </a>
-            )}
+              {current.release_url && (
+                <a
+                  href={current.release_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(buttonVariants({ variant: 'default', size: 'sm' }), 'gap-1.5 self-start sm:self-auto')}
+                >
+                  <ExternalLinkIcon className="h-3.5 w-3.5" />
+                  Auf GitHub ansehen
+                </a>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-1.5 rounded-md border border-border/60 bg-background/50 p-3">
+            <p className="text-xs text-muted-foreground">
+              Auf dem YTMDL-Host ausführen:
+            </p>
+            <div className="flex items-center justify-between gap-2 rounded bg-muted/40 px-3 py-1.5 font-mono text-xs text-foreground border border-border/40">
+              <code>ytmdlctl update</code>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs gap-1 hover:bg-background/80"
+                onClick={handleCopyCommand}
+                title="Befehl in Zwischenablage kopieren"
+              >
+                {copied ? (
+                  <>
+                    <CheckIcon className="h-3 w-3 text-emerald-500" />
+                    <span className="text-emerald-500 text-[11px]">Kopiert!</span>
+                  </>
+                ) : (
+                  <>
+                    <CopyIcon className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-muted-foreground text-[11px]">Kopieren</span>
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
 
           {current.release_notes && (

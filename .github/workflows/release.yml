@@ -1,0 +1,283 @@
+name: Release & Container Publishing
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, Verify & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Validate Release Tag & Version Consistency
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::Release tag '$tag' is not a valid SemVer tag (vMAJOR.MINOR.PATCH)" >&2
+            exit 1
+          fi
+          clean_version="${BASH_REMATCH[1]}"
+
+          if [ ! -f .release-version ]; then
+            echo "::error::.release-version file is missing" >&2
+            exit 1
+          fi
+
+          repo_version="$(tr -d '[:space:]' < .release-version | sed 's/^v//')"
+          if [ "$repo_version" != "$clean_version" ]; then
+            echo "::error::Tag version ($clean_version) does not match .release-version ($repo_version)" >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
+          echo "Validated release tag ${tag} (version ${clean_version})"
+
+      - name: Check for Existing Release Collision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "::error::Release '${tag}' already exists on GitHub. Refusing to overwrite stable release." >&2
+            exit 1
+          fi
+          echo "No existing GitHub release found for ${tag}."
+
+      - name: Set up Go
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        with:
+          go-version: '1.26'
+          check-latest: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
+
+      - name: Run Frontend Tests
+        working-directory: frontend
+        run: |
+          bun install --frozen-lockfile
+          bun test
+          bun run lint
+          bun run build
+
+      - name: Run Backend Tests
+        working-directory: backend
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted files: $unformatted" >&2
+            exit 1
+          fi
+          go vet ./...
+          go test -count=1 ./...
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preflight Check for Existing GHCR Version Tags
+        shell: bash
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          backend_image="ghcr.io/der-felix/ytmdl-backend:${version}"
+          frontend_image="ghcr.io/der-felix/ytmdl-frontend:${version}"
+
+          check_tag() {
+            local img="$1"
+            local out
+            local code=0
+            out="$(docker buildx imagetools inspect "$img" 2>&1)" || code=$?
+            if [ "$code" -eq 0 ]; then
+              echo "EXISTS"
+              return 0
+            fi
+            if echo "$out" | grep -qiE "not found|manifest unknown|no such manifest"; then
+              echo "NOT_FOUND"
+              return 0
+            fi
+            echo "ERROR: ${out}" >&2
+            return 1
+          }
+
+          echo "Checking if versioned image tags already exist in GHCR..."
+          backend_status="$(check_tag "$backend_image")"
+          frontend_status="$(check_tag "$frontend_image")"
+
+          if [ "$backend_status" = "EXISTS" ] || [ "$frontend_status" = "EXISTS" ]; then
+            echo "::error::Versioned GHCR artifacts already exist for ${version} (backend: ${backend_status}, frontend: ${frontend_status}). Refusing to overwrite immutable release artifacts. Inspect/remove orphaned artifacts manually before retrying." >&2
+            exit 1
+          fi
+
+          if [ "$backend_status" != "NOT_FOUND" ] || [ "$frontend_status" != "NOT_FOUND" ]; then
+            echo "::error::Failed to verify registry tag status cleanly. Failing closed to prevent accidental overwrites." >&2
+            exit 1
+          fi
+
+          echo "Confirmed: GHCR version tags for ${version} do not exist. Safe to proceed with build."
+
+      - name: Extract Backend Metadata
+        id: meta-backend
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: ghcr.io/der-felix/ytmdl-backend
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=YTMDL Backend
+            org.opencontainers.image.description=Go backend, worker queue, and media verification engine for YTMDL
+            org.opencontainers.image.source=https://github.com/Der-Felix/ytmdl
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and Push Backend Image
+        id: build-backend
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: Containerfile
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+
+      - name: Extract Frontend Metadata
+        id: meta-frontend
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: ghcr.io/der-felix/ytmdl-frontend
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=YTMDL Frontend
+            org.opencontainers.image.description=Web UI and Nginx reverse proxy for YTMDL
+            org.opencontainers.image.source=https://github.com/Der-Felix/ytmdl
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and Push Frontend Image
+        id: build-frontend
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: ./frontend
+          file: ./frontend/Containerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+
+      - name: Capture and Validate Image Digests
+        id: digests
+        shell: bash
+        run: |
+          backend_digest="${{ steps.build-backend.outputs.digest }}"
+          frontend_digest="${{ steps.build-frontend.outputs.digest }}"
+
+          echo "Captured backend digest:  ${backend_digest}"
+          echo "Captured frontend digest: ${frontend_digest}"
+
+          if [[ ! "$backend_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid backend digest format: '$backend_digest'" >&2
+            exit 1
+          fi
+
+          if [[ ! "$frontend_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid frontend digest format: '$frontend_digest'" >&2
+            exit 1
+          fi
+
+          echo "backend=${backend_digest}" >> "$GITHUB_OUTPUT"
+          echo "frontend=${frontend_digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Compile Release Binaries & Compute SHA256SUMS
+        shell: bash
+        run: |
+          mkdir -p dist
+          VERSION="${{ steps.version.outputs.version }}" \
+          COMMIT="${{ github.sha }}" \
+          OUTPUT_DIR="${PWD}/dist" \
+          ./scripts/build-release-artifacts.sh
+
+      - name: Generate and Validate release-manifest.json
+        shell: bash
+        run: |
+          go run -C backend ./cmd/ytmdlctl manifest-gen \
+            --version "${{ steps.version.outputs.version }}" \
+            --tag "${{ steps.version.outputs.tag }}" \
+            --schema 8 \
+            --classification schema_neutral \
+            --min-upgrade 0.15.0 \
+            --backend-digest "${{ steps.digests.outputs.backend }}" \
+            --frontend-digest "${{ steps.digests.outputs.frontend }}" \
+            --output "${PWD}/dist/release-manifest.json"
+
+      - name: Smoke Test Native ytmdlctl Binary
+        shell: bash
+        run: |
+          ./dist/ytmdlctl-linux-amd64 version
+          version_out="$(./dist/ytmdlctl-linux-amd64 version)"
+          if ! echo "$version_out" | grep -q "${{ steps.version.outputs.version }}"; then
+            echo "::error::Compiled binary does not report expected release version" >&2
+            exit 1
+          fi
+          echo "Native binary smoke check passed."
+
+      - name: Publish Stable GitHub Release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          echo "Creating GitHub Release ${tag} with verified release artifacts..."
+
+          gh release create "${tag}" \
+            --title "YTMDL ${tag}" \
+            --generate-notes \
+            dist/release-manifest.json \
+            dist/SHA256SUMS \
+            dist/ytmdlctl-linux-amd64 \
+            dist/ytmdlctl-linux-arm64 \
+            dist/ytmdlctl-darwin-amd64 \
+            dist/ytmdlctl-darwin-arm64
+
+          echo "GitHub Release ${tag} successfully published!"
+
+      - name: Promote Qualified Images to latest
+        shell: bash
+        run: |
+          echo "Promoting qualified release images to :latest using immutable digests..."
+          docker buildx imagetools create \
+            -t ghcr.io/der-felix/ytmdl-backend:latest \
+            ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend }}
+          docker buildx imagetools create \
+            -t ghcr.io/der-felix/ytmdl-frontend:latest \
+            ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend }}
+          echo "Successfully promoted images to :latest."

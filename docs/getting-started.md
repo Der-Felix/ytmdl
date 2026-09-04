@@ -36,8 +36,9 @@ cp .env.example .env
 Generate secure secrets for PostgreSQL and session tokens:
 
 ```sh
-# Set strong random secrets in .env
+# Set strong random secrets and configure your pinned version in .env
 openssl rand -hex 24
+# Set YTMDL_VERSION=0.16.0 in .env for deterministic deployment and managed updates
 ```
 
 ### 2. Launch the Stack
@@ -45,10 +46,10 @@ openssl rand -hex 24
 Start the containers using Podman Compose or Docker Compose:
 
 ```sh
-# For Podman
+# For Podman (using native Compose V2 provider)
 podman compose -f compose.ghcr.yaml up -d
 
-# Or for Docker
+# Or for Docker Compose
 docker compose -f compose.ghcr.yaml up -d
 ```
 
@@ -60,4 +61,5 @@ Open your browser at `http://localhost:8080`. The first-run setup wizard will pr
 
 - Review [Installation & Deployment](/deployment) for production host storage setups.
 - Learn about [Storage Identity Guard & Mounts](/storage/) for SMB and NFS.
+- Learn about [Updates & Maintenance with ytmdlctl](/updates).
 - Explore the [Core Features](/features/providers) of YTMDL.

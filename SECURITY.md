@@ -6,8 +6,9 @@ Security updates are provided for the latest stable release line of YTMDL.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.14.x  | :white_check_mark: |
-| < 0.14  | :x:                |
+| 0.16.x  | :white_check_mark: |
+| 0.15.x  | :white_check_mark: |
+| < 0.15  | :x:                |
 
 ## Reporting a Vulnerability
 

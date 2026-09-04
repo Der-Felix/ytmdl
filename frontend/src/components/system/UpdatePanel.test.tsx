@@ -65,19 +65,65 @@ describe('UpdatePanel', () => {
     expect(screen.getByText('Nach Updates suchen')).toBeDefined()
   })
 
-  it('renders update_available state with release details and link', () => {
+  it('renders update_available state with release details, docs link, and host command', () => {
     render(<UpdatePanel initialData={updateAvailableStatus} />)
 
     expect(screen.getByText('Update verfügbar')).toBeDefined()
     expect(screen.getByText('0.15.0')).toBeDefined()
     expect(screen.getByText('YTMDL v0.15.0 Release')).toBeDefined()
     expect(screen.getByText('Exciting new features in v0.15.0')).toBeDefined()
+    expect(screen.getByText('Auf dem YTMDL-Host ausführen:')).toBeDefined()
+    expect(screen.getByText('ytmdlctl update')).toBeDefined()
 
-    const link = screen.getByRole('link', { name: /Auf GitHub ansehen/i })
-    expect(link).toBeDefined()
-    expect(link.getAttribute('href')).toBe('https://github.com/Der-Felix/ytmdl/releases/tag/v0.15.0')
-    expect(link.getAttribute('target')).toBe('_blank')
-    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    const githubLink = screen.getByRole('link', { name: /Auf GitHub ansehen/i })
+    expect(githubLink).toBeDefined()
+    expect(githubLink.getAttribute('href')).toBe('https://github.com/Der-Felix/ytmdl/releases/tag/v0.15.0')
+    expect(githubLink.getAttribute('target')).toBe('_blank')
+    expect(githubLink.getAttribute('rel')).toBe('noopener noreferrer')
+
+    const docsLink = screen.getByRole('link', { name: /Dokumentation/i })
+    expect(docsLink).toBeDefined()
+    expect(docsLink.getAttribute('href')).toBe('/ytmdl/updates')
+    expect(docsLink.getAttribute('target')).toBe('_blank')
+  })
+
+  it('copies host update command to clipboard on button click', async () => {
+    let copiedText = ''
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: async (text: string) => {
+          copiedText = text
+        },
+      },
+      configurable: true,
+    })
+
+    render(<UpdatePanel initialData={updateAvailableStatus} />)
+
+    const copyBtn = screen.getByRole('button', { name: /Kopieren/i })
+    expect(copyBtn).toBeDefined()
+
+    fireEvent.click(copyBtn)
+
+    await waitFor(() => {
+      expect(copiedText).toBe('ytmdlctl update')
+      expect(screen.getByText('Kopiert!')).toBeDefined()
+    })
+  })
+
+  it('renders release notes safely as plain text without HTML execution', () => {
+    const xssStatus: UpdateStatus = {
+      ...updateAvailableStatus,
+      release_notes: '<img src=x onerror=alert(1)><b class="injected-bold">Plain Bold</b>',
+    }
+
+    render(<UpdatePanel initialData={xssStatus} />)
+
+    const pre = screen.getByText(/<img src=x/i)
+    expect(pre.tagName.toLowerCase()).toBe('pre')
+    expect(pre.textContent).toContain('<img src=x onerror=alert(1)><b class="injected-bold">Plain Bold</b>')
+    expect(pre.querySelector('img')).toBeNull()
+    expect(pre.querySelector('.injected-bold')).toBeNull()
   })
 
   it('renders no_public_release state with helpful message', () => {

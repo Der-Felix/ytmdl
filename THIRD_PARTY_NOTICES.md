@@ -10,7 +10,10 @@ The backend is written in Go and utilizes the following direct third-party modul
 | --------- | ------- | ------- | ----------- |
 | `github.com/go-chi/chi/v5` | HTTP routing & middleware | MIT | https://github.com/go-chi/chi |
 | `github.com/jackc/pgx/v5` | PostgreSQL driver and toolkit | MIT | https://github.com/jackc/pgx |
+| `golang.org/x/crypto` | Cryptographic primitives & password hashing | BSD-3-Clause | https://pkg.go.dev/golang.org/x/crypto |
+| `golang.org/x/net` | Complementary networking libraries | BSD-3-Clause | https://pkg.go.dev/golang.org/x/net |
 | `golang.org/x/sync` | Concurrency primitives & singleflight | BSD-3-Clause | https://pkg.go.dev/golang.org/x/sync |
+| `golang.org/x/sys` | Low-level OS primitives & flock support | BSD-3-Clause | https://pkg.go.dev/golang.org/x/sys |
 | `gopkg.in/yaml.v3` | YAML parsing & configuration | MIT / Apache-2.0 | https://github.com/go-yaml/yaml |
 
 ## Frontend Dependencies (TypeScript / React)
