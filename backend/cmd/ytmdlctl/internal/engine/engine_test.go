@@ -638,3 +638,77 @@ func TestEngineUpServicesAndInspectContainer(t *testing.T) {
 		t.Errorf("imgID = %q, want sha256:abcd", imgID)
 	}
 }
+
+func TestVerifyBothExpectedDigests(t *testing.T) {
+	expectedRepo := "ghcr.io/der-felix/ytmdl-backend"
+	indexDigest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	platformDigest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	unrelatedDigest := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+	tests := []struct {
+		name        string
+		repoDigests []string
+		expectPass  bool
+	}{
+		{
+			name: "both index and platform present",
+			repoDigests: []string{
+				expectedRepo + "@" + indexDigest,
+				expectedRepo + "@" + platformDigest,
+			},
+			expectPass: true,
+		},
+		{
+			name: "both index and platform present in reversed order with extra digests",
+			repoDigests: []string{
+				"other/repo@" + unrelatedDigest,
+				expectedRepo + "@" + platformDigest,
+				expectedRepo + "@" + indexDigest,
+			},
+			expectPass: true,
+		},
+		{
+			name: "missing index digest",
+			repoDigests: []string{
+				expectedRepo + "@" + platformDigest,
+			},
+			expectPass: false,
+		},
+		{
+			name: "missing platform digest",
+			repoDigests: []string{
+				expectedRepo + "@" + indexDigest,
+			},
+			expectPass: false,
+		},
+		{
+			name: "wrong repository for index digest",
+			repoDigests: []string{
+				"other/repo@" + indexDigest,
+				expectedRepo + "@" + platformDigest,
+			},
+			expectPass: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			jsonBytes, err := json.Marshal([]map[string]any{
+				{
+					"Id":          "sha256:dummy",
+					"RepoDigests": tc.repoDigests,
+				},
+			})
+			if err != nil {
+				t.Fatalf("json.Marshal failed: %v", err)
+			}
+			err = engine.VerifyBothExpectedDigests(jsonBytes, expectedRepo, indexDigest, platformDigest)
+			if tc.expectPass && err != nil {
+				t.Fatalf("expected PASS but got: %v", err)
+			}
+			if !tc.expectPass && err == nil {
+				t.Fatalf("expected FAIL but got nil")
+			}
+		})
+	}
+}

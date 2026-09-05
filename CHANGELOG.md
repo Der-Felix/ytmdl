@@ -2,6 +2,27 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.17.3 — 2026-09-05
+
+### Added
+
+- **Native Multi-Arch Application Containers:** Built and published native OCI multi-platform container images for both `linux/amd64` (x86_64) and `linux/arm64` (aarch64 / Apple Silicon / Raspberry Pi / ARM servers) for both `backend` and `frontend`.
+- **Release Manifest Specification v3 (`upgrade_paths` & `platforms`):**
+  - Introduced `manifest_version: 3` with an explicit matrix `upgrade_paths` specification defining per-source-schema update classifications:
+    - `SourceSchema: 8` → `TargetSchema: 9`: `schema_forward`, `backup_restore_required` (triggers quiescent pre-migration backup)
+    - `SourceSchema: 9` → `TargetSchema: 9`: `schema_neutral`, `schema_neutral` (non-quiescent patch update without disabling automatic rollback)
+  - Added platform-specific image digest mappings (`images.backend.platforms` and `images.frontend.platforms`) alongside top-level multi-arch index digests.
+- **Enhanced Engine & Staging Multi-Arch Verification:**
+  - `ytmdlctl` automatically detects target host platform architecture via engine runtime query (`podman info` / `docker info`).
+  - Staging verification validates pulled images against either the multi-arch index digest or the platform-specific manifest digest, fail-closing if the host platform is unsupported.
+  - Image inspect verification ensures the pulled container architecture matches the target host architecture.
+  - Snapshot engine preserves previous working image identity even across cross-architecture upgrades (e.g. historical v0.15.0 emulated AMD64 on ARM64 hosts).
+- **Multi-Arch CI & GitHub Actions Release Pipeline:**
+  - Integrated `docker/setup-qemu-action` for multi-platform buildx emulation.
+  - Cross-compilation builder pattern (`FROM --platform=$BUILDPLATFORM golang:alpine`) in `Containerfile` with `CGO_ENABLED=0` targeting `$TARGETOS/$TARGETARCH` at native host build speed.
+  - Non-publishing `workflow_dispatch` verify-only mode qualifies multi-arch image compilation on `ubuntu-latest`.
+- **Database Schema:** Schema remains at Schema 9; no database migration required from v0.17.0 / v0.17.1 / v0.17.2.
+
 ## 0.17.2 — 2026-09-05
 
 ### Fixed

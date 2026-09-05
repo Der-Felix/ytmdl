@@ -34,6 +34,10 @@ func setupTestEnv(t *testing.T, version string) (string, string) {
 }
 
 func setupHappyFakeRunner(composeFile, prevBackendDigest, prevFrontendDigest, targetBackendDigest, targetFrontendDigest string) *runner.FakeProcessRunner {
+	return setupVersionedFakeRunner(composeFile, "0.15.0", "0.16.0", prevBackendDigest, prevFrontendDigest, targetBackendDigest, targetFrontendDigest)
+}
+
+func setupVersionedFakeRunner(composeFile, prevVersion, targetVersion, prevBackendDigest, prevFrontendDigest, targetBackendDigest, targetFrontendDigest string) *runner.FakeProcessRunner {
 	fake := runner.NewFake()
 
 	// Engine compose version
@@ -43,21 +47,21 @@ func setupHappyFakeRunner(composeFile, prevBackendDigest, prevFrontendDigest, ta
 	}, nil)
 
 	// Inspect previous images
-	fake.Register("docker", []string{"image", "inspect", "ghcr.io/der-felix/ytmdl-backend:0.15.0"}, &runner.RunResult{
+	fake.Register("docker", []string{"image", "inspect", fmt.Sprintf("ghcr.io/der-felix/ytmdl-backend:%s", prevVersion)}, &runner.RunResult{
 		ExitCode: 0,
 		Stdout:   []byte(fmt.Sprintf(`[{"Id": "sha256:id_prev_backend", "RepoDigests": ["ghcr.io/der-felix/ytmdl-backend@%s"]}]`, prevBackendDigest)),
 	}, nil)
-	fake.Register("docker", []string{"image", "inspect", "ghcr.io/der-felix/ytmdl-frontend:0.15.0"}, &runner.RunResult{
+	fake.Register("docker", []string{"image", "inspect", fmt.Sprintf("ghcr.io/der-felix/ytmdl-frontend:%s", prevVersion)}, &runner.RunResult{
 		ExitCode: 0,
 		Stdout:   []byte(fmt.Sprintf(`[{"Id": "sha256:id_prev_frontend", "RepoDigests": ["ghcr.io/der-felix/ytmdl-frontend@%s"]}]`, prevFrontendDigest)),
 	}, nil)
 
 	// Inspect target images
-	fake.Register("docker", []string{"image", "inspect", "ghcr.io/der-felix/ytmdl-backend:0.16.0"}, &runner.RunResult{
+	fake.Register("docker", []string{"image", "inspect", fmt.Sprintf("ghcr.io/der-felix/ytmdl-backend:%s", targetVersion)}, &runner.RunResult{
 		ExitCode: 0,
 		Stdout:   []byte(fmt.Sprintf(`[{"Id": "sha256:id_target_backend", "RepoDigests": ["ghcr.io/der-felix/ytmdl-backend@%s"]}]`, targetBackendDigest)),
 	}, nil)
-	fake.Register("docker", []string{"image", "inspect", "ghcr.io/der-felix/ytmdl-frontend:0.16.0"}, &runner.RunResult{
+	fake.Register("docker", []string{"image", "inspect", fmt.Sprintf("ghcr.io/der-felix/ytmdl-frontend:%s", targetVersion)}, &runner.RunResult{
 		ExitCode: 0,
 		Stdout:   []byte(fmt.Sprintf(`[{"Id": "sha256:id_target_frontend", "RepoDigests": ["ghcr.io/der-felix/ytmdl-frontend@%s"]}]`, targetFrontendDigest)),
 	}, nil)
@@ -80,11 +84,11 @@ func setupHappyFakeRunner(composeFile, prevBackendDigest, prevFrontendDigest, ta
 	// Container inspect
 	fake.Register("docker", []string{"inspect", "backend_c123"}, &runner.RunResult{
 		ExitCode: 0,
-		Stdout:   []byte(`[{"Image": "sha256:id_target_backend", "Config": {"Image": "ghcr.io/der-felix/ytmdl-backend:0.16.0"}}]`),
+		Stdout:   []byte(fmt.Sprintf(`[{"Image": "sha256:id_target_backend", "Config": {"Image": "ghcr.io/der-felix/ytmdl-backend:%s"}}]`, targetVersion)),
 	}, nil)
 	fake.Register("docker", []string{"inspect", "frontend_c456"}, &runner.RunResult{
 		ExitCode: 0,
-		Stdout:   []byte(`[{"Image": "sha256:id_target_frontend", "Config": {"Image": "ghcr.io/der-felix/ytmdl-frontend:0.16.0"}}]`),
+		Stdout:   []byte(fmt.Sprintf(`[{"Image": "sha256:id_target_frontend", "Config": {"Image": "ghcr.io/der-felix/ytmdl-frontend:%s"}}]`, targetVersion)),
 	}, nil)
 
 	return fake
@@ -813,5 +817,112 @@ func TestRollback_SchemaForwardMigrated_Blocked(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "RECOVERY_REQUIRED") {
 		t.Fatalf("expected error mentioning RECOVERY_REQUIRED, got: %v", err)
+	}
+}
+
+func TestUpdate_Schema9To9_SchemaNeutral_HappyPath(t *testing.T) {
+	prevBackendDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	prevFrontendDigest := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	targetBackendDigest := "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+	targetFrontendDigest := "sha256:0000000000000000000000000000000000000000000000000000000000000002"
+
+	projectDir, composeFile := setupTestEnv(t, "0.17.2")
+	fake := setupVersionedFakeRunner(composeFile, "0.17.2", "0.17.3", prevBackendDigest, prevFrontendDigest, targetBackendDigest, targetFrontendDigest)
+
+	eng := engine.NewDocker(fake)
+	deps := defaultMockDeps(targetBackendDigest, targetFrontendDigest)
+	deps.ReleaseResolver = func(ctx context.Context, tag string) (*release.ReleaseInfo, error) {
+		return &release.ReleaseInfo{TagName: "v0.17.3"}, nil
+	}
+	deps.ManifestFetcher = func(ctx context.Context, rel *release.ReleaseInfo) (*manifest.Manifest, error) {
+		m := &manifest.Manifest{
+			ManifestVersion: manifest.ManifestVersion3,
+			ReleaseVersion:  "0.17.3",
+			ReleaseTag:      "v0.17.3",
+			TargetSchema:    9,
+			UpgradePaths: []manifest.UpgradePath{
+				{
+					SourceSchema:           8,
+					TargetSchema:           9,
+					UpdateClassification:   manifest.UpdateSchemaForward,
+					RollbackClassification: manifest.RollbackBackupRestoreRequired,
+				},
+				{
+					SourceSchema:           9,
+					TargetSchema:           9,
+					UpdateClassification:   manifest.UpdateSchemaNeutral,
+					RollbackClassification: manifest.RollbackSchemaNeutral,
+				},
+			},
+			MinUpgradeFrom: "0.15.0",
+			RequiredEnv:    []string{"POSTGRES_PASSWORD"},
+		}
+		m.Images.Backend = manifest.ImageSpec{
+			Repository: "ghcr.io/der-felix/ytmdl-backend",
+			Tag:        "0.17.3",
+			Digest:     targetBackendDigest,
+			Platforms: map[string]manifest.PlatformSpec{
+				"linux/amd64": {Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+				"linux/arm64": {Digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			},
+		}
+		m.Images.Frontend = manifest.ImageSpec{
+			Repository: "ghcr.io/der-felix/ytmdl-frontend",
+			Tag:        "0.17.3",
+			Digest:     targetFrontendDigest,
+			Platforms: map[string]manifest.PlatformSpec{
+				"linux/amd64": {Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+				"linux/arm64": {Digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			},
+		}
+		return m, nil
+	}
+	deps.StagingVerifier = func(ctx context.Context, eng engine.Engine, opts staging.StageOptions) (*staging.StagingResult, error) {
+		return &staging.StagingResult{
+			TargetVersion:  "0.17.3",
+			BackendImage:   "ghcr.io/der-felix/ytmdl-backend:0.17.3",
+			BackendDigest:  targetBackendDigest,
+			FrontendImage:  "ghcr.io/der-felix/ytmdl-frontend:0.17.3",
+			FrontendDigest: targetFrontendDigest,
+		}, nil
+	}
+	callCount := 0
+	deps.HealthChecker = func(ctx context.Context, baseURL string) (*discovery.BackendHealth, error) {
+		callCount++
+		if callCount == 1 {
+			return &discovery.BackendHealth{Status: "ok", Version: "0.17.2"}, nil
+		}
+		return &discovery.BackendHealth{Status: "ok", Version: "0.17.3"}, nil
+	}
+	deps.SchemaChecker = func(ctx context.Context, eng engine.Engine, projectDir, composeFile string) (int, error) {
+		return 9, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	res, err := orchestrator.Update(context.Background(), eng, deps, orchestrator.UpdateOptions{
+		ProjectDir:  projectDir,
+		ComposeFile: composeFile,
+		AutoConfirm: true,
+		Stdout:      &stdout,
+		Stderr:      &stderr,
+	})
+	if err != nil {
+		t.Fatalf("Update failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	if res.CurrentVersion != "0.17.3" {
+		t.Errorf("CurrentVersion = %s, want 0.17.3", res.CurrentVersion)
+	}
+
+	// Verify state saved has rollback_classification = schema_neutral
+	st, err := state.Load(projectDir)
+	if err != nil {
+		t.Fatalf("failed loading state: %v", err)
+	}
+	if st.RollbackClassification != "schema_neutral" {
+		t.Errorf("RollbackClassification = %q, want schema_neutral", st.RollbackClassification)
+	}
+	if st.SchemaBefore != 9 || st.TargetSchema != 9 {
+		t.Errorf("schemas = %d -> %d, want 9 -> 9", st.SchemaBefore, st.TargetSchema)
 	}
 }

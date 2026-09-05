@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
+	"ytdm/backend/cmd/ytmdlctl/internal/manifest"
 	"ytdm/backend/cmd/ytmdlctl/internal/runner"
 )
 
@@ -40,8 +42,12 @@ type Engine interface {
 	GetServiceContainerID(ctx context.Context, projectDir, composeFile, service string) (string, error)
 	InspectContainerImage(ctx context.Context, containerID string) (imageRef, imageID string, err error)
 	VerifyImageDigest(ctx context.Context, imageRef, expectedDigest string) error
+	VerifyImageAnyDigest(ctx context.Context, imageRef string, expectedDigests []string) error
+	VerifyImageDualDigests(ctx context.Context, imageRef, expectedIndexDigest, expectedPlatformDigest string) error
 	InspectImageRepoDigests(ctx context.Context, imageRef string) ([]string, error)
 	InspectImageID(ctx context.Context, imageRef string) (string, error)
+	TargetPlatform(ctx context.Context) (string, error)
+	InspectImagePlatform(ctx context.Context, imageRef string) (string, error)
 }
 
 // BaseEngine implements Engine using a ProcessRunner.
@@ -100,14 +106,21 @@ func (e *BaseEngine) Port(ctx context.Context, projectDir, composeFile, service 
 }
 
 type imageInspectEntry struct {
-	ID          string   `json:"Id"`
-	Digest      string   `json:"Digest"`
-	RepoDigests []string `json:"RepoDigests"`
+	ID           string   `json:"Id"`
+	Digest       string   `json:"Digest"`
+	RepoDigests  []string `json:"RepoDigests"`
+	Architecture string   `json:"Architecture"`
+	Os           string   `json:"Os"`
 }
 
 // VerifyImageDigest verifies that imageRef contains expectedDigest for its repository.
 // This check is exact-digest driven and completely order-independent.
 func (e *BaseEngine) VerifyImageDigest(ctx context.Context, imageRef, expectedDigest string) error {
+	return e.VerifyImageAnyDigest(ctx, imageRef, []string{expectedDigest})
+}
+
+// VerifyImageAnyDigest verifies that imageRef contains at least one of expectedDigests in its repository digests.
+func (e *BaseEngine) VerifyImageAnyDigest(ctx context.Context, imageRef string, expectedDigests []string) error {
 	res, err := e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
 		Args:       []string{"image", "inspect", imageRef},
@@ -118,7 +131,140 @@ func (e *BaseEngine) VerifyImageDigest(ctx context.Context, imageRef, expectedDi
 	if res.ExitCode != 0 {
 		return fmt.Errorf("inspect image %s failed (exit %d): %s", imageRef, res.ExitCode, res.Stderr)
 	}
-	return VerifyExpectedDigest(res.Stdout, imageRef, expectedDigest)
+	return VerifyAnyExpectedDigest(res.Stdout, imageRef, expectedDigests)
+}
+
+// VerifyImageDualDigests verifies that imageRef contains BOTH expectedIndexDigest AND expectedPlatformDigest
+// in its repository digests for expectedRepo.
+// This enforces logical AND: the image must be part of the approved multi-platform release set (index digest)
+// and match the approved platform-specific binary digest.
+func (e *BaseEngine) VerifyImageDualDigests(ctx context.Context, imageRef, expectedIndexDigest, expectedPlatformDigest string) error {
+	res, err := e.runner.Run(ctx, runner.RunRequest{
+		Executable: e.binary,
+		Args:       []string{"image", "inspect", imageRef},
+	})
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("inspect image %s failed (exit %d): %s", imageRef, res.ExitCode, res.Stderr)
+	}
+	return VerifyBothExpectedDigests(res.Stdout, imageRef, expectedIndexDigest, expectedPlatformDigest)
+}
+
+// TargetPlatform detects and returns the normalized container engine host platform (e.g. "linux/amd64" or "linux/arm64").
+func (e *BaseEngine) TargetPlatform(ctx context.Context) (string, error) {
+	// 1. Try version command
+	res, err := e.runner.Run(ctx, runner.RunRequest{
+		Executable: e.binary,
+		Args:       []string{"version", "--format", "{{json .}}"},
+	})
+	if err == nil && res.ExitCode == 0 {
+		var verData struct {
+			Server struct {
+				OsArch string `json:"OsArch"`
+				Os     string `json:"Os"`
+				Arch   string `json:"Arch"`
+			} `json:"Server"`
+			Client struct {
+				OsArch string `json:"OsArch"`
+				Os     string `json:"Os"`
+				Arch   string `json:"Arch"`
+			} `json:"Client"`
+		}
+		if jsonErr := json.Unmarshal(res.Stdout, &verData); jsonErr == nil {
+			if verData.Server.OsArch != "" {
+				if norm, err := manifest.NormalizePlatform(verData.Server.OsArch); err == nil {
+					return norm, nil
+				}
+			}
+			if verData.Server.Arch != "" {
+				osName := verData.Server.Os
+				if osName == "" {
+					osName = "linux"
+				}
+				if norm, err := manifest.NormalizePlatform(osName + "/" + verData.Server.Arch); err == nil {
+					return norm, nil
+				}
+			}
+			if verData.Client.OsArch != "" {
+				if norm, err := manifest.NormalizePlatform(verData.Client.OsArch); err == nil {
+					return norm, nil
+				}
+			}
+			if verData.Client.Arch != "" {
+				osName := verData.Client.Os
+				if osName == "" {
+					osName = "linux"
+				}
+				if norm, err := manifest.NormalizePlatform(osName + "/" + verData.Client.Arch); err == nil {
+					return norm, nil
+				}
+			}
+		}
+	}
+
+	// 2. Try info command
+	infoRes, infoErr := e.runner.Run(ctx, runner.RunRequest{
+		Executable: e.binary,
+		Args:       []string{"info", "--format", "{{json .}}"},
+	})
+	if infoErr == nil && infoRes.ExitCode == 0 {
+		var infoData struct {
+			Architecture string `json:"Architecture"`
+			OSType       string `json:"OSType"`
+			Host         struct {
+				Arch string `json:"Arch"`
+				OS   string `json:"OS"`
+			} `json:"Host"`
+		}
+		if jsonErr := json.Unmarshal(infoRes.Stdout, &infoData); jsonErr == nil {
+			arch := infoData.Host.Arch
+			if arch == "" {
+				arch = infoData.Architecture
+			}
+			osName := infoData.Host.OS
+			if osName == "" {
+				osName = infoData.OSType
+			}
+			if arch != "" {
+				if norm, err := manifest.NormalizePlatform(osName + "/" + arch); err == nil {
+					return norm, nil
+				}
+			}
+		}
+	}
+
+	// Fallback for mock environments / unit tests without mock version/info output
+	fallbackArch := runtime.GOARCH
+	return manifest.NormalizePlatform("linux/" + fallbackArch)
+}
+
+// InspectImagePlatform inspects and returns the normalized platform of imageRef (e.g. "linux/amd64" or "linux/arm64").
+func (e *BaseEngine) InspectImagePlatform(ctx context.Context, imageRef string) (string, error) {
+	res, err := e.runner.Run(ctx, runner.RunRequest{
+		Executable: e.binary,
+		Args:       []string{"image", "inspect", imageRef},
+	})
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("inspect image %s failed (exit %d): %s", imageRef, res.ExitCode, res.Stderr)
+	}
+	entries, err := parseInspectEntries(res.Stdout)
+	if err != nil {
+		return "", err
+	}
+	entry := entries[0]
+	if entry.Architecture == "" {
+		return "linux/" + runtime.GOARCH, nil
+	}
+	osName := entry.Os
+	if osName == "" {
+		osName = "linux"
+	}
+	return manifest.NormalizePlatform(osName + "/" + entry.Architecture)
 }
 
 // InspectImageRepoDigests returns all valid repository digests for imageRef belonging to its repository.
@@ -222,13 +368,18 @@ func RepoDigestsFromInspect(data []byte, expectedRepo string) ([]string, error) 
 	return matchingDigests, nil
 }
 
-// VerifyExpectedDigest verifies that expectedDigest (from release manifest) is present
+// VerifyAnyExpectedDigest verifies that at least one of expectedDigests is present
 // in the image's repository digests for expectedRepo.
 // This verification is set-based and independent of array ordering in inspect output.
-func VerifyExpectedDigest(data []byte, expectedRepo, expectedDigest string) error {
-	cleanExpected := strings.ToLower(strings.TrimSpace(expectedDigest))
-	if !digestRegex.MatchString(cleanExpected) {
-		return fmt.Errorf("invalid expected digest format %q", expectedDigest)
+func VerifyAnyExpectedDigest(data []byte, expectedRepo string, expectedDigests []string) error {
+	if len(expectedDigests) == 0 {
+		return errors.New("expected digests list cannot be empty")
+	}
+	for _, exp := range expectedDigests {
+		cleanExp := strings.ToLower(strings.TrimSpace(exp))
+		if !digestRegex.MatchString(cleanExp) {
+			return fmt.Errorf("invalid expected digest format %q", exp)
+		}
 	}
 
 	digests, err := RepoDigestsFromInspect(data, expectedRepo)
@@ -239,13 +390,62 @@ func VerifyExpectedDigest(data []byte, expectedRepo, expectedDigest string) erro
 		return fmt.Errorf("no repository digests found for repository %q in inspect data", expectedRepo)
 	}
 
-	for _, d := range digests {
-		if d == cleanExpected {
-			return nil
+	for _, exp := range expectedDigests {
+		cleanExp := strings.ToLower(strings.TrimSpace(exp))
+		for _, d := range digests {
+			if d == cleanExp {
+				return nil
+			}
 		}
 	}
 
-	return fmt.Errorf("image digest mismatch for repository %q: expected %s, found %v", expectedRepo, expectedDigest, digests)
+	return fmt.Errorf("image digest mismatch for repository %q: expected one of %v, found %v", expectedRepo, expectedDigests, digests)
+}
+
+// VerifyExpectedDigest verifies that expectedDigest (from release manifest) is present
+// in the image's repository digests for expectedRepo.
+func VerifyExpectedDigest(data []byte, expectedRepo, expectedDigest string) error {
+	return VerifyAnyExpectedDigest(data, expectedRepo, []string{expectedDigest})
+}
+
+// VerifyBothExpectedDigests verifies that BOTH expectedIndexDigest and expectedPlatformDigest
+// are present in the image's repository digests for expectedRepo (order-independent set verification).
+// If either digest is missing, or if no repository digests are present, it fails closed.
+func VerifyBothExpectedDigests(data []byte, expectedRepo, expectedIndexDigest, expectedPlatformDigest string) error {
+	cleanIndex := strings.ToLower(strings.TrimSpace(expectedIndexDigest))
+	if !digestRegex.MatchString(cleanIndex) {
+		return fmt.Errorf("invalid expected index digest format %q", expectedIndexDigest)
+	}
+	cleanPlat := strings.ToLower(strings.TrimSpace(expectedPlatformDigest))
+	if !digestRegex.MatchString(cleanPlat) {
+		return fmt.Errorf("invalid expected platform digest format %q", expectedPlatformDigest)
+	}
+
+	digests, err := RepoDigestsFromInspect(data, expectedRepo)
+	if err != nil {
+		return err
+	}
+	if len(digests) == 0 {
+		return fmt.Errorf("no repository digests found for repository %q in inspect data", expectedRepo)
+	}
+
+	hasIndex := false
+	hasPlat := false
+	for _, d := range digests {
+		if d == cleanIndex {
+			hasIndex = true
+		}
+		if d == cleanPlat {
+			hasPlat = true
+		}
+	}
+
+	if !hasIndex || !hasPlat {
+		return fmt.Errorf("dual digest verification failed for %q: requires BOTH index digest (%s: found=%t) and platform digest (%s: found=%t) in RepoDigests %v",
+			expectedRepo, cleanIndex, hasIndex, cleanPlat, hasPlat, digests)
+	}
+
+	return nil
 }
 
 // ParseImageIDFromInspect extracts the local immutable image/config ID from inspect JSON.

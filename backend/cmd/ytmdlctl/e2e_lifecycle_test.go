@@ -264,6 +264,10 @@ type RealPostgresEngine struct {
 	failSchemaCheck   bool
 	failSwap          bool
 	failRestoreTempDB bool
+
+	targetPlatform   string
+	imagePlatforms   map[string]string
+	imageRepoDigests map[string][]string
 }
 
 func NewRealPostgresEngine(t *testing.T, activeDB string) *RealPostgresEngine {
@@ -330,7 +334,7 @@ func (e *RealPostgresEngine) UpServices(ctx context.Context, projectDir, compose
 		Action:    "up",
 	})
 
-	if e.failTargetUp && e.version == "0.17.0" {
+	if e.failTargetUp && e.version != "0.15.0" && e.version != "0.16.0" {
 		return &runner.RunResult{ExitCode: 1, Stderr: []byte("docker compose up failed: container crash")}, nil
 	}
 
@@ -338,8 +342,8 @@ func (e *RealPostgresEngine) UpServices(ctx context.Context, projectDir, compose
 		e.running[s] = true
 	}
 
-	// If backend 0.17.0 started and migrateOnUp is enabled, apply migration 9 to simulate backend auto-migrating on startup
-	if e.migrateOnUp && e.version == "0.17.0" {
+	// If backend 0.17+ started and migrateOnUp is enabled, apply migration 9 to simulate backend auto-migrating on startup
+	if e.migrateOnUp && e.version != "0.15.0" && e.version != "0.16.0" {
 		for _, s := range services {
 			if s == "backend" {
 				e.applyMigration9()
@@ -409,7 +413,70 @@ func (e *RealPostgresEngine) VerifyImageDigest(ctx context.Context, imageRef, ex
 	return nil
 }
 
+func (e *RealPostgresEngine) VerifyImageAnyDigest(ctx context.Context, imageRef string, expectedDigests []string) error {
+	digs, _ := e.InspectImageRepoDigests(ctx, imageRef)
+	matched := false
+	for _, actual := range digs {
+		for _, exp := range expectedDigests {
+			if actual == exp {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			break
+		}
+	}
+	if !matched {
+		return fmt.Errorf("cryptographic digest mismatch for %s: none of expected digests %v found in actual repo digests %v", imageRef, expectedDigests, digs)
+	}
+	return nil
+}
+
+func (e *RealPostgresEngine) VerifyImageDualDigests(ctx context.Context, imageRef, expectedIndexDigest, expectedPlatformDigest string) error {
+	digs, _ := e.InspectImageRepoDigests(ctx, imageRef)
+	hasIndex := false
+	hasPlat := false
+	for _, actual := range digs {
+		if actual == expectedIndexDigest {
+			hasIndex = true
+		}
+		if actual == expectedPlatformDigest {
+			hasPlat = true
+		}
+	}
+	if !hasIndex || !hasPlat {
+		return fmt.Errorf("dual digest verification failed for %s: requires BOTH index (%s: found=%t) and platform (%s: found=%t) in %v",
+			imageRef, expectedIndexDigest, hasIndex, expectedPlatformDigest, hasPlat, digs)
+	}
+	return nil
+}
+
+func (e *RealPostgresEngine) TargetPlatform(ctx context.Context) (string, error) {
+	if e.targetPlatform != "" {
+		return e.targetPlatform, nil
+	}
+	return "linux/amd64", nil
+}
+
+func (e *RealPostgresEngine) InspectImagePlatform(ctx context.Context, imageRef string) (string, error) {
+	if e.imagePlatforms != nil {
+		if p, ok := e.imagePlatforms[imageRef]; ok {
+			return p, nil
+		}
+	}
+	if e.targetPlatform != "" {
+		return e.targetPlatform, nil
+	}
+	return "linux/amd64", nil
+}
+
 func (e *RealPostgresEngine) InspectImageRepoDigests(ctx context.Context, imageRef string) ([]string, error) {
+	if e.imageRepoDigests != nil {
+		if digs, ok := e.imageRepoDigests[imageRef]; ok {
+			return digs, nil
+		}
+	}
 	return []string{
 		"sha256:d1111111111111111111111111111111111111111111111111111111111111111",
 	}, nil
@@ -1507,4 +1574,371 @@ func TestResolvePostgresBinary(t *testing.T) {
 			t.Fatalf("expected non-PG18 server to skip version check, got: %v", errNon18)
 		}
 	})
+}
+
+// ============================================================================
+// ============================================================================
+// Multi-Arch Test 1: Digest Matrix Acceptance & Rejection (Section 35)
+// ============================================================================
+func TestE2E_MultiArch_DigestMatrix_AcceptanceAndRejection(t *testing.T) {
+	indexDigest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	amd64Digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	arm64Digest := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	unrelatedIndex := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	unrelatedDigest := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+	// 1. AMD64 Host Engine
+	engAMD64 := &RealPostgresEngine{
+		targetPlatform: "linux/amd64",
+		imageRepoDigests: map[string][]string{
+			"img-both":           {indexDigest, amd64Digest},
+			"img-wrong-platform": {indexDigest, arm64Digest},
+			"img-wrong-index":    {unrelatedIndex, amd64Digest},
+			"img-platform-only":  {amd64Digest},
+			"img-index-only":     {indexDigest},
+			"img-unrelated":      {unrelatedDigest},
+		},
+	}
+
+	// [Index + Platform] PASS
+	if err := engAMD64.VerifyImageDualDigests(context.Background(), "img-both", indexDigest, amd64Digest); err != nil {
+		t.Errorf("expected img-both to pass on AMD64, got: %v", err)
+	}
+	// [Index + Wrong Platform] FAIL
+	if err := engAMD64.VerifyImageDualDigests(context.Background(), "img-wrong-platform", indexDigest, amd64Digest); err == nil {
+		t.Errorf("expected img-wrong-platform to fail on AMD64, got nil")
+	}
+	// [Wrong Index + Platform] FAIL
+	if err := engAMD64.VerifyImageDualDigests(context.Background(), "img-wrong-index", indexDigest, amd64Digest); err == nil {
+		t.Errorf("expected img-wrong-index to fail on AMD64, got nil")
+	}
+	// [Platform only, missing index] FAIL
+	if err := engAMD64.VerifyImageDualDigests(context.Background(), "img-platform-only", indexDigest, amd64Digest); err == nil {
+		t.Errorf("expected img-platform-only to fail on AMD64, got nil")
+	}
+	// [Index only, missing platform] FAIL
+	if err := engAMD64.VerifyImageDualDigests(context.Background(), "img-index-only", indexDigest, amd64Digest); err == nil {
+		t.Errorf("expected img-index-only to fail on AMD64, got nil")
+	}
+	// [Unrelated] FAIL
+	if err := engAMD64.VerifyImageDualDigests(context.Background(), "img-unrelated", indexDigest, amd64Digest); err == nil {
+		t.Errorf("expected img-unrelated to fail on AMD64, got nil")
+	}
+
+	// 2. ARM64 Host Engine
+	engARM64 := &RealPostgresEngine{
+		targetPlatform: "linux/arm64",
+		imageRepoDigests: map[string][]string{
+			"img-both":           {indexDigest, arm64Digest},
+			"img-wrong-platform": {indexDigest, amd64Digest},
+			"img-wrong-index":    {unrelatedIndex, arm64Digest},
+			"img-platform-only":  {arm64Digest},
+			"img-index-only":     {indexDigest},
+			"img-unrelated":      {unrelatedDigest},
+		},
+	}
+
+	// [Index + Platform] PASS
+	if err := engARM64.VerifyImageDualDigests(context.Background(), "img-both", indexDigest, arm64Digest); err != nil {
+		t.Errorf("expected img-both to pass on ARM64, got: %v", err)
+	}
+	// [Index + Wrong Platform] FAIL
+	if err := engARM64.VerifyImageDualDigests(context.Background(), "img-wrong-platform", indexDigest, arm64Digest); err == nil {
+		t.Errorf("expected img-wrong-platform to fail on ARM64, got nil")
+	}
+	// [Wrong Index + Platform] FAIL
+	if err := engARM64.VerifyImageDualDigests(context.Background(), "img-wrong-index", indexDigest, arm64Digest); err == nil {
+		t.Errorf("expected img-wrong-index to fail on ARM64, got nil")
+	}
+	// [Platform only, missing index] FAIL
+	if err := engARM64.VerifyImageDualDigests(context.Background(), "img-platform-only", indexDigest, arm64Digest); err == nil {
+		t.Errorf("expected img-platform-only to fail on ARM64, got nil")
+	}
+	// [Index only, missing platform] FAIL
+	if err := engARM64.VerifyImageDualDigests(context.Background(), "img-index-only", indexDigest, arm64Digest); err == nil {
+		t.Errorf("expected img-index-only to fail on ARM64, got nil")
+	}
+	// [Unrelated] FAIL
+	if err := engARM64.VerifyImageDualDigests(context.Background(), "img-unrelated", indexDigest, arm64Digest); err == nil {
+		t.Errorf("expected img-unrelated to fail on ARM64, got nil")
+	}
+}
+
+// ============================================================================
+// Multi-Arch Test 2: Schema 9 -> 9 Patch Upgrade on Real PostgreSQL (Section 48)
+// ============================================================================
+func TestE2E_MultiArch_Schema9To9_PatchUpgrade_RealPostgres(t *testing.T) {
+	dbName, cleanup := setupRealPostgresDB(t, 9)
+	defer cleanup()
+
+	projDir, composeFile := setupTestProject(t, "0.17.2", dbName)
+	eng := NewRealPostgresEngine(t, dbName)
+	eng.version = "0.17.2"
+
+	// Mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{
+				"status":  "ok",
+				"version": eng.version,
+			},
+		})
+	}))
+	defer server.Close()
+
+	dBackendIdx := "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+	dFrontendIdx := "sha256:0000000000000000000000000000000000000000000000000000000000000002"
+
+	eng.imageRepoDigests = map[string][]string{
+		"ghcr.io/der-felix/ytmdl-backend:0.17.2":  {dBackendIdx},
+		"ghcr.io/der-felix/ytmdl-frontend:0.17.2": {dFrontendIdx},
+		"ghcr.io/der-felix/ytmdl-backend:0.17.3":  {dBackendIdx, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		"ghcr.io/der-felix/ytmdl-frontend:0.17.3": {dFrontendIdx, "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+	}
+
+	deps := defaultE2EDeps(dBackendIdx, dFrontendIdx)
+	deps.ReleaseResolver = func(ctx context.Context, tag string) (*release.ReleaseInfo, error) {
+		return &release.ReleaseInfo{TagName: "v0.17.3"}, nil
+	}
+	deps.ManifestFetcher = func(ctx context.Context, rel *release.ReleaseInfo) (*manifest.Manifest, error) {
+		m := &manifest.Manifest{
+			ManifestVersion: manifest.ManifestVersion3,
+			ReleaseVersion:  "0.17.3",
+			ReleaseTag:      "v0.17.3",
+			TargetSchema:    9,
+			UpgradePaths: []manifest.UpgradePath{
+				{
+					SourceSchema:           8,
+					TargetSchema:           9,
+					UpdateClassification:   manifest.UpdateSchemaForward,
+					RollbackClassification: manifest.RollbackBackupRestoreRequired,
+				},
+				{
+					SourceSchema:           9,
+					TargetSchema:           9,
+					UpdateClassification:   manifest.UpdateSchemaNeutral,
+					RollbackClassification: manifest.RollbackSchemaNeutral,
+				},
+			},
+			MinUpgradeFrom: "0.15.0",
+			RequiredEnv:    []string{"POSTGRES_PASSWORD"},
+		}
+		m.Images.Backend = manifest.ImageSpec{
+			Repository: "ghcr.io/der-felix/ytmdl-backend",
+			Tag:        "0.17.3",
+			Digest:     dBackendIdx,
+			Platforms: map[string]manifest.PlatformSpec{
+				"linux/amd64": {Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+				"linux/arm64": {Digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			},
+		}
+		m.Images.Frontend = manifest.ImageSpec{
+			Repository: "ghcr.io/der-felix/ytmdl-frontend",
+			Tag:        "0.17.3",
+			Digest:     dFrontendIdx,
+			Platforms: map[string]manifest.PlatformSpec{
+				"linux/amd64": {Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+				"linux/arm64": {Digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+			},
+		}
+		return m, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	res, err := orchestrator.Update(context.Background(), eng, deps, orchestrator.UpdateOptions{
+		ProjectDir:  projDir,
+		ComposeFile: composeFile,
+		BaseURL:     server.URL,
+		AutoConfirm: true,
+		Stdout:      &stdout,
+		Stderr:      &stderr,
+	})
+
+	if err != nil {
+		t.Fatalf("Update 0.17.2 -> 0.17.3 failed: %v\nstderr: %s", err, stderr.String())
+	}
+	if res.CurrentVersion != "0.17.3" {
+		t.Errorf("CurrentVersion = %s, want 0.17.3", res.CurrentVersion)
+	}
+
+	// Verify DB schema remains 9
+	s, err := discovery.QueryDBSchema(context.Background(), eng, projDir, composeFile, eng.cfg.User, dbName)
+	if err != nil || s != 9 {
+		t.Fatalf("Expected DB schema 9, got %d (err: %v)", s, err)
+	}
+
+	// Verify state saved has rollback_classification = schema_neutral
+	st, err := state.Load(projDir)
+	if err != nil {
+		t.Fatalf("failed loading state: %v", err)
+	}
+	if st.RollbackClassification != "schema_neutral" {
+		t.Errorf("RollbackClassification = %q, want schema_neutral", st.RollbackClassification)
+	}
+
+	// Verify that automatic rollback remains possible on schema 9 -> 9 patch update
+	eng.version = "0.17.2"
+	rbRes, rbErr := orchestrator.Rollback(context.Background(), eng, deps, orchestrator.RollbackOptions{
+		ProjectDir:  projDir,
+		ComposeFile: composeFile,
+		BaseURL:     server.URL,
+		AutoConfirm: true,
+		Stdout:      &stdout,
+		Stderr:      &stderr,
+	})
+	if rbErr != nil {
+		t.Fatalf("Rollback failed for schema-neutral update: %v", rbErr)
+	}
+	if rbRes.RestoredVersion != "0.17.2" {
+		t.Errorf("RestoredVersion = %s, want 0.17.2", rbRes.RestoredVersion)
+	}
+}
+
+// ============================================================================
+// Multi-Arch Test 3: Exact Production Path ARM64 Host, Historical AMD64 (Section 49)
+// ============================================================================
+func TestE2E_MultiArch_ExactProductionPath_ARM64Host_HistoricalAMD64Previous(t *testing.T) {
+	dbName, cleanup := setupRealPostgresDB(t, 8)
+	defer cleanup()
+
+	projDir, composeFile := setupTestProject(t, "0.15.0", dbName)
+	eng := NewRealPostgresEngine(t, dbName)
+	eng.migrateOnUp = true
+
+	// Simulate ARM64 Host (Apple Silicon MacBook)
+	eng.targetPlatform = "linux/arm64"
+	// Historical v0.15.0 was AMD64 (emulated)
+	// Target v0.17.3 is native ARM64
+	eng.imagePlatforms = map[string]string{
+		"ghcr.io/der-felix/ytmdl-backend:0.15.0":  "linux/amd64",
+		"ghcr.io/der-felix/ytmdl-frontend:0.15.0": "linux/amd64",
+		"ghcr.io/der-felix/ytmdl-backend:0.17.3":  "linux/arm64",
+		"ghcr.io/der-felix/ytmdl-frontend:0.17.3": "linux/arm64",
+	}
+
+	dBackendIdx := "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+	dBackendARM64 := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	dFrontendIdx := "sha256:0000000000000000000000000000000000000000000000000000000000000002"
+	dFrontendARM64 := "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+
+	eng.imageRepoDigests = map[string][]string{
+		"ghcr.io/der-felix/ytmdl-backend:0.15.0":  {"sha256:prev_amd64_backend"},
+		"ghcr.io/der-felix/ytmdl-frontend:0.15.0": {"sha256:prev_amd64_frontend"},
+		"ghcr.io/der-felix/ytmdl-backend:0.17.3":  {dBackendIdx, dBackendARM64},
+		"ghcr.io/der-felix/ytmdl-frontend:0.17.3": {dFrontendIdx, dFrontendARM64},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{
+				"status":  "ok",
+				"version": eng.version,
+			},
+		})
+	}))
+	defer server.Close()
+
+	deps := defaultE2EDeps(dBackendIdx, dFrontendIdx)
+	deps.ReleaseResolver = func(ctx context.Context, tag string) (*release.ReleaseInfo, error) {
+		return &release.ReleaseInfo{TagName: "v0.17.3"}, nil
+	}
+	deps.ManifestFetcher = func(ctx context.Context, rel *release.ReleaseInfo) (*manifest.Manifest, error) {
+		m := &manifest.Manifest{
+			ManifestVersion: manifest.ManifestVersion3,
+			ReleaseVersion:  "0.17.3",
+			ReleaseTag:      "v0.17.3",
+			TargetSchema:    9,
+			UpgradePaths: []manifest.UpgradePath{
+				{
+					SourceSchema:           8,
+					TargetSchema:           9,
+					UpdateClassification:   manifest.UpdateSchemaForward,
+					RollbackClassification: manifest.RollbackBackupRestoreRequired,
+				},
+				{
+					SourceSchema:           9,
+					TargetSchema:           9,
+					UpdateClassification:   manifest.UpdateSchemaNeutral,
+					RollbackClassification: manifest.RollbackSchemaNeutral,
+				},
+			},
+			MinUpgradeFrom: "0.15.0",
+			RequiredEnv:    []string{"POSTGRES_PASSWORD"},
+		}
+		m.Images.Backend = manifest.ImageSpec{
+			Repository: "ghcr.io/der-felix/ytmdl-backend",
+			Tag:        "0.17.3",
+			Digest:     dBackendIdx,
+			Platforms: map[string]manifest.PlatformSpec{
+				"linux/amd64": {Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+				"linux/arm64": {Digest: dBackendARM64},
+			},
+		}
+		m.Images.Frontend = manifest.ImageSpec{
+			Repository: "ghcr.io/der-felix/ytmdl-frontend",
+			Tag:        "0.17.3",
+			Digest:     dFrontendIdx,
+			Platforms: map[string]manifest.PlatformSpec{
+				"linux/amd64": {Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+				"linux/arm64": {Digest: dFrontendARM64},
+			},
+		}
+		return m, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	res, err := orchestrator.Update(context.Background(), eng, deps, orchestrator.UpdateOptions{
+		ProjectDir:  projDir,
+		ComposeFile: composeFile,
+		BaseURL:     server.URL,
+		AutoConfirm: true,
+		Stdout:      &stdout,
+		Stderr:      &stderr,
+	})
+
+	if err != nil {
+		t.Fatalf("Production path update failed: %v\nstderr: %s", err, stderr.String())
+	}
+	if res.CurrentVersion != "0.17.3" || res.TargetSchema != 9 {
+		t.Errorf("Unexpected result: %+v", res)
+	}
+
+	// 1. Verify DB migrated from Schema 8 to 9
+	s, err := discovery.QueryDBSchema(context.Background(), eng, projDir, composeFile, eng.cfg.User, dbName)
+	if err != nil || s != 9 {
+		t.Fatalf("Expected DB schema 9, got %d (err: %v)", s, err)
+	}
+
+	// 2. Verify pre-migration backup was created and valid
+	backupPath := filepath.Join(projDir, res.BackupPath)
+	if fi, statErr := os.Stat(backupPath); statErr != nil || fi.Size() == 0 {
+		t.Fatalf("Backup missing or empty: %s", backupPath)
+	}
+
+	// 3. Verify state preserved historical AMD64 previous image
+	st, err := state.Load(projDir)
+	if err != nil {
+		t.Fatalf("Failed loading state: %v", err)
+	}
+	if st.PreviousBackendImage != "ghcr.io/der-felix/ytmdl-backend:0.15.0" {
+		t.Errorf("PreviousBackendImage = %q, want 0.15.0", st.PreviousBackendImage)
+	}
+	if st.RollbackClassification != "backup_restore_required" {
+		t.Errorf("RollbackClassification = %q, want backup_restore_required", st.RollbackClassification)
+	}
+
+	// 4. Verify that automatic rollback is BLOCKED once Schema 9 is active
+	_, rbErr := orchestrator.Rollback(context.Background(), eng, deps, orchestrator.RollbackOptions{
+		ProjectDir:  projDir,
+		ComposeFile: composeFile,
+		BaseURL:     server.URL,
+		AutoConfirm: true,
+		Stdout:      &stdout,
+		Stderr:      &stderr,
+	})
+	if rbErr == nil || (!strings.Contains(rbErr.Error(), "automatic rollback disabled") && !strings.Contains(rbErr.Error(), "manual recovery required")) {
+		t.Fatalf("Expected rollback to be blocked with 'automatic rollback disabled' or 'manual recovery required', got: %v", rbErr)
+	}
 }

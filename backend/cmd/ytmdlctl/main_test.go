@@ -804,3 +804,51 @@ func TestManifestGenCommand_V2(t *testing.T) {
 		t.Errorf("defaulted schema 9 manifest failed: %v, %+v", err, m2)
 	}
 }
+
+func TestManifestGenCommand_V3(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "release-manifest-v3.json")
+
+	var stdout, stderr bytes.Buffer
+	code := runCLI(context.Background(), []string{
+		"manifest-gen",
+		"--version", "0.17.3",
+		"--tag", "v0.17.3",
+		"--manifest-version", "3",
+		"--schema", "9",
+		"--min-upgrade", "0.15.0",
+		"--backend-digest", "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"--backend-platform", "linux/amd64=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--backend-platform", "linux/arm64=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"--frontend-digest", "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+		"--frontend-platform", "linux/amd64=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		"--frontend-platform", "linux/arm64=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+		"--output", outPath,
+	}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d. stderr: %s", code, stderr.String())
+	}
+
+	content, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("failed reading generated manifest: %v", err)
+	}
+
+	m, err := manifest.Decode(content)
+	if err != nil {
+		t.Fatalf("failed to decode generated manifest: %v", err)
+	}
+	if err := m.Validate("v0.17.3"); err != nil {
+		t.Fatalf("generated v3 manifest validation failed: %v", err)
+	}
+	if m.ManifestVersion != 3 || m.TargetSchema != 9 {
+		t.Errorf("unexpected manifest fields: %+v", m)
+	}
+	if len(m.UpgradePaths) != 2 {
+		t.Errorf("expected 2 upgrade paths, got %d", len(m.UpgradePaths))
+	}
+	if len(m.Images.Backend.Platforms) != 2 || len(m.Images.Frontend.Platforms) != 2 {
+		t.Errorf("expected 2 platforms for backend/frontend images, got %+v, %+v", m.Images.Backend.Platforms, m.Images.Frontend.Platforms)
+	}
+}

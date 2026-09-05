@@ -73,19 +73,32 @@ echo "==> Generating SHA256SUMS..."
 if [ "${GENERATE_MANIFEST:-false}" = "true" ] || { [ -n "${BACKEND_DIGEST:-}" ] && [ -n "${FRONTEND_DIGEST:-}" ]; }; then
   BACKEND_DIGEST="${BACKEND_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
   FRONTEND_DIGEST="${FRONTEND_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
+  MANIFEST_VER="${MANIFEST_VERSION:-3}"
   echo ""
-  echo "==> Generating release-manifest.json (v2, Schema 9)..."
+  echo "==> Generating release-manifest.json (v${MANIFEST_VER}, Schema 9)..."
+  PLATFORM_ARGS=()
+  if [ -n "${BACKEND_PLATFORM_AMD64:-}" ]; then
+    PLATFORM_ARGS+=(--backend-platform "linux/amd64=${BACKEND_PLATFORM_AMD64}")
+  fi
+  if [ -n "${BACKEND_PLATFORM_ARM64:-}" ]; then
+    PLATFORM_ARGS+=(--backend-platform "linux/arm64=${BACKEND_PLATFORM_ARM64}")
+  fi
+  if [ -n "${FRONTEND_PLATFORM_AMD64:-}" ]; then
+    PLATFORM_ARGS+=(--frontend-platform "linux/amd64=${FRONTEND_PLATFORM_AMD64}")
+  fi
+  if [ -n "${FRONTEND_PLATFORM_ARM64:-}" ]; then
+    PLATFORM_ARGS+=(--frontend-platform "linux/arm64=${FRONTEND_PLATFORM_ARM64}")
+  fi
+
   go -C "${ROOT_DIR}/backend" run ./cmd/ytmdlctl manifest-gen \
     --version "${VERSION}" \
     --tag "v${VERSION}" \
-    --manifest-version 2 \
+    --manifest-version "${MANIFEST_VER}" \
     --schema 9 \
-    --update-classification schema_forward \
-    --classification backup_restore_required \
-    --supported-sources 8 \
     --min-upgrade 0.15.0 \
     --backend-digest "${BACKEND_DIGEST}" \
     --frontend-digest "${FRONTEND_DIGEST}" \
+    "${PLATFORM_ARGS[@]}" \
     --output "${OUTPUT_DIR}/release-manifest.json"
 fi
 

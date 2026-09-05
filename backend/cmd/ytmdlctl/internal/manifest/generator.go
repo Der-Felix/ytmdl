@@ -17,9 +17,12 @@ type GeneratorOptions struct {
 	UpdateClassification   UpdateClassification
 	RollbackClassification RollbackClassification
 	SupportedSourceSchemas []int
+	UpgradePaths           []UpgradePath
 	MinUpgradeFrom         string
 	BackendDigest          string
+	BackendPlatforms       map[string]string // platform (e.g. linux/amd64) -> digest
 	FrontendDigest         string
+	FrontendPlatforms      map[string]string // platform (e.g. linux/amd64) -> digest
 	RequiredEnv            []string
 }
 
@@ -46,7 +49,9 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 
 	mVer := opts.ManifestVersion
 	if mVer == 0 {
-		if opts.TargetSchema > 8 || opts.UpdateClassification == UpdateSchemaForward || opts.RollbackClassification == RollbackBackupRestoreRequired {
+		if len(opts.UpgradePaths) > 0 || len(opts.BackendPlatforms) > 0 {
+			mVer = ManifestVersion3
+		} else if opts.TargetSchema > 8 || opts.UpdateClassification == UpdateSchemaForward || opts.RollbackClassification == RollbackBackupRestoreRequired {
 			mVer = ManifestVersion2
 		} else {
 			mVer = ManifestVersion1
@@ -54,7 +59,7 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 	}
 
 	updateClass := opts.UpdateClassification
-	if updateClass == "" {
+	if updateClass == "" && mVer != ManifestVersion3 {
 		if opts.TargetSchema > 8 || mVer == ManifestVersion2 {
 			updateClass = UpdateSchemaForward
 		} else {
@@ -63,7 +68,7 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 	}
 
 	class := opts.RollbackClassification
-	if class == "" {
+	if class == "" && mVer != ManifestVersion3 {
 		if updateClass == UpdateSchemaForward {
 			class = RollbackBackupRestoreRequired
 		} else {
@@ -72,8 +77,26 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 	}
 
 	supportedSources := opts.SupportedSourceSchemas
-	if len(supportedSources) == 0 && updateClass == UpdateSchemaForward && opts.TargetSchema == 9 {
+	if len(supportedSources) == 0 && updateClass == UpdateSchemaForward && opts.TargetSchema == 9 && mVer == ManifestVersion2 {
 		supportedSources = []int{8}
+	}
+
+	upgradePaths := opts.UpgradePaths
+	if len(upgradePaths) == 0 && mVer == ManifestVersion3 && opts.TargetSchema == 9 {
+		upgradePaths = []UpgradePath{
+			{
+				SourceSchema:           8,
+				TargetSchema:           9,
+				UpdateClassification:   UpdateSchemaForward,
+				RollbackClassification: RollbackBackupRestoreRequired,
+			},
+			{
+				SourceSchema:           9,
+				TargetSchema:           9,
+				UpdateClassification:   UpdateSchemaNeutral,
+				RollbackClassification: RollbackSchemaNeutral,
+			},
+		}
 	}
 
 	backendDigest := strings.TrimSpace(opts.BackendDigest)
@@ -102,23 +125,42 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 		UpdateClassification:   updateClass,
 		RollbackClassification: class,
 		SupportedSourceSchemas: supportedSources,
+		UpgradePaths:           upgradePaths,
 		MinUpgradeFrom:         minUp,
 		RequiredEnv:            reqEnv,
+	}
+
+	var backendPlats map[string]PlatformSpec
+	if len(opts.BackendPlatforms) > 0 {
+		backendPlats = make(map[string]PlatformSpec, len(opts.BackendPlatforms))
+		for k, v := range opts.BackendPlatforms {
+			backendPlats[k] = PlatformSpec{Digest: strings.TrimSpace(v)}
+		}
+	}
+
+	var frontendPlats map[string]PlatformSpec
+	if len(opts.FrontendPlatforms) > 0 {
+		frontendPlats = make(map[string]PlatformSpec, len(opts.FrontendPlatforms))
+		for k, v := range opts.FrontendPlatforms {
+			frontendPlats[k] = PlatformSpec{Digest: strings.TrimSpace(v)}
+		}
 	}
 
 	m.Images.Backend = ImageSpec{
 		Repository: ExpectedBackendRepo,
 		Tag:        relVer,
 		Digest:     backendDigest,
+		Platforms:  backendPlats,
 	}
 
 	m.Images.Frontend = ImageSpec{
 		Repository: ExpectedFrontendRepo,
 		Tag:        relVer,
 		Digest:     frontendDigest,
+		Platforms:  frontendPlats,
 	}
 
-	// Validate using the strict Stage 2 manifest validator
+	// Validate using the strict manifest validator
 	if err := m.Validate(relTag); err != nil {
 		return nil, fmt.Errorf("generated manifest failed validation: %w", err)
 	}

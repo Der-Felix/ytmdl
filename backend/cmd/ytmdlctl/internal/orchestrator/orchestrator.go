@@ -251,11 +251,14 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 		return nil, fmt.Errorf("release manifest validation failed: %w", err)
 	}
 
-	// Schema compatibility validation
-	if err := targetManifest.ValidateSchemaCompatibility(schemaBefore); err != nil {
+	// Schema compatibility validation & upgrade path resolution
+	upgradePath, err := targetManifest.FindUpgradePath(schemaBefore)
+	if err != nil {
 		return nil, fmt.Errorf("managed update blocked: %w", err)
 	}
-	isSchemaForward := targetManifest.IsSchemaForward()
+	effectiveRollbackClass := upgradePath.RollbackClassification
+	effectiveUpdateClass := upgradePath.UpdateClassification
+	isSchemaForward := effectiveUpdateClass == manifest.UpdateSchemaForward || effectiveRollbackClass == manifest.RollbackBackupRestoreRequired
 
 	// Verify required environment variables
 	for _, reqKey := range targetManifest.RequiredEnv {
@@ -269,7 +272,7 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 	fmt.Fprintf(stdout, "==============================\n")
 	fmt.Fprintf(stdout, "Current version: %s\n", configuredVersion)
 	fmt.Fprintf(stdout, "Target version:  %s\n", targetVersion)
-	fmt.Fprintf(stdout, "Database schema: %d -> %d (%s)\n", schemaBefore, targetManifest.TargetSchema, targetManifest.RollbackClassification)
+	fmt.Fprintf(stdout, "Database schema: %d -> %d (%s)\n", schemaBefore, targetManifest.TargetSchema, effectiveRollbackClass)
 	fmt.Fprintf(stdout, "Storage Guard:   VERIFIED\n")
 	fmt.Fprintf(stdout, "Active jobs:     %d\n", activeJobs)
 	fmt.Fprintf(stdout, "Database backup: enabled\n")
@@ -358,7 +361,7 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 		TargetBackendDigest:     stageRes.BackendDigest,
 		TargetFrontendImage:     stageRes.FrontendImage,
 		TargetFrontendDigest:    stageRes.FrontendDigest,
-		RollbackClassification:  string(targetManifest.RollbackClassification),
+		RollbackClassification:  string(effectiveRollbackClass),
 	}
 
 	backupCreator := deps.BackupCreator

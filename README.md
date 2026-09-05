@@ -129,7 +129,7 @@ Full documentation, configuration guides, and architecture references are availa
 
 ## Container Distribution
 
-Official container images (built for `linux/amd64`) are published to the GitHub Container Registry:
+Official container images (built natively for `linux/amd64` and `linux/arm64`) are published to the GitHub Container Registry:
 
 - **Backend:** `ghcr.io/der-felix/ytmdl-backend`
 - **Frontend:** `ghcr.io/der-felix/ytmdl-frontend`
@@ -137,8 +137,8 @@ Official container images (built for `linux/amd64`) are published to the GitHub 
 Images can be pulled anonymously without authentication:
 
 ```sh
-podman pull ghcr.io/der-felix/ytmdl-backend:0.17.2
-podman pull ghcr.io/der-felix/ytmdl-frontend:0.17.2
+podman pull ghcr.io/der-felix/ytmdl-backend:0.17.3
+podman pull ghcr.io/der-felix/ytmdl-frontend:0.17.3
 ```
 
 For building from source or running a development environment, see [docs/development.md](docs/development.md).

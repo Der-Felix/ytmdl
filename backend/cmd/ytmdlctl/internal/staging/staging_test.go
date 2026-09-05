@@ -15,7 +15,7 @@ import (
 
 func validTestManifest() *manifest.Manifest {
 	m := &manifest.Manifest{
-		ManifestVersion:        manifest.CurrentManifestVersion,
+		ManifestVersion:        manifest.ManifestVersion2,
 		ReleaseVersion:         "0.16.0",
 		ReleaseTag:             "v0.16.0",
 		TargetSchema:           9,
@@ -296,5 +296,237 @@ func TestStageTargetImagesSecretInComposeConfigErrorIsRedacted(t *testing.T) {
 	}
 	if !strings.Contains(errStr, "***REDACTED***") {
 		t.Fatalf("expected redacted marker in error, got: %s", errStr)
+	}
+}
+
+func TestStageTargetImagesPlatformMismatchFails(t *testing.T) {
+	fake := runner.NewFake()
+	m := validTestManifest()
+
+	// Engine target platform is explicitly registered as linux/amd64
+	fake.Register("docker", []string{"info", "--format", "{{json .}}"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte(`{"Architecture": "x86_64", "OSType": "linux"}`),
+	}, nil)
+
+	// Image inspect reports arm64 (mismatch)
+	backendInspect := `[{"Architecture": "arm64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-backend@sha256:1111111111111111111111111111111111111111111111111111111111111111"]}]`
+	frontendInspect := `[{"Architecture": "arm64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-frontend@sha256:2222222222222222222222222222222222222222222222222222222222222222"]}]`
+
+	setupTestStagingEngine(fake,
+		"ghcr.io/der-felix/ytmdl-backend:0.16.0",
+		"ghcr.io/der-felix/ytmdl-frontend:0.16.0",
+		nil, backendInspect, frontendInspect)
+
+	eng := engine.NewDocker(fake)
+	_, err := staging.StageTargetImages(context.Background(), eng, staging.StageOptions{
+		ProjectDir:  ".",
+		ComposeFile: "compose.ghcr.yaml",
+		Manifest:    m,
+	})
+	if err == nil {
+		t.Fatal("expected error for platform mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), "platform mismatch") {
+		t.Errorf("expected platform mismatch error, got: %v", err)
+	}
+}
+
+func TestStageTargetImagesUnsupportedPlatformFails(t *testing.T) {
+	fake := runner.NewFake()
+	m := validTestManifest()
+	m.ManifestVersion = 3
+	m.Images.Backend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/arm64": {Digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+	}
+	m.Images.Frontend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/arm64": {Digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+	}
+
+	// Engine target platform is linux/amd64 (not present in platforms map)
+	fake.Register("docker", []string{"info", "--format", "{{json .}}"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte(`{"Architecture": "x86_64", "OSType": "linux"}`),
+	}, nil)
+
+	configYAML := "services:\n  backend:\n    image: ghcr.io/der-felix/ytmdl-backend:0.16.0\n  frontend:\n    image: ghcr.io/der-felix/ytmdl-frontend:0.16.0\n"
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "config"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte(configYAML),
+	}, nil)
+
+	eng := engine.NewDocker(fake)
+	_, err := staging.StageTargetImages(context.Background(), eng, staging.StageOptions{
+		ProjectDir:  ".",
+		ComposeFile: "compose.ghcr.yaml",
+		Manifest:    m,
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported platform, got nil")
+	}
+	if !strings.Contains(err.Error(), "not supported by image") {
+		t.Errorf("expected not supported by image error, got: %v", err)
+	}
+}
+
+func TestStageTargetImagesManifestV3MultiArchSuccess(t *testing.T) {
+	fake := runner.NewFake()
+	m := validTestManifest()
+	m.ManifestVersion = 3
+	m.Images.Backend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/amd64": {Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		"linux/arm64": {Digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+	}
+	m.Images.Frontend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/amd64": {Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		"linux/arm64": {Digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+	}
+
+	// Engine is linux/amd64
+	fake.Register("docker", []string{"info", "--format", "{{json .}}"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte(`{"Architecture": "x86_64", "OSType": "linux"}`),
+	}, nil)
+
+	// Pulled image RepoDigests has BOTH the index digest and the platform-specific digest
+	backendInspect := `[{"Architecture": "amd64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-backend@sha256:1111111111111111111111111111111111111111111111111111111111111111", "ghcr.io/der-felix/ytmdl-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}]`
+	frontendInspect := `[{"Architecture": "amd64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-frontend@sha256:2222222222222222222222222222222222222222222222222222222222222222", "ghcr.io/der-felix/ytmdl-frontend@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"]}]`
+
+	setupTestStagingEngine(fake,
+		"ghcr.io/der-felix/ytmdl-backend:0.16.0",
+		"ghcr.io/der-felix/ytmdl-frontend:0.16.0",
+		nil, backendInspect, frontendInspect)
+
+	eng := engine.NewDocker(fake)
+	res, err := staging.StageTargetImages(context.Background(), eng, staging.StageOptions{
+		ProjectDir:  ".",
+		ComposeFile: "compose.ghcr.yaml",
+		Manifest:    m,
+	})
+	if err != nil {
+		t.Fatalf("StageTargetImages failed: %v", err)
+	}
+	if res.BackendImage != "ghcr.io/der-felix/ytmdl-backend:0.16.0" {
+		t.Errorf("BackendImage = %q", res.BackendImage)
+	}
+}
+
+func TestStageTargetImagesManifestV3MultiArchSuccess_ARM64(t *testing.T) {
+	fake := runner.NewFake()
+	m := validTestManifest()
+	m.ManifestVersion = 3
+	m.Images.Backend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/amd64": {Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		"linux/arm64": {Digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+	}
+	m.Images.Frontend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/amd64": {Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		"linux/arm64": {Digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+	}
+
+	// Engine is linux/arm64
+	fake.Register("docker", []string{"info", "--format", "{{json .}}"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte(`{"Architecture": "aarch64", "OSType": "linux"}`),
+	}, nil)
+
+	// Pulled image RepoDigests has BOTH the index digest and the ARM64 platform digest
+	backendInspect := `[{"Architecture": "arm64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-backend@sha256:1111111111111111111111111111111111111111111111111111111111111111", "ghcr.io/der-felix/ytmdl-backend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]}]`
+	frontendInspect := `[{"Architecture": "arm64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-frontend@sha256:2222222222222222222222222222222222222222222222222222222222222222", "ghcr.io/der-felix/ytmdl-frontend@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"]}]`
+
+	setupTestStagingEngine(fake,
+		"ghcr.io/der-felix/ytmdl-backend:0.16.0",
+		"ghcr.io/der-felix/ytmdl-frontend:0.16.0",
+		nil, backendInspect, frontendInspect)
+
+	eng := engine.NewDocker(fake)
+	res, err := staging.StageTargetImages(context.Background(), eng, staging.StageOptions{
+		ProjectDir:  ".",
+		ComposeFile: "compose.ghcr.yaml",
+		Manifest:    m,
+	})
+	if err != nil {
+		t.Fatalf("StageTargetImages failed: %v", err)
+	}
+	if res.BackendImage != "ghcr.io/der-felix/ytmdl-backend:0.16.0" {
+		t.Errorf("BackendImage = %q", res.BackendImage)
+	}
+}
+
+func TestStageTargetImagesManifestV3_MissingIndexDigestFails(t *testing.T) {
+	fake := runner.NewFake()
+	m := validTestManifest()
+	m.ManifestVersion = 3
+	m.Images.Backend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/amd64": {Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	}
+	m.Images.Frontend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/amd64": {Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+	}
+
+	fake.Register("docker", []string{"info", "--format", "{{json .}}"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte(`{"Architecture": "x86_64", "OSType": "linux"}`),
+	}, nil)
+
+	// backend only has platform digest, missing index digest
+	backendInspect := `[{"Architecture": "amd64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}]`
+	frontendInspect := `[{"Architecture": "amd64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-frontend@sha256:2222222222222222222222222222222222222222222222222222222222222222", "ghcr.io/der-felix/ytmdl-frontend@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"]}]`
+
+	setupTestStagingEngine(fake,
+		"ghcr.io/der-felix/ytmdl-backend:0.16.0",
+		"ghcr.io/der-felix/ytmdl-frontend:0.16.0",
+		nil, backendInspect, frontendInspect)
+
+	eng := engine.NewDocker(fake)
+	_, err := staging.StageTargetImages(context.Background(), eng, staging.StageOptions{
+		ProjectDir:  ".",
+		ComposeFile: "compose.ghcr.yaml",
+		Manifest:    m,
+	})
+	if err == nil {
+		t.Fatal("expected failure when index digest is missing, got nil")
+	}
+	if !strings.Contains(err.Error(), "dual digest verification failed") {
+		t.Errorf("expected dual digest verification failed error, got: %v", err)
+	}
+}
+
+func TestStageTargetImagesManifestV3_MissingPlatformDigestFails(t *testing.T) {
+	fake := runner.NewFake()
+	m := validTestManifest()
+	m.ManifestVersion = 3
+	m.Images.Backend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/amd64": {Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	}
+	m.Images.Frontend.Platforms = map[string]manifest.PlatformSpec{
+		"linux/amd64": {Digest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+	}
+
+	fake.Register("docker", []string{"info", "--format", "{{json .}}"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte(`{"Architecture": "x86_64", "OSType": "linux"}`),
+	}, nil)
+
+	// backend only has index digest, missing platform digest
+	backendInspect := `[{"Architecture": "amd64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-backend@sha256:1111111111111111111111111111111111111111111111111111111111111111"]}]`
+	frontendInspect := `[{"Architecture": "amd64", "Os": "linux", "RepoDigests": ["ghcr.io/der-felix/ytmdl-frontend@sha256:2222222222222222222222222222222222222222222222222222222222222222", "ghcr.io/der-felix/ytmdl-frontend@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"]}]`
+
+	setupTestStagingEngine(fake,
+		"ghcr.io/der-felix/ytmdl-backend:0.16.0",
+		"ghcr.io/der-felix/ytmdl-frontend:0.16.0",
+		nil, backendInspect, frontendInspect)
+
+	eng := engine.NewDocker(fake)
+	_, err := staging.StageTargetImages(context.Background(), eng, staging.StageOptions{
+		ProjectDir:  ".",
+		ComposeFile: "compose.ghcr.yaml",
+		Manifest:    m,
+	})
+	if err == nil {
+		t.Fatal("expected failure when platform digest is missing, got nil")
+	}
+	if !strings.Contains(err.Error(), "dual digest verification failed") {
+		t.Errorf("expected dual digest verification failed error, got: %v", err)
 	}
 }

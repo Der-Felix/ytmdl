@@ -100,7 +100,22 @@ func StageTargetImages(ctx context.Context, eng engine.Engine, opts StageOptions
 		return nil, fmt.Errorf("target image resolution failed: frontend image reference mismatch: expected %q, compose resolved %q", expectedFrontend, frontendSvc.Image)
 	}
 
-	// 2. Pre-Pull target images (ONLY backend and frontend)
+	// 2. Pre-Pull Platform & Digest Resolution:
+	targetPlat, err := eng.TargetPlatform(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed detecting engine target platform: %w", err)
+	}
+
+	backendExpectedDigests, err := opts.Manifest.GetExpectedDigests(opts.Manifest.Images.Backend, targetPlat)
+	if err != nil {
+		return nil, fmt.Errorf("target image staging preflight blocked: %w", err)
+	}
+	frontendExpectedDigests, err := opts.Manifest.GetExpectedDigests(opts.Manifest.Images.Frontend, targetPlat)
+	if err != nil {
+		return nil, fmt.Errorf("target image staging preflight blocked: %w", err)
+	}
+
+	// Pre-Pull target images (ONLY backend and frontend)
 	pullRes, err := eng.Pull(ctx, opts.ProjectDir, opts.ComposeFile, map[string]string{
 		"YTMDL_VERSION": targetVersion,
 	}, "backend", "frontend")
@@ -112,11 +127,50 @@ func StageTargetImages(ctx context.Context, eng engine.Engine, opts StageOptions
 	}
 
 	// 3. Verify actual pulled image digests from engine (order-independent set verification)
-	if err := eng.VerifyImageDigest(ctx, expectedBackend, opts.Manifest.Images.Backend.Digest); err != nil {
-		return nil, fmt.Errorf("backend image digest mismatch: %w", err)
+	if opts.Manifest.ManifestVersion >= manifest.ManifestVersion3 {
+		normPlat, pErr := manifest.NormalizePlatform(targetPlat)
+		if pErr != nil {
+			return nil, fmt.Errorf("invalid engine target platform: %w", pErr)
+		}
+		backendPlatSpec, ok := opts.Manifest.Images.Backend.Platforms[normPlat]
+		if !ok {
+			return nil, fmt.Errorf("manifest v3 missing backend platform %s", normPlat)
+		}
+		frontendPlatSpec, ok := opts.Manifest.Images.Frontend.Platforms[normPlat]
+		if !ok {
+			return nil, fmt.Errorf("manifest v3 missing frontend platform %s", normPlat)
+		}
+
+		if err := eng.VerifyImageDualDigests(ctx, expectedBackend, opts.Manifest.Images.Backend.Digest, backendPlatSpec.Digest); err != nil {
+			return nil, fmt.Errorf("backend image dual digest verification failed: %w", err)
+		}
+		if err := eng.VerifyImageDualDigests(ctx, expectedFrontend, opts.Manifest.Images.Frontend.Digest, frontendPlatSpec.Digest); err != nil {
+			return nil, fmt.Errorf("frontend image dual digest verification failed: %w", err)
+		}
+	} else {
+		if err := eng.VerifyImageAnyDigest(ctx, expectedBackend, backendExpectedDigests); err != nil {
+			return nil, fmt.Errorf("backend image digest mismatch: %w", err)
+		}
+		if err := eng.VerifyImageAnyDigest(ctx, expectedFrontend, frontendExpectedDigests); err != nil {
+			return nil, fmt.Errorf("frontend image digest mismatch: %w", err)
+		}
 	}
-	if err := eng.VerifyImageDigest(ctx, expectedFrontend, opts.Manifest.Images.Frontend.Digest); err != nil {
-		return nil, fmt.Errorf("frontend image digest mismatch: %w", err)
+
+	// 4. Verify actual pulled image architecture matches targetPlatform
+	backendPlat, err := eng.InspectImagePlatform(ctx, expectedBackend)
+	if err != nil {
+		return nil, fmt.Errorf("failed inspecting backend image platform: %w", err)
+	}
+	if backendPlat != targetPlat {
+		return nil, fmt.Errorf("backend image platform mismatch: expected %s, got %s", targetPlat, backendPlat)
+	}
+
+	frontendPlat, err := eng.InspectImagePlatform(ctx, expectedFrontend)
+	if err != nil {
+		return nil, fmt.Errorf("failed inspecting frontend image platform: %w", err)
+	}
+	if frontendPlat != targetPlat {
+		return nil, fmt.Errorf("frontend image platform mismatch: expected %s, got %s", targetPlat, frontendPlat)
 	}
 
 	return &StagingResult{

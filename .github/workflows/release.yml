@@ -219,6 +219,11 @@ jobs:
           go test -count=1 ./...
           go test -count=1 -race ./...
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4480e8226f584e60d04ac44b4094 # v3.2.0
+        with:
+          platforms: linux/amd64,linux/arm64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
@@ -287,6 +292,26 @@ jobs:
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
 
+      - name: Verify Multi-Arch Backend Container Build (Verify-Only Mode)
+        if: github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: Containerfile
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+          push: false
+
+      - name: Verify Multi-Arch Frontend Container Build (Verify-Only Mode)
+        if: github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: ./frontend
+          file: ./frontend/Containerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+
       - name: Build and Push Backend Image
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: build-backend
@@ -296,7 +321,7 @@ jobs:
           file: Containerfile
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}
@@ -324,7 +349,7 @@ jobs:
         with:
           context: ./frontend
           file: ./frontend/Containerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
@@ -334,11 +359,12 @@ jobs:
         id: digests
         shell: bash
         run: |
+          version="${{ steps.version.outputs.version }}"
           backend_digest="${{ steps.build-backend.outputs.digest }}"
           frontend_digest="${{ steps.build-frontend.outputs.digest }}"
 
-          echo "Captured backend digest:  ${backend_digest}"
-          echo "Captured frontend digest: ${frontend_digest}"
+          echo "Captured backend index digest:  ${backend_digest}"
+          echo "Captured frontend index digest: ${frontend_digest}"
 
           if [[ ! "$backend_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "::error::Invalid backend digest format: '$backend_digest'" >&2
@@ -350,8 +376,34 @@ jobs:
             exit 1
           fi
 
+          # Inspect pushed multi-platform index to extract platform-specific manifest digests
+          echo "Extracting platform-specific manifest digests from GHCR..."
+          backend_raw="$(docker buildx imagetools inspect --raw "ghcr.io/der-felix/ytmdl-backend:${version}")"
+          frontend_raw="$(docker buildx imagetools inspect --raw "ghcr.io/der-felix/ytmdl-frontend:${version}")"
+
+          backend_amd64="$(echo "$backend_raw" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest')"
+          backend_arm64="$(echo "$backend_raw" | jq -r '.manifests[] | select(.platform.architecture == "arm64" and .platform.os == "linux") | .digest')"
+          frontend_amd64="$(echo "$frontend_raw" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest')"
+          frontend_arm64="$(echo "$frontend_raw" | jq -r '.manifests[] | select(.platform.architecture == "arm64" and .platform.os == "linux") | .digest')"
+
+          echo "Backend linux/amd64:  ${backend_amd64}"
+          echo "Backend linux/arm64:  ${backend_arm64}"
+          echo "Frontend linux/amd64: ${frontend_amd64}"
+          echo "Frontend linux/arm64: ${frontend_arm64}"
+
+          for d in "$backend_amd64" "$backend_arm64" "$frontend_amd64" "$frontend_arm64"; do
+            if [[ ! "$d" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Invalid platform manifest digest format: '$d'" >&2
+              exit 1
+            fi
+          done
+
           echo "backend=${backend_digest}" >> "$GITHUB_OUTPUT"
+          echo "backend_amd64=${backend_amd64}" >> "$GITHUB_OUTPUT"
+          echo "backend_arm64=${backend_arm64}" >> "$GITHUB_OUTPUT"
           echo "frontend=${frontend_digest}" >> "$GITHUB_OUTPUT"
+          echo "frontend_amd64=${frontend_amd64}" >> "$GITHUB_OUTPUT"
+          echo "frontend_arm64=${frontend_arm64}" >> "$GITHUB_OUTPUT"
 
       - name: Compile Release Binaries & Compute SHA256SUMS
         shell: bash
@@ -367,23 +419,32 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             backend_digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            backend_amd64="sha256:0000000000000000000000000000000000000000000000000000000000000001"
+            backend_arm64="sha256:0000000000000000000000000000000000000000000000000000000000000002"
             frontend_digest="sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            frontend_amd64="sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff01"
+            frontend_arm64="sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff02"
           else
             backend_digest="${{ steps.digests.outputs.backend }}"
+            backend_amd64="${{ steps.digests.outputs.backend_amd64 }}"
+            backend_arm64="${{ steps.digests.outputs.backend_arm64 }}"
             frontend_digest="${{ steps.digests.outputs.frontend }}"
+            frontend_amd64="${{ steps.digests.outputs.frontend_amd64 }}"
+            frontend_arm64="${{ steps.digests.outputs.frontend_arm64 }}"
           fi
 
           go run -C backend ./cmd/ytmdlctl manifest-gen \
             --version "${{ steps.version.outputs.version }}" \
             --tag "${{ steps.version.outputs.tag }}" \
-            --manifest-version 2 \
+            --manifest-version 3 \
             --schema 9 \
-            --update-classification schema_forward \
-            --classification backup_restore_required \
-            --supported-sources 8 \
             --min-upgrade 0.15.0 \
             --backend-digest "${backend_digest}" \
+            --backend-platform "linux/amd64=${backend_amd64}" \
+            --backend-platform "linux/arm64=${backend_arm64}" \
             --frontend-digest "${frontend_digest}" \
+            --frontend-platform "linux/amd64=${frontend_amd64}" \
+            --frontend-platform "linux/arm64=${frontend_arm64}" \
             --output "${PWD}/dist/release-manifest.json"
 
       - name: Smoke Test Native ytmdlctl Binary

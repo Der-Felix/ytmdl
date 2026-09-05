@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:alpine AS builder
 
 WORKDIR /src/backend
 
@@ -10,9 +10,10 @@ RUN go mod download
 COPY backend/ ./
 COPY .release-version /src/.release-version
 
+ARG TARGETOS TARGETARCH
 ARG VERSION=""
 RUN build_version="${VERSION:-$(cat /src/.release-version)}" && \
-    CGO_ENABLED=0 go build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
       -trimpath \
       -ldflags="-s -w -X main.version=${build_version}" \
       -o /out/musicdl \

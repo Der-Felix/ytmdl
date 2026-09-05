@@ -18,7 +18,7 @@ Public container images are published to the GitHub Container Registry (GHCR):
 
 > [!IMPORTANT]
 > **Container vs. CLI Architecture:**
-> - **YTMDL Application Containers:** Built and tested for **`linux/amd64`**.
+> - **YTMDL Application Containers:** Native multi-platform images published for both **`linux/amd64`** and **`linux/arm64`** (Apple Silicon, ARM64 servers, Raspberry Pi 4/5).
 > - **`ytmdlctl` Host CLI:** Provided as standalone native binaries for **`linux/amd64`**, **`linux/arm64`**, **`darwin/amd64`**, and **`darwin/arm64`**.
 > - **Windows:** Windows is explicitly not supported.
 
@@ -53,7 +53,7 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 1. **Download the binary and checksums for your platform:**
    ```sh
    # Example for Linux (x86_64 / amd64):
-   VERSION="0.17.2"
+   VERSION="0.17.3"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/ytmdlctl-linux-amd64"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/SHA256SUMS"
    ```

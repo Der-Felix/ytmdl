@@ -1037,7 +1037,11 @@ func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, exp
 	if targetManifest != nil {
 		targetVersion = targetManifest.ReleaseVersion
 		targetSchema = targetManifest.TargetSchema
-		rollbackClass = string(targetManifest.RollbackClassification)
+		if p, pErr := targetManifest.FindUpgradePath(dbSchema); pErr == nil && p != nil {
+			rollbackClass = string(p.RollbackClassification)
+		} else if targetManifest.RollbackClassification != "" {
+			rollbackClass = string(targetManifest.RollbackClassification)
+		}
 	} else if rel != nil {
 		targetVersion = rel.Version
 	}
@@ -1215,6 +1219,44 @@ func formatFileSize(bytes int64) string {
 	return fmt.Sprintf("%d bytes", bytes)
 }
 
+type stringSliceFlag []string
+
+func (s *stringSliceFlag) String() string {
+	return strings.Join(*s, ",")
+}
+
+func (s *stringSliceFlag) Set(val string) error {
+	*s = append(*s, val)
+	return nil
+}
+
+func parsePlatformDigests(flags []string) (map[string]string, error) {
+	if len(flags) == 0 {
+		return nil, nil
+	}
+	res := make(map[string]string)
+	for _, entry := range flags {
+		for _, part := range strings.Split(entry, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			idx := strings.Index(part, "=")
+			if idx <= 0 || idx >= len(part)-1 {
+				return nil, fmt.Errorf("invalid platform format %q, expected platform=digest (e.g. linux/amd64=sha256:...)", part)
+			}
+			plat := strings.TrimSpace(part[:idx])
+			dig := strings.TrimSpace(part[idx+1:])
+			normPlat, err := manifest.NormalizePlatform(plat)
+			if err != nil {
+				return nil, fmt.Errorf("invalid platform %q: %w", plat, err)
+			}
+			res[normPlat] = dig
+		}
+	}
+	return res, nil
+}
+
 func runManifestGen(stdout, stderr io.Writer, args []string) int {
 	manifestFlags := flag.NewFlagSet("manifest-gen", flag.ContinueOnError)
 	manifestFlags.SetOutput(stdout)
@@ -1226,14 +1268,16 @@ Generate and validate release-manifest.json for a release.
 Flags:
   --version <ver>                 Release version (e.g. 0.17.0)
   --tag <tag>                     Release git tag (e.g. v0.17.0, optional)
-  --manifest-version <num>        Manifest schema version (1 or 2, default: 2 if schema > 8, else 1)
+  --manifest-version <num>        Manifest schema version (1, 2, or 3, default: auto)
   --schema <num>                  Target database schema (default: 8)
   --update-classification <cls>   Update classification (schema_neutral or schema_forward)
   --classification <cls>          Rollback classification (schema_neutral or backup_restore_required)
   --supported-sources <schemas>   Comma-separated list of supported source schemas (e.g. 8)
   --min-upgrade <ver>             Minimum upgradeable version (default: 0.15.0)
-  --backend-digest <d>            sha256 digest of pushed backend image
-  --frontend-digest <d>           sha256 digest of pushed frontend image
+  --backend-digest <d>            sha256 digest of pushed backend image (or index)
+  --backend-platform <p=d>        Backend platform digest (e.g. linux/amd64=sha256:..., repeatable)
+  --frontend-digest <d>           sha256 digest of pushed frontend image (or index)
+  --frontend-platform <p=d>       Frontend platform digest (e.g. linux/amd64=sha256:..., repeatable)
   --required-env <keys>           Comma-separated list of required environment variables
   -o, --output <path>             Output file path (default: release-manifest.json, - for stdout)
 `)
@@ -1241,7 +1285,7 @@ Flags:
 
 	version := manifestFlags.String("version", "", "release version without leading 'v'")
 	tag := manifestFlags.String("tag", "", "release git tag (optional)")
-	manifestVer := manifestFlags.Int("manifest-version", 0, "manifest schema version (1 or 2)")
+	manifestVer := manifestFlags.Int("manifest-version", 0, "manifest schema version (1, 2, or 3)")
 	schema := manifestFlags.Int("schema", 8, "target database schema")
 	updateClassification := manifestFlags.String("update-classification", "", "update classification (schema_neutral or schema_forward)")
 	classification := manifestFlags.String("classification", "", "rollback classification (schema_neutral or backup_restore_required)")
@@ -1249,6 +1293,10 @@ Flags:
 	minUpgrade := manifestFlags.String("min-upgrade", "0.15.0", "minimum upgradeable version")
 	backendDigest := manifestFlags.String("backend-digest", "", "sha256 digest of pushed backend image")
 	frontendDigest := manifestFlags.String("frontend-digest", "", "sha256 digest of pushed frontend image")
+	var backendPlatformsFlag stringSliceFlag
+	manifestFlags.Var(&backendPlatformsFlag, "backend-platform", "backend platform digest mapping (platform=digest)")
+	var frontendPlatformsFlag stringSliceFlag
+	manifestFlags.Var(&frontendPlatformsFlag, "frontend-platform", "frontend platform digest mapping (platform=digest)")
 	requiredEnv := manifestFlags.String("required-env", "", "comma-separated list of required environment variables")
 	outputFile := manifestFlags.String("output", "release-manifest.json", "output file path")
 	manifestFlags.StringVar(outputFile, "o", "release-manifest.json", "output file path (shorthand)")
@@ -1270,6 +1318,17 @@ Flags:
 	}
 	if *frontendDigest == "" {
 		fmt.Fprintf(stderr, "ytmdlctl manifest-gen: --frontend-digest is required\n")
+		return 2
+	}
+
+	backendPlatforms, err := parsePlatformDigests(backendPlatformsFlag)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl manifest-gen: %v\n", err)
+		return 2
+	}
+	frontendPlatforms, err := parsePlatformDigests(frontendPlatformsFlag)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl manifest-gen: %v\n", err)
 		return 2
 	}
 
@@ -1308,7 +1367,9 @@ Flags:
 		SupportedSourceSchemas: supportedSources,
 		MinUpgradeFrom:         *minUpgrade,
 		BackendDigest:          *backendDigest,
+		BackendPlatforms:       backendPlatforms,
 		FrontendDigest:         *frontendDigest,
+		FrontendPlatforms:      frontendPlatforms,
 		RequiredEnv:            envList,
 	})
 	if err != nil {
