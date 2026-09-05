@@ -849,6 +849,159 @@ func (r *Jobs) ResetFailedItemsInJob(ctx context.Context, jobID string) (int, in
 	return int(retried), 0, nil
 }
 
+// QueueCounts returns aggregated item counts and completion metrics for queue preview.
+func (r *Jobs) QueueCounts(ctx context.Context) (jobs.QueueCounts, error) {
+	var counts jobs.QueueCounts
+	row := r.db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE((
+				SELECT count(ji.id)
+				FROM job_items ji
+				JOIN jobs j ON j.id = ji.job_id
+				WHERE j.status NOT IN ($1, $2, $3)
+				  AND NOT j.paused
+				  AND ji.status IN ($4, $5, $6, $7, $8, $9)
+			), 0) AS runnable_items,
+			COALESCE((
+				SELECT count(ji.id)
+				FROM job_items ji
+				JOIN jobs j ON j.id = ji.job_id
+				WHERE j.status NOT IN ($1, $2, $3)
+				  AND NOT j.paused
+				  AND ji.status IN ($5, $6, $7, $8)
+			), 0) AS active_items,
+			COALESCE((
+				SELECT count(ji.id)
+				FROM job_items ji
+				JOIN jobs j ON j.id = ji.job_id
+				WHERE j.status NOT IN ($1, $2, $3)
+				  AND NOT j.paused
+				  AND ji.status = $9
+			), 0) AS retry_wait_items,
+			COALESCE((
+				SELECT count(*)
+				FROM jobs
+				WHERE paused AND status NOT IN ($1, $2, $3)
+			), 0) AS paused_jobs,
+			COALESCE((
+				SELECT count(*)
+				FROM job_items
+				WHERE status = $10 AND finished_at >= NOW() - INTERVAL '1 hour'
+			), 0) AS completed_1h,
+			COALESCE((
+				SELECT count(*)
+				FROM job_items
+				WHERE status = $10 AND finished_at >= NOW() - INTERVAL '6 hours'
+			), 0) AS completed_6h,
+			COALESCE((
+				SELECT count(ji.id)
+				FROM job_items ji
+				JOIN jobs j ON j.id = ji.job_id
+				WHERE j.status NOT IN ($1, $2, $3)
+				  AND NOT j.paused
+			), 0) AS total_relevant,
+			COALESCE((
+				SELECT count(ji.id)
+				FROM job_items ji
+				JOIN jobs j ON j.id = ji.job_id
+				WHERE j.status NOT IN ($1, $2, $3)
+				  AND NOT j.paused
+				  AND ji.status = $10
+			), 0) AS completed_relevant
+	`,
+		string(jobs.StatusCompleted), string(jobs.StatusFailed), string(jobs.StatusCancelled),
+		string(jobs.ItemPending), string(jobs.ItemMatching), string(jobs.ItemDownloading), string(jobs.ItemTagging), string(jobs.ItemFinalizing), string(jobs.ItemRetryWait),
+		string(jobs.ItemCompleted),
+	)
+
+	err := row.Scan(
+		&counts.RunnableItems,
+		&counts.ActiveItems,
+		&counts.RetryWaitItems,
+		&counts.PausedJobs,
+		&counts.CompletedLast1h,
+		&counts.CompletedLast6h,
+		&counts.TotalRelevant,
+		&counts.CompletedRelevant,
+	)
+	if err != nil {
+		return jobs.QueueCounts{}, wrapDB("get queue counts", err)
+	}
+	return counts, nil
+}
+
+// EffectivePrioritySQL expresses starvation aging in SQL matching jobs.EffectivePriority:
+// Normal (1) after 15m -> High (2)
+// Low (0) after 60m -> High (2)
+// Low (0) after 30m -> Normal (1)
+// Otherwise base priority (0, 1, 2)
+const EffectivePrioritySQL = `CASE
+	WHEN j.priority = 1 AND j.created_at <= NOW() - INTERVAL '15 minutes' THEN 2
+	WHEN j.priority = 0 AND j.created_at <= NOW() - INTERVAL '60 minutes' THEN 2
+	WHEN j.priority = 0 AND j.created_at <= NOW() - INTERVAL '30 minutes' THEN 1
+	ELSE j.priority
+END`
+
+// NextUpJobs returns the upcoming unpaused candidate jobs in dispatcher order.
+func (r *Jobs) NextUpJobs(ctx context.Context, limit int) ([]jobs.NextUpJob, error) {
+	if limit <= 0 {
+		limit = 5
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			j.id,
+			COALESCE((
+				SELECT COALESCE(track_json->'artists'->>0, track_json->>'album_artist')
+				FROM job_items
+				WHERE job_id = j.id AND (track_json->'artists'->>0 IS NOT NULL OR track_json->>'album_artist' IS NOT NULL)
+				LIMIT 1
+			), '') as artist,
+			j.label as release,
+			COALESCE(count(ji.id) FILTER (WHERE ji.status IN ($4, $5, $6, $7)), 0) as open_tracks,
+			COALESCE(count(ji.id), 0) as total_tracks,
+			COALESCE((
+				SELECT track_json->>'cover_url'
+				FROM job_items
+				WHERE job_id = j.id AND track_json->>'cover_url' IS NOT NULL AND track_json->>'cover_url' <> ''
+				LIMIT 1
+			), '') as cover_url
+		FROM jobs j
+		LEFT JOIN job_items ji ON ji.job_id = j.id
+		WHERE j.status NOT IN ($1, $2, $3)
+		  AND NOT j.paused
+		GROUP BY j.id
+		HAVING COALESCE(count(ji.id) FILTER (WHERE ji.status IN ($4, $5, $6, $7)), 0) > 0
+		ORDER BY `+EffectivePrioritySQL+` DESC, j.created_at ASC, j.id ASC
+		LIMIT $8
+	`,
+		string(jobs.StatusCompleted), string(jobs.StatusFailed), string(jobs.StatusCancelled),
+		string(jobs.ItemPending), string(jobs.ItemRetryWait), string(jobs.ItemWaitingStorage), string(jobs.ItemWaitingSpace),
+		limit,
+	)
+	if err != nil {
+		return nil, wrapDB("list next up jobs", err)
+	}
+	defer rows.Close()
+
+	out := make([]jobs.NextUpJob, 0, limit)
+	for rows.Next() {
+		var j jobs.NextUpJob
+		if err := rows.Scan(&j.JobID, &j.Artist, &j.Release, &j.OpenTracks, &j.TotalTracks, &j.CoverURL); err != nil {
+			return nil, wrapDB("scan next up job", err)
+		}
+		if j.Artist == "" && strings.Contains(j.Release, " - ") {
+			parts := strings.SplitN(j.Release, " - ", 2)
+			j.Artist = strings.TrimSpace(parts[0])
+			j.Release = strings.TrimSpace(parts[1])
+		}
+		out = append(out, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapDB("list next up jobs", err)
+	}
+	return out, nil
+}
+
 func rowsAffected(result sql.Result, operation string) (int, error) {
 	affected, err := result.RowsAffected()
 	if err != nil {

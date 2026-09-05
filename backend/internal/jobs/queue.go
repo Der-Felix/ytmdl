@@ -191,8 +191,8 @@ type jobCandidate struct {
 	ready []Item
 }
 
-// effectivePriority calculates priority rank with starvation protection aging.
-func effectivePriority(j Job, now time.Time) int {
+// EffectivePriority calculates priority rank with starvation protection aging.
+func EffectivePriority(j Job, now time.Time) int {
 	baseRank := j.Priority.Rank()
 	age := now.Sub(j.CreatedAt)
 	if baseRank == 1 && age >= 15*time.Minute {
@@ -297,8 +297,8 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 
 	// Apply starvation aging sort: effectivePriority DESC, CreatedAt ASC, ID ASC
 	sort.SliceStable(jobs, func(i, j int) bool {
-		rI := effectivePriority(jobs[i], now)
-		rJ := effectivePriority(jobs[j], now)
+		rI := EffectivePriority(jobs[i], now)
+		rJ := EffectivePriority(jobs[j], now)
 		if rI != rJ {
 			return rI > rJ
 		}
@@ -396,8 +396,14 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 // startWorker processes one item in its own goroutine.
 func (m *Manager) startWorker(job Job, item Item) {
 	m.wg.Add(1)
+	if m.workers != nil {
+		m.workers.RecordProgress(job, item, ItemPending, 0)
+	}
 	go func() {
 		defer func() {
+			if m.workers != nil {
+				m.workers.Clear(item.ID)
+			}
 			m.activeWorkers.Add(-1)
 			m.inFlight.Delete(item.ID)
 			m.wg.Done()

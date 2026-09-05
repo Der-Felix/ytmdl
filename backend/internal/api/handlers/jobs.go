@@ -54,6 +54,16 @@ func (h *Handlers) ListJobs(w http.ResponseWriter, r *http.Request) {
 	response.List(w, list, response.Meta{Count: len(list), Total: total, Limit: limit, Offset: offset})
 }
 
+// JobQueueSummary answers GET /jobs/summary.
+func (h *Handlers) JobQueueSummary(w http.ResponseWriter, r *http.Request) {
+	summary, err := h.deps.Jobs.GetQueueSummary(r.Context())
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Data(w, http.StatusOK, summary)
+}
+
 // GetJob answers GET /jobs/{id}, including the item list and the summary.
 func (h *Handlers) GetJob(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

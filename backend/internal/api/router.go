@@ -149,6 +149,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 
 			authed.Route("/jobs", func(jobs chi.Router) {
 				jobs.Get("/", h.ListJobs)
+				jobs.Get("/summary", h.JobQueueSummary)
 				jobs.Get("/{id}", h.GetJob)
 
 				jobs.Group(func(mutating chi.Router) {

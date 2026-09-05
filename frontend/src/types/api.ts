@@ -304,6 +304,44 @@ export interface JobDetail {
   summary: JobSummary
 }
 
+export interface ActiveWorkerPreview {
+  job_id: string
+  item_id: string
+  artist: string
+  release: string
+  track: string
+  track_number: number
+  phase: ItemStatus
+  progress_percent: number
+  started_at: string
+}
+
+export interface NextUpJob {
+  job_id: string
+  artist: string
+  release: string
+  open_tracks: number
+  total_tracks: number
+  cover_url?: string
+}
+
+export interface QueueSummary {
+  active_items: number
+  remaining_items: number
+  paused_jobs: number
+  retry_wait_items: number
+  completed_last_hour: number
+  throughput_items_per_hour: number
+  eta_seconds: number | null
+  eta_confidence: string
+  eta_text: string
+  total_relevant: number
+  completed_relevant: number
+  storage_healthy: boolean
+  current: ActiveWorkerPreview[]
+  next: NextUpJob[]
+}
+
 /* -------------------------------------------------------------------- events */
 
 export const JOB_EVENT_TYPES = [

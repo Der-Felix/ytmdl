@@ -43,6 +43,9 @@ type Store interface {
 	// returned to a state the queue can start from again.
 	ResetInFlightItems(ctx context.Context) (int, error)
 	ResetInterruptedJobs(ctx context.Context) (int, error)
+
+	QueueCounts(ctx context.Context) (QueueCounts, error)
+	NextUpJobs(ctx context.Context, limit int) ([]NextUpJob, error)
 }
 
 // Catalog persists the resolved catalogue.

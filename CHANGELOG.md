@@ -2,6 +2,23 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.18.0 — 2026-09-05
+
+### Added
+
+- **Live Download Queue ETA & Throughput Metrics:**
+  - Track-based real-time ETA calculation derived strictly from measured wall-clock item completions (1-hour window with 6-hour fallback).
+  - Four confidence tiers (`none` / "Berechnung läuft …", `low`, `medium`, `high`) ensuring no false precision during startup or idle periods.
+  - Dedicated isolation of paused jobs (`paused = true`) as a separate status count excluded from active ETA countdowns.
+  - Transparent handling of exponential backoff retry states (`"Wartet auf erneuten Versuch"`).
+- **Active Processing & Next-Up Live Previews:**
+  - Real-time active worker cards displaying current artist, release, track title, track number, processing phase, and per-track progress.
+  - Next-Up candidate preview reflecting exact dispatcher eligibility and priority ordering with starvation protection (`EffectivePriority`).
+  - EventSource (SSE) background updates keeping queue statistics and active worker states synchronized in real time.
+- **Removed Synthetic Global Queue Progress:**
+  - Removed misleading global queue progress percentage to prevent erratic regressions in open-ended subscription import environments.
+- **Database Schema:** Schema remains at Schema 9; no database migration required.
+
 ## 0.17.4 — 2026-09-05
 
 ### Changed

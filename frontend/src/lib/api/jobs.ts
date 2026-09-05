@@ -10,6 +10,7 @@ import type {
   JobStatus,
   JobType,
   ListMeta,
+  QueueSummary,
   ReleaseDownloadRequest,
   TrackDownloadRequest,
 } from '@/types/api'
@@ -89,6 +90,11 @@ export function listJobsWithMeta(
 /** GET /jobs/{id} — the job with its items and summary. */
 export function getJob(id: string, signal?: AbortSignal): Promise<JobDetail> {
   return request<JobDetail>(`/jobs/${encodeURIComponent(id)}`, { signal })
+}
+
+/** GET /jobs/summary — live queue summary and ETA */
+export function getQueueSummary(signal?: AbortSignal): Promise<QueueSummary> {
+  return request<QueueSummary>('/jobs/summary', { signal })
 }
 
 /** PATCH /jobs/{id} — update job priority and/or pause state. */

@@ -414,3 +414,41 @@ func TestJobsProgressAPI(t *testing.T) {
 			detailResp.Data.Job.Completed, detailResp.Data.Job.Total)
 	}
 }
+
+func TestJobQueueSummaryEndpoint(t *testing.T) {
+	env := setupJobAuthTestEnv(t)
+
+	// 1. Unauthenticated request should fail with 401
+	reqUnauth := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/summary", nil)
+	recUnauth := httptest.NewRecorder()
+	env.router.ServeHTTP(recUnauth, reqUnauth)
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated summary, got %d", recUnauth.Code)
+	}
+
+	// 2. Authenticated user request should succeed with 200
+	reqAuth := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/summary", nil)
+	reqAuth.AddCookie(&http.Cookie{
+		Name:  middleware.SessionCookieName,
+		Value: env.userToken,
+	})
+	recAuth := httptest.NewRecorder()
+	env.router.ServeHTTP(recAuth, reqAuth)
+	if recAuth.Code != http.StatusOK {
+		t.Fatalf("expected 200 for user summary, got %d: %s", recAuth.Code, recAuth.Body.String())
+	}
+
+	var summaryResp struct {
+		Data jobs.QueueSummary `json:"data"`
+	}
+	if err := json.Unmarshal(recAuth.Body.Bytes(), &summaryResp); err != nil {
+		t.Fatalf("decode summary response: %v", err)
+	}
+
+	if summaryResp.Data.ETAText == "" {
+		t.Errorf("expected non-empty ETAText in summary")
+	}
+	if summaryResp.Data.ETAConfidence == "" {
+		t.Errorf("expected non-empty ETAConfidence in summary")
+	}
+}

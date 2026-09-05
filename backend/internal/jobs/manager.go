@@ -121,6 +121,7 @@ type Manager struct {
 
 	inFlight sync.Map // item id -> struct{}
 	runs     sync.Map // job id -> *jobRun
+	workers  *WorkerTracker
 
 	wg        sync.WaitGroup
 	ctx       context.Context
@@ -215,6 +216,7 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 		wake:         make(chan struct{}, 1),
 		semaphore:    make(chan struct{}, concurrency),
 		finalizerSem: make(chan struct{}, 1), // single bounded finalization slot for network FS protection
+		workers:      NewWorkerTracker(),
 	}
 	if m.cooldown == nil {
 		m.cooldown = NewMediaCooldownManager()
@@ -251,6 +253,7 @@ func NewManagerForTest(store Store, broker *Broker) *Manager {
 		resolveQueue: make(chan string, 10),
 		semaphore:    make(chan struct{}, 2),
 		finalizerSem: make(chan struct{}, 1),
+		workers:      NewWorkerTracker(),
 	}
 	m.maxWorkers.Store(2)
 	defStart := "22:00"
@@ -564,6 +567,14 @@ func (m *Manager) updateItem(ctx context.Context, itemID string, update ItemUpda
 
 // publishItem announces an item state change.
 func (m *Manager) publishItem(job Job, item Item, status ItemStatus, score float64, err error) {
+	if m.workers != nil {
+		if status.Terminal() || status == ItemRetryWait || status == ItemWaitingStorage || status == ItemWaitingSpace {
+			m.workers.Clear(item.ID)
+		} else {
+			m.workers.RecordProgress(job, item, status, score)
+		}
+	}
+
 	event := Event{
 		Type:       EventItemStatus,
 		JobID:      job.ID,
@@ -585,6 +596,10 @@ func (m *Manager) publishItem(job Job, item Item, status ItemStatus, score float
 
 // publishProgress announces download progress of a single track.
 func (m *Manager) publishProgress(job Job, item Item, percent float64) {
+	if m.workers != nil {
+		m.workers.RecordProgress(job, item, ItemDownloading, percent)
+	}
+
 	m.broker.Publish(Event{
 		Type:            EventJobProgress,
 		JobID:           job.ID,
@@ -866,6 +881,70 @@ func (m *Manager) EnqueueReleaseWithPriority(ctx context.Context, provider, rele
 		return false, err
 	}
 	return true, nil
+}
+
+// GetQueueSummary calculates and returns the current queue metrics, throughput, ETA, active workers, and next-up jobs.
+func (m *Manager) GetQueueSummary(ctx context.Context) (*QueueSummary, error) {
+	counts, err := m.store.QueueCounts(ctx)
+	if err != nil {
+		return nil, apperr.Wrap(apperr.CodeInternal, "failed to get queue counts", err)
+	}
+
+	nextJobs, err := m.store.NextUpJobs(ctx, 5)
+	if err != nil {
+		m.logger.Warn("failed to get next up jobs for queue summary", logging.KeyError, err.Error())
+		nextJobs = []NextUpJob{}
+	}
+	if nextJobs == nil {
+		nextJobs = []NextUpJob{}
+	}
+
+	activeWorkers := make([]ActiveWorkerPreview, 0)
+	if m.workers != nil {
+		activeWorkers = m.workers.List()
+	}
+
+	storageHealthy := true
+	if m.library != nil && m.library.Guard() != nil && !m.allowOfflineStaging.Load() {
+		storageHealthy = m.library.Guard().CheckHealth(ctx, false).Status == storage.HealthHealthy
+	}
+
+	isPaused := m.QueuePaused()
+	var etaSec *int64
+	var confidence, etaText string
+	var throughput float64
+
+	if isPaused {
+		confidence = "paused"
+		etaText = "Queue pausiert"
+	} else {
+		etaSec, confidence, etaText, throughput = CalculateETA(
+			counts.RunnableItems,
+			counts.RetryWaitItems,
+			counts.ActiveItems,
+			counts.PausedJobs,
+			counts.CompletedLast1h,
+			counts.CompletedLast6h,
+			storageHealthy,
+		)
+	}
+
+	return &QueueSummary{
+		ActiveItems:            counts.ActiveItems,
+		RemainingItems:         counts.RunnableItems,
+		PausedJobs:             counts.PausedJobs,
+		RetryWaitItems:         counts.RetryWaitItems,
+		CompletedLastHour:      counts.CompletedLast1h,
+		ThroughputItemsPerHour: throughput,
+		ETASeconds:             etaSec,
+		ETAConfidence:          confidence,
+		ETAText:                etaText,
+		TotalRelevant:          counts.TotalRelevant,
+		CompletedRelevant:      counts.CompletedRelevant,
+		StorageHealthy:         storageHealthy,
+		Current:                activeWorkers,
+		Next:                   nextJobs,
+	}, nil
 }
 
 func ptr[T any](value T) *T { return &value }

@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -106,40 +107,40 @@ func TestStarvationAging(t *testing.T) {
 
 	// High priority always rank 2
 	jHigh := Job{Priority: PriorityHigh, CreatedAt: now.Add(-5 * time.Minute)}
-	if r := effectivePriority(jHigh, now); r != 2 {
+	if r := EffectivePriority(jHigh, now); r != 2 {
 		t.Fatalf("expected high priority rank 2, got %d", r)
 	}
 
 	// Normal priority:
 	// < 15m -> rank 1
 	jNormalFresh := Job{Priority: PriorityNormal, CreatedAt: now.Add(-10 * time.Minute)}
-	if r := effectivePriority(jNormalFresh, now); r != 1 {
+	if r := EffectivePriority(jNormalFresh, now); r != 1 {
 		t.Fatalf("expected fresh normal rank 1, got %d", r)
 	}
 	// >= 15m -> rank 2 (promoted to High)
 	jNormalAged := Job{Priority: PriorityNormal, CreatedAt: now.Add(-15 * time.Minute)}
-	if r := effectivePriority(jNormalAged, now); r != 2 {
+	if r := EffectivePriority(jNormalAged, now); r != 2 {
 		t.Fatalf("expected aged normal rank 2, got %d", r)
 	}
 
 	// Low priority:
 	// < 30m -> rank 0
 	jLowFresh := Job{Priority: PriorityLow, CreatedAt: now.Add(-20 * time.Minute)}
-	if r := effectivePriority(jLowFresh, now); r != 0 {
+	if r := EffectivePriority(jLowFresh, now); r != 0 {
 		t.Fatalf("expected fresh low rank 0, got %d", r)
 	}
 	// >= 30m and < 60m -> rank 1 (promoted to Normal)
 	jLow30m := Job{Priority: PriorityLow, CreatedAt: now.Add(-30 * time.Minute)}
-	if r := effectivePriority(jLow30m, now); r != 1 {
+	if r := EffectivePriority(jLow30m, now); r != 1 {
 		t.Fatalf("expected 30m low rank 1, got %d", r)
 	}
 	jLow45m := Job{Priority: PriorityLow, CreatedAt: now.Add(-45 * time.Minute)}
-	if r := effectivePriority(jLow45m, now); r != 1 {
+	if r := EffectivePriority(jLow45m, now); r != 1 {
 		t.Fatalf("expected 45m low rank 1, got %d", r)
 	}
 	// >= 60m -> rank 2 (promoted to High)
 	jLow60m := Job{Priority: PriorityLow, CreatedAt: now.Add(-60 * time.Minute)}
-	if r := effectivePriority(jLow60m, now); r != 2 {
+	if r := EffectivePriority(jLow60m, now); r != 2 {
 		t.Fatalf("expected 60m low rank 2, got %d", r)
 	}
 }
@@ -379,6 +380,58 @@ func (s *memorySchedulerStore) HasItems(context.Context, string) (bool, error)  
 func (s *memorySchedulerStore) ResetInFlightItems(context.Context) (int, error) { return 0, nil }
 func (s *memorySchedulerStore) ResetInterruptedJobs(context.Context) (int, error) {
 	return 0, nil
+}
+func (s *memorySchedulerStore) QueueCounts(context.Context) (QueueCounts, error) {
+	return QueueCounts{}, nil
+}
+func (s *memorySchedulerStore) NextUpJobs(_ context.Context, limit int) ([]NextUpJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if limit <= 0 {
+		limit = 5
+	}
+	var unfinished []Job
+	for _, j := range s.jobs {
+		if !j.Status.Terminal() && !j.Paused {
+			unfinished = append(unfinished, *j)
+		}
+	}
+	now := time.Now().UTC()
+	sort.SliceStable(unfinished, func(i, j int) bool {
+		rI := EffectivePriority(unfinished[i], now)
+		rJ := EffectivePriority(unfinished[j], now)
+		if rI != rJ {
+			return rI > rJ
+		}
+		if !unfinished[i].CreatedAt.Equal(unfinished[j].CreatedAt) {
+			return unfinished[i].CreatedAt.Before(unfinished[j].CreatedAt)
+		}
+		return unfinished[i].ID < unfinished[j].ID
+	})
+
+	var out []NextUpJob
+	for _, j := range unfinished {
+		items := s.items[j.ID]
+		open := 0
+		for _, it := range items {
+			if it.Status == ItemPending || it.Status == ItemRetryWait || it.Status == ItemWaitingStorage || it.Status == ItemWaitingSpace {
+				open++
+			}
+		}
+		if open > 0 {
+			out = append(out, NextUpJob{
+				JobID:       j.ID,
+				Artist:      j.Label,
+				Release:     j.Label,
+				OpenTracks:  open,
+				TotalTracks: len(items),
+			})
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 func TestSchedulerInterleaving500vs1(t *testing.T) {

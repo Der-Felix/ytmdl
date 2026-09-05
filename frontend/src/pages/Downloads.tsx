@@ -11,7 +11,10 @@ import {
   Trash2Icon,
 } from 'lucide-react'
 
+import { ActiveWorkersCard } from '@/components/downloads/ActiveWorkersCard'
 import { JobCard } from '@/components/downloads/JobCard'
+import { NextUpCard } from '@/components/downloads/NextUpCard'
+import { QueueSummaryCard } from '@/components/downloads/QueueSummaryCard'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -32,6 +35,7 @@ import {
 } from '@/components/ui/state-view'
 import { useAuth } from '@/hooks/useAuth'
 import { useCurrentTracks, useJobs } from '@/hooks/useJobs'
+import { useQueueSummary } from '@/hooks/useQueueSummary'
 import { deleteJobHistory, section } from '@/lib/api/jobs'
 import { errorMessage, isAbortError } from '@/lib/api/client'
 import { useLocation, useNavigate } from '@/lib/router'
@@ -95,6 +99,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
   })
 
   const currentTracks = useCurrentTracks()
+  const { state: summaryState, reload: reloadSummary } = useQueueSummary()
 
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [cleanupDays, setCleanupDays] = useState(30)
@@ -209,14 +214,44 @@ function Downloads({ jobId }: DownloadsPageProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={reload}
-            disabled={state.status === 'loading'}
+            onClick={() => {
+              reload()
+              reloadSummary()
+            }}
+            disabled={state.status === 'loading' || summaryState.status === 'loading'}
           >
-            <RefreshCwIcon className={cn('size-3.5', state.status === 'loading' && 'animate-spin')} />
+            <RefreshCwIcon
+              className={cn(
+                'size-3.5',
+                (state.status === 'loading' || summaryState.status === 'loading') && 'animate-spin',
+              )}
+            />
             Aktualisieren
           </Button>
         </div>
       </header>
+
+      {/* Live Queue ETA and Worker Previews */}
+      {summaryState.status === 'success' && (
+        <section aria-label="Warteschlangen-Status und Vorschau" className="space-y-4">
+          <QueueSummaryCard summary={summaryState.data} />
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <ActiveWorkersCard workers={summaryState.data.current} />
+            <NextUpCard jobs={summaryState.data.next} />
+          </div>
+        </section>
+      )}
+
+      {summaryState.status === 'loading' && (
+        <div className="space-y-4" aria-busy="true">
+          <div className="h-44 rounded-xl border border-border/50 bg-white/[0.02] animate-pulse" />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="h-40 rounded-xl border border-border/50 bg-white/[0.02] animate-pulse" />
+            <div className="h-40 rounded-xl border border-border/50 bg-white/[0.02] animate-pulse" />
+          </div>
+        </div>
+      )}
 
       {/* Filter Toolbar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">

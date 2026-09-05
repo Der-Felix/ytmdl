@@ -86,6 +86,10 @@ func (f *fakeJobStore) ResetInFlightItems(context.Context) (int, error) { return
 func (f *fakeJobStore) ResetInterruptedJobs(context.Context) (int, error) {
 	return 0, nil
 }
+func (f *fakeJobStore) QueueCounts(context.Context) (jobs.QueueCounts, error) {
+	return jobs.QueueCounts{}, nil
+}
+func (f *fakeJobStore) NextUpJobs(context.Context, int) ([]jobs.NextUpJob, error) { return nil, nil }
 
 type fakeCatalog struct{}
 
