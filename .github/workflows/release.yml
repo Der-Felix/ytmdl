@@ -458,6 +458,19 @@ jobs:
           fi
           echo "Native binary smoke check passed."
 
+      - name: Generate and Validate Release Notes
+        shell: bash
+        run: |
+          echo "Generating canonical release notes for version ${{ steps.version.outputs.version }}..."
+          ./scripts/generate-release-notes.sh \
+            --version "${{ steps.version.outputs.version }}" \
+            --output "${PWD}/dist/RELEASE_NOTES.md"
+
+          echo "Validating generated release notes qualification gate..."
+          ./scripts/generate-release-notes.sh --validate "${PWD}/dist/RELEASE_NOTES.md"
+          echo "Release notes verified successfully:"
+          cat "${PWD}/dist/RELEASE_NOTES.md"
+
       - name: Publish Stable GitHub Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -465,11 +478,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.version.outputs.tag }}"
-          echo "Creating GitHub Release ${tag} with verified release artifacts..."
+          echo "Creating GitHub Release ${tag} with verified release artifacts and canonical notes..."
 
           gh release create "${tag}" \
             --title "YTMDL ${tag}" \
-            --generate-notes \
+            --notes-file dist/RELEASE_NOTES.md \
             dist/release-manifest.json \
             dist/SHA256SUMS \
             dist/ytmdlctl-linux-amd64 \

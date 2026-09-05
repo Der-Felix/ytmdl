@@ -1500,7 +1500,7 @@ func runReconcileArtists(ctx context.Context, stdout, stderr io.Writer, stdin io
 	}
 	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
 	if currentVersion == "" {
-		currentVersion = "0.18.0"
+		currentVersion = "0.18.1"
 	}
 
 	backupDir := subBackupDir
@@ -1918,7 +1918,7 @@ func runMergeArtists(ctx context.Context, stdout, stderr io.Writer, stdin io.Rea
 	}
 	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
 	if currentVersion == "" {
-		currentVersion = "0.18.0"
+		currentVersion = "0.18.1"
 	}
 
 	backupDir := subBackupDir

@@ -102,6 +102,13 @@ if [ "${GENERATE_MANIFEST:-false}" = "true" ] || { [ -n "${BACKEND_DIGEST:-}" ] 
     --output "${OUTPUT_DIR}/release-manifest.json"
 fi
 
+if [ -f "${SCRIPT_DIR}/generate-release-notes.sh" ] && [ -f "${ROOT_DIR}/CHANGELOG.md" ]; then
+  echo ""
+  echo "==> Generating and validating RELEASE_NOTES.md..."
+  "${SCRIPT_DIR}/generate-release-notes.sh" --version "${VERSION}" --output "${OUTPUT_DIR}/RELEASE_NOTES.md"
+  "${SCRIPT_DIR}/generate-release-notes.sh" --validate "${OUTPUT_DIR}/RELEASE_NOTES.md"
+fi
+
 echo ""
 echo "==> Release artifacts ready in ${OUTPUT_DIR}:"
 ls -lh "${OUTPUT_DIR}"

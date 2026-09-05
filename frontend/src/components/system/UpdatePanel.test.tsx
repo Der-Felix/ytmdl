@@ -117,13 +117,12 @@ describe('UpdatePanel', () => {
       release_notes: '<img src=x onerror=alert(1)><b class="injected-bold">Plain Bold</b>',
     }
 
-    render(<UpdatePanel initialData={xssStatus} />)
+    const { container } = render(<UpdatePanel initialData={xssStatus} />)
 
-    const pre = screen.getByText(/<img src=x/i)
-    expect(pre.tagName.toLowerCase()).toBe('pre')
-    expect(pre.textContent).toContain('<img src=x onerror=alert(1)><b class="injected-bold">Plain Bold</b>')
-    expect(pre.querySelector('img')).toBeNull()
-    expect(pre.querySelector('.injected-bold')).toBeNull()
+    const rendered = screen.getByText(/<img src=x/i)
+    expect(rendered.textContent).toContain('<img src=x onerror=alert(1)><b class="injected-bold">Plain Bold</b>')
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('.injected-bold')).toBeNull()
   })
 
   it('renders no_public_release state with helpful message', () => {

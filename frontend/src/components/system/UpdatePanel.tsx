@@ -21,6 +21,7 @@ import { formatDateTime, formatRelative } from '@/lib/utils/format'
 import { errorMessage, isAbortError } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 import type { UpdateState, UpdateStatus } from '@/types/api'
+import { ReleaseNotesMarkdown } from './ReleaseNotesMarkdown'
 
 interface UpdatePanelProps {
   initialData?: UpdateStatus
@@ -223,12 +224,7 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
           </div>
 
           {current.release_notes && (
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">Release Notes:</span>
-              <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/40 p-3 font-mono text-xs text-foreground/90">
-                {current.release_notes}
-              </pre>
-            </div>
+            <ReleaseNotesMarkdown content={current.release_notes} />
           )}
         </div>
       )}

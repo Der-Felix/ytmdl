@@ -2,6 +2,24 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.18.1 — 2026-09-05
+
+### Highlights
+
+- **Safe Release Notes Markdown Rendering in WebUI:**
+  - Implemented safe, styled Markdown rendering for GitHub release notes under **Settings → System & Updates**.
+  - Supports Markdown headings, paragraphs, bullet lists, bold text, inline code, fenced code blocks, and external links styled to match the YTMDL theme.
+  - Safe link handling with strict `rel="noopener noreferrer"` and `target="_blank"`, restricting URLs to safe `http://` / `https://` protocols.
+  - Zero raw HTML execution: all markdown parsed safely into React elements without `dangerouslySetInnerHTML`.
+  - Expandable/collapsible view ("Mehr anzeigen" / "Weniger anzeigen") for longer release notes to preserve clean mobile and desktop layouts.
+
+### Changes
+
+- **Canonical Release Note Generation & Workflow Validation:**
+  - Sourced future release notes automatically from `CHANGELOG.md`, including Highlights, Changes, `ytmdlctl update` instructions, and automated compare links.
+  - Automated release qualification gate ensuring future release notes contain full content and full changelog compare link, failing fast if notes collapse to compare-only links.
+- **Database Schema:** Schema remains at Schema 9; no database migration required.
+
 ## 0.18.0 — 2026-09-05
 
 ### Added
