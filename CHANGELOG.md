@@ -2,6 +2,18 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.17.4 — 2026-09-05
+
+### Changed
+
+- **App-Shell Consolidation:** Unified application administration pages (`/users` and `/settings/server`) into the standard YTMDL `AppShell`.
+  - Persistent standard left sidebar and atmospheric glow background across all administrative views.
+  - Standard max content width and layout alignment matching the Dashboard and Library.
+  - Floating `MiniPlayer` remains active and visible during user and server management.
+  - Server settings (`/settings/server`) feature compact local page tab navigation (`Allgemein`, `Downloads`, `Speicher`, `Provider`) with full URL hash synchronization (`#health`, `#updates`, `#startup`, `#downloads`, `#storage`, `#providers`) and browser back/forward history support.
+  - Removed obsolete standalone `AdminLayout` and related styling.
+- **Database Schema:** Schema remains at Schema 9; no database migration required.
+
 ## 0.17.3 — 2026-09-05
 
 ### Added

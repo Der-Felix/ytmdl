@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 
-import { AdminLayout } from '@/components/layout/AdminLayout'
 import { AppShell } from '@/components/layout/AppShell'
 import { PlayerProvider } from '@/contexts/PlayerContext'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
@@ -23,7 +22,7 @@ import { Settings } from '@/pages/Settings'
 import { Subscriptions } from '@/pages/Subscriptions'
 import { Users } from '@/pages/Users'
 
-function AppContent() {
+export function AppContent() {
   const location = useLocation()
   const route = useMemo(() => matchRoute(location), [location])
   const { user, loading, setupRequired, isAdmin } = useAuth()
@@ -56,23 +55,13 @@ function AppContent() {
     )
   }
 
-  // Admin routes render in dedicated AdminLayout without standard app sidebar
-  if (isAdmin && (route.name === 'users' || route.name === 'settings')) {
-    return (
-      <AdminLayout route={route}>
-        {route.name === 'users' && <Users />}
-        {route.name === 'settings' && <Settings />}
-      </AdminLayout>
-    )
-  }
-
   return (
     <AppShell route={route} activeDownloads={activeDownloads}>
       {route.name === 'dashboard' && <Dashboard />}
       {route.name === 'login' && <Dashboard />}
       {route.name === 'player' && <NowPlaying />}
       {route.name === 'profile' && <Profile />}
-      {route.name === 'users' && <NotFound pathname="/users" />}
+      {route.name === 'users' && (isAdmin ? <Users /> : <NotFound pathname="/users" />)}
       {route.name === 'discover' && <Discover query={route.query} />}
       {route.name === 'artist' && <Artist id={route.id} provider={route.provider} />}
       {route.name === 'release' && <Release id={route.id} provider={route.provider} />}

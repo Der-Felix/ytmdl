@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CheckCircle2Icon,
   ClockIcon,
   GaugeIcon,
+  HardDriveIcon,
   InfoIcon,
   LayersIcon,
+  RadioIcon,
   SaveIcon,
+  ServerCogIcon,
   UsersIcon,
   XCircleIcon,
+  ZapIcon,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -42,148 +46,271 @@ import type {
   Settings as SettingsModel,
 } from '@/types/api'
 
+interface SettingsTab {
+  id: 'general' | 'downloads' | 'storage' | 'providers'
+  label: string
+  hash: string
+  icon: React.ComponentType<{ className?: string }>
+}
+
+const SETTINGS_TABS: SettingsTab[] = [
+  {
+    id: 'general',
+    label: 'Allgemein',
+    hash: '#health',
+    icon: ServerCogIcon,
+  },
+  {
+    id: 'downloads',
+    label: 'Downloads',
+    hash: '#downloads',
+    icon: ZapIcon,
+  },
+  {
+    id: 'storage',
+    label: 'Speicher',
+    hash: '#storage',
+    icon: HardDriveIcon,
+  },
+  {
+    id: 'providers',
+    label: 'Provider',
+    hash: '#providers',
+    icon: RadioIcon,
+  },
+]
+
+function getTabFromHash(hash: string): SettingsTab['id'] {
+  switch (hash) {
+    case '#downloads':
+      return 'downloads'
+    case '#storage':
+      return 'storage'
+    case '#providers':
+      return 'providers'
+    case '#health':
+    case '#updates':
+    case '#startup':
+    case '#general':
+    default:
+      return 'general'
+  }
+}
+
+function useHash(): string {
+  const [hash, setHash] = useState(() =>
+    typeof window !== 'undefined' ? window.location.hash : '',
+  )
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setHash(window.location.hash)
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    window.addEventListener('popstate', handleHashChange)
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange)
+      window.removeEventListener('popstate', handleHashChange)
+    }
+  }, [])
+
+  return hash
+}
+
 function Settings() {
+  const currentHash = useHash()
+  const activeTab = getTabFromHash(currentHash)
+
   const health = useAsync((signal) => getHealth({ signal }), [])
   const updateStatus = useAsync((signal) => getUpdateStatus(signal), [])
   const storageStatus = useAsync((signal) => getStorageStatus(signal), [])
   const providers = useAsync((signal) => listProviders(signal), [])
   const settings = useAsync((signal) => getSettings(signal), [])
 
+  const handleTabClick = (tabHash: string) => {
+    if (typeof window !== 'undefined') {
+      window.location.assign(tabHash)
+      window.dispatchEvent(new Event('hashchange'))
+    }
+  }
+
+  useEffect(() => {
+    if (!currentHash) return
+    const id = currentHash.replace(/^#/, '')
+    if (!id) return
+    const el = document.getElementById(id)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [currentHash, activeTab])
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <header className="space-y-1.5">
         <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           Servereinstellungen
         </h1>
         <p className="text-sm text-muted-foreground">
-          Systemstatus, Speicher, Download-Automation und Standardwerte.
+          Konfiguration, Diagnose und Dienste verwalten.
         </p>
       </header>
 
-      <section id="health" aria-labelledby="health-heading" className="space-y-3 scroll-mt-24">
-        <PanelHeader
-          title={<span id="health-heading">Systemdiagnose</span>}
-          description="Backend, Datenbank und die externen Werkzeuge."
-        />
+      {/* Local Tabs Navigation */}
+      <div className="flex items-center gap-2 border-b border-border pb-3 overflow-x-auto scrollbar-none">
+        {SETTINGS_TABS.map((tab) => {
+          const isActive = activeTab === tab.id
+          const Icon = tab.icon
+          return (
+            <Button
+              key={tab.id}
+              variant={isActive ? 'default' : 'ghost'}
+              size="sm"
+              className={cn('text-sm font-medium gap-2', !isActive && 'text-muted-foreground')}
+              onClick={() => handleTabClick(tab.hash)}
+            >
+              <Icon className="size-4" />
+              {tab.label}
+            </Button>
+          )
+        })}
+      </div>
 
-        {health.state.status === 'loading' && (
-          <LoadingRegion label="Systemstatus wird geladen">
-            <ListSkeleton rows={2} />
-          </LoadingRegion>
-        )}
-        {health.state.status === 'error' && (
-          <Panel>
-            <ErrorState error={health.state.error} onRetry={health.reload} />
-          </Panel>
-        )}
-        {health.state.status === 'success' && (
-          <HealthPanel health={health.state.data} onReload={health.reload} />
-        )}
-      </section>
+      {activeTab === 'general' && (
+        <div className="space-y-8">
+          <section id="health" aria-labelledby="health-heading" className="space-y-3 scroll-mt-24">
+            <PanelHeader
+              title={<span id="health-heading">Systemdiagnose</span>}
+              description="Backend, Datenbank und die externen Werkzeuge."
+            />
 
-      <section id="updates" aria-labelledby="updates-heading" className="space-y-3 scroll-mt-24">
-        <PanelHeader
-          title={<span id="updates-heading">System & Updates</span>}
-          description="Versionsprüfung und offizielle GitHub-Releases."
-        />
+            {health.state.status === 'loading' && (
+              <LoadingRegion label="Systemstatus wird geladen">
+                <ListSkeleton rows={2} />
+              </LoadingRegion>
+            )}
+            {health.state.status === 'error' && (
+              <Panel>
+                <ErrorState error={health.state.error} onRetry={health.reload} />
+              </Panel>
+            )}
+            {health.state.status === 'success' && (
+              <HealthPanel health={health.state.data} onReload={health.reload} />
+            )}
+          </section>
 
-        {updateStatus.state.status === 'loading' && (
-          <LoadingRegion label="Update-Status wird geladen">
-            <ListSkeleton rows={2} />
-          </LoadingRegion>
-        )}
-        {updateStatus.state.status === 'error' && (
-          <Panel>
-            <ErrorState error={updateStatus.state.error} onRetry={updateStatus.reload} />
-          </Panel>
-        )}
-        {updateStatus.state.status === 'success' && (
-          <UpdatePanel
-            initialData={updateStatus.state.data}
-            onReload={updateStatus.reload}
+          <section id="updates" aria-labelledby="updates-heading" className="space-y-3 scroll-mt-24">
+            <PanelHeader
+              title={<span id="updates-heading">System & Updates</span>}
+              description="Versionsprüfung und offizielle GitHub-Releases."
+            />
+
+            {updateStatus.state.status === 'loading' && (
+              <LoadingRegion label="Update-Status wird geladen">
+                <ListSkeleton rows={2} />
+              </LoadingRegion>
+            )}
+            {updateStatus.state.status === 'error' && (
+              <Panel>
+                <ErrorState error={updateStatus.state.error} onRetry={updateStatus.reload} />
+              </Panel>
+            )}
+            {updateStatus.state.status === 'success' && (
+              <UpdatePanel
+                initialData={updateStatus.state.data}
+                onReload={updateStatus.reload}
+              />
+            )}
+          </section>
+
+          {settings.state.status === 'success' && (
+            <section id="startup" aria-labelledby="startup-heading" className="space-y-3 scroll-mt-24">
+              <StartupSettings settings={settings.state.data} />
+            </section>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'storage' && (
+        <section id="storage" aria-labelledby="storage-heading" className="space-y-3 scroll-mt-24">
+          <PanelHeader
+            title={<span id="storage-heading">Speicher & Netzwerk-Storage</span>}
+            description="Storage Identity Guard, Mount-Status, Staging und Warteschlangensteuerung."
           />
-        )}
-      </section>
 
-      <section id="storage" aria-labelledby="storage-heading" className="space-y-3 scroll-mt-24">
-        <PanelHeader
-          title={<span id="storage-heading">Speicher & Netzwerk-Storage</span>}
-          description="Storage Identity Guard, Mount-Status, Staging und Warteschlangensteuerung."
-        />
+          {storageStatus.state.status === 'loading' && (
+            <LoadingRegion label="Speicherstatus wird geladen">
+              <ListSkeleton rows={2} />
+            </LoadingRegion>
+          )}
+          {storageStatus.state.status === 'error' && (
+            <Panel>
+              <ErrorState error={storageStatus.state.error} onRetry={storageStatus.reload} />
+            </Panel>
+          )}
+          {storageStatus.state.status === 'success' && (
+            <StoragePanel
+              initialData={storageStatus.state.data}
+              onReload={storageStatus.reload}
+            />
+          )}
+        </section>
+      )}
 
-        {storageStatus.state.status === 'loading' && (
-          <LoadingRegion label="Speicherstatus wird geladen">
-            <ListSkeleton rows={2} />
-          </LoadingRegion>
-        )}
-        {storageStatus.state.status === 'error' && (
-          <Panel>
-            <ErrorState error={storageStatus.state.error} onRetry={storageStatus.reload} />
-          </Panel>
-        )}
-        {storageStatus.state.status === 'success' && (
-          <StoragePanel
-            initialData={storageStatus.state.data}
-            onReload={storageStatus.reload}
+      {activeTab === 'downloads' && (
+        <section id="downloads" aria-labelledby="downloads-automation-heading" className="space-y-3 scroll-mt-24">
+          <PanelHeader
+            title={<span id="downloads-automation-heading">Download-Verhalten & Automation</span>}
+            description="Worker-Pool, Bandbreitenbegrenzung, Download-Zeitfenster und Abo-Vorgaben."
           />
-        )}
-      </section>
 
-      <section id="downloads" aria-labelledby="downloads-automation-heading" className="space-y-3 scroll-mt-24">
-        <PanelHeader
-          title={<span id="downloads-automation-heading">Download-Verhalten & Automation</span>}
-          description="Worker-Pool, Bandbreitenbegrenzung, Download-Zeitfenster und Abo-Vorgaben."
-        />
+          {settings.state.status === 'loading' && (
+            <LoadingRegion label="Einstellungen werden geladen">
+              <ListSkeleton rows={4} />
+            </LoadingRegion>
+          )}
+          {settings.state.status === 'error' && (
+            <Panel>
+              <ErrorState error={settings.state.error} onRetry={settings.reload} />
+            </Panel>
+          )}
+          {settings.state.status === 'success' && (
+            <SettingsForm
+              initialSettings={settings.state.data}
+              onSaved={settings.reload}
+            />
+          )}
+        </section>
+      )}
 
-        {settings.state.status === 'loading' && (
-          <LoadingRegion label="Einstellungen werden geladen">
-            <ListSkeleton rows={4} />
-          </LoadingRegion>
-        )}
-        {settings.state.status === 'error' && (
-          <Panel>
-            <ErrorState error={settings.state.error} onRetry={settings.reload} />
-          </Panel>
-        )}
-        {settings.state.status === 'success' && (
-          <SettingsForm
-            initialSettings={settings.state.data}
-            onSaved={settings.reload}
+      {activeTab === 'providers' && (
+        <section id="providers" aria-labelledby="providers-heading" className="space-y-3 scroll-mt-24">
+          <PanelHeader
+            title={<span id="providers-heading">Provider</span>}
+            description="Woher Metadaten kommen und woher die Audioquellen."
           />
-        )}
-      </section>
 
-      <section id="providers" aria-labelledby="providers-heading" className="space-y-3 scroll-mt-24">
-        <PanelHeader
-          title={<span id="providers-heading">Provider</span>}
-          description="Woher Metadaten kommen und woher die Audioquellen."
-        />
-
-        {providers.state.status === 'loading' && (
-          <LoadingRegion label="Provider werden geladen">
-            <ListSkeleton rows={2} />
-          </LoadingRegion>
-        )}
-        {providers.state.status === 'error' && (
-          <Panel>
-            <ErrorState error={providers.state.error} onRetry={providers.reload} />
-          </Panel>
-        )}
-        {providers.state.status === 'success' && (
-          <ProvidersPanel
-            providers={providers.state.data}
-            configuredMetadataProvider={
-              settings.state.status === 'success'
-                ? settings.state.data.default_metadata_provider
-                : undefined
-            }
-          />
-        )}
-      </section>
-
-      {settings.state.status === 'success' && (
-        <section id="startup" aria-labelledby="startup-heading" className="space-y-3 scroll-mt-24">
-          <StartupSettings settings={settings.state.data} />
+          {providers.state.status === 'loading' && (
+            <LoadingRegion label="Provider werden geladen">
+              <ListSkeleton rows={2} />
+            </LoadingRegion>
+          )}
+          {providers.state.status === 'error' && (
+            <Panel>
+              <ErrorState error={providers.state.error} onRetry={providers.reload} />
+            </Panel>
+          )}
+          {providers.state.status === 'success' && (
+            <ProvidersPanel
+              providers={providers.state.data}
+              configuredMetadataProvider={
+                settings.state.status === 'success'
+                  ? settings.state.data.default_metadata_provider
+                  : undefined
+              }
+            />
+          )}
         </section>
       )}
     </div>
