@@ -33,6 +33,7 @@ import {
 } from '@/lib/api/settings'
 import { getStorageStatus } from '@/lib/api/storage'
 import { StoragePanel } from '@/components/storage/StoragePanel'
+import { MediaSessionsPanel } from '@/components/settings/MediaSessionsPanel'
 import { getUpdateStatus } from '@/lib/api/system'
 import { UpdatePanel } from '@/components/system/UpdatePanel'
 import { errorMessage, isAbortError } from '@/lib/api/client'
@@ -86,6 +87,8 @@ function getTabFromHash(hash: string): SettingsTab['id'] {
       return 'downloads'
     case '#storage':
       return 'storage'
+    case '#media-sessions':
+    case '#sources':
     case '#providers':
       return 'providers'
     case '#health':
@@ -285,33 +288,43 @@ function Settings() {
       )}
 
       {activeTab === 'providers' && (
-        <section id="providers" aria-labelledby="providers-heading" className="space-y-3 scroll-mt-24">
-          <PanelHeader
-            title={<span id="providers-heading">Provider</span>}
-            description="Woher Metadaten kommen und woher die Audioquellen."
-          />
-
-          {providers.state.status === 'loading' && (
-            <LoadingRegion label="Provider werden geladen">
-              <ListSkeleton rows={2} />
-            </LoadingRegion>
-          )}
-          {providers.state.status === 'error' && (
-            <Panel>
-              <ErrorState error={providers.state.error} onRetry={providers.reload} />
-            </Panel>
-          )}
-          {providers.state.status === 'success' && (
-            <ProvidersPanel
-              providers={providers.state.data}
-              configuredMetadataProvider={
-                settings.state.status === 'success'
-                  ? settings.state.data.default_metadata_provider
-                  : undefined
-              }
+        <div className="space-y-8">
+          <section id="media-sessions" aria-labelledby="media-sessions-heading" className="space-y-3 scroll-mt-24">
+            <PanelHeader
+              title={<span id="media-sessions-heading">Medienquellen & Sessions</span>}
+              description="YouTube-Sessions für authentifizierten und unterbrechungsfreien Medienzugriff."
             />
-          )}
-        </section>
+            <MediaSessionsPanel />
+          </section>
+
+          <section id="providers" aria-labelledby="providers-heading" className="space-y-3 scroll-mt-24">
+            <PanelHeader
+              title={<span id="providers-heading">Provider</span>}
+              description="Woher Metadaten kommen und woher die Audioquellen."
+            />
+
+            {providers.state.status === 'loading' && (
+              <LoadingRegion label="Provider werden geladen">
+                <ListSkeleton rows={2} />
+              </LoadingRegion>
+            )}
+            {providers.state.status === 'error' && (
+              <Panel>
+                <ErrorState error={providers.state.error} onRetry={providers.reload} />
+              </Panel>
+            )}
+            {providers.state.status === 'success' && (
+              <ProvidersPanel
+                providers={providers.state.data}
+                configuredMetadataProvider={
+                  settings.state.status === 'success'
+                    ? settings.state.data.default_metadata_provider
+                    : undefined
+                }
+              />
+            )}
+          </section>
+        </div>
       )}
     </div>
   )

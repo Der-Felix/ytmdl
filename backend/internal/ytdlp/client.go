@@ -113,6 +113,17 @@ func New(opts Options) *Client {
 // Binary returns the configured executable.
 func (c *Client) Binary() string { return c.binary }
 
+// CookieFile returns the currently configured cookie file path.
+func (c *Client) CookieFile() string { return c.cookieFile }
+
+// WithCookieFile returns a shallow copy of Client configured to use the specified cookie file.
+// The original Client remains unmodified, ensuring thread-safety for concurrent multi-worker use.
+func (c *Client) WithCookieFile(cookieFile string) *Client {
+	clone := *c
+	clone.cookieFile = strings.TrimSpace(cookieFile)
+	return &clone
+}
+
 // Available reports whether the binary can be executed.
 func (c *Client) Available(ctx context.Context) error {
 	if _, err := c.Version(ctx); err != nil {
@@ -245,6 +256,8 @@ type DownloadRequest struct {
 	Retries int
 	// RateLimit optionally limits download rate (e.g. "2M", "5M", "10M").
 	RateLimit string
+	// CookieFile optionally overrides the cookie file for this invocation.
+	CookieFile string
 }
 
 // Download fetches the audio stream and returns the path of the written file.
@@ -270,10 +283,15 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 		retries = 3
 	}
 
-	args := append(c.baseArgs(), downloadArgs(selector, retries, req.Dir, req.RateLimit)...)
+	client := c
+	if trimmed := strings.TrimSpace(req.CookieFile); trimmed != "" {
+		client = c.WithCookieFile(trimmed)
+	}
+
+	args := append(client.baseArgs(), downloadArgs(selector, retries, req.Dir, req.RateLimit)...)
 	args = append(args, "--", req.URL)
 
-	cmd := c.command(ctx, args...)
+	cmd := client.command(ctx, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", apperr.Wrap(apperr.CodeInternal, "The yt-dlp output could not be captured.", err)
@@ -282,7 +300,7 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return "", startError(c.binary, err)
+		return "", startError(client.binary, err)
 	}
 
 	var wg sync.WaitGroup
@@ -312,8 +330,7 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", apperr.Wrap(apperr.CodeJobCancelled, "The download was cancelled.", ctxErr)
 		}
-		return "", apperr.Wrapf(apperr.CodeDownloadFailed, waitErr,
-			"yt-dlp failed: %s", firstLine(stderr.String()))
+		return "", classifyDownloadError(stderr.String(), waitErr)
 	}
 
 	path, err := singleFileIn(req.Dir)
@@ -321,6 +338,23 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 		return "", err
 	}
 	return path, nil
+}
+
+func classifyDownloadError(stderr string, cause error) error {
+	classified := ClassifyError(stderr, cause)
+	// If ClassifyError mapped to generic ProviderUnavailable without specific network failure indicators,
+	// preserve CodeDownloadFailed for generic download failures.
+	if apperr.CodeOf(classified) == apperr.CodeProviderUnavailable {
+		lower := strings.ToLower(stderr)
+		if !strings.Contains(lower, "timed out") &&
+			!strings.Contains(lower, "connection reset") &&
+			!strings.Contains(lower, "temporary failure in name resolution") &&
+			!strings.Contains(lower, "network is unreachable") &&
+			!strings.Contains(lower, "connection refused") {
+			return apperr.Wrapf(apperr.CodeDownloadFailed, cause, "yt-dlp failed: %s", firstLine(stderr))
+		}
+	}
+	return classified
 }
 
 // downloadArgs are the flags a download adds to the shared base arguments.
@@ -384,13 +418,19 @@ func startError(binary string, err error) error {
 	return apperr.Wrap(apperr.CodeToolUnavailable, "yt-dlp could not be started.", err)
 }
 
-// classifyError maps yt-dlp's stderr onto an application error code.
-func classifyError(stderr string, cause error) error {
+// ClassifyError maps yt-dlp's stderr onto an application error code following
+// the refined error taxonomy: candidate-specific, session-specific, or provider-systemic.
+func ClassifyError(stderr string, cause error) error {
 	lower := strings.ToLower(stderr)
 	message := firstLine(stderr)
 	switch {
-	// 1. Transient rate limit / throttling checks MUST precede generic unavailable checks
-	// because YouTube often phrases rate limits as "Video unavailable. This content isn't available, try again later..."
+	// 1. Session throttle vs provider rate limit
+	case strings.Contains(lower, "session has been rate-limited") ||
+		strings.Contains(lower, "session rate-limited") ||
+		strings.Contains(lower, "session rate limited"):
+		return apperr.Wrapf(apperr.CodeSessionRateLimited, cause,
+			"The media session was rate limited: %s", message)
+
 	case strings.Contains(lower, "http error 429") ||
 		strings.Contains(lower, "too many requests") ||
 		strings.Contains(lower, "rate-limit") ||
@@ -403,14 +443,20 @@ func classifyError(stderr string, cause error) error {
 		return apperr.Wrapf(apperr.CodeProviderRateLimited, cause,
 			"The media provider rate limited the request: %s", message)
 
-	// 2. Authentication and bot challenges (must not be misclassified as TrackNotFound)
+	// 2. Authentication and bot challenges (session-specific)
 	case strings.Contains(lower, "not a bot") ||
 		strings.Contains(lower, "bot verification") ||
-		strings.Contains(lower, "bot challenge") ||
-		strings.Contains(lower, "sign in to confirm") ||
-		strings.Contains(lower, "login required"):
-		return apperr.Wrapf(apperr.CodeProviderUnavailable, cause,
-			"The media provider requires authentication or bot verification: %s", message)
+		strings.Contains(lower, "bot challenge"):
+		return apperr.Wrapf(apperr.CodeSessionBotChallenge, cause,
+			"The media session encountered a bot challenge: %s", message)
+
+	case strings.Contains(lower, "sign in to confirm") ||
+		strings.Contains(lower, "login required") ||
+		strings.Contains(lower, "cookies are expired") ||
+		strings.Contains(lower, "cookie has expired") ||
+		strings.Contains(lower, "invalid cookies"):
+		return apperr.Wrapf(apperr.CodeSessionAuthFailed, cause,
+			"The media session requires authentication: %s", message)
 
 	// 3. Transient network failures
 	case strings.Contains(lower, "timed out") ||
@@ -421,7 +467,12 @@ func classifyError(stderr string, cause error) error {
 		return apperr.Wrapf(apperr.CodeProviderUnavailable, cause,
 			"Network error contacting media provider: %s", message)
 
-	// 4. Candidate-specific permanent unavailable errors
+	// 4. Candidate-specific no usable format
+	case strings.Contains(lower, "requested format is not available") ||
+		strings.Contains(lower, "no suitable format"):
+		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "No usable audio format for candidate: %s", message)
+
+	// 5. Candidate-specific permanent unavailable errors
 	case strings.Contains(lower, "video unavailable") ||
 		strings.Contains(lower, "is not available") ||
 		strings.Contains(lower, "private video") ||
@@ -430,13 +481,17 @@ func classifyError(stderr string, cause error) error {
 		strings.Contains(lower, "account associated with this video has been terminated"):
 		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "The media item is unavailable: %s", message)
 
-	// 5. Unsupported URL
+	// 6. Unsupported URL
 	case strings.Contains(lower, "unsupported url"):
 		return apperr.Wrapf(apperr.CodeInvalidRequest, cause, "The URL is not supported: %s", message)
 
 	default:
 		return apperr.Wrapf(apperr.CodeProviderUnavailable, cause, "yt-dlp failed: %s", message)
 	}
+}
+
+func classifyError(stderr string, cause error) error {
+	return ClassifyError(stderr, cause)
 }
 
 func firstLine(s string) string {

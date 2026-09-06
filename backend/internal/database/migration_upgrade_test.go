@@ -26,8 +26,8 @@ func TestMigration0007_FreshDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to query schema_migrations: %v", err)
 	}
-	if count != 10 {
-		t.Fatalf("expected 10 migrations applied, got %d", count)
+	if count < 10 {
+		t.Fatalf("expected at least 10 migrations applied, got %d", count)
 	}
 
 	// Verify all indexes exist
@@ -703,8 +703,8 @@ func TestMigration0010_FreshDBSchema10(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&version); err != nil {
 		t.Fatalf("failed to query schema version: %v", err)
 	}
-	if version != 10 {
-		t.Fatalf("expected latest schema version 10, got %d", version)
+	if version < 10 {
+		t.Fatalf("expected latest schema version >= 10, got %d", version)
 	}
 
 	// 2. Inserting job with priority 3 (urgent) must succeed

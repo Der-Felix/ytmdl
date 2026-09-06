@@ -67,19 +67,27 @@ type Options struct {
 	// Retries bounds yt-dlp's internal retry attempts.
 	Retries int
 
+	// CookieResolver resolves an opaque session ID to a cookie file path.
+	CookieResolver func(sessionID string) string
+
+	// DataPlaneLocker acquires exclusive access to a session's writable cookie file during download.
+	DataPlaneLocker func(ctx context.Context, sessionID string) (func(), error)
+
 	Logger *slog.Logger
 }
 
 // YTDLPDownloader implements Downloader on top of yt-dlp and ffmpeg.
 type YTDLPDownloader struct {
-	ytdlp          *ytdlp.Client
-	ffmpeg         *ffmpeg.Runner
-	prober         *Prober
-	allowTranscode bool
-	toleranceMS    int
-	retries        int
-	rateLimit      atomic.Pointer[string]
-	logger         *slog.Logger
+	ytdlp           *ytdlp.Client
+	ffmpeg          *ffmpeg.Runner
+	prober          *Prober
+	allowTranscode  bool
+	toleranceMS     int
+	retries         int
+	cookieResolver  func(sessionID string) string
+	dataPlaneLocker func(ctx context.Context, sessionID string) (func(), error)
+	rateLimit       atomic.Pointer[string]
+	logger          *slog.Logger
 }
 
 // New builds a downloader.
@@ -102,13 +110,15 @@ func New(opts Options) (*YTDLPDownloader, error) {
 		logger = slog.Default()
 	}
 	return &YTDLPDownloader{
-		ytdlp:          opts.YTDLP,
-		ffmpeg:         opts.FFmpeg,
-		prober:         opts.Prober,
-		allowTranscode: opts.AllowTranscode,
-		toleranceMS:    tolerance,
-		retries:        opts.Retries,
-		logger:         logger,
+		ytdlp:           opts.YTDLP,
+		ffmpeg:          opts.FFmpeg,
+		prober:          opts.Prober,
+		allowTranscode:  opts.AllowTranscode,
+		toleranceMS:     tolerance,
+		retries:         opts.Retries,
+		cookieResolver:  opts.CookieResolver,
+		dataPlaneLocker: opts.DataPlaneLocker,
+		logger:          logger,
 	}, nil
 }
 
@@ -149,12 +159,27 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 	)
 
 	started := time.Now()
+	cookiePath := ""
+	sessID := strings.TrimSpace(source.SessionID)
+	if d.cookieResolver != nil && sessID != "" {
+		cookiePath = d.cookieResolver(sessID)
+	}
+
+	if d.dataPlaneLocker != nil && sessID != "" {
+		release, err := d.dataPlaneLocker(ctx, sessID)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
+
 	rawPath, err := d.ytdlp.Download(ctx, ytdlp.DownloadRequest{
 		URL:            source.URL,
 		Dir:            workDir,
 		FormatSelector: FormatSelector(source.Formats),
 		Retries:        d.retries,
 		RateLimit:      d.RateLimit(),
+		CookieFile:     cookiePath,
 	}, wrapProgress(progress))
 
 	if err != nil {

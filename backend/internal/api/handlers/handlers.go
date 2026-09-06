@@ -22,6 +22,7 @@ import (
 	"ytdm/backend/internal/discography"
 	"ytdm/backend/internal/jobs"
 	"ytdm/backend/internal/library"
+	"ytdm/backend/internal/mediasession"
 	"ytdm/backend/internal/music"
 	"ytdm/backend/internal/provider"
 	"ytdm/backend/internal/resolve"
@@ -56,6 +57,7 @@ type Deps struct {
 	Auth           *auth.Service
 	Database       Pinger
 	Updates        *update.Service
+	MediaSessions  *mediasession.Service
 
 	// Tools are the external programs shown by the health endpoint.
 	Tools map[string]Checker

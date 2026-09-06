@@ -207,13 +207,12 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 	}
 	m.publishItem(job, item, ItemMatching, 0, nil)
 
-	if m.cooldown != nil {
-		if err := m.cooldown.Wait(ctx, job.MediaProvider); err != nil {
-			return ItemFailed, err
-		}
+	orch := m.getOrchestrator()
+	if orch == nil {
+		return ItemFailed, apperr.New(apperr.CodeInternal, "no media orchestrator configured")
 	}
 
-	rankedCandidates, err := m.matchCandidates(ctx, job, track, DefaultMaxFallbackCandidates)
+	resolved, err := orch.ResolveMedia(ctx, job.MediaProvider, track, DefaultMaxFallbackCandidates)
 	if err != nil {
 		if apperr.CodeOf(err) == apperr.CodeProviderRateLimited && m.cooldown != nil {
 			m.cooldown.Trigger(job.MediaProvider, 60*time.Second)
@@ -221,149 +220,11 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		return ItemFailed, err
 	}
 
-	logger.Info("media candidates matched",
-		"count", len(rankedCandidates),
-		"best_score", rankedCandidates[0].Score,
-		"best_media_id", rankedCandidates[0].Candidate.ID,
-		"reason", rankedCandidates[0].Reason())
-
-	var (
-		selectedResult  matcher.Result
-		selectedSource  *provider.MediaSource
-		resolvedSuccess bool
-		attemptedCount  int
-		lastResolveErr  error
-	)
-
-	for rankIdx, candResult := range rankedCandidates {
-		candidate := candResult.Candidate
-		attemptedCount++
-
-		if err := ctx.Err(); err != nil {
-			return ItemFailed, apperr.Wrap(apperr.CodeJobCancelled, "The job was cancelled.", err)
-		}
-
-		if m.cooldown != nil {
-			if err := m.cooldown.Wait(ctx, candidate.Provider); err != nil {
-				return ItemFailed, err
-			}
-		}
-
-		mediaProvider, err := m.registry.Media(candidate.Provider)
-		if err != nil {
-			lastResolveErr = err
-			break
-		}
-
-		source, err := mediaProvider.Resolve(ctx, candidate)
-		if err == nil {
-			selectedResult = candResult
-			selectedSource = source
-			resolvedSuccess = true
-			if rankIdx > 0 {
-				logger.Info("media resolved using fallback candidate",
-					logging.KeyProvider, candidate.Provider,
-					logging.KeyOperation, "resolve_fallback",
-					"media_id", candidate.ID,
-					"rank", rankIdx+1,
-					"score", candResult.Score,
-					"total_candidates", len(rankedCandidates),
-					"reason", candResult.Reason())
-			} else {
-				logger.Info("media matched and resolved",
-					logging.KeyProvider, candidate.Provider,
-					logging.KeyOperation, "match",
-					"media_id", candidate.ID,
-					"rank", 1,
-					"score", candResult.Score,
-					"reason", candResult.Reason())
-			}
-			break
-		}
-
-		lastResolveErr = err
-		code := apperr.CodeOf(err)
-
-		// Systemic stop: If error is systemic rate limiting, provider outage, or auth failure,
-		// stop candidate fan-out immediately to prevent hammering subsequent candidates.
-		if isSystemicResolutionError(err) {
-			logger.Warn("candidate resolution encountered systemic error, stopping fallback",
-				logging.KeyProvider, candidate.Provider,
-				"media_id", candidate.ID,
-				"rank", rankIdx+1,
-				logging.KeyErrorCode, string(code),
-				logging.KeyError, err.Error())
-			if code == apperr.CodeProviderRateLimited && m.cooldown != nil {
-				m.cooldown.Trigger(candidate.Provider, 60*time.Second)
-			}
-			break
-		}
-
-		// Candidate-specific failure (e.g. CodeTrackNotFound, unresolvable specific candidate) -> try next
-		logger.Warn("candidate resolution failed, attempting fallback",
-			logging.KeyProvider, candidate.Provider,
-			"media_id", candidate.ID,
-			"rank", rankIdx+1,
-			"score", candResult.Score,
-			logging.KeyErrorCode, string(code),
-			logging.KeyError, err.Error())
+	result := matcher.Result{
+		Candidate: resolved.Candidate,
+		Score:     resolved.Score,
 	}
-
-	// If direct-ID was the probed candidate and failed resolution, try generic search candidates
-	if !resolvedSuccess && track.SourceID != "" && !isSystemicResolutionError(lastResolveErr) {
-		fallbackTrack := track
-		fallbackTrack.SourceID = ""
-		if fallbackCandidates, err := m.matchCandidates(ctx, job, fallbackTrack, DefaultMaxFallbackCandidates); err == nil {
-			for rankIdx, candResult := range fallbackCandidates {
-				candidate := candResult.Candidate
-				attemptedCount++
-				if err := ctx.Err(); err != nil {
-					return ItemFailed, apperr.Wrap(apperr.CodeJobCancelled, "The job was cancelled.", err)
-				}
-				if m.cooldown != nil {
-					if err := m.cooldown.Wait(ctx, candidate.Provider); err != nil {
-						return ItemFailed, err
-					}
-				}
-				mediaProvider, err := m.registry.Media(candidate.Provider)
-				if err != nil {
-					lastResolveErr = err
-					break
-				}
-				source, err := mediaProvider.Resolve(ctx, candidate)
-				if err == nil {
-					selectedResult = candResult
-					selectedSource = source
-					resolvedSuccess = true
-					logger.Info("media resolved using generic search fallback candidate",
-						logging.KeyProvider, candidate.Provider,
-						logging.KeyOperation, "resolve_fallback",
-						"media_id", candidate.ID,
-						"rank", rankIdx+1,
-						"score", candResult.Score)
-					break
-				}
-				lastResolveErr = err
-				if isSystemicResolutionError(err) {
-					if apperr.CodeOf(err) == apperr.CodeProviderRateLimited && m.cooldown != nil {
-						m.cooldown.Trigger(candidate.Provider, 60*time.Second)
-					}
-					break
-				}
-			}
-		}
-	}
-
-	if !resolvedSuccess {
-		if isSystemicResolutionError(lastResolveErr) {
-			return ItemFailed, lastResolveErr
-		}
-		return ItemFailed, apperr.Wrapf(apperr.CodeTrackNotFound, lastResolveErr,
-			"Keine der %d passenden Quellen konnte aufgelöst werden.", attemptedCount)
-	}
-
-	result := selectedResult
-	source := selectedSource
+	source := resolved.Source
 	if source.DurationMS == 0 {
 		source.DurationMS = track.DurationMS
 	}
@@ -392,6 +253,7 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		m.publishProgress(job, item, p.Percent)
 	})
 	if err != nil {
+		orch.RecordDownloadOutcome(ctx, source.SessionID, err)
 		if apperr.CodeOf(err) == apperr.CodeProviderRateLimited && m.cooldown != nil {
 			m.cooldown.Trigger(result.Candidate.Provider, 60*time.Second)
 		}
@@ -400,6 +262,7 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		}
 		return ItemFailed, err
 	}
+	orch.RecordDownloadOutcome(ctx, source.SessionID, nil)
 
 	// 7. Tagging
 	if err := m.updateItem(ctx, item.ID, ItemUpdate{Status: ItemTagging}); err != nil {
@@ -698,7 +561,8 @@ func isSystemicResolutionError(err error) bool {
 		return true
 	}
 	switch apperr.CodeOf(err) {
-	case apperr.CodeProviderRateLimited, apperr.CodeProviderUnavailable, apperr.CodeToolUnavailable, apperr.CodeJobCancelled:
+	case apperr.CodeProviderRateLimited, apperr.CodeProviderUnavailable, apperr.CodeToolUnavailable, apperr.CodeJobCancelled,
+		apperr.CodeSessionRateLimited, apperr.CodeSessionBotChallenge, apperr.CodeSessionAuthFailed:
 		return true
 	default:
 		return false

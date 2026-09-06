@@ -175,8 +175,12 @@ async function requestEnvelope<T>(
     }
   }
   if (body !== undefined) {
-    init.headers = { ...init.headers, 'Content-Type': 'application/json' }
-    init.body = JSON.stringify(body)
+    if (typeof FormData !== 'undefined' && body instanceof FormData) {
+      init.body = body
+    } else {
+      init.headers = { ...init.headers, 'Content-Type': 'application/json' }
+      init.body = JSON.stringify(body)
+    }
   }
 
   let response: Response

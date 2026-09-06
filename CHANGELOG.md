@@ -2,6 +2,26 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.20.0 — 2026-09-06
+
+### Features
+
+- **Multiple Authenticated YouTube Sessions:** Added server-managed authenticated YouTube session pool with health tracking, lease accounting, and controlled failover.
+- **Media Session Administration:** Integrated media source management into Server Settings (`/settings/server`), enabling administrators to inspect session health, add Netscape cookie files, replace credentials with validation, test connectivity, and configure sessions.
+- **Provider Orchestration Foundation:** Introduced `ProviderOrchestrator` coordinating unified media search, resolution, and session-aware downloads across YouTube platform providers.
+
+### Improvements
+
+- **Controlled Session Health & Cooldowns:** Comprehensive session health model (`HEALTHY`, `UNKNOWN`, `RATE_LIMITED`, `BOT_CHALLENGE`, `AUTH_FAILED`) with exponential backoff cooldowns and non-churning UI updates.
+- **Request Pacing & Resource Protection:** Per-session and global request limiters combined with exclusive data-plane cookie-jar locks to prevent concurrent cookie corruption and session crossover.
+- **Resilient Background Processing:** Downloads maintain session affinity between candidate resolution and media acquisition, with session-specific errors triggering retry waits instead of immediate session cycling or premature track failure.
+
+### Changes
+
+- **Platform Family Unification:** YouTube Music and YouTube are now managed as a common platform family for systemic health and shared cooldowns.
+- **Database Schema:** Database migration Schema 10 → 11 is required. Existing legacy cookie configuration remains supported automatically with no manual cookie migration required.
+- **Rollback Contract:** Direct schema-neutral rollback against Schema 11 is unsupported; transactional database backup and restore is required.
+
 ## 0.19.3 — 2026-09-06
 
 ### Improvements

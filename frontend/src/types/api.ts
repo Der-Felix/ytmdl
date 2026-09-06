@@ -1098,3 +1098,50 @@ export interface UpdateStatus {
   checked_at: string
   cached: boolean
 }
+
+/* ----------------------------------------------------------- media sessions */
+
+export type MediaSessionHealthStatus =
+  | 'unknown'
+  | 'healthy'
+  | 'cooldown'
+  | 'rate_limited'
+  | 'bot_challenge'
+  | 'auth_failed'
+
+export interface MediaSession {
+  id: string
+  name: string
+  provider_family: string
+  enabled: boolean
+  health_status: MediaSessionHealthStatus
+  has_credentials: boolean
+  in_use: boolean
+  cooldown_until?: string | null
+  last_used_at?: string | null
+  last_success_at?: string | null
+  last_failure_at?: string | null
+  last_failure_reason?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MediaSessionProbeResult {
+  status: MediaSessionHealthStatus
+  tested_at: string
+  metadata_ok: boolean
+  usable_audio_formats: boolean
+  failure_category?: string | null
+  cooldown_until?: string | null
+}
+
+export interface CreateMediaSessionPayload {
+  name: string
+  provider_family?: string
+  enabled?: boolean
+}
+
+export interface UpdateMediaSessionPayload {
+  name?: string
+  enabled?: boolean
+}

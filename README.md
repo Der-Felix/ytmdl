@@ -45,8 +45,8 @@ The recommended way to deploy YTMDL is using official prebuilt container images 
 mkdir -p ytmdl && cd ytmdl
 
 # Download compose file and sample environment
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.19.3/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.19.3/.env.example
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.20.0/compose.ghcr.yaml
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.20.0/.env.example
 cp .env.example .env
 ```
 
@@ -56,7 +56,7 @@ Edit `.env` to set your music storage path and database password:
 
 ```env
 # Pin a stable release (recommended) or use 'latest'
-YTMDL_VERSION=0.19.3
+YTMDL_VERSION=0.20.0
 
 # Path to your local music directory or host-mounted SMB/CIFS share
 YTMDL_MUSIC_PATH=/path/to/your/music
@@ -105,6 +105,15 @@ Monitor artist discographies, track sync schedules, configure auto-download rule
 
 ![YTMDL Artist Subscriptions](docs/public/screenshots/subscriptions.webp)
 
+### Media Sources & YouTube Sessions (v0.20+)
+
+Configure and manage authenticated YouTube sessions under **Server Settings → Media Sources**:
+
+- **Add Managed Sessions:** Create named session entries and upload Netscape `cookies.txt` files to authenticate media acquisition.
+- **Explicit Health Probing:** Test session connectivity on demand to verify status (`Bereit`, `Rate-Limit`, `Bot-Prüfung erforderlich`, `Anmeldung erforderlich`).
+- **Safe Cookie Replacement:** Replace existing session cookies atomically with candidate validation before previous credentials are overwritten.
+- **External Legacy Support:** Existing external cookie configurations (`YTDM_COOKIEFILE`) remain automatically discovered as legacy sessions with zero manual migration required.
+
 ### System & Updates
 
 Built-in update checker verifying official releases against GitHub Releases with zero telemetry and full privacy opt-out.
@@ -137,8 +146,8 @@ Official container images (built natively for `linux/amd64` and `linux/arm64`) a
 Images can be pulled anonymously without authentication:
 
 ```sh
-podman pull ghcr.io/der-felix/ytmdl-backend:0.19.3
-podman pull ghcr.io/der-felix/ytmdl-frontend:0.19.3
+podman pull ghcr.io/der-felix/ytmdl-backend:0.20.0
+podman pull ghcr.io/der-felix/ytmdl-frontend:0.20.0
 ```
 
 For building from source or running a development environment, see [docs/development.md](docs/development.md).

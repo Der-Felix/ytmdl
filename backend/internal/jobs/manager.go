@@ -15,6 +15,7 @@ import (
 	"ytdm/backend/internal/logging"
 	"ytdm/backend/internal/matcher"
 	"ytdm/backend/internal/music"
+	"ytdm/backend/internal/orchestrator"
 	"ytdm/backend/internal/provider"
 	"ytdm/backend/internal/storage"
 )
@@ -22,23 +23,31 @@ import (
 // resolveQueueSize bounds how many jobs may wait for catalogue resolution.
 const resolveQueueSize = 128
 
+// MediaOrchestrator coordinates media resolution and download authentication across sessions.
+type MediaOrchestrator interface {
+	ResolveMedia(ctx context.Context, preferredProvider string, track music.Track, maxCandidates int) (*orchestrator.ResolvedMedia, error)
+	ResolveCookiePath(sessionID string) string
+	RecordDownloadOutcome(ctx context.Context, sessionID string, err error)
+}
+
 // ManagerOptions configures the job manager.
 type ManagerOptions struct {
-	Store       Store
-	Catalog     Catalog
-	Files       FileStore
-	Library     *storage.Library
-	Staging     *storage.StagingManager
-	Registry    *provider.Registry
-	Discography *discography.Service
-	Matcher     *matcher.Matcher
-	Downloader  Downloader
-	Tagger      Tagger
-	Artwork     ArtworkFetcher
-	Lyrics      LyricsResolver
-	Cooldown    *MediaCooldownManager
-	Broker      *Broker
-	Logger      *slog.Logger
+	Store        Store
+	Catalog      Catalog
+	Files        FileStore
+	Library      *storage.Library
+	Staging      *storage.StagingManager
+	Registry     *provider.Registry
+	Discography  *discography.Service
+	Matcher      *matcher.Matcher
+	Downloader   Downloader
+	Tagger       Tagger
+	Artwork      ArtworkFetcher
+	Lyrics       LyricsResolver
+	Cooldown     *MediaCooldownManager
+	Orchestrator MediaOrchestrator
+	Broker       *Broker
+	Logger       *slog.Logger
 
 	Concurrency         int
 	MaxRetries          int
@@ -69,21 +78,22 @@ type jobRun struct {
 // Manager owns the download pipeline. HTTP handlers only ever talk to this
 // type; they never touch the queue, the workers or the providers directly.
 type Manager struct {
-	store       Store
-	catalog     Catalog
-	files       FileStore
-	library     *storage.Library
-	staging     *storage.StagingManager
-	registry    *provider.Registry
-	discography *discography.Service
-	matcher     *matcher.Matcher
-	downloader  Downloader
-	tagger      Tagger
-	artwork     ArtworkFetcher
-	lyrics      LyricsResolver
-	cooldown    *MediaCooldownManager
-	broker      *Broker
-	logger      *slog.Logger
+	store        Store
+	catalog      Catalog
+	files        FileStore
+	library      *storage.Library
+	staging      *storage.StagingManager
+	registry     *provider.Registry
+	discography  *discography.Service
+	matcher      *matcher.Matcher
+	downloader   Downloader
+	tagger       Tagger
+	artwork      ArtworkFetcher
+	lyrics       LyricsResolver
+	cooldown     *MediaCooldownManager
+	orchestrator MediaOrchestrator
+	broker       *Broker
+	logger       *slog.Logger
 
 	concurrency  int
 	maxRetries   int
@@ -221,6 +231,15 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 	if m.cooldown == nil {
 		m.cooldown = NewMediaCooldownManager()
 	}
+	m.orchestrator = opts.Orchestrator
+	if m.orchestrator == nil && opts.Registry != nil && opts.Matcher != nil {
+		m.orchestrator = orchestrator.New(orchestrator.Options{
+			Registry: opts.Registry,
+			Matcher:  opts.Matcher,
+			Cooldown: m.cooldown,
+			Logger:   opts.Logger,
+		})
+	}
 	m.maxWorkers.Store(int32(concurrency))
 	defStart := "22:00"
 	defEnd := "06:00"
@@ -320,6 +339,27 @@ func (m *Manager) Staging() *storage.StagingManager { return m.staging }
 
 // Cooldown returns the media cooldown manager.
 func (m *Manager) Cooldown() *MediaCooldownManager { return m.cooldown }
+
+// Orchestrator returns the media provider orchestrator.
+func (m *Manager) Orchestrator() MediaOrchestrator {
+	return m.getOrchestrator()
+}
+
+func (m *Manager) getOrchestrator() MediaOrchestrator {
+	if m.orchestrator != nil {
+		return m.orchestrator
+	}
+	if m.registry != nil && m.matcher != nil {
+		m.orchestrator = orchestrator.New(orchestrator.Options{
+			Registry: m.registry,
+			Matcher:  m.matcher,
+			Cooldown: m.cooldown,
+			Logger:   m.logger,
+		})
+		return m.orchestrator
+	}
+	return nil
+}
 
 // AllowOfflineStaging reports whether downloads can proceed to local staging even if library is offline.
 func (m *Manager) AllowOfflineStaging() bool { return m.allowOfflineStaging.Load() }

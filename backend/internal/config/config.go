@@ -30,6 +30,7 @@ type Config struct {
 	Providers ProvidersConfig `yaml:"providers"`
 
 	Subscriptions SubscriptionsConfig `yaml:"subscriptions"`
+	MediaSessions MediaSessionsConfig `yaml:"media_sessions"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	Update        UpdateConfig        `yaml:"update"`
 }
@@ -230,6 +231,17 @@ type GeniusConfig struct {
 	AccessToken string `yaml:"-"`
 }
 
+// MediaSessionsConfig controls server-managed media session storage,
+// concurrency, and dual rate limiting.
+type MediaSessionsConfig struct {
+	CookieDir                string  `yaml:"cookie_dir"`
+	MaxLeasesPerSession      int     `yaml:"max_leases_per_session"`
+	SessionRequestsPerSecond float64 `yaml:"session_requests_per_second"`
+	SessionBurst             int     `yaml:"session_burst"`
+	GlobalRequestsPerSecond  float64 `yaml:"global_requests_per_second"`
+	GlobalBurst              int     `yaml:"global_burst"`
+}
+
 // LoggingConfig controls the structured logger.
 type LoggingConfig struct {
 	Level  string `yaml:"level"`
@@ -325,6 +337,14 @@ func Default() Config {
 			RetryInterval: time.Hour,
 			SyncTimeout:   30 * time.Minute,
 			BatchSize:     25,
+		},
+		MediaSessions: MediaSessionsConfig{
+			CookieDir:                "./data/cookies",
+			MaxLeasesPerSession:      1,
+			SessionRequestsPerSecond: 0.5,
+			SessionBurst:             2,
+			GlobalRequestsPerSecond:  2.0,
+			GlobalBurst:              4,
 		},
 		Logging: LoggingConfig{Level: "info", Format: "json"},
 		Update: UpdateConfig{
@@ -489,6 +509,7 @@ func (c *Config) applyEnv() error {
 		str("YTDM_FFPROBE_PATH", &c.Tools.FFprobePath)
 	}
 	str("YTDM_COOKIEFILE", &c.Tools.CookieFile)
+	str("MUSICDL_COOKIE_FILE", &c.Tools.CookieFile)
 	str("MUSICDL_YTDLP_PLAYER_CLIENTS", &c.Tools.PlayerClients)
 	str("YTDM_YTDLP_PLAYER_CLIENTS", &c.Tools.PlayerClients)
 	dur("YTDM_TOOL_TIMEOUT", &c.Tools.Timeout)
@@ -595,6 +616,20 @@ func (c *Config) applyEnv() error {
 	boolean("MUSICDL_UPDATE_CHECKS_ENABLED", &c.Update.Enabled)
 	str("MUSICDL_UPDATE_REPOSITORY", &c.Update.Repository)
 	dur("MUSICDL_UPDATE_CHECK_INTERVAL", &c.Update.CheckInterval)
+
+	str("YTDM_COOKIE_DIR", &c.MediaSessions.CookieDir)
+	num("YTDM_SESSION_MAX_LEASES", &c.MediaSessions.MaxLeasesPerSession)
+	flt("YTDM_SESSION_REQUESTS_PER_SECOND", &c.MediaSessions.SessionRequestsPerSecond)
+	num("YTDM_SESSION_BURST", &c.MediaSessions.SessionBurst)
+	flt("YTDM_GLOBAL_REQUESTS_PER_SECOND", &c.MediaSessions.GlobalRequestsPerSecond)
+	num("YTDM_GLOBAL_BURST", &c.MediaSessions.GlobalBurst)
+
+	str("MUSICDL_COOKIE_DIR", &c.MediaSessions.CookieDir)
+	num("MUSICDL_SESSION_MAX_LEASES", &c.MediaSessions.MaxLeasesPerSession)
+	flt("MUSICDL_SESSION_REQUESTS_PER_SECOND", &c.MediaSessions.SessionRequestsPerSecond)
+	num("MUSICDL_SESSION_BURST", &c.MediaSessions.SessionBurst)
+	flt("MUSICDL_GLOBAL_REQUESTS_PER_SECOND", &c.MediaSessions.GlobalRequestsPerSecond)
+	num("MUSICDL_GLOBAL_BURST", &c.MediaSessions.GlobalBurst)
 
 	// The backend no longer runs on a local database file. Naming the removed
 	// variables explicitly turns a silent fallback to the default URL into a
@@ -722,6 +757,27 @@ func (s SubscriptionsConfig) validate() []error {
 	return errs
 }
 
+// validate rejects media session configuration that violates safety boundaries.
+func (m MediaSessionsConfig) validate() []error {
+	var errs []error
+	if m.MaxLeasesPerSession < 1 || m.MaxLeasesPerSession > 10 {
+		errs = append(errs, fmt.Errorf("media_sessions.max_leases_per_session must be between 1 and 10, got %d", m.MaxLeasesPerSession))
+	}
+	if m.SessionRequestsPerSecond <= 0 || m.SessionRequestsPerSecond > 10 {
+		errs = append(errs, fmt.Errorf("media_sessions.session_requests_per_second must be between 0 and 10, got %v", m.SessionRequestsPerSecond))
+	}
+	if m.SessionBurst < 1 || m.SessionBurst > 20 {
+		errs = append(errs, fmt.Errorf("media_sessions.session_burst must be between 1 and 20, got %d", m.SessionBurst))
+	}
+	if m.GlobalRequestsPerSecond <= 0 || m.GlobalRequestsPerSecond > 20 {
+		errs = append(errs, fmt.Errorf("media_sessions.global_requests_per_second must be between 0 and 20, got %v", m.GlobalRequestsPerSecond))
+	}
+	if m.GlobalBurst < 1 || m.GlobalBurst > 50 {
+		errs = append(errs, fmt.Errorf("media_sessions.global_burst must be between 1 and 50, got %d", m.GlobalBurst))
+	}
+	return errs
+}
+
 func lookup(key string) (string, bool) {
 	v, ok := os.LookupEnv(key)
 	if !ok {
@@ -743,6 +799,10 @@ func (c *Config) normalise() error {
 	c.Providers.DefaultMedia = strings.ToLower(strings.TrimSpace(c.Providers.DefaultMedia))
 
 	c.Database.URL = strings.TrimSpace(c.Database.URL)
+	c.MediaSessions.CookieDir = strings.TrimSpace(c.MediaSessions.CookieDir)
+	if c.MediaSessions.CookieDir != "" {
+		c.MediaSessions.CookieDir = filepath.Clean(c.MediaSessions.CookieDir)
+	}
 
 	for _, p := range []*string{&c.Library.Path, &c.Downloads.TempDir} {
 		if *p == "" {
@@ -802,6 +862,7 @@ func (c *Config) Validate() error {
 	}
 	errs = append(errs, c.Subscriptions.validate()...)
 	errs = append(errs, c.Providers.Deezer.validate()...)
+	errs = append(errs, c.MediaSessions.validate()...)
 	if c.Server.MaxRequestBytes < 1024 {
 		errs = append(errs, fmt.Errorf("server.max_request_bytes must be at least 1024, got %d", c.Server.MaxRequestBytes))
 	}

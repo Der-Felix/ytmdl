@@ -141,11 +141,19 @@ func TestClassifyError_Taxonomy(t *testing.T) {
 		stderr   string
 		wantCode apperr.Code
 	}{
+		// Session throttle / rate limit
 		{
-			name:     "rate limit with video unavailable text",
+			name:     "session rate limited",
 			stderr:   "ERROR: [youtube] 2vQYmGkynmc: Video unavailable. This content isn't available, try again later. The current session has been rate-limited by YouTube for up to an hour",
-			wantCode: apperr.CodeProviderRateLimited,
+			wantCode: apperr.CodeSessionRateLimited,
 		},
+		{
+			name:     "session rate-limited explicit",
+			stderr:   "ERROR: [youtube] ABC: session rate-limited: please wait before retrying",
+			wantCode: apperr.CodeSessionRateLimited,
+		},
+
+		// Provider / IP rate limit
 		{
 			name:     "http 429 too many requests",
 			stderr:   "ERROR: [youtube] ABC: HTTP Error 429: Too Many Requests",
@@ -157,15 +165,36 @@ func TestClassifyError_Taxonomy(t *testing.T) {
 			wantCode: apperr.CodeProviderRateLimited,
 		},
 		{
-			name:     "bot challenge",
+			name:     "provider try again later throttle",
+			stderr:   "ERROR: [youtube] 2vQYmGkynmc: Video unavailable. This content isn't available, try again later.",
+			wantCode: apperr.CodeProviderRateLimited,
+		},
+
+		// Session bot challenge
+		{
+			name:     "bot challenge sign in",
 			stderr:   "ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you're not a bot",
-			wantCode: apperr.CodeProviderUnavailable,
+			wantCode: apperr.CodeSessionBotChallenge,
 		},
 		{
 			name:     "bot verification required",
 			stderr:   "ERROR: [youtube] dQw4w9WgXcQ: bot verification required",
-			wantCode: apperr.CodeProviderUnavailable,
+			wantCode: apperr.CodeSessionBotChallenge,
 		},
+
+		// Session auth failed / expired
+		{
+			name:     "session expired cookies",
+			stderr:   "ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm your age or subscription: login required",
+			wantCode: apperr.CodeSessionAuthFailed,
+		},
+		{
+			name:     "cookies are expired",
+			stderr:   "ERROR: [youtube] dQw4w9WgXcQ: Your cookies are expired. Please export new cookies.",
+			wantCode: apperr.CodeSessionAuthFailed,
+		},
+
+		// Network & Provider unavailable
 		{
 			name:     "network timeout",
 			stderr:   "ERROR: [youtube] connection timed out after 30 seconds",
@@ -176,6 +205,25 @@ func TestClassifyError_Taxonomy(t *testing.T) {
 			stderr:   "ERROR: [youtube] read: connection reset by peer",
 			wantCode: apperr.CodeProviderUnavailable,
 		},
+		{
+			name:     "extractor unavailable / generic error",
+			stderr:   "ERROR: something unexpected happened in extractor",
+			wantCode: apperr.CodeProviderUnavailable,
+		},
+
+		// Candidate-specific: no usable format
+		{
+			name:     "no usable format requested format not available",
+			stderr:   "ERROR: [youtube] 2vQYmGkynmc: Requested format is not available",
+			wantCode: apperr.CodeTrackNotFound,
+		},
+		{
+			name:     "no suitable format found",
+			stderr:   "ERROR: [youtube] 2vQYmGkynmc: no suitable format",
+			wantCode: apperr.CodeTrackNotFound,
+		},
+
+		// Candidate-specific: deleted / unavailable
 		{
 			name:     "clean video unavailable",
 			stderr:   "ERROR: [youtube] 2vQYmGkynmc: Video unavailable",
@@ -192,14 +240,16 @@ func TestClassifyError_Taxonomy(t *testing.T) {
 			wantCode: apperr.CodeTrackNotFound,
 		},
 		{
+			name:     "account terminated",
+			stderr:   "ERROR: [youtube] 2vQYmGkynmc: The account associated with this video has been terminated",
+			wantCode: apperr.CodeTrackNotFound,
+		},
+
+		// Unsupported URL
+		{
 			name:     "unsupported url",
 			stderr:   "ERROR: Unsupported URL: https://invalid-url.com",
 			wantCode: apperr.CodeInvalidRequest,
-		},
-		{
-			name:     "generic yt-dlp error",
-			stderr:   "ERROR: something unexpected happened",
-			wantCode: apperr.CodeProviderUnavailable,
 		},
 	}
 
@@ -211,7 +261,11 @@ func TestClassifyError_Taxonomy(t *testing.T) {
 				t.Fatalf("classifyError(%q) = %v, want %v", tc.stderr, gotCode, tc.wantCode)
 			}
 			// Verify Retryable consistency
-			if tc.wantCode == apperr.CodeProviderRateLimited || tc.wantCode == apperr.CodeProviderUnavailable {
+			if tc.wantCode == apperr.CodeProviderRateLimited ||
+				tc.wantCode == apperr.CodeProviderUnavailable ||
+				tc.wantCode == apperr.CodeSessionRateLimited ||
+				tc.wantCode == apperr.CodeSessionBotChallenge ||
+				tc.wantCode == apperr.CodeSessionAuthFailed {
 				if !apperr.Retryable(err) {
 					t.Fatalf("expected code %v to be retryable", gotCode)
 				}
@@ -222,5 +276,79 @@ func TestClassifyError_Taxonomy(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestClient_WithCookieFile_Immutability(t *testing.T) {
+	orig := New(Options{
+		Binary:     "yt-dlp",
+		CookieFile: "/orig/cookies.txt",
+	})
+
+	c1 := orig.WithCookieFile("/session1/cookies.txt")
+	c2 := orig.WithCookieFile("/session2/cookies.txt")
+	cNone := orig.WithCookieFile("")
+
+	if orig.CookieFile() != "/orig/cookies.txt" {
+		t.Fatalf("original cookieFile mutated: %s", orig.CookieFile())
+	}
+	if c1.CookieFile() != "/session1/cookies.txt" {
+		t.Fatalf("c1 cookieFile = %s, want /session1/cookies.txt", c1.CookieFile())
+	}
+	if c2.CookieFile() != "/session2/cookies.txt" {
+		t.Fatalf("c2 cookieFile = %s, want /session2/cookies.txt", c2.CookieFile())
+	}
+	if cNone.CookieFile() != "" {
+		t.Fatalf("cNone cookieFile = %s, want empty", cNone.CookieFile())
+	}
+
+	// Verify baseArgs produces expected --cookies flag
+	args1 := strings.Join(c1.baseArgs(), " ")
+	if !strings.Contains(args1, "--cookies /session1/cookies.txt") {
+		t.Fatalf("c1 baseArgs missing cookie flag: %s", args1)
+	}
+
+	args2 := strings.Join(c2.baseArgs(), " ")
+	if !strings.Contains(args2, "--cookies /session2/cookies.txt") {
+		t.Fatalf("c2 baseArgs missing cookie flag: %s", args2)
+	}
+
+	argsNone := strings.Join(cNone.baseArgs(), " ")
+	if strings.Contains(argsNone, "--cookies") {
+		t.Fatalf("cNone baseArgs should not contain --cookies: %s", argsNone)
+	}
+}
+
+func TestClassifyDownloadError(t *testing.T) {
+	cause := errors.New("exit status 1")
+
+	// 1. Session Bot challenge during download
+	errBot := classifyDownloadError("ERROR: Sign in to confirm you’re not a bot", cause)
+	if apperr.CodeOf(errBot) != apperr.CodeSessionBotChallenge {
+		t.Fatalf("want CodeSessionBotChallenge, got %s", apperr.CodeOf(errBot))
+	}
+
+	// 2. Session Auth failure during download
+	errAuth := classifyDownloadError("ERROR: cookies are expired, please re-authenticate", cause)
+	if apperr.CodeOf(errAuth) != apperr.CodeSessionAuthFailed {
+		t.Fatalf("want CodeSessionAuthFailed, got %s", apperr.CodeOf(errAuth))
+	}
+
+	// 3. Provider rate limit during download
+	errRate := classifyDownloadError("ERROR: HTTP Error 429: Too Many Requests", cause)
+	if apperr.CodeOf(errRate) != apperr.CodeProviderRateLimited {
+		t.Fatalf("want CodeProviderRateLimited, got %s", apperr.CodeOf(errRate))
+	}
+
+	// 4. Session rate limit during download
+	errSessRate := classifyDownloadError("ERROR: session has been rate-limited by YouTube", cause)
+	if apperr.CodeOf(errSessRate) != apperr.CodeSessionRateLimited {
+		t.Fatalf("want CodeSessionRateLimited, got %s", apperr.CodeOf(errSessRate))
+	}
+
+	// 5. Generic download failure preserves CodeDownloadFailed
+	errGeneric := classifyDownloadError("ERROR: unable to download video data: unexpected EOF", cause)
+	if apperr.CodeOf(errGeneric) != apperr.CodeDownloadFailed {
+		t.Fatalf("want CodeDownloadFailed, got %s", apperr.CodeOf(errGeneric))
 	}
 }

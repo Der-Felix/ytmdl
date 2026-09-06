@@ -70,3 +70,36 @@ func TestMediaCooldownManager_ConcurrentWorkersSync(t *testing.T) {
 		t.Fatalf("worker Wait error: %v", err)
 	}
 }
+
+func TestMediaCooldownManager_YouTubeFamilyUnified(t *testing.T) {
+	mgr := jobs.NewMediaCooldownManager()
+
+	// 1. Triggering ytmusic cooldown must affect youtube as well
+	mgr.Trigger("ytmusic", 100*time.Millisecond)
+
+	remYTM, coolYTM := mgr.Remaining("ytmusic")
+	if !coolYTM || remYTM <= 0 {
+		t.Fatalf("expected ytmusic cooling, got rem=%v, cool=%v", remYTM, coolYTM)
+	}
+
+	remYT, coolYT := mgr.Remaining("youtube")
+	if !coolYT || remYT <= 0 {
+		t.Fatalf("expected youtube cooling via family cooldown, got rem=%v, cool=%v", remYT, coolYT)
+	}
+
+	// 2. Clear on youtube clears the family cooldown
+	mgr.Clear("youtube")
+
+	if _, cool := mgr.Remaining("ytmusic"); cool {
+		t.Fatal("expected ytmusic cooldown cleared when clearing family via youtube")
+	}
+	if _, cool := mgr.Remaining("youtube"); cool {
+		t.Fatal("expected youtube cooldown cleared")
+	}
+
+	// 3. Triggering on youtube must affect ytmusic
+	mgr.Trigger("youtube", 100*time.Millisecond)
+	if _, cool := mgr.Remaining("ytmusic"); !cool {
+		t.Fatal("expected ytmusic cooling when triggered on youtube")
+	}
+}

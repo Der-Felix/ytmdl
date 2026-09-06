@@ -263,3 +263,76 @@ func TestPlayerClientsAndPacingConfig(t *testing.T) {
 		t.Fatal("expected validation error for malformed player clients, got nil")
 	}
 }
+
+func TestMediaSessionsConfig(t *testing.T) {
+	clearConfigEnv(t)
+
+	// Verify defaults
+	d := Default()
+	if d.MediaSessions.CookieDir != "./data/cookies" {
+		t.Errorf("default CookieDir = %q, want ./data/cookies", d.MediaSessions.CookieDir)
+	}
+	if d.MediaSessions.MaxLeasesPerSession != 1 {
+		t.Errorf("default MaxLeasesPerSession = %d, want 1", d.MediaSessions.MaxLeasesPerSession)
+	}
+	if d.MediaSessions.SessionRequestsPerSecond != 0.5 {
+		t.Errorf("default SessionRequestsPerSecond = %v, want 0.5", d.MediaSessions.SessionRequestsPerSecond)
+	}
+	if d.MediaSessions.SessionBurst != 2 {
+		t.Errorf("default SessionBurst = %d, want 2", d.MediaSessions.SessionBurst)
+	}
+	if d.MediaSessions.GlobalRequestsPerSecond != 2.0 {
+		t.Errorf("default GlobalRequestsPerSecond = %v, want 2.0", d.MediaSessions.GlobalRequestsPerSecond)
+	}
+	if d.MediaSessions.GlobalBurst != 4 {
+		t.Errorf("default GlobalBurst = %d, want 4", d.MediaSessions.GlobalBurst)
+	}
+
+	// Override via MUSICDL_* env vars
+	t.Setenv("MUSICDL_COOKIE_DIR", "/custom/cookies")
+	t.Setenv("MUSICDL_SESSION_MAX_LEASES", "3")
+	t.Setenv("MUSICDL_SESSION_REQUESTS_PER_SECOND", "1.0")
+	t.Setenv("MUSICDL_SESSION_BURST", "5")
+	t.Setenv("MUSICDL_GLOBAL_REQUESTS_PER_SECOND", "4.0")
+	t.Setenv("MUSICDL_GLOBAL_BURST", "8")
+
+	cfg := Default()
+	cfg.Database.URL = "postgres://test:test@localhost:5432/test"
+	if err := cfg.applyEnv(); err != nil {
+		t.Fatalf("apply environment: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected valid config, got error: %v", err)
+	}
+
+	if cfg.MediaSessions.CookieDir != "/custom/cookies" {
+		t.Errorf("CookieDir = %q, want /custom/cookies", cfg.MediaSessions.CookieDir)
+	}
+	if cfg.MediaSessions.MaxLeasesPerSession != 3 {
+		t.Errorf("MaxLeasesPerSession = %d, want 3", cfg.MediaSessions.MaxLeasesPerSession)
+	}
+	if cfg.MediaSessions.SessionRequestsPerSecond != 1.0 {
+		t.Errorf("SessionRequestsPerSecond = %v, want 1.0", cfg.MediaSessions.SessionRequestsPerSecond)
+	}
+	if cfg.MediaSessions.SessionBurst != 5 {
+		t.Errorf("SessionBurst = %d, want 5", cfg.MediaSessions.SessionBurst)
+	}
+	if cfg.MediaSessions.GlobalRequestsPerSecond != 4.0 {
+		t.Errorf("GlobalRequestsPerSecond = %v, want 4.0", cfg.MediaSessions.GlobalRequestsPerSecond)
+	}
+	if cfg.MediaSessions.GlobalBurst != 8 {
+		t.Errorf("GlobalBurst = %d, want 8", cfg.MediaSessions.GlobalBurst)
+	}
+
+	// Validation rejection on invalid values
+	cfg.MediaSessions.MaxLeasesPerSession = 0
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected validation error for MaxLeasesPerSession=0, got nil")
+	}
+
+	cfg.MediaSessions.MaxLeasesPerSession = 1
+	cfg.MediaSessions.SessionRequestsPerSecond = -1
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected validation error for SessionRequestsPerSecond <= 0, got nil")
+	}
+}

@@ -218,3 +218,61 @@ func searchSub(s, sub string) bool {
 	}
 	return false
 }
+
+func TestGenerateSchema11Manifest(t *testing.T) {
+	opts := manifest.GeneratorOptions{
+		ManifestVersion: manifest.ManifestVersion3,
+		ReleaseVersion:  "0.20.0",
+		ReleaseTag:      "v0.20.0",
+		TargetSchema:    11,
+		MinUpgradeFrom:  "0.15.0",
+		BackendDigest:   validDigest1,
+		BackendPlatforms: map[string]string{
+			"linux/amd64": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+			"linux/arm64": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+		},
+		FrontendDigest: validDigest2,
+		FrontendPlatforms: map[string]string{
+			"linux/amd64": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+			"linux/arm64": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+		},
+	}
+
+	data, err := manifest.Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate Schema 11 manifest failed: %v", err)
+	}
+
+	decoded, err := manifest.Decode(data)
+	if err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	if decoded.TargetSchema != 11 {
+		t.Fatalf("expected TargetSchema 11, got %d", decoded.TargetSchema)
+	}
+
+	// Verify 10 -> 11 path is forward migration and requires backup restore on rollback
+	path10, err := decoded.FindUpgradePath(10)
+	if err != nil {
+		t.Fatalf("FindUpgradePath(10) failed: %v", err)
+	}
+	if path10.UpdateClassification != manifest.UpdateSchemaForward {
+		t.Errorf("expected 10->11 update_classification schema_forward, got %s", path10.UpdateClassification)
+	}
+	if path10.RollbackClassification != manifest.RollbackBackupRestoreRequired {
+		t.Errorf("expected 10->11 rollback_classification backup_restore_required, got %s", path10.RollbackClassification)
+	}
+
+	// Verify 11 -> 11 path is schema neutral
+	path11, err := decoded.FindUpgradePath(11)
+	if err != nil {
+		t.Fatalf("FindUpgradePath(11) failed: %v", err)
+	}
+	if path11.UpdateClassification != manifest.UpdateSchemaNeutral {
+		t.Errorf("expected 11->11 update_classification schema_neutral, got %s", path11.UpdateClassification)
+	}
+	if path11.RollbackClassification != manifest.RollbackSchemaNeutral {
+		t.Errorf("expected 11->11 rollback_classification schema_neutral, got %s", path11.RollbackClassification)
+	}
+}

@@ -85,12 +85,12 @@ func TestReleaseConsistency_CaseA_VersionMismatch(t *testing.T) {
 	}
 }
 
-// Case B: release artifact generator uses Schema 9, latest target is Schema 10 -> EXPECT qualification FAIL
+// Case B: release artifact generator uses Schema 10, latest target is Schema 11 -> EXPECT qualification FAIL
 func TestReleaseConsistency_CaseB_SchemaMismatch(t *testing.T) {
 	repoRoot := findRepoRoot(t)
 	scriptPath := filepath.Join(repoRoot, "scripts", "validate-release-metadata.sh")
 
-	cmd := exec.Command(scriptPath, "--schema", "9")
+	cmd := exec.Command(scriptPath, "--schema", "10")
 	cmd.Dir = repoRoot
 	out, err := cmd.CombinedOutput()
 
@@ -99,7 +99,7 @@ func TestReleaseConsistency_CaseB_SchemaMismatch(t *testing.T) {
 	}
 
 	outStr := string(out)
-	if !strings.Contains(outStr, "does not match latest DB migration schema (10)") &&
+	if !strings.Contains(outStr, "does not match latest DB migration schema (11)") &&
 		!strings.Contains(outStr, "RELEASE CONSISTENCY ERROR") {
 		t.Errorf("expected schema mismatch error in output, got:\n%s", outStr)
 	}
@@ -144,7 +144,7 @@ func TestReleaseConsistency_CaseD_ZeroPublicationMutation(t *testing.T) {
 	buildCmd.Dir = repoRoot
 	buildCmd.Env = append(os.Environ(),
 		"OUTPUT_DIR="+tmpDir,
-		"VERSION=0.19.3",
+		"VERSION=0.20.0",
 		"GENERATE_MANIFEST=true",
 	)
 	buildOut, err := buildCmd.CombinedOutput()

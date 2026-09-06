@@ -38,6 +38,7 @@ const (
 	CodeInvalidCredentials   Code = "INVALID_CREDENTIALS"
 	CodeUserNotFound         Code = "USER_NOT_FOUND"
 	CodeSessionNotFound      Code = "SESSION_NOT_FOUND"
+	CodeSessionInUse         Code = "SESSION_IN_USE"
 	CodeLastAdmin            Code = "LAST_ADMIN"
 	CodeCSRFInvalid          Code = "CSRF_INVALID"
 	CodeRateLimited          Code = "RATE_LIMITED"
@@ -50,6 +51,9 @@ const (
 	CodeStorageLowSpace      Code = "STORAGE_LOW_SPACE"
 	CodeStagingLowSpace      Code = "STAGING_LOW_SPACE"
 	CodeMediaVerifyFailed    Code = "MEDIA_VERIFY_FAILED"
+	CodeSessionAuthFailed    Code = "SESSION_AUTH_FAILED"
+	CodeSessionBotChallenge  Code = "SESSION_BOT_CHALLENGE"
+	CodeSessionRateLimited   Code = "SESSION_RATE_LIMITED"
 	CodeInternal             Code = "INTERNAL_ERROR"
 )
 
@@ -133,13 +137,14 @@ func HTTPStatus(code Code) int {
 		return http.StatusUnauthorized
 	case CodeForbidden, CodeCSRFInvalid:
 		return http.StatusForbidden
-	case CodeAlreadyExists, CodeLastAdmin, CodeSetupCompleted, CodePathConflict, CodeConflict:
+	case CodeAlreadyExists, CodeLastAdmin, CodeSetupCompleted, CodePathConflict, CodeConflict, CodeSessionInUse:
 		return http.StatusConflict
 	case CodeSetupRequired:
 		return http.StatusPreconditionRequired
-	case CodeProviderRateLimited, CodeRateLimited:
+	case CodeProviderRateLimited, CodeRateLimited, CodeSessionRateLimited:
 		return http.StatusTooManyRequests
-	case CodeProviderUnavailable, CodeToolUnavailable, CodeStorageUnavailable, CodeStorageGuardMismatch, CodeStorageReadOnly:
+	case CodeProviderUnavailable, CodeToolUnavailable, CodeStorageUnavailable, CodeStorageGuardMismatch, CodeStorageReadOnly,
+		CodeSessionAuthFailed, CodeSessionBotChallenge:
 		return http.StatusBadGateway
 	case CodeStorageLowSpace, CodeStagingLowSpace:
 		return http.StatusInsufficientStorage
@@ -159,11 +164,59 @@ func HTTPStatus(code Code) int {
 // non-penalized wait states, not standard retryable failures.
 func Retryable(err error) bool {
 	switch CodeOf(err) {
-	case CodeProviderUnavailable, CodeProviderRateLimited, CodeDownloadFailed, CodeMediaVerifyFailed:
+	case CodeProviderUnavailable, CodeProviderRateLimited, CodeDownloadFailed, CodeMediaVerifyFailed,
+		CodeSessionRateLimited, CodeSessionBotChallenge, CodeSessionAuthFailed:
 		return true
 	default:
 		return false
 	}
+}
+
+// Scope categorizes the operational blast radius and fallback behavior of an error.
+type Scope string
+
+const (
+	ScopeCandidate      Scope = "candidate"
+	ScopeSession        Scope = "session"
+	ScopeProvider       Scope = "provider"
+	ScopeInfrastructure Scope = "infrastructure"
+)
+
+// ScopeOf reports the operational scope of an error.
+func ScopeOf(err error) Scope {
+	switch CodeOf(err) {
+	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType:
+		return ScopeCandidate
+	case CodeSessionAuthFailed, CodeSessionBotChallenge, CodeSessionRateLimited:
+		return ScopeSession
+	case CodeProviderRateLimited, CodeProviderUnavailable, CodeProviderNotFound:
+		return ScopeProvider
+	case CodeStorageUnavailable, CodeStorageGuardMismatch, CodeStorageReadOnly,
+		CodeStorageLowSpace, CodeStagingLowSpace, CodeToolUnavailable,
+		CodeShuttingDown, CodeInternal:
+		return ScopeInfrastructure
+	default:
+		return ScopeCandidate
+	}
+}
+
+// AllowsCandidateFallback reports whether trying an alternate candidate makes sense.
+// Candidate-specific failures allow fallback; session, provider, and infrastructure failures do not.
+func AllowsCandidateFallback(err error) bool {
+	return ScopeOf(err) == ScopeCandidate
+}
+
+// StopsCandidateFanout reports whether candidate evaluation on this session/provider should abort immediately.
+// Session-specific and provider-systemic failures stop candidate fan-out.
+func StopsCandidateFanout(err error) bool {
+	s := ScopeOf(err)
+	return s == ScopeSession || s == ScopeProvider
+}
+
+// ConsumesJobRetry reports whether an error should consume the standard job/item retry budget.
+// Infrastructure wait states (storage/space/shutdown) must not penalize job retries.
+func ConsumesJobRetry(err error) bool {
+	return ScopeOf(err) != ScopeInfrastructure
 }
 
 // IsStorageWait reports whether an error indicates that the library storage

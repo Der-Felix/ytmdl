@@ -165,8 +165,8 @@ func TestMigration0010_FreshDB(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("failed to query schema_migrations: %v", err)
 	}
-	if count != 10 {
-		t.Fatalf("expected 10 migrations applied, got %d", count)
+	if count < 10 {
+		t.Fatalf("expected at least 10 migrations applied, got %d", count)
 	}
 
 	now := time.Now().UTC()

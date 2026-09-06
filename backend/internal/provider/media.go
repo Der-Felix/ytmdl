@@ -69,6 +69,10 @@ type MediaSource struct {
 	// the provider does not enumerate formats up front; the downloader then
 	// falls back to its own format selection.
 	Formats []AudioFormat `json:"formats,omitempty"`
+
+	// SessionID is the opaque identifier of the session used to resolve this source,
+	// allowing the downloader to use the affine session without holding a control-plane lease.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // MediaProvider finds and resolves audio sources for a wanted track.

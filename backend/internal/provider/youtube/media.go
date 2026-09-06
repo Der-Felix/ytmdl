@@ -182,6 +182,24 @@ func New(cfg Config) (*MediaProvider, error) {
 // Name returns the provider identifier.
 func (p *MediaProvider) Name() string { return p.name }
 
+// Family returns the platform family (YouTube platform family).
+func (p *MediaProvider) Family() provider.Family { return provider.FamilyYouTube }
+
+// WithClient returns an immutable copy of MediaProvider bound to client.
+func (p *MediaProvider) WithClient(client *ytdlp.Client) *MediaProvider {
+	clone := *p
+	clone.client = client
+	return &clone
+}
+
+// WithCookieFile returns an immutable copy of MediaProvider using the specified cookie file.
+func (p *MediaProvider) WithCookieFile(cookieFile string) *MediaProvider {
+	if p.client == nil {
+		return p
+	}
+	return p.WithClient(p.client.WithCookieFile(cookieFile))
+}
+
 var youtubeVideoIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
 func isYouTubeVideoID(id string) bool {
@@ -215,7 +233,9 @@ func (p *MediaProvider) Available(ctx context.Context) error {
 // Search returns the candidates that might carry the wanted track.
 func (p *MediaProvider) Search(ctx context.Context, track music.Track) ([]provider.MediaCandidate, error) {
 	// 1. Direct-ID Fast Path: If track carries a known video ID from ytmusic/youtube
-	if candidate, ok := p.probeDirectID(ctx, track); ok {
+	if candidate, ok, err := p.probeDirectID(ctx, track); err != nil {
+		return nil, err
+	} else if ok {
 		return []provider.MediaCandidate{candidate}, nil
 	}
 
@@ -262,31 +282,40 @@ func (p *MediaProvider) Search(ctx context.Context, track music.Track) ([]provid
 }
 
 // probeDirectID attempts to directly resolve the track if its SourceID is a valid YouTube video ID.
-func (p *MediaProvider) probeDirectID(ctx context.Context, track music.Track) (provider.MediaCandidate, bool) {
+func (p *MediaProvider) probeDirectID(ctx context.Context, track music.Track) (provider.MediaCandidate, bool, error) {
 	sourceProvider := strings.TrimSpace(track.SourceProvider)
 	if sourceProvider != "ytmusic" && sourceProvider != "youtube" {
-		return provider.MediaCandidate{}, false
+		return provider.MediaCandidate{}, false, nil
 	}
 	sourceID := strings.TrimSpace(track.SourceID)
 	if !isYouTubeVideoID(sourceID) {
-		return provider.MediaCandidate{}, false
+		return provider.MediaCandidate{}, false, nil
 	}
 
 	if p.limiter != nil {
 		if err := p.limiter.Wait(ctx); err != nil {
-			return provider.MediaCandidate{}, false
+			return provider.MediaCandidate{}, false, err
 		}
 	}
 
 	target := watchURL(sourceID)
 	results, err := p.client.Query(ctx, target, "--no-playlist")
-	if err != nil || len(results) == 0 {
-		return provider.MediaCandidate{}, false
+	if err != nil {
+		// If resolution encountered systemic/session error (rate limit, bot challenge, auth failure),
+		// stop candidate fanout immediately rather than falling back to generic query search.
+		if apperr.StopsCandidateFanout(err) {
+			return provider.MediaCandidate{}, false, err
+		}
+		// Candidate-specific failure (e.g. video unavailable) -> allow fallback to generic search
+		return provider.MediaCandidate{}, false, nil
+	}
+	if len(results) == 0 {
+		return provider.MediaCandidate{}, false, nil
 	}
 
 	candidate, ok := p.toCandidate(results[0])
 	if !ok {
-		return provider.MediaCandidate{}, false
+		return provider.MediaCandidate{}, false, nil
 	}
 
 	// Validate plausibility: if track duration is known and candidate duration is known,
@@ -297,11 +326,11 @@ func (p *MediaProvider) probeDirectID(ctx context.Context, track music.Track) (p
 			diff = -diff
 		}
 		if diff > 15000 {
-			return provider.MediaCandidate{}, false
+			return provider.MediaCandidate{}, false, nil
 		}
 	}
 
-	return candidate, true
+	return candidate, true, nil
 }
 
 // Resolve turns a candidate into a downloadable source including its formats.

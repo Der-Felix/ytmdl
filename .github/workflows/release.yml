@@ -440,7 +440,7 @@ jobs:
             --version "${{ steps.version.outputs.version }}" \
             --tag "${{ steps.version.outputs.tag }}" \
             --manifest-version 3 \
-            --schema 10 \
+            --schema 11 \
             --min-upgrade 0.15.0 \
             --backend-digest "${backend_digest}" \
             --backend-platform "linux/amd64=${backend_amd64}" \

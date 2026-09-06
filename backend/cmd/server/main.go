@@ -30,7 +30,9 @@ import (
 	"ytdm/backend/internal/logging"
 	"ytdm/backend/internal/lyrics"
 	"ytdm/backend/internal/matcher"
+	"ytdm/backend/internal/mediasession"
 	"ytdm/backend/internal/metadata"
+	"ytdm/backend/internal/orchestrator"
 	"ytdm/backend/internal/provider"
 	"ytdm/backend/internal/provider/deezer"
 	"ytdm/backend/internal/provider/genius"
@@ -197,6 +199,49 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		return nil, err
 	}
 
+	mediaSessionsRepo := repository.NewMediaSessions(db)
+	legacyAdapter := mediasession.NewLegacyAdapter(cfg.Tools.CookieFile)
+	cookieStorage, err := mediasession.NewCookieStorage(cfg.MediaSessions.CookieDir, legacyAdapter)
+	if err != nil {
+		logger.Warn("cookie storage initialization warning", "error", err.Error())
+	}
+
+	sessionPoolCfg := mediasession.PoolConfig{
+		Family:                provider.FamilyYouTube,
+		MaxLeasesPerSession:   cfg.MediaSessions.MaxLeasesPerSession,
+		SessionRequestsPerSec: cfg.MediaSessions.SessionRequestsPerSecond,
+		SessionBurst:          cfg.MediaSessions.SessionBurst,
+		GlobalRequestsPerSec:  cfg.MediaSessions.GlobalRequestsPerSecond,
+		GlobalBurst:           cfg.MediaSessions.GlobalBurst,
+		AllowUnknown:          true,
+	}
+	sessionPool := mediasession.NewSessionPool(sessionPoolCfg, cookieStorage, mediaSessionsRepo, legacyAdapter)
+	if sessions, err := mediaSessionsRepo.ListSessions(ctx, mediasession.Filter{}); err == nil {
+		sessionPool.ReloadSessions(sessions)
+	} else {
+		sessionPool.ReloadSessions(nil)
+	}
+
+	sessionProber := mediasession.NewYTDLPProber(ytdlpClient, "")
+	mediaSessionService := mediasession.NewService(mediasession.ServiceOptions{
+		Repo:          mediaSessionsRepo,
+		Storage:       cookieStorage,
+		Pool:          sessionPool,
+		LegacyAdapter: legacyAdapter,
+		Prober:        sessionProber,
+		Logger:        logger,
+	})
+
+	cooldownMgr := jobs.NewMediaCooldownManager()
+
+	providerOrchestrator := orchestrator.New(orchestrator.Options{
+		Registry:    registry,
+		SessionPool: sessionPool,
+		Matcher:     engine,
+		Cooldown:    cooldownMgr,
+		Logger:      logger,
+	})
+
 	audioDownloader, err := downloader.New(downloader.Options{
 		YTDLP:               ytdlpClient,
 		FFmpeg:              ffmpegRunner,
@@ -204,6 +249,8 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		AllowTranscode:      cfg.Downloads.AllowTranscode,
 		DurationToleranceMS: durationVerifyTolerance(cfg.Matching.DurationToleranceMS),
 		Retries:             cfg.Downloads.MaxRetries,
+		CookieResolver:      providerOrchestrator.ResolveCookiePath,
+		DataPlaneLocker:     providerOrchestrator.AcquireDataPlaneLock,
 		Logger:              logger,
 	})
 	if err != nil {
@@ -251,7 +298,8 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Tagger:              tagger,
 		Artwork:             metadata.NewArtworkFetcher(httpx.New(cfg.Providers.HTTPTimeout)),
 		Lyrics:              lyricsResolver,
-		Cooldown:            jobs.NewMediaCooldownManager(),
+		Cooldown:            cooldownMgr,
+		Orchestrator:        providerOrchestrator,
 		Broker:              broker,
 		Logger:              logger,
 		Concurrency:         cfg.Downloads.Concurrent,
@@ -384,6 +432,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Auth:           authService,
 		Database:       db,
 		Updates:        updateService,
+		MediaSessions:  mediaSessionService,
 		Tools: map[string]handlers.Checker{
 			"yt-dlp":  ytdlpClient,
 			"ffmpeg":  ffmpegRunner,

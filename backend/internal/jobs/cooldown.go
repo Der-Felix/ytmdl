@@ -12,6 +12,19 @@ const (
 	maxCooldown     = 5 * time.Minute
 )
 
+// CanonicalCooldownKey maps provider names to their platform family key.
+// Both "youtube" and "ytmusic" map to "youtube", ensuring a single source of
+// truth for YouTube platform family cooldowns.
+func CanonicalCooldownKey(prov string) string {
+	cleaned := strings.ToLower(strings.TrimSpace(prov))
+	switch cleaned {
+	case "youtube", "ytmusic", "youtube-family":
+		return "youtube"
+	default:
+		return cleaned
+	}
+}
+
 // MediaCooldownManager coordinates shared rate-limit cooldowns across download workers.
 type MediaCooldownManager struct {
 	mu        sync.RWMutex
@@ -27,7 +40,7 @@ func NewMediaCooldownManager() *MediaCooldownManager {
 
 // Trigger sets a global rate limit cooldown for provider.
 func (m *MediaCooldownManager) Trigger(provider string, duration time.Duration) time.Duration {
-	key := strings.ToLower(strings.TrimSpace(provider))
+	key := CanonicalCooldownKey(provider)
 	if key == "" {
 		return 0
 	}
@@ -51,7 +64,7 @@ func (m *MediaCooldownManager) Trigger(provider string, duration time.Duration) 
 
 // Remaining returns how long provider remains in cooldown, and whether it is cooling down.
 func (m *MediaCooldownManager) Remaining(provider string) (time.Duration, bool) {
-	key := strings.ToLower(strings.TrimSpace(provider))
+	key := CanonicalCooldownKey(provider)
 	if key == "" {
 		return 0, false
 	}
@@ -92,7 +105,7 @@ func (m *MediaCooldownManager) Wait(ctx context.Context, provider string) error 
 
 // Clear removes active cooldowns (useful for tests and manual resets).
 func (m *MediaCooldownManager) Clear(provider string) {
-	key := strings.ToLower(strings.TrimSpace(provider))
+	key := CanonicalCooldownKey(provider)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.cooldowns, key)

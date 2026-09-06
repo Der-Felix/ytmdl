@@ -257,6 +257,22 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					})
 				})
 
+				registerMediaSessions := func(mediaSessions chi.Router) {
+					mediaSessions.Get("/", h.ListMediaSessions)
+					mediaSessions.Get("/{id}", h.GetMediaSession)
+
+					mediaSessions.Group(func(mutating chi.Router) {
+						mutating.Use(middleware.CSRF)
+						mutating.Post("/", h.CreateMediaSession)
+						mutating.Post("/{id}/cookies", h.UploadMediaSessionCookies)
+						mutating.Post("/{id}/probe", h.ProbeMediaSession)
+						mutating.Patch("/{id}", h.UpdateMediaSession)
+						mutating.Delete("/{id}", h.DeleteMediaSession)
+					})
+				}
+				admin.Route("/media-sessions", registerMediaSessions)
+				admin.Route("/admin/media-sessions", registerMediaSessions)
+
 				admin.Group(func(mutating chi.Router) {
 					mutating.Use(middleware.CSRF)
 					mutating.Put("/settings", h.UpdateSettings)
