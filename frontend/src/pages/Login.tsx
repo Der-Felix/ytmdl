@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react'
-import { MusicIcon, ShieldCheckIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -81,13 +80,15 @@ export function Login() {
   return (
     <div className="flex min-h-[75vh] flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-md space-y-6">
-        <div className="text-center space-y-2">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/25">
-            {setupRequired ? (
-              <ShieldCheckIcon className="h-7 w-7" />
-            ) : (
-              <MusicIcon className="h-7 w-7" />
-            )}
+        <div className="text-center space-y-3">
+          <div className="mx-auto flex items-center justify-center">
+            <img
+              src="/logo-mark.png"
+              alt=""
+              aria-hidden="true"
+              data-testid="brand-logo"
+              className="h-14 w-14 object-contain"
+            />
           </div>
           <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
             {setupRequired ? 'YTMDL Ersteinrichtung' : 'Anmelden bei YTMDL'}

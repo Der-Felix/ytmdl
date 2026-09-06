@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/httpx"
@@ -55,6 +57,75 @@ type Config struct {
 	// MusicService marks candidates as coming from a dedicated music
 	// catalogue, which the matcher uses to break ties.
 	MusicService bool
+	// RequestsPerSecond paces search and resolve operations. Zero or negative disables pacing.
+	RequestsPerSecond float64
+	// Burst is the token bucket burst capacity.
+	Burst int
+}
+
+// limiter paces requests across concurrent workers.
+type limiter struct {
+	mu       sync.Mutex
+	interval time.Duration
+	burst    float64
+	tokens   float64
+	last     time.Time
+}
+
+func newLimiter(ratePerSecond float64, burst int) *limiter {
+	if ratePerSecond <= 0 {
+		return nil
+	}
+	interval := time.Duration(float64(time.Second) / ratePerSecond)
+	if interval <= 0 {
+		interval = time.Nanosecond
+	}
+	b := float64(max(burst, 1))
+	return &limiter{
+		interval: interval,
+		burst:    b,
+		tokens:   b,
+	}
+}
+
+func (l *limiter) Wait(ctx context.Context) error {
+	if l == nil || l.interval <= 0 {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	delay := l.reserve()
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (l *limiter) reserve() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	if l.last.IsZero() {
+		l.last = now
+	}
+	if elapsed := now.Sub(l.last); elapsed > 0 {
+		l.tokens = min(l.burst, l.tokens+float64(elapsed)/float64(l.interval))
+		l.last = now
+	}
+	l.tokens--
+	if l.tokens >= 0 {
+		return 0
+	}
+	return time.Duration(-l.tokens * float64(l.interval))
 }
 
 // MediaProvider finds and resolves audio sources through yt-dlp.
@@ -65,6 +136,7 @@ type MediaProvider struct {
 	limit        int
 	enrichLimit  int
 	musicService bool
+	limiter      *limiter
 }
 
 var (
@@ -103,6 +175,7 @@ func New(cfg Config) (*MediaProvider, error) {
 		limit:        limit,
 		enrichLimit:  enrich,
 		musicService: cfg.MusicService,
+		limiter:      newLimiter(cfg.RequestsPerSecond, cfg.Burst),
 	}, nil
 }
 
@@ -151,6 +224,12 @@ func (p *MediaProvider) Search(ctx context.Context, track music.Track) ([]provid
 		return nil, apperr.New(apperr.CodeInvalidRequest, "The track has neither an artist nor a title to search for.")
 	}
 
+	if p.limiter != nil {
+		if err := p.limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
+	}
+
 	var (
 		results []ytdlp.Info
 		err     error
@@ -193,6 +272,12 @@ func (p *MediaProvider) probeDirectID(ctx context.Context, track music.Track) (p
 		return provider.MediaCandidate{}, false
 	}
 
+	if p.limiter != nil {
+		if err := p.limiter.Wait(ctx); err != nil {
+			return provider.MediaCandidate{}, false
+		}
+	}
+
 	target := watchURL(sourceID)
 	results, err := p.client.Query(ctx, target, "--no-playlist")
 	if err != nil || len(results) == 0 {
@@ -227,6 +312,12 @@ func (p *MediaProvider) Resolve(ctx context.Context, candidate provider.MediaCan
 	}
 	if err := ValidateMediaURL(target); err != nil {
 		return nil, err
+	}
+
+	if p.limiter != nil {
+		if err := p.limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	results, err := p.client.Query(ctx, target, "--no-playlist")
@@ -342,6 +433,11 @@ func (p *MediaProvider) enrichDurations(ctx context.Context, candidates []provid
 	}
 
 	for _, target := range targets {
+		if p.limiter != nil {
+			if err := p.limiter.Wait(ctx); err != nil {
+				return
+			}
+		}
 		results, err := p.client.Query(ctx, target, "--no-playlist")
 		if err != nil || len(results) == 0 {
 			// Enrichment is best effort: a candidate that stays without a

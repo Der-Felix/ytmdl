@@ -120,4 +120,24 @@ describe('AppShell Layout', () => {
     expect(screen.queryByRole('navigation', { name: 'Hauptnavigation' })).toBeNull()
     expect(screen.getByTestId('player-view')).toBeDefined()
   })
+
+  it('renders brand logo in sidebar and mobile header', () => {
+    const route: Route = { name: 'dashboard' }
+
+    render(
+      <AuthContext.Provider value={adminAuth}>
+        <AppShell route={route} activeDownloads={0}>
+          <div>Dashboard</div>
+        </AppShell>
+      </AuthContext.Provider>,
+    )
+
+    const desktopLogo = screen.getByTestId('brand-logo')
+    expect(desktopLogo).toBeDefined()
+    expect(desktopLogo.getAttribute('src')).toBe('/logo-mark.png')
+
+    const mobileLogo = screen.getByTestId('brand-logo-mobile')
+    expect(mobileLogo).toBeDefined()
+    expect(mobileLogo.getAttribute('src')).toBe('/logo-mark.png')
+  })
 })

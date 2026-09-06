@@ -225,14 +225,13 @@ function NavLink({
 function Wordmark() {
   return (
     <>
-      <span
-        aria-hidden
-        className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"
-      >
-        <svg viewBox="0 0 24 24" className="size-4" fill="currentColor">
-          <path d="M17 3v10.6a3.4 3.4 0 1 1-2-3.1V6.2l-6 1.36V16.4a3.4 3.4 0 1 1-2-3.1V5.2z" />
-        </svg>
-      </span>
+      <img
+        src="/logo-mark.png"
+        alt=""
+        aria-hidden="true"
+        data-testid="brand-logo"
+        className="size-8 shrink-0 object-contain"
+      />
       <span className="font-heading text-[0.9375rem] font-semibold tracking-tight text-foreground">
         YTMDL
       </span>

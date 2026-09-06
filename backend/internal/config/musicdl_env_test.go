@@ -229,3 +229,37 @@ func TestStorageAndStagingEnvConfig(t *testing.T) {
 		t.Errorf("got Downloads.MaxAttempts = %d, want 7", cfg.Downloads.MaxAttempts)
 	}
 }
+
+func TestPlayerClientsAndPacingConfig(t *testing.T) {
+	clearConfigEnv(t)
+
+	// Valid configuration via MUSICDL_*
+	t.Setenv("MUSICDL_YTDLP_PLAYER_CLIENTS", "android,web")
+	t.Setenv("MUSICDL_YOUTUBE_REQUESTS_PER_SECOND", "1.5")
+	t.Setenv("MUSICDL_YOUTUBE_BURST", "4")
+
+	cfg := Default()
+	cfg.Database.URL = "postgres://test:test@localhost:5432/test"
+	if err := cfg.applyEnv(); err != nil {
+		t.Fatalf("apply environment: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected valid config, got error: %v", err)
+	}
+
+	if cfg.Tools.PlayerClients != "android,web" {
+		t.Errorf("got PlayerClients = %q, want android,web", cfg.Tools.PlayerClients)
+	}
+	if cfg.Providers.YouTube.RequestsPerSecond != 1.5 {
+		t.Errorf("got YouTube RequestsPerSecond = %v, want 1.5", cfg.Providers.YouTube.RequestsPerSecond)
+	}
+	if cfg.Providers.YouTube.Burst != 4 {
+		t.Errorf("got YouTube Burst = %d, want 4", cfg.Providers.YouTube.Burst)
+	}
+
+	// Malformed player clients should fail validation
+	cfg.Tools.PlayerClients = "android; rm -rf /"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected validation error for malformed player clients, got nil")
+	}
+}

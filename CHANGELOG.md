@@ -2,6 +2,24 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.19.2 — 2026-09-06
+
+### Improvements
+
+- Media source resolution now evaluates ranked fallback candidates when the best metadata match cannot be streamed.
+- Temporary YouTube throttling uses retry/backoff behavior instead of immediately failing a track where applicable.
+
+### Bug Fixes
+
+- Fixed tracks being permanently marked failed when only the highest-ranked YouTube candidate was unavailable while valid alternatives existed.
+- Improved distinction between unavailable media and temporary provider throttling/authentication failures.
+
+### Changes
+
+- Candidate resolution is bounded and deterministic.
+- Systemic provider errors stop candidate fan-out to avoid increasing request pressure.
+- **Database Schema:** Schema remains at Schema 10; no database migration is required.
+
 ## 0.19.1 — 2026-09-06
 
 ### Features

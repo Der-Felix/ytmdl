@@ -203,6 +203,36 @@ func (m *Matcher) Rank(track music.Track, candidates []provider.MediaCandidate) 
 	return results
 }
 
+// Acceptable returns up to limit candidates meeting or exceeding MinScore(),
+// sorted by descending score, with duplicate candidate IDs eliminated.
+// If limit <= 0, all acceptable candidates are returned.
+func (m *Matcher) Acceptable(track music.Track, candidates []provider.MediaCandidate, limit int) []Result {
+	ranked := m.Rank(track, candidates)
+	if len(ranked) == 0 {
+		return nil
+	}
+	threshold := m.MinScore()
+	seen := make(map[string]struct{}, len(ranked))
+	acceptable := make([]Result, 0, len(ranked))
+	for _, res := range ranked {
+		if res.Score < threshold {
+			break
+		}
+		id := strings.TrimSpace(res.Candidate.ID)
+		if id != "" {
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+		}
+		acceptable = append(acceptable, res)
+		if limit > 0 && len(acceptable) >= limit {
+			break
+		}
+	}
+	return acceptable
+}
+
 // Best returns the highest scoring candidate that reaches the configured
 // threshold. When no candidate does, MATCH_FAILED is returned rather than an
 // arbitrary result.

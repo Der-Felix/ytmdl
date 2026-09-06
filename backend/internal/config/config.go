@@ -111,11 +111,12 @@ type LibraryConfig struct {
 
 // ToolsConfig locates the external programs the backend drives.
 type ToolsConfig struct {
-	YTDLPPath   string        `yaml:"ytdlp_path"`
-	FFmpegPath  string        `yaml:"ffmpeg_path"`
-	FFprobePath string        `yaml:"ffprobe_path"`
-	CookieFile  string        `yaml:"cookie_file"`
-	Timeout     time.Duration `yaml:"timeout"`
+	YTDLPPath     string        `yaml:"ytdlp_path"`
+	FFmpegPath    string        `yaml:"ffmpeg_path"`
+	FFprobePath   string        `yaml:"ffprobe_path"`
+	CookieFile    string        `yaml:"cookie_file"`
+	PlayerClients string        `yaml:"player_clients"`
+	Timeout       time.Duration `yaml:"timeout"`
 }
 
 // DownloadsConfig controls the worker pool and download behaviour.
@@ -210,13 +211,17 @@ type SpotifyConfig struct {
 
 // YTMusicConfig holds the YouTube Music provider settings.
 type YTMusicConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	BaseURL string `yaml:"base_url"`
+	Enabled           bool    `yaml:"enabled"`
+	BaseURL           string  `yaml:"base_url"`
+	RequestsPerSecond float64 `yaml:"requests_per_second"`
+	Burst             int     `yaml:"burst"`
 }
 
 // YouTubeConfig holds the plain YouTube media provider settings.
 type YouTubeConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled           bool    `yaml:"enabled"`
+	RequestsPerSecond float64 `yaml:"requests_per_second"`
+	Burst             int     `yaml:"burst"`
 }
 
 // GeniusConfig holds the Genius lyrics fallback provider settings.
@@ -484,6 +489,8 @@ func (c *Config) applyEnv() error {
 		str("YTDM_FFPROBE_PATH", &c.Tools.FFprobePath)
 	}
 	str("YTDM_COOKIEFILE", &c.Tools.CookieFile)
+	str("MUSICDL_YTDLP_PLAYER_CLIENTS", &c.Tools.PlayerClients)
+	str("YTDM_YTDLP_PLAYER_CLIENTS", &c.Tools.PlayerClients)
 	dur("YTDM_TOOL_TIMEOUT", &c.Tools.Timeout)
 
 	if _, canonical := lookup("MUSICDL_CONCURRENT_DOWNLOADS"); !canonical {
@@ -531,7 +538,16 @@ func (c *Config) applyEnv() error {
 
 	boolean("YTDM_YTMUSIC_ENABLED", &c.Providers.YTMusic.Enabled)
 	str("YTDM_YTMUSIC_BASE_URL", &c.Providers.YTMusic.BaseURL)
+	flt("MUSICDL_YTMUSIC_REQUESTS_PER_SECOND", &c.Providers.YTMusic.RequestsPerSecond)
+	flt("YTDM_YTMUSIC_REQUESTS_PER_SECOND", &c.Providers.YTMusic.RequestsPerSecond)
+	num("MUSICDL_YTMUSIC_BURST", &c.Providers.YTMusic.Burst)
+	num("YTDM_YTMUSIC_BURST", &c.Providers.YTMusic.Burst)
+
 	boolean("YTDM_YOUTUBE_ENABLED", &c.Providers.YouTube.Enabled)
+	flt("MUSICDL_YOUTUBE_REQUESTS_PER_SECOND", &c.Providers.YouTube.RequestsPerSecond)
+	flt("YTDM_YOUTUBE_REQUESTS_PER_SECOND", &c.Providers.YouTube.RequestsPerSecond)
+	num("MUSICDL_YOUTUBE_BURST", &c.Providers.YouTube.Burst)
+	num("YTDM_YOUTUBE_BURST", &c.Providers.YouTube.Burst)
 	boolean("MUSICDL_GENIUS_ENABLED", &c.Providers.Genius.Enabled)
 	boolean("YTDM_GENIUS_ENABLED", &c.Providers.Genius.Enabled)
 	str("GENIUS_ACCESS_TOKEN", &c.Providers.Genius.AccessToken)
@@ -807,7 +823,21 @@ func (c *Config) Validate() error {
 			c.Update.CheckInterval = 5 * time.Minute
 		}
 	}
+	if trimmed := strings.TrimSpace(c.Tools.PlayerClients); trimmed != "" {
+		if !validPlayerClientsRe.MatchString(trimmed) {
+			errs = append(errs, fmt.Errorf("tools.player_clients contains invalid characters: %q", c.Tools.PlayerClients))
+		}
+	}
+	if c.Providers.YouTube.RequestsPerSecond < 0 {
+		errs = append(errs, errors.New("providers.youtube.requests_per_second must not be negative"))
+	}
+	if c.Providers.YTMusic.RequestsPerSecond < 0 {
+		errs = append(errs, errors.New("providers.ytmusic.requests_per_second must not be negative"))
+	}
 	return errors.Join(errs...)
 }
 
-var updateRepoRegex = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$`)
+var (
+	updateRepoRegex      = regexp.MustCompile(`^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$`)
+	validPlayerClientsRe = regexp.MustCompile(`^[a-zA-Z0-9_,+-]+$`)
+)

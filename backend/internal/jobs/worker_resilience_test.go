@@ -39,6 +39,18 @@ func (s *fakeStore) UpdateItem(_ context.Context, id string, update ItemUpdate) 
 	if update.ErrorMessage != "" {
 		it.ErrorMessage = update.ErrorMessage
 	}
+	if update.MediaID != "" {
+		it.MediaID = update.MediaID
+	}
+	if update.MediaProvider != "" {
+		it.MediaProvider = update.MediaProvider
+	}
+	if update.MediaURL != "" {
+		it.MediaURL = update.MediaURL
+	}
+	if update.MatchScore != 0 {
+		it.MatchScore = update.MatchScore
+	}
 	s.items[id] = it
 	return nil
 }

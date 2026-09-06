@@ -240,3 +240,60 @@ func TestScoreRejectsExtendedWhenOriginalWanted(t *testing.T) {
 		t.Fatalf("extended score %.1f must stay below threshold %.1f", extended.Score, m.MinScore())
 	}
 }
+
+func TestMatcher_Acceptable_RanksDeduplicatesAndBounds(t *testing.T) {
+	m := New(Options{MinScore: 70, DurationToleranceMS: 4000})
+	track := wantedTrack() // "Song" by "Artist"
+
+	candidates := []provider.MediaCandidate{
+		{ID: "cand-1", Title: "Song", Artists: []string{"Artist"}, DurationMS: 205000},                            // exact match ~95+
+		{ID: "cand-1", Title: "Song (Duplicate ID lower score)", Artists: []string{"Artist"}, DurationMS: 200000}, // duplicate ID
+		{ID: "cand-2", Title: "Song", Artists: []string{"Artist"}, DurationMS: 204000},                            // near exact match ~90+
+		{ID: "cand-3", Title: "Song", Artists: []string{"Artist"}, DurationMS: 202000},                            // good match ~85+
+		{ID: "cand-4", Title: "Song", Artists: []string{"Artist"}, DurationMS: 201000},                            // good match ~80+
+		{ID: "cand-bad", Title: "Completely Different Song", Artists: []string{"Other"}, DurationMS: 100000},      // below threshold
+	}
+
+	// Limit 2: should take top 2 acceptable, deduplicated
+	top2 := m.Acceptable(track, candidates, 2)
+	if len(top2) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(top2))
+	}
+	if top2[0].Candidate.ID != "cand-1" {
+		t.Fatalf("rank 1 expected cand-1, got %s", top2[0].Candidate.ID)
+	}
+	if top2[1].Candidate.ID != "cand-2" {
+		t.Fatalf("rank 2 expected cand-2, got %s", top2[1].Candidate.ID)
+	}
+
+	// Limit 10 (higher than acceptable count): should return all acceptable without cand-bad or duplicate cand-1
+	all := m.Acceptable(track, candidates, 10)
+	if len(all) != 4 {
+		t.Fatalf("expected 4 acceptable unique candidates, got %d", len(all))
+	}
+	seen := make(map[string]bool)
+	for _, res := range all {
+		if res.Score < m.MinScore() {
+			t.Fatalf("candidate %s score %.1f is below MinScore %.1f", res.Candidate.ID, res.Score, m.MinScore())
+		}
+		if seen[res.Candidate.ID] {
+			t.Fatalf("duplicate candidate ID in acceptable list: %s", res.Candidate.ID)
+		}
+		seen[res.Candidate.ID] = true
+	}
+}
+
+func TestMatcher_Acceptable_RejectsBelowThreshold(t *testing.T) {
+	m := New(Options{MinScore: 70, DurationToleranceMS: 4000})
+	track := wantedTrack()
+
+	candidates := []provider.MediaCandidate{
+		{ID: "bad-1", Title: "Wrong Title", Artists: []string{"Wrong Artist"}, DurationMS: 60000},
+		{ID: "bad-2", Title: "Song (Remix)", Artists: []string{"Artist"}, DurationMS: 205000},
+	}
+
+	results := m.Acceptable(track, candidates, 5)
+	if len(results) != 0 {
+		t.Fatalf("expected 0 acceptable candidates, got %d", len(results))
+	}
+}

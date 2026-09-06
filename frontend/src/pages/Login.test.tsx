@@ -53,5 +53,10 @@ describe('Login Page', () => {
     const heading = await screen.findByText(/YTMDL Ersteinrichtung/i)
     expect(heading).toBeDefined()
     expect(screen.getByText(/Administrator erstellen/i)).toBeDefined()
+
+    // Brand logo should be rendered
+    const logo = screen.getByTestId('brand-logo')
+    expect(logo).toBeDefined()
+    expect(logo.getAttribute('src')).toBe('/logo-mark.png')
   })
 })

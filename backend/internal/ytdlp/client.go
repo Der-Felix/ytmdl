@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,20 @@ const progressMarker = "@YTDM-PROGRESS@"
 const progressTemplate = "download:" + progressMarker +
 	"%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s"
 
+var validPlayerClientsRe = regexp.MustCompile(`^[a-zA-Z0-9_,+-]+$`)
+
+// ValidatePlayerClients checks whether the player clients override syntax is valid.
+func ValidatePlayerClients(clients string) error {
+	trimmed := strings.TrimSpace(clients)
+	if trimmed == "" {
+		return nil
+	}
+	if !validPlayerClientsRe.MatchString(trimmed) {
+		return fmt.Errorf("invalid player clients %q: must contain only alphanumeric characters, commas, underscores, pluses, and hyphens", clients)
+	}
+	return nil
+}
+
 // Options configures the client.
 type Options struct {
 	// Binary is the yt-dlp executable, either an absolute path or a name that
@@ -40,6 +55,9 @@ type Options struct {
 	Binary string
 	// CookieFile is an optional cookies.txt for age restricted content.
 	CookieFile string
+	// PlayerClients is an optional comma-separated list of player client names
+	// to pass to yt-dlp via --extractor-args "youtube:player_client=...".
+	PlayerClients string
 	// Timeout bounds metadata queries. Downloads use the caller's context.
 	Timeout time.Duration
 	// FFmpegLocation is passed on when set, so that yt-dlp finds the same
@@ -52,6 +70,7 @@ type Options struct {
 type Client struct {
 	binary         string
 	cookieFile     string
+	playerClients  string
 	timeout        time.Duration
 	ffmpegLocation string
 	logger         *slog.Logger
@@ -71,9 +90,20 @@ func New(opts Options) *Client {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	var playerClients string
+	if trimmed := strings.TrimSpace(opts.PlayerClients); trimmed != "" {
+		if err := ValidatePlayerClients(trimmed); err == nil {
+			playerClients = trimmed
+		} else {
+			logger.Warn("invalid player clients configuration rejected",
+				"player_clients", opts.PlayerClients,
+				"error", err.Error())
+		}
+	}
 	return &Client{
 		binary:         binary,
 		cookieFile:     opts.CookieFile,
+		playerClients:  playerClients,
 		timeout:        timeout,
 		ffmpegLocation: opts.FFmpegLocation,
 		logger:         logger,
@@ -113,6 +143,9 @@ func (c *Client) baseArgs() []string {
 	}
 	if c.cookieFile != "" {
 		args = append(args, "--cookies", c.cookieFile)
+	}
+	if c.playerClients != "" {
+		args = append(args, "--extractor-args", fmt.Sprintf("youtube:player_client=%s", c.playerClients))
 	}
 	if c.ffmpegLocation != "" {
 		args = append(args, "--ffmpeg-location", c.ffmpegLocation)
@@ -356,15 +389,51 @@ func classifyError(stderr string, cause error) error {
 	lower := strings.ToLower(stderr)
 	message := firstLine(stderr)
 	switch {
-	case strings.Contains(lower, "http error 429"), strings.Contains(lower, "rate-limit"),
-		strings.Contains(lower, "too many requests"):
+	// 1. Transient rate limit / throttling checks MUST precede generic unavailable checks
+	// because YouTube often phrases rate limits as "Video unavailable. This content isn't available, try again later..."
+	case strings.Contains(lower, "http error 429") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(lower, "rate-limit") ||
+		strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "rate_limit") ||
+		strings.Contains(lower, "rate-limited") ||
+		strings.Contains(lower, "rate limited") ||
+		strings.Contains(lower, "try again later") ||
+		strings.Contains(lower, "exceeding the rate limit"):
 		return apperr.Wrapf(apperr.CodeProviderRateLimited, cause,
 			"The media provider rate limited the request: %s", message)
-	case strings.Contains(lower, "video unavailable"), strings.Contains(lower, "is not available"),
-		strings.Contains(lower, "private video"), strings.Contains(lower, "removed by the uploader"):
+
+	// 2. Authentication and bot challenges (must not be misclassified as TrackNotFound)
+	case strings.Contains(lower, "not a bot") ||
+		strings.Contains(lower, "bot verification") ||
+		strings.Contains(lower, "bot challenge") ||
+		strings.Contains(lower, "sign in to confirm") ||
+		strings.Contains(lower, "login required"):
+		return apperr.Wrapf(apperr.CodeProviderUnavailable, cause,
+			"The media provider requires authentication or bot verification: %s", message)
+
+	// 3. Transient network failures
+	case strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "connection reset") ||
+		strings.Contains(lower, "temporary failure in name resolution") ||
+		strings.Contains(lower, "network is unreachable") ||
+		strings.Contains(lower, "connection refused"):
+		return apperr.Wrapf(apperr.CodeProviderUnavailable, cause,
+			"Network error contacting media provider: %s", message)
+
+	// 4. Candidate-specific permanent unavailable errors
+	case strings.Contains(lower, "video unavailable") ||
+		strings.Contains(lower, "is not available") ||
+		strings.Contains(lower, "private video") ||
+		strings.Contains(lower, "removed by the uploader") ||
+		strings.Contains(lower, "this video has been removed") ||
+		strings.Contains(lower, "account associated with this video has been terminated"):
 		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "The media item is unavailable: %s", message)
+
+	// 5. Unsupported URL
 	case strings.Contains(lower, "unsupported url"):
 		return apperr.Wrapf(apperr.CodeInvalidRequest, cause, "The URL is not supported: %s", message)
+
 	default:
 		return apperr.Wrapf(apperr.CodeProviderUnavailable, cause, "yt-dlp failed: %s", message)
 	}

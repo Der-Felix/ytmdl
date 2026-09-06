@@ -170,6 +170,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	ytdlpClient := ytdlp.New(ytdlp.Options{
 		Binary:         cfg.Tools.YTDLPPath,
 		CookieFile:     cfg.Tools.CookieFile,
+		PlayerClients:  cfg.Tools.PlayerClients,
 		Timeout:        cfg.Tools.Timeout,
 		FFmpegLocation: ffmpegLocation(cfg.Tools.FFmpegPath),
 		Logger:         logger,
@@ -492,8 +493,10 @@ func buildProviders(cfg config.Config, client *ytdlp.Client, logger *slog.Logger
 		logger.Info("provider registered", logging.KeyProvider, metadataProvider.Name(), "kind", "metadata")
 
 		mediaProvider, err := ytmusic.NewMediaProvider(ytmusic.MediaConfig{
-			Client: client,
-			Limit:  cfg.Matching.CandidateLimit,
+			Client:            client,
+			Limit:             cfg.Matching.CandidateLimit,
+			RequestsPerSecond: cfg.Providers.YTMusic.RequestsPerSecond,
+			Burst:             cfg.Providers.YTMusic.Burst,
 		})
 		if err != nil {
 			return nil, err
@@ -504,10 +507,12 @@ func buildProviders(cfg config.Config, client *ytdlp.Client, logger *slog.Logger
 
 	if cfg.Providers.YouTube.Enabled {
 		mediaProvider, err := youtube.New(youtube.Config{
-			Name:   youtube.ProviderName,
-			Mode:   youtube.SearchVideos,
-			Client: client,
-			Limit:  cfg.Matching.CandidateLimit,
+			Name:              youtube.ProviderName,
+			Mode:              youtube.SearchVideos,
+			Client:            client,
+			Limit:             cfg.Matching.CandidateLimit,
+			RequestsPerSecond: cfg.Providers.YouTube.RequestsPerSecond,
+			Burst:             cfg.Providers.YouTube.Burst,
 		})
 		if err != nil {
 			return nil, err

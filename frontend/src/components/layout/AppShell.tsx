@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { MiniPlayer } from '@/components/player/MiniPlayer'
 import { Button } from '@/components/ui/button'
 import { usePlayer } from '@/hooks/usePlayer'
+import { Link, paths } from '@/lib/router'
 import type { Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
@@ -106,9 +107,21 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
               {drawerOpen ? <XIcon /> : <MenuIcon />}
             </Button>
 
-            <span className="font-heading text-sm font-semibold text-foreground md:hidden">
-              YTMDL
-            </span>
+            <Link
+              href={paths.dashboard()}
+              className="focus-ring flex items-center gap-2 rounded-lg md:hidden"
+            >
+              <img
+                src="/logo-mark.png"
+                alt=""
+                aria-hidden="true"
+                data-testid="brand-logo-mobile"
+                className="size-6 shrink-0 object-contain"
+              />
+              <span className="font-heading text-sm font-semibold text-foreground">
+                YTMDL
+              </span>
+            </Link>
 
             <div className="ml-auto flex items-center gap-4">
               <ConnectionBadge />
