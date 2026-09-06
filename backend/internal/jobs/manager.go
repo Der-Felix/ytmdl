@@ -405,7 +405,7 @@ func (m *Manager) Enqueue(ctx context.Context, req Request) (*Job, error) {
 
 	jobPriority := PriorityNormal
 	if req.Options.Priority != nil && req.Options.Priority.Valid() {
-		jobPriority = *req.Options.Priority
+		jobPriority = req.Options.Priority.Canonical()
 	}
 
 	job := &Job{
@@ -770,6 +770,7 @@ func (m *Manager) SetPriority(ctx context.Context, id string, priority Priority)
 	if !priority.Valid() {
 		return nil, apperr.Newf(apperr.CodeInvalidRequest, "Invalid priority %q.", priority)
 	}
+	priority = priority.Canonical()
 	if err := m.store.SetPriority(ctx, id, priority); err != nil {
 		return nil, err
 	}

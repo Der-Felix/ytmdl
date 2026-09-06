@@ -350,9 +350,17 @@ func TestSettingsValidation(t *testing.T) {
 	}
 
 	// Invalid priority
-	badPri := "urgent"
+	badPri := "invalid_priority"
 	if _, err := svc.Apply(ctx, Update{SubscriptionPriority: &badPri}); err == nil {
-		t.Fatal("expected error for priority=urgent")
+		t.Fatal("expected error for priority=invalid_priority")
+	}
+
+	// Valid priority including urgent
+	for _, goodPri := range []string{"low", "normal", "high", "urgent"} {
+		pri := goodPri
+		if _, err := svc.Apply(ctx, Update{SubscriptionPriority: &pri}); err != nil {
+			t.Fatalf("unexpected error for valid priority=%q: %v", goodPri, err)
+		}
 	}
 
 	// Invalid rate limit strings

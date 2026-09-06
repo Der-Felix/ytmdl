@@ -191,20 +191,9 @@ type jobCandidate struct {
 	ready []Item
 }
 
-// EffectivePriority calculates priority rank with starvation protection aging.
-func EffectivePriority(j Job, now time.Time) int {
-	baseRank := j.Priority.Rank()
-	age := now.Sub(j.CreatedAt)
-	if baseRank == 1 && age >= 15*time.Minute {
-		return 2 // normal -> high
-	}
-	if baseRank == 0 && age >= 60*time.Minute {
-		return 2 // low -> high
-	}
-	if baseRank == 0 && age >= 30*time.Minute {
-		return 1 // low -> normal
-	}
-	return baseRank
+// EffectivePriority returns the priority rank (0=low, 1=normal, 2=high, 3=urgent).
+func EffectivePriority(j Job, _ time.Time) int {
+	return j.Priority.Rank()
 }
 
 // dispatch starts a worker for every ready item that is not already running.
@@ -295,10 +284,10 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 		}
 	}
 
-	// Apply starvation aging sort: effectivePriority DESC, CreatedAt ASC, ID ASC
+	// Apply priority sort: priority DESC, CreatedAt ASC, ID ASC
 	sort.SliceStable(jobs, func(i, j int) bool {
-		rI := EffectivePriority(jobs[i], now)
-		rJ := EffectivePriority(jobs[j], now)
+		rI := jobs[i].Priority.Rank()
+		rJ := jobs[j].Priority.Rank()
 		if rI != rJ {
 			return rI > rJ
 		}

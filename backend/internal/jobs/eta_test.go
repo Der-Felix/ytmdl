@@ -348,6 +348,20 @@ func TestNextUpJobs_DispatcherParity(t *testing.T) {
 	store := newMemorySchedulerStore()
 	now := time.Now().UTC()
 
+	// 0. Very High priority fresh job (queued, paused=false, pri=very_high) -> Priority = 3
+	jobVeryHigh := &Job{
+		ID:        "job-very-high",
+		Status:    StatusQueued,
+		Priority:  PriorityVeryHigh,
+		Paused:    false,
+		CreatedAt: now.Add(-1 * time.Minute),
+		Label:     "Very High Fresh Album",
+	}
+	store.jobs["job-very-high"] = jobVeryHigh
+	store.items["job-very-high"] = []Item{
+		{ID: "it-vh1", JobID: "job-very-high", Status: ItemPending},
+	}
+
 	// 1. High priority fresh job (queued, paused=false, pri=high) -> EffectivePriority = 2
 	jobHigh := &Job{
 		ID:        "job-high-fresh",
@@ -519,17 +533,17 @@ func TestNextUpJobs_DispatcherParity(t *testing.T) {
 		t.Fatalf("expected exactly 5 next up jobs for limit 5, got %d", len(next5))
 	}
 
-	// Expected Order according to Starvation-Aged Dispatcher Semantics:
-	// 1. job-wait-storage (pri=low aged 70m -> rank 2, created -70m)
-	// 2. job-retry-wait   (pri=normal aged 20m -> rank 2, created -20m)
-	// 3. job-high-fresh   (pri=high base rank 2, created -5m)
-	// 4. job-matching     (pri=normal fresh rank 1, created -10m)
-	// 5. job-norm-fresh   (pri=normal fresh rank 1, created -2m)
-	// (job-low-fresh is #6, pri=low fresh rank 0, correctly cut off by LIMIT 5)
+	// Expected Order according to Deterministic Priority Dispatcher Semantics (priority DESC, created_at ASC, id ASC):
+	// 1. job-very-high    (pri=very_high base rank 3, created -1m)
+	// 2. job-high-fresh   (pri=high base rank 2, created -5m)
+	// 3. job-retry-wait   (pri=normal base rank 1, created -20m)
+	// 4. job-matching     (pri=normal base rank 1, created -10m)
+	// 5. job-norm-fresh   (pri=normal base rank 1, created -2m)
+	// (job-wait-storage is #6 pri=low, job-low-fresh is #7, correctly cut off by LIMIT 5)
 	expectedOrder := []string{
-		"job-wait-storage",
-		"job-retry-wait",
+		"job-very-high",
 		"job-high-fresh",
+		"job-retry-wait",
 		"job-matching",
 		"job-norm-fresh",
 	}

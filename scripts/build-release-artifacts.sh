@@ -73,9 +73,22 @@ echo "==> Generating SHA256SUMS..."
 if [ "${GENERATE_MANIFEST:-false}" = "true" ] || { [ -n "${BACKEND_DIGEST:-}" ] && [ -n "${FRONTEND_DIGEST:-}" ]; }; then
   BACKEND_DIGEST="${BACKEND_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
   FRONTEND_DIGEST="${FRONTEND_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}"
+  BACKEND_PLATFORM_AMD64="${BACKEND_PLATFORM_AMD64:-sha256:0000000000000000000000000000000000000000000000000000000000000001}"
+  BACKEND_PLATFORM_ARM64="${BACKEND_PLATFORM_ARM64:-sha256:0000000000000000000000000000000000000000000000000000000000000002}"
+  FRONTEND_PLATFORM_AMD64="${FRONTEND_PLATFORM_AMD64:-sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff01}"
+  FRONTEND_PLATFORM_ARM64="${FRONTEND_PLATFORM_ARM64:-sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff02}"
   MANIFEST_VER="${MANIFEST_VERSION:-3}"
+  TARGET_SCHEMA="${TARGET_SCHEMA:-${SCHEMA:-}}"
+  if [ -z "${TARGET_SCHEMA}" ]; then
+    latest_migration="$(ls -1 "${ROOT_DIR}/backend/internal/database/migrations/"*.sql 2>/dev/null | sort -V | tail -n 1 || true)"
+    if [ -n "${latest_migration}" ]; then
+      TARGET_SCHEMA="$(basename "${latest_migration}" | sed -E 's/^([0-9]+).*/\1/' | sed 's/^0*//')"
+    else
+      TARGET_SCHEMA="10"
+    fi
+  fi
   echo ""
-  echo "==> Generating release-manifest.json (v${MANIFEST_VER}, Schema 9)..."
+  echo "==> Generating release-manifest.json (v${MANIFEST_VER}, Schema ${TARGET_SCHEMA})..."
   PLATFORM_ARGS=()
   if [ -n "${BACKEND_PLATFORM_AMD64:-}" ]; then
     PLATFORM_ARGS+=(--backend-platform "linux/amd64=${BACKEND_PLATFORM_AMD64}")
@@ -94,11 +107,11 @@ if [ "${GENERATE_MANIFEST:-false}" = "true" ] || { [ -n "${BACKEND_DIGEST:-}" ] 
     --version "${VERSION}" \
     --tag "v${VERSION}" \
     --manifest-version "${MANIFEST_VER}" \
-    --schema 9 \
+    --schema "${TARGET_SCHEMA}" \
     --min-upgrade 0.15.0 \
     --backend-digest "${BACKEND_DIGEST}" \
     --frontend-digest "${FRONTEND_DIGEST}" \
-    "${PLATFORM_ARGS[@]}" \
+    ${PLATFORM_ARGS[@]+"${PLATFORM_ARGS[@]}"} \
     --output "${OUTPUT_DIR}/release-manifest.json"
 fi
 

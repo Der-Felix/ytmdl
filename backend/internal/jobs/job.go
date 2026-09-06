@@ -208,45 +208,59 @@ func (s ItemStatus) CanTransitionTo(next ItemStatus) bool {
 type Priority string
 
 const (
-	PriorityLow    Priority = "low"
-	PriorityNormal Priority = "normal"
-	PriorityHigh   Priority = "high"
+	PriorityLow      Priority = "low"
+	PriorityNormal   Priority = "normal"
+	PriorityHigh     Priority = "high"
+	PriorityVeryHigh Priority = "very_high"
+	PriorityUrgent   Priority = "urgent" // alias for very_high
 )
 
 // Valid reports whether p is a known priority level.
 func (p Priority) Valid() bool {
 	switch p {
-	case PriorityLow, PriorityNormal, PriorityHigh:
+	case PriorityLow, PriorityNormal, PriorityHigh, PriorityVeryHigh, PriorityUrgent:
 		return true
 	default:
 		return false
 	}
 }
 
+// Canonical returns the canonical Priority value.
+func (p Priority) Canonical() Priority {
+	if p == PriorityUrgent {
+		return PriorityVeryHigh
+	}
+	return p
+}
+
 // Rank maps the priority to an integer rank for database indexing and fast comparison:
-// 0 = low, 1 = normal, 2 = high.
+// 0 = low, 1 = normal, 2 = high, 3 = very_high.
 func (p Priority) Rank() int {
 	switch p {
 	case PriorityLow:
 		return 0
-	case PriorityHigh:
-		return 2
 	case PriorityNormal:
 		return 1
+	case PriorityHigh:
+		return 2
+	case PriorityVeryHigh, PriorityUrgent:
+		return 3
 	default:
 		return 1
 	}
 }
 
-// PriorityFromRank maps an integer rank (0, 1, 2) back to a Priority.
+// PriorityFromRank maps an integer rank (0, 1, 2, 3) back to a Priority.
 func PriorityFromRank(r int) Priority {
 	switch r {
 	case 0:
 		return PriorityLow
-	case 2:
-		return PriorityHigh
 	case 1:
 		return PriorityNormal
+	case 2:
+		return PriorityHigh
+	case 3:
+		return PriorityVeryHigh
 	default:
 		return PriorityNormal
 	}

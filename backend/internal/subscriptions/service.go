@@ -261,6 +261,13 @@ func (s *Service) Update(ctx context.Context, id string, update Update) (*Subscr
 		return nil, apperr.New(apperr.CodeInvalidRequest,
 			"The request changes nothing; set enabled or auto_download.")
 	}
+	if update.DownloadPriority != nil {
+		if !update.DownloadPriority.Valid() {
+			return nil, apperr.Newf(apperr.CodeInvalidRequest, "Invalid download priority %q.", *update.DownloadPriority)
+		}
+		c := update.DownloadPriority.Canonical()
+		update.DownloadPriority = &c
+	}
 	sub, err := s.store.Update(ctx, id, update)
 	if err != nil {
 		return nil, err
@@ -295,6 +302,8 @@ func (s *Service) Export(ctx context.Context) (*ExportPayload, error) {
 		priority := sub.DownloadPriority
 		if !priority.Valid() {
 			priority = jobs.PriorityLow
+		} else {
+			priority = priority.Canonical()
 		}
 
 		exported[i] = ExportSubscription{
@@ -362,6 +371,8 @@ func (s *Service) PreviewImport(ctx context.Context, payload ExportPayload) (*Im
 		priority := item.DownloadPriority
 		if !priority.Valid() {
 			priority = jobs.PriorityLow
+		} else {
+			priority = priority.Canonical()
 		}
 
 		pItem := ImportPreviewItem{

@@ -59,6 +59,7 @@ jobs:
             fi
             clean_version="$(tr -d '[:space:]' < .release-version | sed 's/^v//')"
             echo "Running in workflow_dispatch verify_only mode for version ${clean_version}"
+            ./scripts/validate-release-metadata.sh --version "${clean_version}"
             echo "tag=v${clean_version}" >> "$GITHUB_OUTPUT"
             echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
             exit 0
@@ -81,6 +82,8 @@ jobs:
             echo "::error::Tag version ($clean_version) does not match .release-version ($repo_version)" >&2
             exit 1
           fi
+
+          ./scripts/validate-release-metadata.sh --version "${clean_version}"
 
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
@@ -437,7 +440,7 @@ jobs:
             --version "${{ steps.version.outputs.version }}" \
             --tag "${{ steps.version.outputs.tag }}" \
             --manifest-version 3 \
-            --schema 9 \
+            --schema 10 \
             --min-upgrade 0.15.0 \
             --backend-digest "${backend_digest}" \
             --backend-platform "linux/amd64=${backend_amd64}" \

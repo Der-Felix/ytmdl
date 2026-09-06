@@ -235,9 +235,10 @@ function JobCard({
                   aria-label="Priorität ändern"
                   className="rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 >
-                  <option value="low">Niedrig</option>
-                  <option value="normal">Normal</option>
+                  <option value="very_high">Sehr hoch</option>
                   <option value="high">Hoch</option>
+                  <option value="normal">Normal</option>
+                  <option value="low">Niedrig</option>
                 </select>
               </div>
             </>
@@ -403,7 +404,9 @@ function StatusBadge({ status }: { status: JobStatus }) {
 function PriorityBadge({ priority }: { priority?: JobPriority }) {
   const p = priority || 'normal'
   const tone =
-    p === 'high'
+    p === 'very_high'
+      ? 'border-rose-500/30 bg-rose-500/10 text-rose-500 font-semibold'
+      : p === 'high'
       ? 'border-amber-500/30 bg-amber-500/10 text-amber-500'
       : p === 'low'
       ? 'border-slate-500/20 bg-slate-500/10 text-muted-foreground'

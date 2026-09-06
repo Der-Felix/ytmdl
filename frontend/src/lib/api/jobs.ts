@@ -258,6 +258,7 @@ export const JOB_PRIORITY_LABELS: Record<JobPriority, string> = {
   low: 'Niedrig',
   normal: 'Normal',
   high: 'Hoch',
+  very_high: 'Sehr hoch',
 }
 
 /**

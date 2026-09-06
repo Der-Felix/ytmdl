@@ -930,17 +930,9 @@ func (r *Jobs) QueueCounts(ctx context.Context) (jobs.QueueCounts, error) {
 	return counts, nil
 }
 
-// EffectivePrioritySQL expresses starvation aging in SQL matching jobs.EffectivePriority:
-// Normal (1) after 15m -> High (2)
-// Low (0) after 60m -> High (2)
-// Low (0) after 30m -> Normal (1)
-// Otherwise base priority (0, 1, 2)
-const EffectivePrioritySQL = `CASE
-	WHEN j.priority = 1 AND j.created_at <= NOW() - INTERVAL '15 minutes' THEN 2
-	WHEN j.priority = 0 AND j.created_at <= NOW() - INTERVAL '60 minutes' THEN 2
-	WHEN j.priority = 0 AND j.created_at <= NOW() - INTERVAL '30 minutes' THEN 1
-	ELSE j.priority
-END`
+// EffectivePrioritySQL expresses priority rank in SQL matching jobs.EffectivePriority:
+// 3 = Urgent, 2 = High, 1 = Normal, 0 = Low
+const EffectivePrioritySQL = `j.priority`
 
 // NextUpJobs returns the upcoming unpaused candidate jobs in dispatcher order.
 func (r *Jobs) NextUpJobs(ctx context.Context, limit int) ([]jobs.NextUpJob, error) {

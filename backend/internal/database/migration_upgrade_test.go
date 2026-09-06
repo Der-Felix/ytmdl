@@ -26,8 +26,8 @@ func TestMigration0007_FreshDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to query schema_migrations: %v", err)
 	}
-	if count != 9 {
-		t.Fatalf("expected 9 migrations applied, got %d", count)
+	if count != 10 {
+		t.Fatalf("expected 10 migrations applied, got %d", count)
 	}
 
 	// Verify all indexes exist
@@ -688,5 +688,68 @@ func TestMigration0008_UpgradeFromV012(t *testing.T) {
 			WHERE table_schema = $1 AND table_name = 'library_audit_findings'
 		)`, schema).Scan(&findingsExists); err != nil || !findingsExists {
 		t.Fatalf("expected library_audit_findings table to exist: %v", err)
+	}
+}
+
+func TestMigration0010_FreshDBSchema10(t *testing.T) {
+	db := dbtest.Open(t)
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 1. Verify schema migration reached version 10
+	var version int
+	if err := db.QueryRowContext(ctx, "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1").Scan(&version); err != nil {
+		t.Fatalf("failed to query schema version: %v", err)
+	}
+	if version != 10 {
+		t.Fatalf("expected latest schema version 10, got %d", version)
+	}
+
+	// 2. Inserting job with priority 3 (urgent) must succeed
+	now := time.Now().UTC()
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO jobs (id, type, status, label, metadata_provider, media_provider, target_id, priority, created_at, updated_at)
+		VALUES ('job_test_pri_3', 'artist', 'queued', 'Test Urgent Job', 'spotify', 'ytmusic', 'test_target_3', 3, $1, $1)
+	`, now)
+	if err != nil {
+		t.Fatalf("expected priority 3 to be allowed for jobs, got: %v", err)
+	}
+
+	// 3. Inserting artist subscription with download_priority 3 must succeed
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO artist_subscriptions (id, artist_name, provider, artist_source_id, next_sync_at, download_priority, created_at, updated_at)
+		VALUES ('sub_test_pri_3', 'Test Urgent Artist', 'spotify', 'art_3', $1, 3, $1, $1)
+	`, now)
+	if err != nil {
+		t.Fatalf("expected download_priority 3 to be allowed for subscriptions, got: %v", err)
+	}
+
+	// 4. Priority 4 must fail check constraint
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO jobs (id, type, status, label, metadata_provider, media_provider, target_id, priority, created_at, updated_at)
+		VALUES ('job_test_pri_4', 'artist', 'queued', 'Test Invalid Job', 'spotify', 'ytmusic', 'test_target_4', 4, $1, $1)
+	`, now)
+	if err == nil {
+		t.Fatal("expected error when inserting job with priority 4, got nil")
+	}
+
+	// 5. Subscription download_priority 4 must fail check constraint
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO artist_subscriptions (id, artist_name, provider, artist_source_id, next_sync_at, download_priority, created_at, updated_at)
+		VALUES ('sub_test_pri_4', 'Test Invalid Artist', 'spotify', 'art_4', $1, 4, $1, $1)
+	`, now)
+	if err == nil {
+		t.Fatal("expected error when inserting subscription with download_priority 4, got nil")
+	}
+
+	// 6. Negative priority must fail check constraint
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO jobs (id, type, status, label, metadata_provider, media_provider, target_id, priority, created_at, updated_at)
+		VALUES ('job_test_pri_neg', 'artist', 'queued', 'Test Neg Job', 'spotify', 'ytmusic', 'test_target_neg', -1, $1, $1)
+	`, now)
+	if err == nil {
+		t.Fatal("expected error when inserting job with priority -1, got nil")
 	}
 }

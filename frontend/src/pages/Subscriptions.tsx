@@ -1017,6 +1017,7 @@ function SubscriptionTableRow({
                   <option value="low">Niedrig (Standard für Abos)</option>
                   <option value="normal">Normal</option>
                   <option value="high">Hoch</option>
+                  <option value="very_high">Sehr hoch</option>
                 </select>
               </div>
 

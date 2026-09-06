@@ -379,7 +379,7 @@ func (s *Service) Apply(ctx context.Context, update Update) (Settings, error) {
 		if !p.Valid() {
 			return Settings{}, apperr.Newf(apperr.CodeInvalidRequest, "Invalid subscription priority %q.", *update.SubscriptionPriority)
 		}
-		priStr := string(p)
+		priStr := string(p.Canonical())
 		s.subPriority.Store(&priStr)
 		values[KeySubscriptionPriority] = priStr
 	}

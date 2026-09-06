@@ -231,7 +231,7 @@ export interface ReleaseFilter {
   remixes: boolean
 }
 
-export const JOB_PRIORITIES = ['low', 'normal', 'high'] as const
+export const JOB_PRIORITIES = ['low', 'normal', 'high', 'very_high'] as const
 export type JobPriority = (typeof JOB_PRIORITIES)[number]
 
 export interface JobOptions {

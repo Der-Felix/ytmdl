@@ -300,6 +300,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
             className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="all">Alle Prioritäten</option>
+            <option value="very_high">Sehr hoch</option>
             <option value="high">Hoch</option>
             <option value="normal">Normal</option>
             <option value="low">Niedrig</option>

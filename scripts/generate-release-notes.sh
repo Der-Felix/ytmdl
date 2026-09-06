@@ -75,11 +75,18 @@ REPO="Der-Felix/ytmdl"
 MIGRATION=""
 OUTPUT=""
 
+DO_VALIDATE=0
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --validate)
-      validate_notes "$2"
-      exit $?
+      if [ $# -ge 2 ] && [[ "$2" != -* ]] && [ -f "$2" ]; then
+        validate_notes "$2"
+        exit $?
+      else
+        DO_VALIDATE=1
+        shift 1
+      fi
       ;;
     -v|--version)
       VERSION="$2"
@@ -190,10 +197,19 @@ fi
 # 3. Trim leading and trailing blank lines
 CLEAN_BODY="$(echo "$RAW_BODY" | grep -vE "^[-*] \*\*Database Schema:\*\*" | sed 's/^### /## /' | awk 'NF {p=1} p')"
 
+UPDATE_HEADING="Update"
+if ! echo "$MIGRATION" | grep -qiE "(no database migration|keine datenbankmigration|remains at schema)"; then
+  if echo "$MIGRATION" | grep -qiE "migration"; then
+    UPDATE_HEADING="Upgrade Notes"
+    MIGRATION="$(echo "$MIGRATION" | sed -E 's/([.!?]) ([A-Z])/\1\n\n\2/g')"
+  fi
+fi
+
 # Build final notes
-NOTES="$(printf "%s\n\n%s\n\n## Update\n\nExisting installations can update using:\n\n\`ytmdlctl update\`\n\n%s\n" \
+NOTES="$(printf "%s\n\n%s\n\n## %s\n\nExisting installations can update using:\n\n\`ytmdlctl update\`\n\n%s\n" \
   "# YTMDL v${VERSION}" \
   "${CLEAN_BODY}" \
+  "${UPDATE_HEADING}" \
   "${MIGRATION}")"
 
 if [ -n "$PREV_TAG" ]; then
@@ -203,6 +219,15 @@ if [ -n "$PREV_TAG" ]; then
     "${PREV_TAG}" \
     "${VERSION}" \
     "${COMPARE_URL}")"
+fi
+
+if [ "$DO_VALIDATE" -eq 1 ]; then
+  TMP_VAL="$(mktemp)"
+  printf "%s\n" "$NOTES" > "$TMP_VAL"
+  validate_notes "$TMP_VAL"
+  VAL_RET=$?
+  rm -f "$TMP_VAL"
+  exit $VAL_RET
 fi
 
 if [ -n "$OUTPUT" ]; then

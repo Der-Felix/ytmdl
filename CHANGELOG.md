@@ -2,6 +2,39 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.19.0 — 2026-09-05
+
+### Features
+
+- Added a fourth priority level: **Very High**
+- Added Very High priority support for subscriptions
+- Added Very High priority filtering and controls in the WebUI
+
+### Improvements
+
+- Queue scheduling is now deterministic and easier to understand
+- Priority ordering now follows:
+  `Very High → High → Normal → Low`
+- Jobs with equal priority continue to use FIFO ordering
+
+### Bug Fixes
+
+- Fixed manually selected High priority losing its practical effect against aged background jobs
+
+### Changes
+
+- Removed automatic starvation-based priority promotion
+- Normal and Low jobs no longer increase their priority based on age
+- Very High jobs are selected as soon as a worker becomes available
+- Already running downloads are never interrupted
+
+### Updates
+
+- Database schema updated from **9 to 10**
+- Priority constraints now support values `0–3`
+- Release manifest updated for Schema 10 upgrade paths
+- **Database Schema:** This release includes a database migration from **Schema 9 to Schema 10**. A pre-migration backup is required and handled by the managed updater.
+
 ## 0.18.1 — 2026-09-05
 
 ### Highlights

@@ -102,46 +102,39 @@ func TestScheduleTimezoneDST(t *testing.T) {
 	}
 }
 
-func TestStarvationAging(t *testing.T) {
+func TestPriorityRanksNoAging(t *testing.T) {
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 
-	// High priority always rank 2
+	// Urgent priority always rank 3, regardless of age
+	jUrgent := Job{Priority: PriorityUrgent, CreatedAt: now.Add(-5 * time.Minute)}
+	if r := EffectivePriority(jUrgent, now); r != 3 {
+		t.Fatalf("expected urgent priority rank 3, got %d", r)
+	}
+
+	// High priority always rank 2, regardless of age
 	jHigh := Job{Priority: PriorityHigh, CreatedAt: now.Add(-5 * time.Minute)}
 	if r := EffectivePriority(jHigh, now); r != 2 {
 		t.Fatalf("expected high priority rank 2, got %d", r)
 	}
 
-	// Normal priority:
-	// < 15m -> rank 1
+	// Normal priority always rank 1, regardless of age (no aging to high after 15m)
 	jNormalFresh := Job{Priority: PriorityNormal, CreatedAt: now.Add(-10 * time.Minute)}
 	if r := EffectivePriority(jNormalFresh, now); r != 1 {
 		t.Fatalf("expected fresh normal rank 1, got %d", r)
 	}
-	// >= 15m -> rank 2 (promoted to High)
-	jNormalAged := Job{Priority: PriorityNormal, CreatedAt: now.Add(-15 * time.Minute)}
-	if r := EffectivePriority(jNormalAged, now); r != 2 {
-		t.Fatalf("expected aged normal rank 2, got %d", r)
+	jNormalAged := Job{Priority: PriorityNormal, CreatedAt: now.Add(-60 * time.Minute)}
+	if r := EffectivePriority(jNormalAged, now); r != 1 {
+		t.Fatalf("expected aged normal rank 1 (no aging), got %d", r)
 	}
 
-	// Low priority:
-	// < 30m -> rank 0
+	// Low priority always rank 0, regardless of age (no aging to normal/high)
 	jLowFresh := Job{Priority: PriorityLow, CreatedAt: now.Add(-20 * time.Minute)}
 	if r := EffectivePriority(jLowFresh, now); r != 0 {
 		t.Fatalf("expected fresh low rank 0, got %d", r)
 	}
-	// >= 30m and < 60m -> rank 1 (promoted to Normal)
-	jLow30m := Job{Priority: PriorityLow, CreatedAt: now.Add(-30 * time.Minute)}
-	if r := EffectivePriority(jLow30m, now); r != 1 {
-		t.Fatalf("expected 30m low rank 1, got %d", r)
-	}
-	jLow45m := Job{Priority: PriorityLow, CreatedAt: now.Add(-45 * time.Minute)}
-	if r := EffectivePriority(jLow45m, now); r != 1 {
-		t.Fatalf("expected 45m low rank 1, got %d", r)
-	}
-	// >= 60m -> rank 2 (promoted to High)
-	jLow60m := Job{Priority: PriorityLow, CreatedAt: now.Add(-60 * time.Minute)}
-	if r := EffectivePriority(jLow60m, now); r != 2 {
-		t.Fatalf("expected 60m low rank 2, got %d", r)
+	jLowAged := Job{Priority: PriorityLow, CreatedAt: now.Add(-120 * time.Minute)}
+	if r := EffectivePriority(jLowAged, now); r != 0 {
+		t.Fatalf("expected aged low rank 0 (no aging), got %d", r)
 	}
 }
 
@@ -625,6 +618,79 @@ func TestSchedulerPriorityHighOverLow(t *testing.T) {
 	}
 }
 
+func TestSchedulerPriorityUrgentOverAll(t *testing.T) {
+	// JobLow created 10 hours ago
+	// JobNormal created 5 hours ago
+	// JobHigh created 1 hour ago
+	// JobUrgent created right now
+	// Urgent must be selected first regardless of the older jobs' age.
+	store := newMemorySchedulerStore()
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+
+	jobLow := Job{
+		ID:        "job_low",
+		Status:    StatusDownloading,
+		Priority:  PriorityLow,
+		CreatedAt: now.Add(-10 * time.Hour),
+	}
+	store.addJob(jobLow, []Item{{ID: "it_low", JobID: "job_low", Status: ItemPending, Track: music.Track{ID: "tr_low"}}})
+
+	jobNorm := Job{
+		ID:        "job_norm",
+		Status:    StatusDownloading,
+		Priority:  PriorityNormal,
+		CreatedAt: now.Add(-5 * time.Hour),
+	}
+	store.addJob(jobNorm, []Item{{ID: "it_norm", JobID: "job_norm", Status: ItemPending, Track: music.Track{ID: "tr_norm"}}})
+
+	jobHigh := Job{
+		ID:        "job_high",
+		Status:    StatusDownloading,
+		Priority:  PriorityHigh,
+		CreatedAt: now.Add(-1 * time.Hour),
+	}
+	store.addJob(jobHigh, []Item{{ID: "it_high", JobID: "job_high", Status: ItemPending, Track: music.Track{ID: "tr_high"}}})
+
+	jobUrgent := Job{
+		ID:        "job_urgent",
+		Status:    StatusDownloading,
+		Priority:  PriorityUrgent,
+		CreatedAt: now,
+	}
+	store.addJob(jobUrgent, []Item{{ID: "it_urgent", JobID: "job_urgent", Status: ItemPending, Track: music.Track{ID: "tr_urgent"}}})
+
+	mgr := &Manager{
+		store:     store,
+		nowFunc:   func() time.Time { return now },
+		semaphore: make(chan struct{}, 2),
+	}
+	mgr.maxWorkers.Store(2)
+	defStart := "00:00"
+	defEnd := "23:59"
+	empty := ""
+	mgr.scheduleStart.Store(&defStart)
+	mgr.scheduleEnd.Store(&defEnd)
+	mgr.scheduleTimezone.Store(&empty)
+	mgr.rateLimit.Store(&empty)
+
+	candidates := mgr.collectCandidates(context.Background())
+	if len(candidates) < 4 {
+		t.Fatalf("expected 4 candidates, got %d", len(candidates))
+	}
+	if candidates[0].job.ID != "job_urgent" {
+		t.Fatalf("expected urgent priority job as first candidate, got %s", candidates[0].job.ID)
+	}
+	if candidates[1].job.ID != "job_high" {
+		t.Fatalf("expected high priority job as second candidate, got %s", candidates[1].job.ID)
+	}
+	if candidates[2].job.ID != "job_norm" {
+		t.Fatalf("expected normal priority job as third candidate, got %s", candidates[2].job.ID)
+	}
+	if candidates[3].job.ID != "job_low" {
+		t.Fatalf("expected low priority job as fourth candidate, got %s", candidates[3].job.ID)
+	}
+}
+
 func TestSchedulerPausedJobBehavior(t *testing.T) {
 	store := newMemorySchedulerStore()
 	now := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
@@ -816,4 +882,73 @@ func TestFinalizerSingleConcurrencySlot(t *testing.T) {
 		// Expected to block
 	}
 	<-mgr.finalizerSem
+}
+
+func TestManager_NoPreemptionOnVeryHighPriority(t *testing.T) {
+	store := newMemorySchedulerStore()
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+
+	// Job 1: In-flight Normal job with 1 running item and 1 pending item
+	jobRunning := Job{
+		ID:        "job_running",
+		Status:    StatusDownloading,
+		Total:     2,
+		Priority:  PriorityNormal,
+		CreatedAt: now.Add(-10 * time.Minute),
+	}
+	runningItem := Item{ID: "item_in_flight", JobID: "job_running", Status: ItemDownloading}
+	queuedItem1 := Item{ID: "item_normal_queued", JobID: "job_running", Status: ItemPending}
+	store.addJob(jobRunning, []Item{runningItem, queuedItem1})
+
+	// Job 2: Queued Very High job with 1 pending item
+	jobVeryHigh := Job{
+		ID:        "job_very_high",
+		Status:    StatusQueued,
+		Total:     1,
+		Priority:  PriorityVeryHigh,
+		CreatedAt: now,
+	}
+	queuedItem2 := Item{ID: "item_vh_queued", JobID: "job_very_high", Status: ItemPending}
+	store.addJob(jobVeryHigh, []Item{queuedItem2})
+
+	mgr := &Manager{
+		store:     store,
+		nowFunc:   func() time.Time { return now },
+		semaphore: make(chan struct{}, 2),
+	}
+	mgr.maxWorkers.Store(2)
+	defStart := "00:00"
+	defEnd := "23:59"
+	empty := ""
+	mgr.scheduleStart.Store(&defStart)
+	mgr.scheduleEnd.Store(&defEnd)
+	mgr.scheduleTimezone.Store(&empty)
+	mgr.rateLimit.Store(&empty)
+
+	// Simulate item_in_flight is actively running (recorded in inFlight map)
+	mgr.inFlight.Store(runningItem.ID, jobRunning.ID)
+	mgr.activeWorkers.Store(1)
+
+	// In-flight items must NOT be cancelled or interrupted by higher priority jobs
+	if _, running := mgr.inFlight.Load(runningItem.ID); !running {
+		t.Fatal("expected running item to remain in flight (no preemption)")
+	}
+
+	// When candidate collection and next worker dispatch occur:
+	// Next free worker slot must pick the Very High job first
+	candidates := mgr.collectCandidates(context.Background())
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	}
+	if candidates[0].job.ID != "job_very_high" {
+		t.Fatalf("expected candidate 0 to be job_very_high, got %s", candidates[0].job.ID)
+	}
+	if candidates[0].ready[0].ID != "item_vh_queued" {
+		t.Fatalf("expected ready item to be item_vh_queued, got %s", candidates[0].ready[0].ID)
+	}
+
+	// In-flight item is still actively running undisturbed
+	if _, running := mgr.inFlight.Load(runningItem.ID); !running {
+		t.Fatal("expected running item to still remain in flight after scheduling")
+	}
 }
