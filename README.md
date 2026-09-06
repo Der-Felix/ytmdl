@@ -45,8 +45,8 @@ The recommended way to deploy YTMDL is using official prebuilt container images 
 mkdir -p ytmdl && cd ytmdl
 
 # Download compose file and sample environment
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.19.2/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.19.2/.env.example
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.19.3/compose.ghcr.yaml
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.19.3/.env.example
 cp .env.example .env
 ```
 
@@ -56,7 +56,7 @@ Edit `.env` to set your music storage path and database password:
 
 ```env
 # Pin a stable release (recommended) or use 'latest'
-YTMDL_VERSION=0.19.2
+YTMDL_VERSION=0.19.3
 
 # Path to your local music directory or host-mounted SMB/CIFS share
 YTMDL_MUSIC_PATH=/path/to/your/music
@@ -137,8 +137,8 @@ Official container images (built natively for `linux/amd64` and `linux/arm64`) a
 Images can be pulled anonymously without authentication:
 
 ```sh
-podman pull ghcr.io/der-felix/ytmdl-backend:0.19.2
-podman pull ghcr.io/der-felix/ytmdl-frontend:0.19.2
+podman pull ghcr.io/der-felix/ytmdl-backend:0.19.3
+podman pull ghcr.io/der-felix/ytmdl-frontend:0.19.3
 ```
 
 For building from source or running a development environment, see [docs/development.md](docs/development.md).

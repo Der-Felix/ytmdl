@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { MenuIcon, XIcon } from 'lucide-react'
 
-import { ConnectionBadge } from '@/components/layout/ConnectionBadge'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { MiniPlayer } from '@/components/player/MiniPlayer'
 import { Button } from '@/components/ui/button'
@@ -19,8 +18,7 @@ interface AppShellProps {
 
 /**
  * The frame every page renders inside: a fixed sidebar on desktop, a drawer
- * below it, and a header that carries the mobile menu and the live-stream
- * state.
+ * below it, and a minimal mobile header for navigation.
  *
  * In Now Playing (/player) mode, the shell provides an immersive full-viewport
  * music experience with custom player controls and fullscreen capabilities.
@@ -88,18 +86,17 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Top header (Hidden in player mode) */}
+        {/* Mobile header (Hidden on desktop and in player mode) */}
         {!isPlayerRoute && (
           <header
             className={cn(
-              'sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border px-4 sm:px-6 lg:px-8',
-              'panel-blur rounded-none border-x-0 border-t-0 bg-[#0b0d14]/70',
+              'sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border px-4 sm:px-6',
+              'panel-blur rounded-none border-x-0 border-t-0 bg-[#0b0d14]/70 md:hidden',
             )}
           >
             <Button
               variant="ghost"
               size="icon-sm"
-              className="md:hidden"
               aria-label={drawerOpen ? 'Navigation schließen' : 'Navigation öffnen'}
               aria-expanded={drawerOpen}
               onClick={() => setDrawerOpen((open) => !open)}
@@ -109,7 +106,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
 
             <Link
               href={paths.dashboard()}
-              className="focus-ring flex items-center gap-2 rounded-lg md:hidden"
+              className="focus-ring flex items-center gap-2 rounded-lg"
             >
               <img
                 src="/logo-mark.png"
@@ -122,10 +119,6 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
                 YTMDL
               </span>
             </Link>
-
-            <div className="ml-auto flex items-center gap-4">
-              <ConnectionBadge />
-            </div>
           </header>
         )}
 
@@ -136,8 +129,8 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
             isPlayerRoute
               ? 'p-0 flex flex-col'
               : showMiniPlayer
-                ? 'px-4 py-6 sm:px-6 lg:px-8 pb-28 sm:pb-32'
-                : 'px-4 py-6 sm:px-6 lg:px-8 pb-8',
+                ? 'px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-8 pb-28 sm:pb-32'
+                : 'px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-8 pb-8',
           )}
         >
           <div className={isPlayerRoute ? 'w-full flex-1 flex flex-col' : 'mx-auto w-full max-w-[80rem]'}>

@@ -325,6 +325,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // 6. Global Keyboard Shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // Do not intercept browser or system shortcuts (e.g. Cmd+R reload, Ctrl+R, Cmd+M, etc.)
+      if (e.metaKey || e.ctrlKey || e.altKey) {
+        return
+      }
+
       const target = e.target as HTMLElement | null
       if (
         target &&

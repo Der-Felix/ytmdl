@@ -2,6 +2,22 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.19.3 — 2026-09-06
+
+### Improvements
+
+- Simplified the desktop application shell by removing the unused global status/header bar.
+- Kept a compact navigation header for mobile layouts.
+
+### Bug Fixes
+
+- Browser-native reload shortcuts such as Cmd+R, Cmd+Shift+R and Ctrl+R are no longer intercepted by player keyboard controls.
+
+### Changes
+
+- Removed the global Live connection badge from the AppShell.
+- **Database Schema:** Schema remains at Schema 10; no database migration is required.
+
 ## 0.19.2 — 2026-09-06
 
 ### Improvements

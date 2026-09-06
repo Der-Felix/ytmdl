@@ -5,15 +5,11 @@ import { AuthContext } from '@/contexts/auth-context'
 import { AppShell } from './AppShell'
 import type { Route } from '@/lib/router'
 
-// Mock usePlayer and useJobs hooks for AppShell
+// Mock usePlayer hook for AppShell
 mock.module('@/hooks/usePlayer', () => ({
   usePlayer: () => ({
     currentTrack: null,
   }),
-}))
-
-mock.module('@/hooks/useJobs', () => ({
-  useConnectionState: () => 'open',
 }))
 
 describe('AppShell Layout', () => {
@@ -139,5 +135,32 @@ describe('AppShell Layout', () => {
     const mobileLogo = screen.getByTestId('brand-logo-mobile')
     expect(mobileLogo).toBeDefined()
     expect(mobileLogo.getAttribute('src')).toBe('/logo-mark.png')
+  })
+
+  it('renders mobile-only header with md:hidden and no Live indicator', () => {
+    const route: Route = { name: 'dashboard' }
+
+    const { container } = render(
+      <AuthContext.Provider value={adminAuth}>
+        <AppShell route={route} activeDownloads={0}>
+          <div data-testid="page-content">Dashboard Content</div>
+        </AppShell>
+      </AuthContext.Provider>,
+    )
+
+    // Header element must exist only as a mobile bar (md:hidden)
+    const header = container.querySelector('header')
+    expect(header).not.toBeNull()
+    expect(header?.className).toContain('md:hidden')
+
+    // Mobile navigation trigger button exists
+    expect(screen.getByRole('button', { name: 'Navigation öffnen' })).toBeDefined()
+
+    // Mobile logo exists
+    expect(screen.getByTestId('brand-logo-mobile')).toBeDefined()
+
+    // No "Live" badge or connection status indicator exists anywhere
+    expect(screen.queryByText('Live')).toBeNull()
+    expect(screen.queryByTitle(/Live-Updates/i)).toBeNull()
   })
 })
