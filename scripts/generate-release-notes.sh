@@ -136,10 +136,6 @@ if [ -z "$VERSION" ]; then
   fi
 fi
 
-if [ -z "$PREV_TAG" ]; then
-  PREV_TAG="$(git -C "${ROOT_DIR}" tag -l "v*" --sort=-v:refname 2>/dev/null | grep -v "^v${VERSION}$" | head -n 1 || true)"
-fi
-
 if [ -z "$PREV_TAG" ] && [ -f "$CHANGELOG" ]; then
   PREV_TAG="$(awk -v ver="${VERSION}" '
     /^## [0-9]/ {
@@ -151,6 +147,10 @@ if [ -z "$PREV_TAG" ] && [ -f "$CHANGELOG" ]; then
     }
     END { if (prev) print "v" prev }
   ' "${CHANGELOG}" 2>/dev/null || true)"
+fi
+
+if [ -z "$PREV_TAG" ]; then
+  PREV_TAG="$(git -C "${ROOT_DIR}" tag -l "v*" --sort=-v:refname 2>/dev/null | grep -v "^v${VERSION}$" | head -n 1 || true)"
 fi
 
 if [ ! -f "$CHANGELOG" ]; then

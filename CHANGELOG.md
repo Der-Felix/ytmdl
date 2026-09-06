@@ -2,7 +2,7 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
-## 0.19.0 — 2026-09-05
+## 0.19.1 — 2026-09-06
 
 ### Features
 
@@ -20,6 +20,7 @@ Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ### Bug Fixes
 
 - Fixed manually selected High priority losing its practical effect against aged background jobs
+- Fixed tagged release qualification incorrectly treating pre-existing release tags as publication mutations
 
 ### Changes
 
@@ -33,6 +34,7 @@ Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - Database schema updated from **9 to 10**
 - Priority constraints now support values `0–3`
 - Release manifest updated for Schema 10 upgrade paths
+- Release consistency qualification hardened for tagged releases
 - **Database Schema:** This release includes a database migration from **Schema 9 to Schema 10**. A pre-migration backup is required and handled by the managed updater.
 
 ## 0.18.1 — 2026-09-05
