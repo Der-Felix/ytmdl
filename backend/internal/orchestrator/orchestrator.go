@@ -112,17 +112,23 @@ func (o *ProviderOrchestrator) RecordDownloadOutcome(ctx context.Context, sessio
 		o.sessionPool.ReleaseDataPlane(sessionID)
 	}
 	if err != nil && apperr.ScopeOf(err) == apperr.ScopeProvider && o.cooldown != nil {
-		fam := provider.FamilyYouTube
-		o.logger.Warn("provider-family systemic failure detected during download, triggering cooldown",
-			logging.KeyProvider, string(fam),
-			logging.KeyErrorCode, string(apperr.CodeOf(err)),
-			logging.KeyError, err.Error())
-		o.cooldown.Trigger(string(fam), 60*time.Second)
+		if sessionID != "" {
+			fam := provider.FamilyYouTube
+			o.logger.Warn("provider-family systemic failure detected during download, triggering cooldown",
+				logging.KeyProvider, string(fam),
+				logging.KeyErrorCode, string(apperr.CodeOf(err)),
+				logging.KeyError, err.Error())
+			o.cooldown.Trigger(string(fam), 60*time.Second)
+		}
 	}
 }
 
 // bindProvider returns a copy of p configured with the given cookie path if supported.
+// Providers not belonging to FamilyYouTube never receive cookies.
 func bindProvider(p provider.MediaProvider, cookiePath string) provider.MediaProvider {
+	if provider.FamilyOf(p.Name()) != provider.FamilyYouTube {
+		return p
+	}
 	if yp, ok := p.(*youtube.MediaProvider); ok {
 		return yp.WithCookieFile(cookiePath)
 	}
@@ -158,15 +164,20 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		}
 	}
 
-	// 2. Session Acquisition
+	// 2. Session Acquisition (only for YouTube platform family)
 	var (
 		lease      *mediasession.Lease
 		cookiePath string
 		sessionID  string
 		leaseErr   error
 	)
+	defer func() {
+		if lease != nil {
+			lease.Release(leaseErr)
+		}
+	}()
 
-	if o.sessionPool != nil && o.sessionPool.HasConfiguredSessions() {
+	if fam == provider.FamilyYouTube && o.sessionPool != nil && o.sessionPool.HasConfiguredSessions() {
 		var err error
 		lease, err = o.sessionPool.Acquire(ctx)
 		if err != nil {
@@ -174,13 +185,10 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		}
 		cookiePath = lease.CookiePath()
 		sessionID = lease.SessionID()
-		defer func() {
-			lease.Release(leaseErr)
-		}()
 	}
 
 	// 3. Direct-ID Fast Path (if track carries a direct video ID)
-	if track.SourceID != "" {
+	if track.SourceID != "" && fam == provider.FamilyYouTube {
 		res, ok, err := o.tryDirectID(ctx, pref, track, cookiePath, sessionID, fam)
 		if err != nil {
 			leaseErr = err
@@ -223,11 +231,25 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 			return nil, leaseErr
 		}
 
+		provFam := provider.FamilyOf(provName)
+
 		if o.cooldown != nil {
-			if err := o.cooldown.Wait(ctx, provName); err != nil {
+			if err := o.cooldown.Wait(ctx, string(provFam)); err != nil {
 				leaseErr = err
 				return nil, leaseErr
 			}
+		}
+
+		// Lazily acquire a YouTube session if entering a YouTube-family provider and we don't have one yet
+		if provFam == provider.FamilyYouTube && lease == nil && o.sessionPool != nil && o.sessionPool.HasConfiguredSessions() {
+			var err error
+			lease, err = o.sessionPool.Acquire(ctx)
+			if err != nil {
+				leaseErr = err
+				return nil, err
+			}
+			cookiePath = lease.CookiePath()
+			sessionID = lease.SessionID()
 		}
 
 		p, err := o.registry.Media(provName)
@@ -240,7 +262,7 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		if err != nil {
 			if apperr.StopsCandidateFanout(err) {
 				leaseErr = err
-				o.handleSystemicFailure(err, fam, provName)
+				o.handleSystemicFailure(err, provFam, provName)
 				return nil, err
 			}
 			lastResolveErr = err
@@ -266,9 +288,13 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 
 				source, err := bp.Resolve(ctx, candidate)
 				if err == nil {
-					source.SessionID = sessionID
-					if o.sessionPool != nil && sessionID != "" {
-						o.sessionPool.RetainDataPlane(sessionID)
+					if provFam == provider.FamilyYouTube {
+						source.SessionID = sessionID
+						if o.sessionPool != nil && sessionID != "" {
+							o.sessionPool.RetainDataPlane(sessionID)
+						}
+					} else {
+						source.SessionID = ""
 					}
 					leaseErr = nil
 					o.logger.Info("media candidate resolved successfully",
@@ -280,7 +306,7 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 						Candidate:      candidate,
 						Score:          candResult.Score,
 						Source:         source,
-						SessionID:      sessionID,
+						SessionID:      source.SessionID,
 						AttemptedCount: attemptedCount,
 					}, nil
 				}
@@ -290,7 +316,7 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 				// Systemic failure: stop candidate fanout immediately
 				if apperr.StopsCandidateFanout(err) {
 					leaseErr = err
-					o.handleSystemicFailure(err, fam, candidate.Provider)
+					o.handleSystemicFailure(err, provFam, candidate.Provider)
 					return nil, err
 				}
 

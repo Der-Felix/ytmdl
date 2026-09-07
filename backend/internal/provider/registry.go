@@ -30,7 +30,9 @@ type Info struct {
 type Registry struct {
 	mu              sync.RWMutex
 	metadata        map[string]MetadataProvider
+	metadataOrder   []string
 	media           map[string]MediaProvider
+	mediaOrder      []string
 	defaultMetadata string
 	defaultMedia    string
 }
@@ -47,6 +49,9 @@ func NewRegistry() *Registry {
 func (r *Registry) RegisterMetadata(p MetadataProvider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, exists := r.metadata[p.Name()]; !exists {
+		r.metadataOrder = append(r.metadataOrder, p.Name())
+	}
 	r.metadata[p.Name()] = p
 	if r.defaultMetadata == "" {
 		r.defaultMetadata = p.Name()
@@ -57,6 +62,9 @@ func (r *Registry) RegisterMetadata(p MetadataProvider) {
 func (r *Registry) RegisterMedia(p MediaProvider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, exists := r.media[p.Name()]; !exists {
+		r.mediaOrder = append(r.mediaOrder, p.Name())
+	}
 	r.media[p.Name()] = p
 	if r.defaultMedia == "" {
 		r.defaultMedia = p.Name()
@@ -113,7 +121,8 @@ func (r *Registry) Media(name string) (MediaProvider, error) {
 }
 
 // MediaChain returns the media providers to try in order. The preferred
-// provider comes first, every other registered provider follows as a fallback.
+// provider comes first, every other registered provider follows in registration order
+// as a fallback.
 func (r *Registry) MediaChain(preferred string) []MediaProvider {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -125,21 +134,19 @@ func (r *Registry) MediaChain(preferred string) []MediaProvider {
 	if p, ok := r.media[preferred]; ok {
 		out = append(out, p)
 	}
-	names := make([]string, 0, len(r.media))
-	for name := range r.media {
+	for _, name := range r.mediaOrder {
 		if name != preferred {
-			names = append(names, name)
+			if p, ok := r.media[name]; ok {
+				out = append(out, p)
+			}
 		}
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		out = append(out, r.media[name])
 	}
 	return out
 }
 
 // MetadataChain returns the metadata providers to try in order. The preferred
-// provider comes first, every other registered provider follows as a fallback.
+// provider comes first, every other registered provider follows in registration order
+// as a fallback.
 func (r *Registry) MetadataChain(preferred string) []MetadataProvider {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -151,15 +158,12 @@ func (r *Registry) MetadataChain(preferred string) []MetadataProvider {
 	if p, ok := r.metadata[preferred]; ok {
 		out = append(out, p)
 	}
-	names := make([]string, 0, len(r.metadata))
-	for name := range r.metadata {
+	for _, name := range r.metadataOrder {
 		if name != preferred {
-			names = append(names, name)
+			if p, ok := r.metadata[name]; ok {
+				out = append(out, p)
+			}
 		}
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		out = append(out, r.metadata[name])
 	}
 	return out
 }

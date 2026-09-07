@@ -165,14 +165,15 @@ type MatchingConfig struct {
 
 // ProvidersConfig selects and configures the metadata and media providers.
 type ProvidersConfig struct {
-	DefaultMetadata string        `yaml:"default_metadata"`
-	DefaultMedia    string        `yaml:"default_media"`
-	Deezer          DeezerConfig  `yaml:"deezer"`
-	Spotify         SpotifyConfig `yaml:"spotify"`
-	YTMusic         YTMusicConfig `yaml:"ytmusic"`
-	YouTube         YouTubeConfig `yaml:"youtube"`
-	Genius          GeniusConfig  `yaml:"genius"`
-	HTTPTimeout     time.Duration `yaml:"http_timeout"`
+	DefaultMetadata string           `yaml:"default_metadata"`
+	DefaultMedia    string           `yaml:"default_media"`
+	Deezer          DeezerConfig     `yaml:"deezer"`
+	Spotify         SpotifyConfig    `yaml:"spotify"`
+	YTMusic         YTMusicConfig    `yaml:"ytmusic"`
+	YouTube         YouTubeConfig    `yaml:"youtube"`
+	SoundCloud      SoundCloudConfig `yaml:"soundcloud"`
+	Genius          GeniusConfig     `yaml:"genius"`
+	HTTPTimeout     time.Duration    `yaml:"http_timeout"`
 }
 
 // DeezerConfig holds the Deezer metadata provider settings.
@@ -220,6 +221,13 @@ type YTMusicConfig struct {
 
 // YouTubeConfig holds the plain YouTube media provider settings.
 type YouTubeConfig struct {
+	Enabled           bool    `yaml:"enabled"`
+	RequestsPerSecond float64 `yaml:"requests_per_second"`
+	Burst             int     `yaml:"burst"`
+}
+
+// SoundCloudConfig holds the SoundCloud media provider settings.
+type SoundCloudConfig struct {
 	Enabled           bool    `yaml:"enabled"`
 	RequestsPerSecond float64 `yaml:"requests_per_second"`
 	Burst             int     `yaml:"burst"`
@@ -326,9 +334,10 @@ func Default() Config {
 				APIBaseURL: "https://api.spotify.com/v1",
 				AuthURL:    "https://accounts.spotify.com/api/token",
 			},
-			YTMusic: YTMusicConfig{Enabled: true, BaseURL: "https://music.youtube.com"},
-			YouTube: YouTubeConfig{Enabled: true},
-			Genius:  GeniusConfig{Enabled: false},
+			YTMusic:    YTMusicConfig{Enabled: true, BaseURL: "https://music.youtube.com"},
+			YouTube:    YouTubeConfig{Enabled: true},
+			SoundCloud: SoundCloudConfig{Enabled: true, RequestsPerSecond: 1.0, Burst: 3},
+			Genius:     GeniusConfig{Enabled: false},
 		},
 		Subscriptions: SubscriptionsConfig{
 			Enabled:       true,
@@ -569,6 +578,14 @@ func (c *Config) applyEnv() error {
 	flt("YTDM_YOUTUBE_REQUESTS_PER_SECOND", &c.Providers.YouTube.RequestsPerSecond)
 	num("MUSICDL_YOUTUBE_BURST", &c.Providers.YouTube.Burst)
 	num("YTDM_YOUTUBE_BURST", &c.Providers.YouTube.Burst)
+
+	boolean("YTDM_SOUNDCLOUD_ENABLED", &c.Providers.SoundCloud.Enabled)
+	boolean("MUSICDL_SOUNDCLOUD_ENABLED", &c.Providers.SoundCloud.Enabled)
+	flt("MUSICDL_SOUNDCLOUD_REQUESTS_PER_SECOND", &c.Providers.SoundCloud.RequestsPerSecond)
+	flt("YTDM_SOUNDCLOUD_REQUESTS_PER_SECOND", &c.Providers.SoundCloud.RequestsPerSecond)
+	num("MUSICDL_SOUNDCLOUD_BURST", &c.Providers.SoundCloud.Burst)
+	num("YTDM_SOUNDCLOUD_BURST", &c.Providers.SoundCloud.Burst)
+
 	boolean("MUSICDL_GENIUS_ENABLED", &c.Providers.Genius.Enabled)
 	boolean("YTDM_GENIUS_ENABLED", &c.Providers.Genius.Enabled)
 	str("GENIUS_ACCESS_TOKEN", &c.Providers.Genius.AccessToken)

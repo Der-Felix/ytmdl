@@ -103,3 +103,34 @@ func TestMediaCooldownManager_YouTubeFamilyUnified(t *testing.T) {
 		t.Fatal("expected ytmusic cooling when triggered on youtube")
 	}
 }
+
+func TestMediaCooldownManager_SoundCloudIsolation(t *testing.T) {
+	mgr := jobs.NewMediaCooldownManager()
+
+	// 1. Trigger soundcloud cooldown
+	mgr.Trigger("soundcloud", 100*time.Millisecond)
+
+	// soundcloud must be cooling
+	if _, cool := mgr.Remaining("soundcloud"); !cool {
+		t.Fatal("expected soundcloud cooling")
+	}
+
+	// youtube and ytmusic must NOT be cooling
+	if _, cool := mgr.Remaining("youtube"); cool {
+		t.Fatal("youtube must not be affected by soundcloud cooldown")
+	}
+	if _, cool := mgr.Remaining("ytmusic"); cool {
+		t.Fatal("ytmusic must not be affected by soundcloud cooldown")
+	}
+
+	// 2. Trigger youtube cooldown
+	mgr.Trigger("ytmusic", 100*time.Millisecond)
+	mgr.Clear("soundcloud")
+
+	if _, cool := mgr.Remaining("soundcloud"); cool {
+		t.Fatal("soundcloud should not be cooling after clear")
+	}
+	if _, cool := mgr.Remaining("youtube"); !cool {
+		t.Fatal("youtube should remain cooling")
+	}
+}

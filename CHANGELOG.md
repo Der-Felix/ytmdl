@@ -2,6 +2,25 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.21.0 — 2026-09-07
+
+### Features
+
+- Added SoundCloud as an independent media acquisition provider.
+
+### Improvements
+
+- Independent provider-family health, pacing, and cooldown isolation between YouTube and SoundCloud.
+- Reused existing metadata, matching, and tagging pipelines for SoundCloud media without altering metadata authority.
+
+### Changes
+
+- Media acquisition may fall back to SoundCloud after legitimate content/candidate exhaustion according to provider policy.
+- Protection and systemic failures retain controlled retry behavior and do not trigger immediate provider hopping.
+- **Database Schema:** Schema remains at 11; no database migration is required.
+
+**Full Changelog:** `v0.20.1...v0.21.0`
+
 ## 0.20.1 — 2026-09-07
 
 ### Bug Fixes

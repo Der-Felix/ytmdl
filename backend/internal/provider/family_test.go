@@ -19,6 +19,9 @@ func TestFamilyOf(t *testing.T) {
 		{"ytmusic", provider.FamilyYouTube},
 		{"YTMusic", provider.FamilyYouTube},
 		{"  youtube  ", provider.FamilyYouTube},
+		{"soundcloud", provider.FamilySoundCloud},
+		{"SoundCloud", provider.FamilySoundCloud},
+		{"  soundcloud  ", provider.FamilySoundCloud},
 		{"spotify", provider.Family("spotify")},
 		{"deezer", provider.Family("deezer")},
 	}

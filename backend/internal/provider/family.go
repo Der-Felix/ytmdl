@@ -7,15 +7,19 @@ import "strings"
 type Family string
 
 const (
-	FamilyYouTube Family = "youtube"
+	FamilyYouTube    Family = "youtube"
+	FamilySoundCloud Family = "soundcloud"
 )
 
 // FamilyOf returns the platform family for a given provider name.
 // Both "youtube" and "ytmusic" belong to FamilyYouTube.
+// "soundcloud" belongs to FamilySoundCloud.
 func FamilyOf(providerName string) Family {
 	switch strings.ToLower(strings.TrimSpace(providerName)) {
 	case "youtube", "ytmusic":
 		return FamilyYouTube
+	case "soundcloud":
+		return FamilySoundCloud
 	default:
 		return Family(strings.ToLower(strings.TrimSpace(providerName)))
 	}

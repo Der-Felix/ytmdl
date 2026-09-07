@@ -37,6 +37,9 @@ YTMDL is configured through environment variables loaded by the backend containe
 | `MUSICDL_PROVIDERS_SPOTIFY_CLIENT_SECRET` | *Optional* | Spotify Developer Client Secret. |
 | `MUSICDL_PROVIDERS_GENIUS_ENABLED` | `false` | Enable the optional Genius plain-text lyrics fallback. |
 | `MUSICDL_PROVIDERS_GENIUS_ACCESS_TOKEN` | *Optional* | Official Genius Client API Token (enables official search endpoint). |
+| `MUSICDL_SOUNDCLOUD_ENABLED` | `true` | Enable the SoundCloud media acquisition provider fallback. |
+| `MUSICDL_SOUNDCLOUD_REQUESTS_PER_SECOND` | `1.0` | Token-bucket rate limiter sustained request ceiling for SoundCloud. |
+| `MUSICDL_SOUNDCLOUD_BURST` | `3` | Token-bucket burst capacity for SoundCloud queries. |
 
 ## Update Checks (v0.15+)
 

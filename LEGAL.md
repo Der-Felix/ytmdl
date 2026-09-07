@@ -48,6 +48,7 @@ Users must independently review and comply with the applicable terms of service 
 - Google LLC or YouTube / YouTube Music
 - Spotify AB
 - Deezer S.A.
+- SoundCloud Global Limited & Co. KG or SoundCloud
 - Genius Media Group Inc.
 - LRCLIB
 

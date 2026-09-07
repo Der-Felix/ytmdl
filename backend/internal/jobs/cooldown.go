@@ -20,6 +20,8 @@ func CanonicalCooldownKey(prov string) string {
 	switch cleaned {
 	case "youtube", "ytmusic", "youtube-family":
 		return "youtube"
+	case "soundcloud":
+		return "soundcloud"
 	default:
 		return cleaned
 	}

@@ -36,6 +36,7 @@ import (
 	"ytdm/backend/internal/provider"
 	"ytdm/backend/internal/provider/deezer"
 	"ytdm/backend/internal/provider/genius"
+	"ytdm/backend/internal/provider/soundcloud"
 	"ytdm/backend/internal/provider/spotify"
 	"ytdm/backend/internal/provider/youtube"
 	"ytdm/backend/internal/provider/ytmusic"
@@ -570,13 +571,30 @@ func buildProviders(cfg config.Config, client *ytdlp.Client, logger *slog.Logger
 		logger.Info("provider registered", logging.KeyProvider, mediaProvider.Name(), "kind", "media")
 	}
 
+	if cfg.Providers.SoundCloud.Enabled {
+		soundCloudClient := client.WithCookieFile("")
+		soundCloudProvider, err := soundcloud.New(soundcloud.Config{
+			Client:            soundCloudClient,
+			Limit:             cfg.Matching.CandidateLimit,
+			RequestsPerSecond: cfg.Providers.SoundCloud.RequestsPerSecond,
+			Burst:             cfg.Providers.SoundCloud.Burst,
+		})
+		if err != nil {
+			return nil, err
+		}
+		registry.RegisterMedia(soundCloudProvider)
+		logger.Info("provider registered", logging.KeyProvider, soundCloudProvider.Name(), "kind", "media",
+			"requests_per_second", cfg.Providers.SoundCloud.RequestsPerSecond,
+			"burst", cfg.Providers.SoundCloud.Burst)
+	}
+
 	registry.SetDefaults(cfg.Providers.DefaultMetadata, cfg.Providers.DefaultMedia)
 
 	if registry.DefaultMetadataName() == "" {
 		return nil, fmt.Errorf("no metadata provider is configured; enable Deezer, Spotify or YouTube Music")
 	}
 	if registry.DefaultMediaName() == "" {
-		return nil, fmt.Errorf("no media provider is configured; enable YouTube Music or YouTube")
+		return nil, fmt.Errorf("no media provider is configured; enable YouTube Music, YouTube or SoundCloud")
 	}
 	return registry, nil
 }
