@@ -507,16 +507,45 @@ func TestCatalogLibrarySearchAccentSemantics(t *testing.T) {
 		t.Fatalf("expected 'BEYONCÉ' to match stored 'Beyoncé', got %d results", len(arts))
 	}
 
-	// 3. Unaccented query: "Beyonce" -> Audits PostgreSQL ILIKE/LOWER without unaccent extension
+	// 3. Unaccented query: "Beyonce" -> MUST NOT MATCH (accent folding is NOT enabled/claimed)
 	arts, err = catalog.SearchArtists(ctx, "Beyonce", 10)
 	if err != nil {
 		t.Fatalf("SearchArtists 'Beyonce': %v", err)
 	}
-	// Under PostgreSQL standard UTF-8 LOWER()/ILIKE without unaccent extension, 'e' does NOT match 'é'.
-	// This confirms accent-folding is NOT provided/claimed, but Unicode & case-insensitivity are strictly safe.
-	t.Logf("Accent folding check: query 'Beyonce' against stored 'Beyoncé' returned %d matches (unaccent folding not enabled/claimed)", len(arts))
 	if len(arts) != 0 {
-		t.Log("Note: Database collation performed accent folding.")
+		t.Fatalf("expected 'Beyonce' to NOT match stored 'Beyoncé' without accent-folding, got %d results", len(arts))
+	}
+
+	// 4. Extended Unicode case-folding matrix:
+	// ärzte / ÄRZTE, österreich / ÖSTERREICH, über / ÜBER, été / ÉTÉ
+	unicodePairs := []struct {
+		stored string
+		query  string
+		source string
+	}{
+		{stored: "ärzte", query: "ÄRZTE", source: "art_aerzte"},
+		{stored: "österreich", query: "ÖSTERREICH", source: "art_oesterreich"},
+		{stored: "über", query: "ÜBER", source: "art_ueber"},
+		{stored: "été", query: "ÉTÉ", source: "art_ete"},
+	}
+
+	for _, pair := range unicodePairs {
+		storedArt, err := catalog.UpsertArtist(ctx, music.Artist{
+			Name:     pair.stored,
+			Provider: "test",
+			SourceID: pair.source,
+		})
+		if err != nil {
+			t.Fatalf("UpsertArtist '%s': %v", pair.stored, err)
+		}
+
+		res, err := catalog.SearchArtists(ctx, pair.query, 10)
+		if err != nil {
+			t.Fatalf("SearchArtists query '%s': %v", pair.query, err)
+		}
+		if len(res) != 1 || res[0].ID != storedArt.ID {
+			t.Fatalf("expected query '%s' to match stored '%s', got %d results", pair.query, pair.stored, len(res))
+		}
 	}
 }
 

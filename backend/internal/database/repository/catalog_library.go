@@ -235,7 +235,7 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		escQ := escapeLike(trimmedQuery)
 		likeTerm := "%" + escQ + "%"
 		whereClauses = append(whereClauses, fmt.Sprintf(
-			"(t.title ILIKE $%d ESCAPE '\\' OR t.album ILIKE $%d ESCAPE '\\' OR t.album_artist ILIKE $%d ESCAPE '\\' OR LOWER(t.isrc) = LOWER($%d))",
+			"(t.title COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR t.album COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR t.album_artist COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR LOWER(t.isrc) = LOWER($%d))",
 			argIdx, argIdx, argIdx, argIdx+1,
 		))
 		args = append(args, likeTerm, isrcTerm)
@@ -272,12 +272,12 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 			direction = "DESC"
 		}
 		orderBy = fmt.Sprintf(`CASE
-			WHEN LOWER(t.title) = LOWER($%d) THEN 1
-			WHEN LOWER(t.title) LIKE LOWER($%d) ESCAPE '\' THEN 2
-			WHEN LOWER(t.album_artist) = LOWER($%d) THEN 3
-			WHEN LOWER(t.album_artist) LIKE LOWER($%d) ESCAPE '\' THEN 4
-			WHEN LOWER(t.album) = LOWER($%d) THEN 5
-			WHEN LOWER(t.album) LIKE LOWER($%d) ESCAPE '\' THEN 6
+			WHEN LOWER(t.title COLLATE "pg_c_utf8") = LOWER($%d COLLATE "pg_c_utf8") THEN 1
+			WHEN LOWER(t.title COLLATE "pg_c_utf8") LIKE LOWER($%d COLLATE "pg_c_utf8") ESCAPE '\' THEN 2
+			WHEN LOWER(t.album_artist COLLATE "pg_c_utf8") = LOWER($%d COLLATE "pg_c_utf8") THEN 3
+			WHEN LOWER(t.album_artist COLLATE "pg_c_utf8") LIKE LOWER($%d COLLATE "pg_c_utf8") ESCAPE '\' THEN 4
+			WHEN LOWER(t.album COLLATE "pg_c_utf8") = LOWER($%d COLLATE "pg_c_utf8") THEN 5
+			WHEN LOWER(t.album COLLATE "pg_c_utf8") LIKE LOWER($%d COLLATE "pg_c_utf8") ESCAPE '\' THEN 6
 			ELSE 7
 		END %s, t.created_at DESC, t.id DESC`, exactArg, prefixArg, exactArg, prefixArg, exactArg, prefixArg, direction)
 	} else {
@@ -385,7 +385,7 @@ func (c *Catalog) ListReleasesFiltered(ctx context.Context, filter ReleaseListFi
 		}
 		escQ := escapeLike(q)
 		likeTerm := "%" + escQ + "%"
-		whereClauses = append(whereClauses, fmt.Sprintf("(r.title ILIKE $%d ESCAPE '\\' OR r.album_artist ILIKE $%d ESCAPE '\\')", argIdx, argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("(r.title COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR r.album_artist COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\')", argIdx, argIdx))
 		args = append(args, likeTerm)
 		argIdx++
 	}
@@ -472,7 +472,7 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 		}
 		escQ := escapeLike(q)
 		likeTerm := "%" + escQ + "%"
-		whereClauses = append(whereClauses, fmt.Sprintf("a.name ILIKE $%d ESCAPE '\\'", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("a.name COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\'", argIdx))
 		args = append(args, likeTerm)
 		argIdx++
 	}
@@ -766,12 +766,12 @@ func (c *Catalog) SearchArtists(ctx context.Context, query string, limit int) ([
 			LEFT JOIN files f ON f.track_id = t.id
 			GROUP BY t.artist_id
 		) ts ON ts.artist_id = a.id
-		WHERE a.name ILIKE $1 ESCAPE '\'
+		WHERE a.name COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\'
 		GROUP BY a.id, ts.track_count, ts.total_size
 		ORDER BY
 			CASE
-				WHEN LOWER(a.name) = LOWER($2) THEN 1
-				WHEN LOWER(a.name) LIKE LOWER($3) ESCAPE '\' THEN 2
+				WHEN LOWER(a.name COLLATE "pg_c_utf8") = LOWER($2 COLLATE "pg_c_utf8") THEN 1
+				WHEN LOWER(a.name COLLATE "pg_c_utf8") LIKE LOWER($3 COLLATE "pg_c_utf8") ESCAPE '\' THEN 2
 				ELSE 3
 			END,
 			a.sort_key ASC, a.name ASC, a.id ASC
@@ -829,14 +829,14 @@ func (c *Catalog) SearchReleases(ctx context.Context, query string, limit int) (
 		FROM releases r
 		LEFT JOIN tracks t ON t.release_id = r.id
 		LEFT JOIN files f ON f.track_id = t.id
-		WHERE (r.title ILIKE $1 ESCAPE '\' OR r.album_artist ILIKE $1 ESCAPE '\')
+		WHERE (r.title COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR r.album_artist COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\')
 		GROUP BY r.id
 		ORDER BY
 			CASE
-				WHEN LOWER(r.title) = LOWER($2) THEN 1
-				WHEN LOWER(r.title) LIKE LOWER($3) ESCAPE '\' THEN 2
-				WHEN LOWER(r.album_artist) = LOWER($2) THEN 3
-				WHEN LOWER(r.album_artist) LIKE LOWER($3) ESCAPE '\' THEN 4
+				WHEN LOWER(r.title COLLATE "pg_c_utf8") = LOWER($2 COLLATE "pg_c_utf8") THEN 1
+				WHEN LOWER(r.title COLLATE "pg_c_utf8") LIKE LOWER($3 COLLATE "pg_c_utf8") ESCAPE '\' THEN 2
+				WHEN LOWER(r.album_artist COLLATE "pg_c_utf8") = LOWER($2 COLLATE "pg_c_utf8") THEN 3
+				WHEN LOWER(r.album_artist COLLATE "pg_c_utf8") LIKE LOWER($3 COLLATE "pg_c_utf8") ESCAPE '\' THEN 4
 				ELSE 5
 			END,
 			r.created_at DESC, r.id DESC
@@ -903,15 +903,15 @@ func (c *Catalog) SearchTracks(ctx context.Context, query string, limit int) ([]
 			COALESCE(f.path, ''), COALESCE(f.size_bytes, 0), COALESCE(f.codec, ''), COALESCE(f.bitrate_kbps, 0)
 		FROM tracks t
 		LEFT JOIN files f ON f.track_id = t.id
-		WHERE (t.title ILIKE $1 ESCAPE '\' OR t.album ILIKE $1 ESCAPE '\' OR t.album_artist ILIKE $1 ESCAPE '\' OR LOWER(t.isrc) = LOWER($2))
+		WHERE (t.title COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR t.album COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR t.album_artist COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR LOWER(t.isrc) = LOWER($2))
 		ORDER BY
 			CASE
-				WHEN LOWER(t.title) = LOWER($3) THEN 1
-				WHEN LOWER(t.title) LIKE LOWER($4) ESCAPE '\' THEN 2
-				WHEN LOWER(t.album_artist) = LOWER($3) THEN 3
-				WHEN LOWER(t.album_artist) LIKE LOWER($4) ESCAPE '\' THEN 4
-				WHEN LOWER(t.album) = LOWER($3) THEN 5
-				WHEN LOWER(t.album) LIKE LOWER($4) ESCAPE '\' THEN 6
+				WHEN LOWER(t.title COLLATE "pg_c_utf8") = LOWER($3 COLLATE "pg_c_utf8") THEN 1
+				WHEN LOWER(t.title COLLATE "pg_c_utf8") LIKE LOWER($4 COLLATE "pg_c_utf8") ESCAPE '\' THEN 2
+				WHEN LOWER(t.album_artist COLLATE "pg_c_utf8") = LOWER($3 COLLATE "pg_c_utf8") THEN 3
+				WHEN LOWER(t.album_artist COLLATE "pg_c_utf8") LIKE LOWER($4 COLLATE "pg_c_utf8") ESCAPE '\' THEN 4
+				WHEN LOWER(t.album COLLATE "pg_c_utf8") = LOWER($3 COLLATE "pg_c_utf8") THEN 5
+				WHEN LOWER(t.album COLLATE "pg_c_utf8") LIKE LOWER($4 COLLATE "pg_c_utf8") ESCAPE '\' THEN 6
 				ELSE 7
 			END,
 			t.created_at DESC, t.id DESC

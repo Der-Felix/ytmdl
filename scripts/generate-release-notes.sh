@@ -197,7 +197,7 @@ fi
 # 3. Trim leading and trailing blank lines
 CLEAN_BODY="$(echo "$RAW_BODY" | grep -vE "^[-*] \*\*Database Schema:\*\*" | sed 's/^### /## /' | awk 'NF {p=1} p')"
 
-UPDATE_HEADING="Update"
+UPDATE_HEADING="Updates"
 if ! echo "$MIGRATION" | grep -qiE "(no database migration|keine datenbankmigration|remains at schema)"; then
   if echo "$MIGRATION" | grep -qiE "migration"; then
     UPDATE_HEADING="Upgrade Notes"
