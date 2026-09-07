@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   CheckCircle2Icon,
   Disc3Icon,
   FolderSyncIcon,
   HardDriveIcon,
+  Heart,
   LibraryIcon,
   Music2Icon,
   RefreshCwIcon,
-  SearchIcon,
   ShieldCheckIcon,
   SparklesIcon,
   UserIcon,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 
 import { IntegrityPanel } from '@/components/library/IntegrityPanel'
+import { LibrarySearchField } from '@/components/library/LibrarySearchField'
 import { ArtistCard } from '@/components/music/ArtistCard'
 import { ReleaseCard } from '@/components/music/ReleaseCard'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
@@ -31,7 +32,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/pagination'
 import { Panel } from '@/components/ui/panel'
 import { EmptyState, ErrorState } from '@/components/ui/state-view'
@@ -50,6 +50,7 @@ import {
 } from '@/lib/api/library'
 import { useOptionalAuth } from '@/hooks/useAuth'
 import { navigate, useLocation } from '@/lib/router'
+import { cn } from '@/lib/utils'
 import {
   formatBytes,
   pluralize,
@@ -78,15 +79,14 @@ export function Library() {
   const currentType = params.get('type') || ''
   const currentLyrics = params.get('lyrics') || ''
   const currentYear = params.get('year') ? parseInt(params.get('year')!, 10) : undefined
+  const currentFavorite = params.get('favorite') === 'true' || params.get('favorite') === '1'
+  const currentArtistId = params.get('artist') || ''
+  const currentReleaseId = params.get('release') || ''
   const currentPage = Math.max(1, parseInt(params.get('page') || '1', 10))
   const currentTrackId = params.get('track') || null
 
   // Active view state (synced with URL)
   const [view, setView] = useState<LibraryTab>(currentView)
-
-  // Local state for debounced search input
-  const [searchInput, setSearchInput] = useState(currentQ)
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Overall Stats
   const [stats, setStats] = useState<LibraryStats | null>(null)
@@ -134,10 +134,10 @@ export function Library() {
 
   // Update URL helper
   const updateUrl = useCallback(
-    (newParams: Record<string, string | number | undefined>, replace = false) => {
+    (newParams: Record<string, string | number | boolean | undefined>, replace = false) => {
       const sp = new URLSearchParams(location.params)
       for (const [k, v] of Object.entries(newParams)) {
-        if (v === undefined || v === '' || (k === 'page' && v === 1)) {
+        if (v === undefined || v === '' || v === false || (k === 'page' && v === 1)) {
           sp.delete(k)
         } else {
           sp.set(k, String(v))
@@ -168,30 +168,15 @@ export function Library() {
     }
   }, [])
 
-  // Synchronize view and search input when URL changes
+  // Synchronize view when URL changes
   useEffect(() => {
     setView(currentView)
   }, [currentView])
-
-  useEffect(() => {
-    setSearchInput(currentQ)
-  }, [currentQ])
 
   // Synchronize activeTrackId when URL track param changes
   useEffect(() => {
     setActiveTrackId(currentTrackId)
   }, [currentTrackId])
-
-  // Handle Search Input Change with Debounce
-  const handleSearchChange = (val: string) => {
-    setSearchInput(val)
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current)
-    }
-    debounceTimerRef.current = setTimeout(() => {
-      updateUrl({ q: val.trim(), page: 1 }, true)
-    }, 250)
-  };
 
   // Fetch Tab Data based on current URL params
   useEffect(() => {
@@ -207,6 +192,7 @@ export function Library() {
 
       libraryReleases({
         q: currentQ,
+        artistId: currentArtistId,
         releaseType: currentType,
         year: currentYear,
         sort: currentSort || 'recent',
@@ -233,12 +219,23 @@ export function Library() {
       setTracksLoading(true)
       const pageSize = 50
       const offset = (currentPage - 1) * pageSize
+      const effectiveSort = currentSort || (currentQ ? 'relevance' : 'recent')
+      const defaultOrder =
+        effectiveSort === 'relevance'
+          ? 'asc'
+          : effectiveSort === 'year' || effectiveSort === 'duration' || effectiveSort === 'recent'
+            ? 'desc'
+            : 'asc'
 
       libraryTracks({
         q: currentQ,
+        artistId: currentArtistId,
+        releaseId: currentReleaseId,
         lyricsState: currentLyrics,
-        sort: currentSort || 'recent',
-        order: currentOrder || (currentSort === 'year' || currentSort === 'duration' || !currentSort ? 'desc' : 'asc'),
+        year: currentYear,
+        favorite: currentFavorite,
+        sort: effectiveSort,
+        order: currentOrder || defaultOrder,
         limit: pageSize,
         offset,
         signal,
@@ -289,7 +286,19 @@ export function Library() {
     return () => {
       controller.abort()
     }
-  }, [view, currentQ, currentSort, currentOrder, currentType, currentLyrics, currentYear, currentPage])
+  }, [
+    view,
+    currentQ,
+    currentSort,
+    currentOrder,
+    currentType,
+    currentLyrics,
+    currentYear,
+    currentFavorite,
+    currentArtistId,
+    currentReleaseId,
+    currentPage,
+  ])
 
   // Scan handler
   const handleStartScan = async () => {
@@ -382,7 +391,7 @@ export function Library() {
   return (
     <div className="space-y-8">
       {/* Header Banner & Stats */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-6">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <h1 className="text-2xl sm:text-3xl font-bold font-heading text-neutral-100 flex items-center gap-2.5">
@@ -464,6 +473,21 @@ export function Library() {
         </div>
       )}
 
+      {/* Prominent Library Search */}
+      <div className="w-full max-w-2xl">
+        <LibrarySearchField
+          defaultValue={currentQ}
+          placeholder="Bibliothek durchsuchen (Künstler, Alben, Titel, ISRC)..."
+          onSearchSubmit={(q) => {
+            setView('tracks')
+            updateUrl({ view: 'tracks', q: q || undefined, page: 1 })
+          }}
+          onClear={() => {
+            updateUrl({ q: undefined, page: 1 })
+          }}
+        />
+      </div>
+
       {/* Main Tabs Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-2">
         <div className="flex items-center gap-2 overflow-x-auto">
@@ -507,31 +531,6 @@ export function Library() {
             Wartung
           </Button>
         </div>
-
-        {/* Search Input for Current Tab (except maintenance) */}
-        {view !== 'maintenance' && (
-          <div className="relative w-full sm:w-64">
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-neutral-500" />
-            <Input
-              type="text"
-              value={searchInput}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder={`${view === 'releases' ? 'Releases' : view === 'tracks' ? 'Titel, Artist, ISRC' : 'Künstler'} suchen...`}
-              className="pl-9 h-8 text-xs bg-neutral-900/60"
-            />
-            {searchInput && (
-              <button
-                onClick={() => {
-                  setSearchInput('')
-                  updateUrl({ q: undefined, page: 1 })
-                }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
-              >
-                <X className="size-3.5" />
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Tab 1: Releases Grid */}
@@ -576,6 +575,94 @@ export function Library() {
             </div>
           </div>
 
+          {/* Active Filter Chips Bar (Releases) */}
+          {(currentQ || currentType || currentYear !== undefined || currentArtistId) && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-neutral-500 font-medium">Aktive Filter:</span>
+              {currentQ && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                >
+                  <span>Suche: „{currentQ}“</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ q: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Suchbegriff entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {currentType && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700 capitalize"
+                >
+                  <span>Typ: {currentType}</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ type: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Typ-Filter entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {currentYear !== undefined && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                >
+                  <span>Jahr: {currentYear}</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ year: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Jahr-Filter entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {currentArtistId && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                >
+                  <span>Künstler gewählt</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ artist: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Künstler-Filter entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs text-neutral-400 hover:text-accent px-1.5"
+                onClick={() => {
+                  updateUrl({
+                    q: undefined,
+                    type: undefined,
+                    year: undefined,
+                    artist: undefined,
+                    page: 1,
+                  })
+                }}
+              >
+                Filter zurücksetzen
+              </Button>
+            </div>
+          )}
+
           {releasesLoading ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {Array.from({ length: 12 }).map((_, i) => (
@@ -594,8 +681,37 @@ export function Library() {
             <Panel>
               <EmptyState
                 icon={<Disc3Icon />}
-                title={currentQ ? 'Keine Releases gefunden' : 'Keine Releases in der Bibliothek'}
-                description={currentQ ? `Keine Treffer für „${currentQ}"` : 'Lade Musik über Discover herunter.'}
+                title={
+                  currentQ || currentType || currentYear !== undefined || currentArtistId
+                    ? 'Keine Treffer für deine Suche'
+                    : 'Keine Releases in der Bibliothek'
+                }
+                description={
+                  currentQ || currentType || currentYear !== undefined || currentArtistId
+                    ? currentQ
+                      ? `Keine Releases für „${currentQ}“ gefunden.`
+                      : 'Keine Releases mit den ausgewählten Filtern gefunden.'
+                    : 'Lade Musik über Discover herunter.'
+                }
+                action={
+                  currentQ || currentType || currentYear !== undefined || currentArtistId ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        updateUrl({
+                          q: undefined,
+                          type: undefined,
+                          year: undefined,
+                          artist: undefined,
+                          page: 1,
+                        })
+                      }}
+                    >
+                      Filter zurücksetzen
+                    </Button>
+                  ) : undefined
+                }
               />
             </Panel>
           ) : (
@@ -623,6 +739,23 @@ export function Library() {
           {/* Tracks Filter Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex flex-wrap items-center gap-1.5">
+              {/* Favorite toggle button */}
+              <Button
+                variant={currentFavorite ? 'secondary' : 'ghost'}
+                size="sm"
+                className={cn(
+                  'h-7 text-xs gap-1.5 transition-colors',
+                  currentFavorite && 'text-red-400 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20',
+                )}
+                onClick={() => updateUrl({ favorite: currentFavorite ? undefined : true, page: 1 })}
+                title="Nur favorisierte Titel anzeigen"
+              >
+                <Heart className={cn('size-3.5', currentFavorite ? 'fill-red-500 text-red-500' : 'text-neutral-400')} />
+                <span>Nur Favoriten</span>
+              </Button>
+
+              <span className="text-neutral-500 mx-1">·</span>
+
               <span className="text-neutral-500 mr-1">Lyrics:</span>
               <Button
                 variant={!currentLyrics ? 'secondary' : 'ghost'}
@@ -665,7 +798,151 @@ export function Library() {
                 Nicht gefunden
               </Button>
             </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-neutral-500">Sortierung:</span>
+              <select
+                value={currentSort || (currentQ ? 'relevance' : 'recent')}
+                onChange={(e) => updateUrl({ sort: e.target.value, page: 1 })}
+                className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-300 focus:outline-none focus:border-accent"
+              >
+                {currentQ && <option value="relevance">Relevanz</option>}
+                <option value="recent">Zuletzt hinzugefügt</option>
+                <option value="title">Titel</option>
+                <option value="artist">Künstler</option>
+                <option value="year">Erscheinungsjahr</option>
+                <option value="duration">Dauer</option>
+              </select>
+            </div>
           </div>
+
+          {/* Active Filter Chips Bar (Tracks) */}
+          {(currentQ ||
+            currentFavorite ||
+            currentYear !== undefined ||
+            currentLyrics ||
+            currentArtistId ||
+            currentReleaseId) && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-neutral-500 font-medium">Aktive Filter:</span>
+              {currentQ && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                >
+                  <span>Suche: „{currentQ}“</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ q: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Suchbegriff entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {currentFavorite && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-red-950/40 text-red-300 border border-red-800/50"
+                >
+                  <Heart className="size-3 fill-red-500 text-red-500" />
+                  <span>Nur Favoriten</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ favorite: undefined, page: 1 })}
+                    className="hover:text-red-100"
+                    aria-label="Favoriten-Filter entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {currentYear !== undefined && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                >
+                  <span>Jahr: {currentYear}</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ year: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Jahr-Filter entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {currentLyrics && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                >
+                  <span>Lyrics: {currentLyrics}</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ lyrics: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Lyrics-Filter entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {currentArtistId && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                >
+                  <span>Künstler gewählt</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ artist: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Künstler-Filter entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+              {currentReleaseId && (
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                >
+                  <span>Release gewählt</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ release: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Release-Filter entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              )}
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs text-neutral-400 hover:text-accent px-1.5"
+                onClick={() => {
+                  updateUrl({
+                    q: undefined,
+                    favorite: undefined,
+                    year: undefined,
+                    lyrics: undefined,
+                    artist: undefined,
+                    release: undefined,
+                    page: 1,
+                  })
+                }}
+              >
+                Filter zurücksetzen
+              </Button>
+            </div>
+          )}
 
           {tracksLoading ? (
             <div className="space-y-2">
@@ -681,18 +958,72 @@ export function Library() {
             <Panel>
               <EmptyState
                 icon={<Music2Icon />}
-                title={currentQ ? 'Keine Titel gefunden' : 'Keine Titel in der Bibliothek'}
-                description={currentQ ? `Keine Treffer für „${currentQ}"` : 'Lade Musik über Discover herunter.'}
+                title={
+                  currentQ ||
+                  currentFavorite ||
+                  currentYear !== undefined ||
+                  currentLyrics ||
+                  currentArtistId ||
+                  currentReleaseId
+                    ? 'Keine Treffer für deine Suche'
+                    : 'Keine Titel in der Bibliothek'
+                }
+                description={
+                  currentQ ||
+                  currentFavorite ||
+                  currentYear !== undefined ||
+                  currentLyrics ||
+                  currentArtistId ||
+                  currentReleaseId
+                    ? currentQ
+                      ? `Keine Titel für „${currentQ}“ mit den ausgewählten Filtern gefunden.`
+                      : 'Keine Titel mit den ausgewählten Filtern gefunden.'
+                    : 'Lade Musik über Discover herunter.'
+                }
+                action={
+                  currentQ ||
+                  currentFavorite ||
+                  currentYear !== undefined ||
+                  currentLyrics ||
+                  currentArtistId ||
+                  currentReleaseId ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        updateUrl({
+                          q: undefined,
+                          favorite: undefined,
+                          year: undefined,
+                          lyrics: undefined,
+                          artist: undefined,
+                          release: undefined,
+                          sort: undefined,
+                          order: undefined,
+                          page: 1,
+                        })
+                      }}
+                    >
+                      Filter zurücksetzen
+                    </Button>
+                  ) : undefined
+                }
               />
             </Panel>
           ) : (
             <>
               <TracksTable
                 tracks={tracks}
-                sort={currentSort || 'recent'}
-                order={currentOrder || 'desc'}
+                sort={currentSort || (currentQ ? 'relevance' : 'recent')}
+                order={
+                  currentOrder ||
+                  (currentSort === 'relevance' || (!currentSort && currentQ) ? 'asc' : 'desc')
+                }
                 onSortChange={(s) => {
-                  const newOrder = currentSort === s && currentOrder === 'asc' ? 'desc' : 'asc'
+                  const activeSort = currentSort || (currentQ ? 'relevance' : 'recent')
+                  const activeOrder =
+                    currentOrder || (activeSort === 'relevance' ? 'asc' : 'desc')
+                  const newOrder = activeSort === s && activeOrder === 'asc' ? 'desc' : 'asc'
                   updateUrl({ sort: s, order: newOrder, page: 1 })
                 }}
                 onTrackSelect={(t) => {
@@ -715,17 +1046,46 @@ export function Library() {
       {/* Tab 3: Artists Grid */}
       {view === 'artists' && (
         <div className="space-y-6">
-          <div className="flex items-center justify-end gap-2 text-xs">
-            <span className="text-neutral-500">Sortierung:</span>
-            <select
-              value={currentSort || 'name'}
-              onChange={(e) => updateUrl({ sort: e.target.value, page: 1 })}
-              className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-300 focus:outline-none focus:border-accent"
-            >
-              <option value="name">Name (A–Z)</option>
-              <option value="recent">Zuletzt hinzugefügt</option>
-              <option value="release_count">Anzahl Releases</option>
-            </select>
+          <div className="flex items-center justify-between gap-2 text-xs">
+            {currentQ ? (
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                >
+                  <span>Suche: „{currentQ}“</span>
+                  <button
+                    type="button"
+                    onClick={() => updateUrl({ q: undefined, page: 1 })}
+                    className="hover:text-neutral-100"
+                    aria-label="Suchbegriff entfernen"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs text-neutral-400 hover:text-accent px-1.5"
+                  onClick={() => updateUrl({ q: undefined, page: 1 })}
+                >
+                  Filter zurücksetzen
+                </Button>
+              </div>
+            ) : <div />}
+
+            <div className="flex items-center gap-2">
+              <span className="text-neutral-500">Sortierung:</span>
+              <select
+                value={currentSort || 'name'}
+                onChange={(e) => updateUrl({ sort: e.target.value, page: 1 })}
+                className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-300 focus:outline-none focus:border-accent"
+              >
+                <option value="name">Name (A–Z)</option>
+                <option value="recent">Zuletzt hinzugefügt</option>
+                <option value="release_count">Anzahl Releases</option>
+              </select>
+            </div>
           </div>
 
           {artistsLoading ? (
@@ -745,8 +1105,23 @@ export function Library() {
             <Panel>
               <EmptyState
                 icon={<UserIcon />}
-                title={currentQ ? 'Keine Künstler gefunden' : 'Keine Künstler in der Bibliothek'}
-                description={currentQ ? `Keine Treffer für „${currentQ}"` : 'Lade Musik über Discover herunter.'}
+                title={currentQ ? 'Keine Treffer für deine Suche' : 'Keine Künstler in der Bibliothek'}
+                description={
+                  currentQ
+                    ? `Keine Künstler für „${currentQ}“ gefunden.`
+                    : 'Lade Musik über Discover herunter.'
+                }
+                action={
+                  currentQ ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => updateUrl({ q: undefined, page: 1 })}
+                    >
+                      Filter zurücksetzen
+                    </Button>
+                  ) : undefined
+                }
               />
             </Panel>
           ) : (

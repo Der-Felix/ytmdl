@@ -101,6 +101,8 @@ export async function libraryTracks(
     artistId?: string
     releaseId?: string
     lyricsState?: string
+    year?: number
+    favorite?: boolean
     sort?: string
     order?: string
     limit?: number
@@ -114,6 +116,8 @@ export async function libraryTracks(
       artist_id: options.artistId,
       release_id: options.releaseId,
       lyrics_state: options.lyricsState,
+      year: options.year,
+      favorite: options.favorite ? true : undefined,
       sort: options.sort,
       order: options.order,
       limit: options.limit,

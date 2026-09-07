@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.24.0 — 2026-09-07
+
+### Features
+
+- **Fast Local Library Search:** Live search across local artists, releases, and tracks directly within the indexed YTMDL library.
+- **Multi-Facet Track Filtering:** Filter tracks by artist, release, release year, and personal Favorites with composable logical constraints.
+- **History-Aware Search State:** Search queries, active filters, and sort options are synchronized with browser URL parameters for full navigation and bookmark support.
+
+### Improvements
+
+- **Deterministic Search Ranking:** Strict exact, prefix, and substring relevance scoring with deterministic secondary tie-breakers (`created_at DESC, id DESC`).
+- **Debounced Live Search with Stale Protection:** Debounced quick-search input with monotonic sequence tokens to discard delayed or out-of-order network responses.
+- **Stable Paginated Navigation:** Consistent offset-based pagination across filtered views with zero duplicates or omitted items.
+- **Search Context Actions:** Full integration for toggling Favorites and adding tracks to Playlists directly from search results and flyout menus.
+- **Responsive Layout:** Adaptive search controls and header layout ensuring seamless experience across desktop, tablet, and mobile viewports.
+
+### Changes
+
+- **Local Library Isolation:** Library search and filtering operate exclusively on already-indexed local PostgreSQL data. Search does not contact external metadata or media providers and does not create download jobs.
+- **Database Schema:** Schema remains at 12; no database migration is required.
+
+**Full Changelog:** `v0.23.0...v0.24.0`
+
 ## 0.23.0 — 2026-09-07
 
 ### Features

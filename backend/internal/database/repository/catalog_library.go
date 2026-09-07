@@ -14,16 +14,33 @@ import (
 	"ytdm/backend/internal/music"
 )
 
+// escapeLike escapes SQL LIKE wildcard characters (_, %, \) so user input is treated literally.
+func escapeLike(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '\\' || c == '%' || c == '_' {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
 // TrackListFilter parameters for filtering library tracks.
 type TrackListFilter struct {
-	Query       string
-	ArtistID    string
-	ReleaseID   string
-	LyricsState string
-	Sort        string
-	Order       string
-	Limit       int
-	Offset      int
+	Query        string
+	ArtistID     string
+	ReleaseID    string
+	LyricsState  string
+	Year         int
+	FavoriteOnly bool
+	UserID       string
+	Sort         string
+	Order        string
+	Limit        int
+	Offset       int
 }
 
 // ReleaseListFilter parameters for filtering library releases.
@@ -57,6 +74,11 @@ func sanitizeTrackSort(sort, order string) (string, error) {
 
 	switch sort {
 	case "", "recent":
+		if order == "" {
+			order = "desc"
+		}
+		return fmt.Sprintf("t.created_at %s, t.id %s", order, order), nil
+	case "relevance":
 		if order == "" {
 			order = "desc"
 		}
@@ -161,11 +183,6 @@ func sanitizeArtistSort(sort, order string) (string, error) {
 
 // ListTracksFiltered retrieves a paginated and filtered list of tracks from the library.
 func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter) ([]music.LibraryTrack, int, error) {
-	orderBy, err := sanitizeTrackSort(filter.Sort, filter.Order)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	limit := clampLimit(filter.Limit, 50, 100)
 	offset := clampOffset(filter.Offset)
 
@@ -185,6 +202,19 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		args = append(args, filter.ReleaseID)
 		argIdx++
 	}
+	if filter.Year > 0 {
+		whereClauses = append(whereClauses, fmt.Sprintf("t.year = $%d", argIdx))
+		args = append(args, filter.Year)
+		argIdx++
+	}
+	if filter.FavoriteOnly {
+		if filter.UserID == "" {
+			return []music.LibraryTrack{}, 0, nil
+		}
+		whereClauses = append(whereClauses, fmt.Sprintf("EXISTS (SELECT 1 FROM favorite_tracks ft WHERE ft.track_id = t.id AND ft.user_id = $%d)", argIdx))
+		args = append(args, filter.UserID)
+		argIdx++
+	}
 	if filter.LyricsState != "" {
 		if !music.ValidLyricsState(filter.LyricsState) {
 			return nil, 0, apperr.Newf(apperr.CodeInvalidRequest, "Invalid lyrics_state filter: %q.", filter.LyricsState)
@@ -193,16 +223,22 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		args = append(args, filter.LyricsState)
 		argIdx++
 	}
-	if q := strings.TrimSpace(filter.Query); q != "" {
-		isrcTerm := discography.NormalizeISRC(q)
-		if isrcTerm == "" {
-			isrcTerm = q
+	trimmedQuery := strings.TrimSpace(filter.Query)
+	if trimmedQuery != "" {
+		if len(trimmedQuery) > 200 {
+			return nil, 0, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein.")
 		}
+		isrcTerm := discography.NormalizeISRC(trimmedQuery)
+		if isrcTerm == "" {
+			isrcTerm = trimmedQuery
+		}
+		escQ := escapeLike(trimmedQuery)
+		likeTerm := "%" + escQ + "%"
 		whereClauses = append(whereClauses, fmt.Sprintf(
-			"(t.title ILIKE $%d OR t.album ILIKE $%d OR t.album_artist ILIKE $%d OR LOWER(t.isrc) = LOWER($%d))",
+			"(t.title ILIKE $%d ESCAPE '\\' OR t.album ILIKE $%d ESCAPE '\\' OR t.album_artist ILIKE $%d ESCAPE '\\' OR LOWER(t.isrc) = LOWER($%d))",
 			argIdx, argIdx, argIdx, argIdx+1,
 		))
-		args = append(args, "%"+q+"%", isrcTerm)
+		args = append(args, likeTerm, isrcTerm)
 		argIdx += 2
 	}
 
@@ -215,6 +251,41 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 	var total int
 	if err := c.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, wrapDB("count tracks", err)
+	}
+
+	dataArgs := make([]any, len(args))
+	copy(dataArgs, args)
+
+	sortField := strings.TrimSpace(strings.ToLower(filter.Sort))
+	orderField := strings.TrimSpace(strings.ToLower(filter.Order))
+	var orderBy string
+	if sortField == "relevance" && trimmedQuery != "" {
+		escQ := escapeLike(trimmedQuery)
+		prefixTerm := escQ + "%"
+		exactArg := argIdx
+		prefixArg := argIdx + 1
+		dataArgs = append(dataArgs, trimmedQuery, prefixTerm)
+		argIdx += 2
+
+		direction := "ASC"
+		if orderField == "desc" {
+			direction = "DESC"
+		}
+		orderBy = fmt.Sprintf(`CASE
+			WHEN LOWER(t.title) = LOWER($%d) THEN 1
+			WHEN LOWER(t.title) LIKE LOWER($%d) ESCAPE '\' THEN 2
+			WHEN LOWER(t.album_artist) = LOWER($%d) THEN 3
+			WHEN LOWER(t.album_artist) LIKE LOWER($%d) ESCAPE '\' THEN 4
+			WHEN LOWER(t.album) = LOWER($%d) THEN 5
+			WHEN LOWER(t.album) LIKE LOWER($%d) ESCAPE '\' THEN 6
+			ELSE 7
+		END %s, t.created_at DESC, t.id DESC`, exactArg, prefixArg, exactArg, prefixArg, exactArg, prefixArg, direction)
+	} else {
+		var err error
+		orderBy, err = sanitizeTrackSort(filter.Sort, filter.Order)
+		if err != nil {
+			return nil, 0, err
+		}
 	}
 
 	dataQuery := fmt.Sprintf(`
@@ -230,8 +301,8 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		ORDER BY %s
 		LIMIT $%d OFFSET $%d`, whereSQL, orderBy, argIdx, argIdx+1)
 
-	queryArgs := append(args, limit, offset)
-	rows, err := c.db.QueryContext(ctx, dataQuery, queryArgs...)
+	dataArgs = append(dataArgs, limit, offset)
+	rows, err := c.db.QueryContext(ctx, dataQuery, dataArgs...)
 	if err != nil {
 		return nil, 0, wrapDB("list tracks filtered", err)
 	}
@@ -309,8 +380,13 @@ func (c *Catalog) ListReleasesFiltered(ctx context.Context, filter ReleaseListFi
 		argIdx++
 	}
 	if q := strings.TrimSpace(filter.Query); q != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("(r.title ILIKE $%d OR r.album_artist ILIKE $%d)", argIdx, argIdx))
-		args = append(args, "%"+q+"%")
+		if len(q) > 200 {
+			return nil, 0, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein.")
+		}
+		escQ := escapeLike(q)
+		likeTerm := "%" + escQ + "%"
+		whereClauses = append(whereClauses, fmt.Sprintf("(r.title ILIKE $%d ESCAPE '\\' OR r.album_artist ILIKE $%d ESCAPE '\\')", argIdx, argIdx))
+		args = append(args, likeTerm)
 		argIdx++
 	}
 
@@ -391,8 +467,13 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 	)
 
 	if q := strings.TrimSpace(filter.Query); q != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("a.name ILIKE $%d", argIdx))
-		args = append(args, "%"+q+"%")
+		if len(q) > 200 {
+			return nil, 0, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein.")
+		}
+		escQ := escapeLike(q)
+		likeTerm := "%" + escQ + "%"
+		whereClauses = append(whereClauses, fmt.Sprintf("a.name ILIKE $%d ESCAPE '\\'", argIdx))
+		args = append(args, likeTerm)
 		argIdx++
 	}
 
@@ -656,7 +737,230 @@ func (c *Catalog) GetLibraryTrackDetail(ctx context.Context, id string) (*music.
 	}, nil
 }
 
-// SearchLibrary performs a combined search across artists, releases, and tracks.
+// SearchArtists searches artists in the library with exact/prefix/substring ranking.
+func (c *Catalog) SearchArtists(ctx context.Context, query string, limit int) ([]music.LibraryArtist, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return []music.LibraryArtist{}, nil
+	}
+	if len(q) > 200 {
+		return nil, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein.")
+	}
+	limit = clampLimit(limit, 5, 50)
+
+	escQ := escapeLike(q)
+	likeTerm := "%" + escQ + "%"
+	prefixTerm := escQ + "%"
+
+	dataQuery := `
+		SELECT
+			a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url, a.created_at,
+			COUNT(DISTINCT r.id) AS release_count,
+			COALESCE(ts.track_count, 0) AS track_count,
+			COALESCE(ts.total_size, 0) AS total_size
+		FROM artists a
+		LEFT JOIN releases r ON r.artist_id = a.id
+		LEFT JOIN (
+			SELECT t.artist_id, COUNT(t.id) AS track_count, COALESCE(SUM(f.size_bytes), 0) AS total_size
+			FROM tracks t
+			LEFT JOIN files f ON f.track_id = t.id
+			GROUP BY t.artist_id
+		) ts ON ts.artist_id = a.id
+		WHERE a.name ILIKE $1 ESCAPE '\'
+		GROUP BY a.id, ts.track_count, ts.total_size
+		ORDER BY
+			CASE
+				WHEN LOWER(a.name) = LOWER($2) THEN 1
+				WHEN LOWER(a.name) LIKE LOWER($3) ESCAPE '\' THEN 2
+				ELSE 3
+			END,
+			a.sort_key ASC, a.name ASC, a.id ASC
+		LIMIT $4`
+
+	rows, err := c.db.QueryContext(ctx, dataQuery, likeTerm, q, prefixTerm, limit)
+	if err != nil {
+		return nil, wrapDB("search artists", err)
+	}
+	defer rows.Close()
+
+	out := make([]music.LibraryArtist, 0, limit)
+	for rows.Next() {
+		var (
+			la        music.LibraryArtist
+			createdAt time.Time
+		)
+		if err := rows.Scan(
+			&la.ID, &la.Name, &la.Provider, &la.SourceID, &la.SourceURL, &la.ImageURL, &createdAt,
+			&la.ReleaseCount, &la.TrackCount, &la.TotalSizeBytes,
+		); err != nil {
+			return nil, wrapDB("scan searched artist", err)
+		}
+		la.CreatedAt = createdAt.UTC()
+		out = append(out, la)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapDB("search artists rows", err)
+	}
+	return out, nil
+}
+
+// SearchReleases searches releases in the library with exact/prefix/substring ranking.
+func (c *Catalog) SearchReleases(ctx context.Context, query string, limit int) ([]music.LibraryRelease, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return []music.LibraryRelease{}, nil
+	}
+	if len(q) > 200 {
+		return nil, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein.")
+	}
+	limit = clampLimit(limit, 5, 50)
+
+	escQ := escapeLike(q)
+	likeTerm := "%" + escQ + "%"
+	prefixTerm := escQ + "%"
+
+	dataQuery := `
+		SELECT
+			r.id, r.title, r.artists_json, r.album_artist, r.release_type, r.year,
+			r.release_date, r.track_count, r.cover_url, r.provider, r.source_id, r.source_url,
+			r.compilation, r.created_at,
+			COUNT(DISTINCT t.id) AS track_count_in_lib,
+			COALESCE(SUM(f.size_bytes), 0) AS total_size
+		FROM releases r
+		LEFT JOIN tracks t ON t.release_id = r.id
+		LEFT JOIN files f ON f.track_id = t.id
+		WHERE (r.title ILIKE $1 ESCAPE '\' OR r.album_artist ILIKE $1 ESCAPE '\')
+		GROUP BY r.id
+		ORDER BY
+			CASE
+				WHEN LOWER(r.title) = LOWER($2) THEN 1
+				WHEN LOWER(r.title) LIKE LOWER($3) ESCAPE '\' THEN 2
+				WHEN LOWER(r.album_artist) = LOWER($2) THEN 3
+				WHEN LOWER(r.album_artist) LIKE LOWER($3) ESCAPE '\' THEN 4
+				ELSE 5
+			END,
+			r.created_at DESC, r.id DESC
+		LIMIT $4`
+
+	rows, err := c.db.QueryContext(ctx, dataQuery, likeTerm, q, prefixTerm, limit)
+	if err != nil {
+		return nil, wrapDB("search releases", err)
+	}
+	defer rows.Close()
+
+	out := make([]music.LibraryRelease, 0, limit)
+	for rows.Next() {
+		var (
+			lr          music.LibraryRelease
+			artistsJSON string
+			releaseType string
+			createdAt   time.Time
+		)
+		if err := rows.Scan(
+			&lr.ID, &lr.Title, &artistsJSON, &lr.AlbumArtist, &releaseType, &lr.Year,
+			&lr.ReleaseDate, &lr.TrackCount, &lr.CoverURL, &lr.Provider, &lr.SourceID, &lr.SourceURL,
+			&lr.Compilation, &createdAt,
+			&lr.TrackCountInLibrary, &lr.TotalSizeBytes,
+		); err != nil {
+			return nil, wrapDB("scan searched release", err)
+		}
+		lr.Artists = decodeStrings(artistsJSON)
+		lr.ReleaseType = music.ReleaseType(releaseType)
+		lr.CreatedAt = createdAt.UTC()
+		out = append(out, lr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapDB("search releases rows", err)
+	}
+	return out, nil
+}
+
+// SearchTracks searches tracks in the library with exact/prefix/substring ranking.
+func (c *Catalog) SearchTracks(ctx context.Context, query string, limit int) ([]music.LibraryTrack, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return []music.LibraryTrack{}, nil
+	}
+	if len(q) > 200 {
+		return nil, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein.")
+	}
+	limit = clampLimit(limit, 10, 50)
+
+	escQ := escapeLike(q)
+	likeTerm := "%" + escQ + "%"
+	prefixTerm := escQ + "%"
+	isrcTerm := discography.NormalizeISRC(q)
+	if isrcTerm == "" {
+		isrcTerm = q
+	}
+
+	dataQuery := `
+		SELECT
+			t.id, t.release_id, t.artist_id, t.title, t.artists_json, t.album, t.album_artist,
+			t.track_number, t.track_total, t.disc_number, t.disc_total, t.duration_ms, t.year,
+			t.isrc, t.cover_url, t.identity_key, t.compilation, t.lyrics_state, t.lyrics_provider,
+			t.lyrics_checked_at, t.created_at,
+			COALESCE(f.path, ''), COALESCE(f.size_bytes, 0), COALESCE(f.codec, ''), COALESCE(f.bitrate_kbps, 0)
+		FROM tracks t
+		LEFT JOIN files f ON f.track_id = t.id
+		WHERE (t.title ILIKE $1 ESCAPE '\' OR t.album ILIKE $1 ESCAPE '\' OR t.album_artist ILIKE $1 ESCAPE '\' OR LOWER(t.isrc) = LOWER($2))
+		ORDER BY
+			CASE
+				WHEN LOWER(t.title) = LOWER($3) THEN 1
+				WHEN LOWER(t.title) LIKE LOWER($4) ESCAPE '\' THEN 2
+				WHEN LOWER(t.album_artist) = LOWER($3) THEN 3
+				WHEN LOWER(t.album_artist) LIKE LOWER($4) ESCAPE '\' THEN 4
+				WHEN LOWER(t.album) = LOWER($3) THEN 5
+				WHEN LOWER(t.album) LIKE LOWER($4) ESCAPE '\' THEN 6
+				ELSE 7
+			END,
+			t.created_at DESC, t.id DESC
+		LIMIT $5`
+
+	rows, err := c.db.QueryContext(ctx, dataQuery, likeTerm, isrcTerm, q, prefixTerm, limit)
+	if err != nil {
+		return nil, wrapDB("search tracks", err)
+	}
+	defer rows.Close()
+
+	out := make([]music.LibraryTrack, 0, limit)
+	for rows.Next() {
+		var (
+			lt          music.LibraryTrack
+			releaseID   sql.NullString
+			artistID    sql.NullString
+			artistsJSON string
+			identityKey string
+			lyricsState string
+			checkedAt   sql.NullTime
+			createdAt   time.Time
+		)
+		if err := rows.Scan(
+			&lt.ID, &releaseID, &artistID, &lt.Title, &artistsJSON, &lt.Album, &lt.AlbumArtist,
+			&lt.TrackNumber, &lt.TrackTotal, &lt.DiscNumber, &lt.DiscTotal, &lt.DurationMS, &lt.Year,
+			&lt.ISRC, &lt.CoverURL, &identityKey, &lt.Compilation, &lyricsState, &lt.LyricsProvider,
+			&checkedAt, &createdAt,
+			&lt.FilePath, &lt.FileSizeBytes, &lt.Codec, &lt.BitrateKbps,
+		); err != nil {
+			return nil, wrapDB("scan searched track", err)
+		}
+		lt.ReleaseID = stringOf(releaseID)
+		lt.Artists = decodeStrings(artistsJSON)
+		lt.LyricsState = music.LyricsState(lyricsState)
+		if checkedAt.Valid {
+			t := checkedAt.Time.UTC()
+			lt.LyricsCheckedAt = &t
+		}
+		lt.CreatedAt = createdAt.UTC()
+		out = append(out, lt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapDB("search tracks rows", err)
+	}
+	return out, nil
+}
+
+// SearchLibrary performs a combined ranked search across artists, releases, and tracks.
 func (c *Catalog) SearchLibrary(ctx context.Context, query string, limit int) (*music.LibrarySearchResults, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
@@ -666,37 +970,29 @@ func (c *Catalog) SearchLibrary(ctx context.Context, query string, limit int) (*
 			Tracks:   []music.LibraryTrack{},
 		}, nil
 	}
+	if len(q) > 200 {
+		return nil, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein.")
+	}
 
-	if limit <= 0 || limit > 20 {
+	if limit <= 0 || limit > 50 {
 		limit = 5
 	}
+	trackLimit := min(limit*2, 10)
+	if limit > 5 {
+		trackLimit = limit
+	}
 
-	artists, _, err := c.ListArtistsFiltered(ctx, ArtistListFilter{
-		Query: q,
-		Limit: limit,
-		Sort:  "name",
-		Order: "asc",
-	})
+	artists, err := c.SearchArtists(ctx, q, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	releases, _, err := c.ListReleasesFiltered(ctx, ReleaseListFilter{
-		Query: q,
-		Limit: limit,
-		Sort:  "recent",
-		Order: "desc",
-	})
+	releases, err := c.SearchReleases(ctx, q, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	tracks, _, err := c.ListTracksFiltered(ctx, TrackListFilter{
-		Query: q,
-		Limit: limit,
-		Sort:  "recent",
-		Order: "desc",
-	})
+	tracks, err := c.SearchTracks(ctx, q, trackLimit)
 	if err != nil {
 		return nil, err
 	}

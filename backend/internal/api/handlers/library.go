@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"ytdm/backend/internal/api/middleware"
 	"ytdm/backend/internal/api/response"
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/database/repository"
@@ -116,15 +117,46 @@ func (h *Handlers) LibraryTracks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	q := queryString(r, "q")
+	if len(q) > 200 {
+		response.Error(w, r, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein."))
+		return
+	}
+
+	var year int
+	if rawYear := queryString(r, "year"); rawYear != "" {
+		y, err := strconv.Atoi(rawYear)
+		if err != nil || y < 0 {
+			response.Error(w, r, apperr.Newf(apperr.CodeInvalidRequest, "Ungültiges Jahr: %q.", rawYear))
+			return
+		}
+		year = y
+	}
+
+	var favoriteOnly bool
+	var userID string
+	if fav := strings.ToLower(queryString(r, "favorite")); fav == "true" || fav == "1" {
+		user := middleware.UserFromContext(r.Context())
+		if user == nil {
+			response.Fail(w, r, apperr.CodeUnauthenticated, "Authentifizierung erforderlich für Favoriten-Filter.")
+			return
+		}
+		favoriteOnly = true
+		userID = user.ID
+	}
+
 	filter := repository.TrackListFilter{
-		Query:       queryString(r, "q"),
-		ArtistID:    queryString(r, "artist_id"),
-		ReleaseID:   queryString(r, "release_id"),
-		LyricsState: queryString(r, "lyrics_state"),
-		Sort:        queryString(r, "sort"),
-		Order:       queryString(r, "order"),
-		Limit:       limit,
-		Offset:      offset,
+		Query:        q,
+		ArtistID:     queryString(r, "artist_id"),
+		ReleaseID:    queryString(r, "release_id"),
+		LyricsState:  queryString(r, "lyrics_state"),
+		Year:         year,
+		FavoriteOnly: favoriteOnly,
+		UserID:       userID,
+		Sort:         queryString(r, "sort"),
+		Order:        queryString(r, "order"),
+		Limit:        limit,
+		Offset:       offset,
 	}
 
 	tracks, total, err := h.deps.Catalog.ListTracksFiltered(r.Context(), filter)
@@ -154,10 +186,15 @@ func (h *Handlers) LibraryTrackDetail(w http.ResponseWriter, r *http.Request) {
 // LibrarySearch answers GET /library/search.
 func (h *Handlers) LibrarySearch(w http.ResponseWriter, r *http.Request) {
 	q := queryString(r, "q")
+	if len(q) > 200 {
+		response.Error(w, r, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein."))
+		return
+	}
+
 	limit := 5
 	if rawLimit := queryString(r, "limit"); rawLimit != "" {
 		if l, err := strconv.Atoi(rawLimit); err == nil && l > 0 {
-			limit = min(l, 20)
+			limit = min(l, 50)
 		}
 	}
 

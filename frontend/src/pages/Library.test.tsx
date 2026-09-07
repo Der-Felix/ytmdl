@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { Library } from './Library'
+import { PlayerProvider } from '@/contexts/PlayerContext'
 import { navigate } from '@/lib/router'
 import type { LibraryArtist, LibraryRelease, LibraryStats, LibraryTrack, ScanResult } from '@/types/api'
 
@@ -15,6 +16,22 @@ let calls: Call[] = []
 let originalFetch: typeof fetch
 
 type Routes = Record<string, () => { status?: number; body: unknown }>
+
+function setTestURL(to: string) {
+  const fullUrl = to.startsWith('http') ? to : `http://localhost${to}`
+  if ((window as any).happyDOM?.setURL) {
+    ;(window as any).happyDOM.setURL(fullUrl)
+  }
+  navigate(to, { replace: true })
+}
+
+function renderLibrary() {
+  return render(
+    <PlayerProvider>
+      <Library />
+    </PlayerProvider>
+  )
+}
 
 function stubFetch(routes: Routes): Call[] {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -155,7 +172,7 @@ describe('Library Page', () => {
   beforeEach(() => {
     calls = []
     originalFetch = globalThis.fetch
-    window.history.replaceState(null, '', '/')
+    setTestURL('/')
   })
 
   afterEach(() => {
@@ -165,7 +182,7 @@ describe('Library Page', () => {
   it('renders library overview, stats and release cards', async () => {
     stubFetch(baseRoutes())
 
-    render(<Library />)
+    renderLibrary()
 
     try {
       await waitFor(() => {
@@ -180,7 +197,7 @@ describe('Library Page', () => {
   it('triggers a library scan when clicking the scan button', async () => {
     stubFetch(baseRoutes())
 
-    render(<Library />)
+    renderLibrary()
 
     await waitFor(() => {
       expect(screen.getByText('Discovery')).toBeTruthy()
@@ -238,7 +255,7 @@ describe('Library Page', () => {
 
     stubFetch(routes)
 
-    render(<Library />)
+    renderLibrary()
 
     // Switch to Wartung tab
     const wartungBtn = screen.getByRole('button', { name: /Wartung/i })
@@ -251,5 +268,91 @@ describe('Library Page', () => {
       expect(screen.getByText('Pfad korrigieren')).toBeTruthy()
     })
   })
-})
 
+  it('switches to tracks tab with query on search submit', async () => {
+    stubFetch(baseRoutes())
+
+    renderLibrary()
+
+    const searchInput = screen.getByRole('searchbox')
+    fireEvent.change(searchInput, { target: { value: 'Discovery' } })
+    const form = searchInput.closest('form')!
+    fireEvent.submit(form)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Suche: „Discovery“/i)).toBeTruthy()
+      const trackCalls = calls.filter((c) => c.url.includes('/library/tracks') && c.url.includes('q=Discovery'))
+      expect(trackCalls.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('toggles favorites filter in tracks tab', async () => {
+    stubFetch(baseRoutes())
+
+    renderLibrary()
+
+    // Switch to Titel tab
+    const tracksBtn = screen.getByRole('button', { name: /Titel/i })
+    fireEvent.click(tracksBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText('One More Time')).toBeTruthy()
+    })
+
+    const favToggle = screen.getByRole('button', { name: /Nur Favoriten/i })
+    fireEvent.click(favToggle)
+
+    await waitFor(() => {
+      const favCalls = calls.filter((c) => c.url.includes('/library/tracks') && c.url.includes('favorite=true'))
+      expect(favCalls.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('renders filter chips and resets filters when clicking Filter zurücksetzen', async () => {
+    stubFetch(baseRoutes())
+
+    // Start with a filtered URL
+    setTestURL('/library?view=tracks&q=Daft&favorite=true')
+
+    renderLibrary()
+
+    await waitFor(() => {
+      expect(screen.getByText(/Suche: „Daft“/i)).toBeTruthy()
+      expect(screen.getAllByText(/Nur Favoriten/i).length).toBeGreaterThan(0)
+    })
+
+    const resetBtn = screen.getByRole('button', { name: /Filter zurücksetzen/i })
+    fireEvent.click(resetBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Suche: „Daft“/i)).toBeNull()
+      const cleanCalls = calls.filter((c) => c.url.includes('/library/tracks') && !c.url.includes('favorite=true') && !c.url.includes('q='))
+      expect(cleanCalls.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('displays empty state with reset button when search has no results', async () => {
+    const routes = baseRoutes()
+    routes['GET /api/v1/library/tracks'] = () => ({
+      body: { data: [], meta: { count: 0, total: 0 } },
+    })
+    stubFetch(routes)
+
+    setTestURL('/library?view=tracks&q=Nonexistent')
+
+    renderLibrary()
+
+    await waitFor(() => {
+      expect(screen.getByText('Keine Treffer für deine Suche')).toBeTruthy()
+      expect(screen.getByText('Keine Titel für „Nonexistent“ mit den ausgewählten Filtern gefunden.')).toBeTruthy()
+    })
+
+    const resetBtns = screen.getAllByRole('button', { name: /Filter zurücksetzen/i })
+    expect(resetBtns.length).toBeGreaterThan(0)
+    fireEvent.click(resetBtns[0])
+
+    await waitFor(() => {
+      expect(screen.queryByText('Keine Titel für „Nonexistent“ mit den ausgewählten Filtern gefunden.')).toBeNull()
+    })
+  })
+})
