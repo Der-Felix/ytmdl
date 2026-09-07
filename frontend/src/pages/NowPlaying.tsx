@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
+  FolderPlus,
+  Heart,
   ListMusic,
   Maximize2,
   Mic2,
@@ -27,11 +29,13 @@ import {
   X,
 } from 'lucide-react'
 
+import { AddToPlaylistDialog } from '@/components/music/AddToPlaylistDialog'
 import { Cover } from '@/components/music/Cover'
 import { VisualizerCanvas } from '@/components/player/VisualizerCanvas'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayer } from '@/hooks/usePlayer'
 import { refreshTrackLyrics, trackLyrics } from '@/lib/api/library'
 import {
@@ -135,6 +139,8 @@ export function NowPlaying() {
   const [visualizerMenuOpen, setVisualizerMenuOpen] = useState(false)
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false)
   const [errorDismissed, setErrorDismissed] = useState(false)
+  const favorites = useOptionalFavorites()
+  const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false)
 
   // Lyrics state
   const [lyricsData, setLyricsData] = useState<TrackLyrics | null>(null)
@@ -620,70 +626,148 @@ export function NowPlaying() {
                 </div>
               </div>
 
-              {/* Options Popover (Speed & Sleep Timer) */}
-              <div className="relative">
+              {/* Secondary Actions: Favorite, AddToPlaylist, Options Popover */}
+              <div className="flex items-center gap-1.5">
+                {favorites && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void favorites.toggleFavorite(currentTrack.id)}
+                    className={`h-7 w-7 p-0 rounded-lg transition-colors ${
+                      favorites.isFavorite(currentTrack.id)
+                        ? 'text-rose-500 hover:text-rose-400 bg-rose-500/10'
+                        : 'text-neutral-400 hover:text-rose-400 hover:bg-white/[0.04]'
+                    }`}
+                    title={
+                      favorites.isFavorite(currentTrack.id)
+                        ? 'Aus Favoriten entfernen'
+                        : 'Zu Favoriten hinzufügen'
+                    }
+                    aria-label={
+                      favorites.isFavorite(currentTrack.id)
+                        ? 'Aus Favoriten entfernen'
+                        : 'Zu Favoriten hinzufügen'
+                    }
+                  >
+                    <Heart
+                      className={`size-3.5 ${
+                        favorites.isFavorite(currentTrack.id)
+                          ? 'fill-rose-500 text-rose-500'
+                          : ''
+                      }`}
+                    />
+                  </Button>
+                )}
+
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setOptionsMenuOpen(!optionsMenuOpen)}
-                  className="h-7 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-xs text-neutral-300 hover:text-white border border-white/5 gap-1.5"
-                  title="Wiedergabeoptionen"
+                  onClick={() => setPlaylistDialogOpen(true)}
+                  className="h-7 w-7 p-0 rounded-lg text-neutral-400 hover:text-white hover:bg-white/[0.04]"
+                  title="Zur Playlist hinzufügen"
+                  aria-label="Zur Playlist hinzufügen"
                 >
-                  <MoreHorizontal className="size-3.5" />
-                  <span className="font-mono text-[11px]">{playbackRate}x</span>
-                  {sleepTimer !== 'off' && (
-                    <span className="size-1.5 rounded-full bg-primary" />
-                  )}
+                  <FolderPlus className="size-3.5" />
                 </Button>
 
-                {optionsMenuOpen && (
-                  <div className="absolute right-0 bottom-9 z-50 w-52 rounded-2xl bg-[#0f1220]/95 border border-white/10 p-3 shadow-2xl backdrop-blur-xl space-y-3">
-                    {/* Speed Selection */}
-                    <div>
-                      <label className="text-[10px] font-semibold uppercase text-neutral-400 tracking-wider block mb-1.5">
-                        Geschwindigkeit
-                      </label>
-                      <div className="grid grid-cols-4 gap-1">
-                        {speedOptions.map((rate) => (
-                          <button
-                            key={rate}
-                            type="button"
-                            onClick={() => setPlaybackRate(rate)}
-                            className={`py-1 rounded-lg text-xs font-mono transition-colors ${
-                              playbackRate === rate
-                                ? 'bg-primary text-white font-bold'
-                                : 'bg-white/5 text-neutral-300 hover:bg-white/10'
-                            }`}
-                          >
-                            {rate}x
-                          </button>
-                        ))}
+                {/* Options Popover (Speed & Sleep Timer) */}
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setOptionsMenuOpen(!optionsMenuOpen)}
+                    className="h-7 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-xs text-neutral-300 hover:text-white border border-white/5 gap-1.5"
+                    title="Wiedergabeoptionen"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                    <span className="font-mono text-[11px]">{playbackRate}x</span>
+                    {sleepTimer !== 'off' && (
+                      <span className="size-1.5 rounded-full bg-primary" />
+                    )}
+                  </Button>
+
+                  {optionsMenuOpen && (
+                    <div className="absolute right-0 bottom-9 z-50 w-52 rounded-2xl bg-[#0f1220]/95 border border-white/10 p-3 shadow-2xl backdrop-blur-xl space-y-3">
+                      {/* Speed Selection */}
+                      <div>
+                        <label className="text-[10px] font-semibold uppercase text-neutral-400 tracking-wider block mb-1.5">
+                          Geschwindigkeit
+                        </label>
+                        <div className="grid grid-cols-4 gap-1">
+                          {speedOptions.map((rate) => (
+                            <button
+                              key={rate}
+                              type="button"
+                              onClick={() => {
+                                setPlaybackRate(rate)
+                                setOptionsMenuOpen(false)
+                              }}
+                              className={`py-1 text-xs font-mono rounded-lg transition-colors ${
+                                playbackRate === rate
+                                  ? 'bg-primary text-white font-bold'
+                                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                              }`}
+                            >
+                              {rate}x
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Sleep Timer */}
+                      <div>
+                        <label className="text-[10px] font-semibold uppercase text-neutral-400 tracking-wider block mb-1.5">
+                          Sleep Timer
+                        </label>
+                        <div className="grid grid-cols-2 gap-1">
+                          {(['off', '15m', '30m', '45m', '60m', 'end_of_track'] as SleepTimerOption[]).map(
+                            (option) => (
+                              <button
+                                key={option}
+                                type="button"
+                                onClick={() => {
+                                  setSleepTimer(option)
+                                  setOptionsMenuOpen(false)
+                                }}
+                                className={`py-1 px-2 text-xs rounded-lg text-left transition-colors truncate ${
+                                  sleepTimer === option
+                                    ? 'bg-primary text-white font-semibold'
+                                    : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                                }`}
+                              >
+                                {option === 'off' ? 'Aus' : option === 'end_of_track' ? 'Track-Ende' : option}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Sleep Timer Extended Select */}
+                      <div>
+                        <label htmlFor="sleep-timer-select" className="sr-only">
+                          Erweiterte Sleep-Timer Optionen
+                        </label>
+                        <select
+                          id="sleep-timer-select"
+                          value={sleepTimer}
+                          onChange={(e) => {
+                            setSleepTimer(e.target.value as SleepTimerOption)
+                            setOptionsMenuOpen(false)
+                          }}
+                          className="w-full h-7 rounded-lg bg-white/[0.06] border border-white/10 px-2 text-xs text-white outline-none cursor-pointer"
+                        >
+                          <option value="off" className="bg-[#121524]">Aus</option>
+                          <option value="15" className="bg-[#121524]">15 Minuten</option>
+                          <option value="30" className="bg-[#121524]">30 Minuten</option>
+                          <option value="45" className="bg-[#121524]">45 Minuten</option>
+                          <option value="60" className="bg-[#121524]">60 Minuten</option>
+                          <option value="end_of_track" className="bg-[#121524]">Nach aktuellem Titel</option>
+                          <option value="end_of_album" className="bg-[#121524]">Nach aktuellem Album</option>
+                        </select>
                       </div>
                     </div>
-
-                    {/* Sleep Timer Selection */}
-                    <div className="pt-2 border-t border-white/10">
-                      <label className="text-[10px] font-semibold uppercase text-neutral-400 tracking-wider block mb-1.5">
-                        Sleep Timer
-                      </label>
-                      <select
-                        value={sleepTimer}
-                        onChange={(e) => {
-                          setSleepTimer(e.target.value as SleepTimerOption)
-                        }}
-                        className="w-full h-7 rounded-lg bg-white/[0.06] border border-white/10 px-2 text-xs text-white outline-none cursor-pointer"
-                      >
-                        <option value="off" className="bg-[#121524]">Aus</option>
-                        <option value="15" className="bg-[#121524]">15 Minuten</option>
-                        <option value="30" className="bg-[#121524]">30 Minuten</option>
-                        <option value="45" className="bg-[#121524]">45 Minuten</option>
-                        <option value="60" className="bg-[#121524]">60 Minuten</option>
-                        <option value="end_of_track" className="bg-[#121524]">Nach aktuellem Titel</option>
-                        <option value="end_of_album" className="bg-[#121524]">Nach aktuellem Album</option>
-                      </select>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1436,6 +1520,11 @@ export function NowPlaying() {
 
         </div>
       </main>
+      <AddToPlaylistDialog
+        track={currentTrack}
+        open={playlistDialogOpen}
+        onOpenChange={setPlaylistDialogOpen}
+      />
     </div>
   )
 }

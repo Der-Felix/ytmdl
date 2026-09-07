@@ -110,6 +110,9 @@ export type Route =
   | { name: 'library'; artistId?: string; view?: string; trackId?: string }
   | { name: 'libraryArtist'; id: string }
   | { name: 'libraryRelease'; id: string }
+  | { name: 'playlists' }
+  | { name: 'playlistDetail'; id: string }
+  | { name: 'favorites' }
   | { name: 'subscriptions' }
   | { name: 'settings' }
   | { name: 'notFound'; pathname: string }
@@ -187,6 +190,17 @@ export function matchRoute(location: Location): Route {
       }
       break
 
+    case 'playlists':
+      if (segments.length === 1) return { name: 'playlists' }
+      if (second && segments.length === 2) {
+        return { name: 'playlistDetail', id: decodeURIComponent(second) }
+      }
+      break
+
+    case 'favorites':
+      if (segments.length === 1) return { name: 'favorites' }
+      break
+
     case 'subscriptions':
       if (segments.length === 1) return { name: 'subscriptions' }
       break
@@ -240,6 +254,9 @@ export const paths = {
   },
   libraryArtist: (id: string) => `/library/artists/${encodeURIComponent(id)}`,
   libraryRelease: (id: string) => `/library/releases/${encodeURIComponent(id)}`,
+  playlists: () => '/playlists',
+  playlist: (id: string) => `/playlists/${encodeURIComponent(id)}`,
+  favorites: () => '/favorites',
   subscriptions: () => '/subscriptions',
   settings: () => '/settings/server',
 } as const

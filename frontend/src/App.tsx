@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { FavoritesProvider } from '@/contexts/FavoritesContext'
 import { PlayerProvider } from '@/contexts/PlayerContext'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import { useJobs } from '@/hooks/useJobs'
@@ -10,12 +11,15 @@ import { Artist } from '@/pages/Artist'
 import { Dashboard } from '@/pages/Dashboard'
 import { Discover } from '@/pages/Discover'
 import { Downloads } from '@/pages/Downloads'
+import { Favorites } from '@/pages/Favorites'
 import { Library } from '@/pages/Library'
 import { LibraryArtist } from '@/pages/LibraryArtist'
 import { LibraryRelease } from '@/pages/LibraryRelease'
 import { Login } from '@/pages/Login'
 import { NotFound } from '@/pages/NotFound'
 import { NowPlaying } from '@/pages/NowPlaying'
+import { PlaylistDetail } from '@/pages/PlaylistDetail'
+import { Playlists } from '@/pages/Playlists'
 import { Profile } from '@/pages/Profile'
 import { Release } from '@/pages/Release'
 import { Settings } from '@/pages/Settings'
@@ -69,6 +73,9 @@ export function AppContent() {
       {route.name === 'library' && <Library />}
       {route.name === 'libraryArtist' && <LibraryArtist id={route.id} />}
       {route.name === 'libraryRelease' && <LibraryRelease id={route.id} />}
+      {route.name === 'playlists' && <Playlists />}
+      {route.name === 'playlistDetail' && <PlaylistDetail id={route.id} />}
+      {route.name === 'favorites' && <Favorites />}
       {route.name === 'subscriptions' && <Subscriptions />}
       {route.name === 'settings' && (isAdmin ? <Settings /> : <NotFound pathname="/settings/server" />)}
       {route.name === 'notFound' && <NotFound pathname={route.pathname} />}
@@ -79,9 +86,11 @@ export function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <PlayerProvider>
-        <AppContent />
-      </PlayerProvider>
+      <FavoritesProvider>
+        <PlayerProvider>
+          <AppContent />
+        </PlayerProvider>
+      </FavoritesProvider>
     </AuthProvider>
   )
 }

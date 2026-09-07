@@ -33,6 +33,7 @@ import (
 	"ytdm/backend/internal/mediasession"
 	"ytdm/backend/internal/metadata"
 	"ytdm/backend/internal/orchestrator"
+	"ytdm/backend/internal/playlist"
 	"ytdm/backend/internal/provider"
 	"ytdm/backend/internal/provider/deezer"
 	"ytdm/backend/internal/provider/genius"
@@ -419,6 +420,20 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		CheckInterval: cfg.Update.CheckInterval,
 	}, version, nil, logger)
 
+	playlistsRepo := repository.NewPlaylists(db)
+	playlistService, err := playlist.New(playlist.Options{
+		Store:  playlistsRepo,
+		Logger: logger,
+	})
+	if err != nil {
+		authLimiter.Close()
+		stopScheduler(scheduler)
+		subscriptionService.Stop()
+		manager.Stop()
+		db.Close()
+		return nil, err
+	}
+
 	handlerSet, err := handlers.New(handlers.Deps{
 		Discography:    discographyService,
 		Registry:       registry,
@@ -434,6 +449,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Database:       db,
 		Updates:        updateService,
 		MediaSessions:  mediaSessionService,
+		Playlists:      playlistService,
 		Tools: map[string]handlers.Checker{
 			"yt-dlp":  ytdlpClient,
 			"ffmpeg":  ffmpegRunner,

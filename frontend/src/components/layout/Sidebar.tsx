@@ -3,8 +3,10 @@ import {
   BellIcon,
   CompassIcon,
   DownloadIcon,
+  HeartIcon,
   LayoutDashboardIcon,
   LibraryIcon,
+  ListMusicIcon,
   LogOutIcon,
   RadioIcon,
   ServerCogIcon,
@@ -63,6 +65,18 @@ const PRIMARY: NavItem[] = [
     href: paths.library(),
     icon: LibraryIcon,
     matches: ['library', 'libraryArtist', 'libraryRelease'],
+  },
+  {
+    label: 'Playlists',
+    href: paths.playlists(),
+    icon: ListMusicIcon,
+    matches: ['playlists', 'playlistDetail'],
+  },
+  {
+    label: 'Favoriten',
+    href: paths.favorites(),
+    icon: HeartIcon,
+    matches: ['favorites'],
   },
 ]
 

@@ -84,6 +84,8 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 			supportedSources = []int{8, 9}
 		} else if opts.TargetSchema == 11 {
 			supportedSources = []int{8, 9, 10}
+		} else if opts.TargetSchema == 12 {
+			supportedSources = []int{8, 9, 10, 11}
 		}
 	}
 
@@ -149,6 +151,40 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 			{
 				SourceSchema:           11,
 				TargetSchema:           11,
+				UpdateClassification:   UpdateSchemaNeutral,
+				RollbackClassification: RollbackSchemaNeutral,
+			},
+		}
+	}
+	if len(upgradePaths) == 0 && mVer == ManifestVersion3 && opts.TargetSchema == 12 {
+		upgradePaths = []UpgradePath{
+			{
+				SourceSchema:           8,
+				TargetSchema:           12,
+				UpdateClassification:   UpdateSchemaForward,
+				RollbackClassification: RollbackBackupRestoreRequired,
+			},
+			{
+				SourceSchema:           9,
+				TargetSchema:           12,
+				UpdateClassification:   UpdateSchemaForward,
+				RollbackClassification: RollbackBackupRestoreRequired,
+			},
+			{
+				SourceSchema:           10,
+				TargetSchema:           12,
+				UpdateClassification:   UpdateSchemaForward,
+				RollbackClassification: RollbackBackupRestoreRequired,
+			},
+			{
+				SourceSchema:           11,
+				TargetSchema:           12,
+				UpdateClassification:   UpdateSchemaForward,
+				RollbackClassification: RollbackBackupRestoreRequired,
+			},
+			{
+				SourceSchema:           12,
+				TargetSchema:           12,
 				UpdateClassification:   UpdateSchemaNeutral,
 				RollbackClassification: RollbackSchemaNeutral,
 			},

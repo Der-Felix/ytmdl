@@ -143,28 +143,40 @@ describe('paths', () => {
   })
 })
 
-describe('subscriptions route', () => {
-  it('matches the subscriptions page', () => {
+describe('playlists and favorites routes', () => {
+  it('matches playlists page', () => {
     expect(
       matchRoute({
-        pathname: '/subscriptions',
+        pathname: '/playlists',
         params: new URLSearchParams(),
-        href: '/subscriptions',
+        href: '/playlists',
       }),
-    ).toEqual({ name: 'subscriptions' })
+    ).toEqual({ name: 'playlists' })
   })
 
-  it('does not match a deeper path', () => {
+  it('matches playlist detail page', () => {
     expect(
       matchRoute({
-        pathname: '/subscriptions/sub-1',
+        pathname: '/playlists/pl-123',
         params: new URLSearchParams(),
-        href: '/subscriptions/sub-1',
+        href: '/playlists/pl-123',
       }),
-    ).toEqual({ name: 'notFound', pathname: '/subscriptions/sub-1' })
+    ).toEqual({ name: 'playlistDetail', id: 'pl-123' })
   })
 
-  it('builds the canonical path', () => {
-    expect(paths.subscriptions()).toBe('/subscriptions')
+  it('matches favorites page', () => {
+    expect(
+      matchRoute({
+        pathname: '/favorites',
+        params: new URLSearchParams(),
+        href: '/favorites',
+      }),
+    ).toEqual({ name: 'favorites' })
+  })
+
+  it('builds canonical paths', () => {
+    expect(paths.playlists()).toBe('/playlists')
+    expect(paths.playlist('pl-123')).toBe('/playlists/pl-123')
+    expect(paths.favorites()).toBe('/favorites')
   })
 })

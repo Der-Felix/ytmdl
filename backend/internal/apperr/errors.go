@@ -38,6 +38,7 @@ const (
 	CodeInvalidCredentials   Code = "INVALID_CREDENTIALS"
 	CodeUserNotFound         Code = "USER_NOT_FOUND"
 	CodeSessionNotFound      Code = "SESSION_NOT_FOUND"
+	CodePlaylistNotFound     Code = "PLAYLIST_NOT_FOUND"
 	CodeSessionInUse         Code = "SESSION_IN_USE"
 	CodeLastAdmin            Code = "LAST_ADMIN"
 	CodeCSRFInvalid          Code = "CSRF_INVALID"
@@ -130,7 +131,7 @@ func HTTPStatus(code Code) int {
 		return http.StatusUnsupportedMediaType
 	case CodeArtistNotFound, CodeReleaseNotFound, CodeTrackNotFound,
 		CodeJobNotFound, CodeSubscriptionNotFound, CodeProviderNotFound,
-		CodeFileNotFound, CodeUserNotFound, CodeSessionNotFound:
+		CodeFileNotFound, CodeUserNotFound, CodeSessionNotFound, CodePlaylistNotFound:
 		return http.StatusNotFound
 
 	case CodeUnauthenticated, CodeInvalidCredentials:
@@ -185,7 +186,7 @@ const (
 // ScopeOf reports the operational scope of an error.
 func ScopeOf(err error) Scope {
 	switch CodeOf(err) {
-	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType:
+	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType, CodePlaylistNotFound:
 		return ScopeCandidate
 	case CodeSessionAuthFailed, CodeSessionBotChallenge, CodeSessionRateLimited:
 		return ScopeSession

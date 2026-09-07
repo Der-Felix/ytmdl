@@ -65,6 +65,7 @@ export default defineConfig({
           { text: 'Artist Subscriptions', link: '/features/subscriptions' },
           { text: 'Library Management & Audit', link: '/features/library' },
           { text: 'Integrated Web Player', link: '/features/player' },
+          { text: 'Playlists & Favorites', link: '/features/playlists_favorites' },
           { text: 'Multi-Tier Lyrics', link: '/features/lyrics' },
         ],
       },

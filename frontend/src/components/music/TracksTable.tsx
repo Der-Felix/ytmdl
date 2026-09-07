@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  FolderPlus,
+  Heart,
   InfoIcon,
   ListPlus,
   Pause,
@@ -11,9 +14,11 @@ import {
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
 import type { LibraryTrack } from '@/types/api'
+import { AddToPlaylistDialog } from './AddToPlaylistDialog'
 import { LyricsBadge } from './LyricsBadge'
 
 interface TracksTableProps {
@@ -45,6 +50,9 @@ export function TracksTable({
 }: TracksTableProps) {
   const { currentTrack, status } = usePlayerState()
   const { playTrack, togglePlayPause, playNext, addToQueue } = usePlayerActions()
+  const favorites = useOptionalFavorites()
+  const [playlistTrack, setPlaylistTrack] = useState<LibraryTrack | null>(null)
+  const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false)
 
   const renderSortHeader = (label: string, field: string) => {
     const isCurrent = sort === field
@@ -97,7 +105,7 @@ export function TracksTable({
             <th className="py-3 px-3 w-20 text-right">
               {renderSortHeader('Dauer', 'duration')}
             </th>
-            <th className="py-3 px-2 w-20 text-right"></th>
+            <th className="py-3 px-2 w-40 text-right"></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-800/40">
@@ -206,7 +214,39 @@ export function TracksTable({
                 </td>
 
                 <td className="py-2.5 px-2 text-right">
-                  <div className="flex items-center justify-end gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                  <div className={`flex items-center justify-end gap-1 transition-opacity ${
+                    favorites?.isFavorite(track.id)
+                      ? 'opacity-90 group-hover:opacity-100'
+                      : 'opacity-40 group-hover:opacity-100'
+                  }`}>
+                    {favorites && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={`h-7 w-7 p-0 transition-colors ${
+                          favorites.isFavorite(track.id)
+                            ? 'text-rose-500 hover:text-rose-400 opacity-100'
+                            : 'text-neutral-400 hover:text-rose-400'
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void favorites.toggleFavorite(track.id)
+                        }}
+                        title={
+                          favorites.isFavorite(track.id)
+                            ? 'Aus Favoriten entfernen'
+                            : 'Zu Favoriten hinzufügen'
+                        }
+                      >
+                        <Heart
+                          className={`size-3.5 ${
+                            favorites.isFavorite(track.id)
+                              ? 'fill-rose-500 text-rose-500'
+                              : ''
+                          }`}
+                        />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -234,6 +274,19 @@ export function TracksTable({
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="h-7 w-7 p-0 text-neutral-400 hover:text-primary hover:bg-white/10"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setPlaylistTrack(track)
+                        setPlaylistDialogOpen(true)
+                      }}
+                      title="Zur Playlist hinzufügen"
+                    >
+                      <FolderPlus className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="h-7 w-7 p-0 text-neutral-400 hover:text-foreground"
                       onClick={(e) => {
                         e.stopPropagation()
@@ -250,6 +303,11 @@ export function TracksTable({
           })}
         </tbody>
       </table>
+      <AddToPlaylistDialog
+        track={playlistTrack}
+        open={playlistDialogOpen}
+        onOpenChange={setPlaylistDialogOpen}
+      />
     </div>
   )
 }

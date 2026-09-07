@@ -1,6 +1,25 @@
 # Changelog
 
-Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
+## 0.23.0 — 2026-09-07
+
+### Features
+
+- **Persistent User Playlists:** Added custom playlist management enabling users to create, rename, reorder, and delete playlists with 1-based position sequencing (`1..N`).
+- **Track Favorites:** Quick-toggle heart action on tracks with a dedicated Favorites library view and responsive playback.
+- **Player & Library Integration:** Seamlessly add tracks or entire albums/releases to existing or new playlists from library tables and player contexts.
+
+### Improvements
+
+- **Cascade Compaction Invariant:** PostgreSQL statement-level trigger guarantees playlist positions automatically re-sequence into contiguous `1..N` integers upon track deletion or removal with zero gaps.
+- **Per-User Isolation:** Strict database and API-level tenancy isolation ensuring user playlists and favorites remain private to each authenticated account.
+- **Snapshot Playback Semantics:** Enqueuing playlists or favorites creates an independent playback queue snapshot, isolating playback manipulation from stored playlist structure.
+
+### Changes
+
+- **Database Schema:** Database migration Schema 11 → 12 is required. Pre-migration backup is strongly recommended. Direct schema-neutral rollback is unsupported; transactional database backup and restore is required.
+- **Rollback Contract:** Direct schema-neutral rollback against Schema 12 is unsupported; transactional database backup and restore is required.
+
+**Full Changelog:** `v0.22.0...v0.23.0`
 
 ## 0.22.0 — 2026-09-07
 

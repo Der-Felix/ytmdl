@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  Heart,
   ListMusic,
   Maximize2,
   Pause,
@@ -15,6 +16,7 @@ import {
 
 import { Cover } from '@/components/music/Cover'
 import { Button } from '@/components/ui/button'
+import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayer } from '@/hooks/usePlayer'
 import { Link, paths } from '@/lib/router'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
@@ -40,6 +42,7 @@ export function MiniPlayer() {
   } = usePlayer()
 
   const [seekingValue, setSeekingValue] = useState<number | null>(null)
+  const favorites = useOptionalFavorites()
 
   if (!currentTrack) {
     return null
@@ -109,6 +112,37 @@ export function MiniPlayer() {
               {artistText}
             </p>
           </div>
+
+          {favorites && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => void favorites.toggleFavorite(currentTrack.id)}
+              className={`size-8 shrink-0 rounded-full transition-colors ${
+                favorites.isFavorite(currentTrack.id)
+                  ? 'text-rose-500 hover:text-rose-400'
+                  : 'text-neutral-400 hover:text-rose-400'
+              }`}
+              title={
+                favorites.isFavorite(currentTrack.id)
+                  ? 'Aus Favoriten entfernen'
+                  : 'Zu Favoriten hinzufügen'
+              }
+              aria-label={
+                favorites.isFavorite(currentTrack.id)
+                  ? 'Aus Favoriten entfernen'
+                  : 'Zu Favoriten hinzufügen'
+              }
+            >
+              <Heart
+                className={`size-4 ${
+                  favorites.isFavorite(currentTrack.id)
+                    ? 'fill-rose-500 text-rose-500'
+                    : ''
+                }`}
+              />
+            </Button>
+          )}
         </div>
 
         {/* ======================================================== */}

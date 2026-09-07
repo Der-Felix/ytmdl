@@ -168,6 +168,33 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				})
 			})
 
+			authed.Route("/playlists", func(playlists chi.Router) {
+				playlists.Get("/", h.ListPlaylists)
+				playlists.Get("/{id}", h.GetPlaylist)
+
+				playlists.Group(func(mutating chi.Router) {
+					mutating.Use(middleware.CSRF)
+					mutating.Post("/", h.CreatePlaylist)
+					mutating.Patch("/{id}", h.UpdatePlaylist)
+					mutating.Delete("/{id}", h.DeletePlaylist)
+					mutating.Post("/{id}/tracks", h.AddPlaylistTrack)
+					mutating.Delete("/{id}/tracks/{track_id}", h.RemovePlaylistTrack)
+					mutating.Put("/{id}/tracks/reorder", h.ReorderPlaylistTracks)
+				})
+			})
+
+			authed.Route("/favorites", func(favorites chi.Router) {
+				favorites.Get("/", h.ListFavorites)
+				favorites.Get("/ids", h.ListFavoriteIDs)
+				favorites.Get("/{track_id}", h.IsFavoriteTrack)
+
+				favorites.Group(func(mutating chi.Router) {
+					mutating.Use(middleware.CSRF)
+					mutating.Put("/{track_id}", h.FavoriteTrack)
+					mutating.Delete("/{track_id}", h.UnfavoriteTrack)
+				})
+			})
+
 			authed.Route("/library", func(library chi.Router) {
 				library.Get("/stats", h.LibraryStats)
 				library.Get("/search", h.LibrarySearch)

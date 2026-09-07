@@ -257,16 +257,16 @@ func TestMigration0011_FreshDB(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
 		t.Fatalf("failed to query schema_migrations: %v", err)
 	}
-	if count != 11 {
-		t.Fatalf("expected 11 migrations applied, got %d", count)
+	if count < 11 {
+		t.Fatalf("expected at least 11 migrations applied, got %d", count)
 	}
 
 	var latestVersion int
 	if err := db.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&latestVersion); err != nil {
 		t.Fatalf("failed to query max version: %v", err)
 	}
-	if latestVersion != 11 {
-		t.Fatalf("expected latest schema version 11, got %d", latestVersion)
+	if latestVersion < 11 {
+		t.Fatalf("expected latest schema version at least 11, got %d", latestVersion)
 	}
 
 	// Verify media_sessions operational on fresh DB

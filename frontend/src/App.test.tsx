@@ -69,6 +69,31 @@ mock.module('@/lib/api/system', () => ({
   }),
 }))
 
+mock.module('@/lib/api/playlists', () => ({
+  listPlaylists: async () => [],
+  getPlaylist: async () => ({
+    id: 'pl-test',
+    user_id: 'usr-admin',
+    name: 'Test Playlist',
+    description: '',
+    track_count: 0,
+    duration_ms: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    tracks: [],
+  }),
+  createPlaylist: async () => ({}),
+  updatePlaylist: async () => ({}),
+  deletePlaylist: async () => ({}),
+  addPlaylistTrack: async () => ({}),
+  removePlaylistTrack: async () => ({}),
+  reorderPlaylistTracks: async () => ({}),
+  listFavorites: async () => [],
+  listFavoriteIDs: async () => [],
+  favoriteTrack: async () => {},
+  unfavoriteTrack: async () => {},
+}))
+
 describe('App Layout Consolidation and Route Permissions', () => {
   const adminAuth = {
     user: {
@@ -181,6 +206,34 @@ describe('App Layout Consolidation and Route Permissions', () => {
     expect(screen.getByRole('navigation', { name: 'Hauptnavigation' })).toBeDefined()
     expect(await screen.findByRole('heading', { level: 1, name: 'Seite nicht gefunden' })).toBeDefined()
     expect(screen.queryByRole('heading', { level: 1, name: 'Servereinstellungen' })).toBeNull()
+  })
+
+  it('renders Playlists page within AppShell on /playlists', async () => {
+    ;(window as any).happyDOM.setURL('http://localhost/playlists')
+
+    render(
+      <AuthContext.Provider value={normalUserAuth}>
+        <AppContent />
+      </AuthContext.Provider>,
+    )
+
+    expect(screen.getByRole('navigation', { name: 'Hauptnavigation' })).toBeDefined()
+    expect(screen.getByRole('link', { name: /Playlists/i }).getAttribute('aria-current')).toBe('page')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Playlists' })).toBeDefined()
+  })
+
+  it('renders Favorites page within AppShell on /favorites', async () => {
+    ;(window as any).happyDOM.setURL('http://localhost/favorites')
+
+    render(
+      <AuthContext.Provider value={normalUserAuth}>
+        <AppContent />
+      </AuthContext.Provider>,
+    )
+
+    expect(screen.getByRole('navigation', { name: 'Hauptnavigation' })).toBeDefined()
+    expect(screen.getByRole('link', { name: /Favoriten/i }).getAttribute('aria-current')).toBe('page')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Lieblingstitel' })).toBeDefined()
   })
 
   it('renders standalone Login page without AppShell when not authenticated', async () => {
