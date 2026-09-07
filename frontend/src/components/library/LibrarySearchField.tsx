@@ -3,6 +3,7 @@ import type { KeyboardEvent } from 'react'
 import {
   ArrowRight,
   Disc3Icon,
+  ListPlus,
   Loader2,
   Music2Icon,
   Pause,
@@ -422,9 +423,39 @@ export function LibrarySearchField({
                           </p>
                         </div>
                       </div>
-                      <span className="text-xs text-neutral-500 shrink-0 font-mono">
-                        {formatDuration(track.duration_ms)}
-                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-xs text-neutral-500 font-mono mr-1">
+                          {formatDuration(track.duration_ms)}
+                        </span>
+                        {playerActions && (
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                playerActions.playNext(track)
+                              }}
+                              className="size-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700/60 transition-colors"
+                              title="Als Nächstes abspielen"
+                              aria-label="Als Nächstes abspielen"
+                            >
+                              <Play className="size-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                playerActions.addToQueue(track)
+                              }}
+                              className="size-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700/60 transition-colors"
+                              title="Zur Queue hinzufügen"
+                              aria-label="Zur Queue hinzufügen"
+                            >
+                              <ListPlus className="size-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )
                 })}

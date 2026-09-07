@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 
 import { Cover } from '@/components/music/Cover'
+import { QueueDrawer } from '@/components/player/QueueDrawer'
 import { Button } from '@/components/ui/button'
 import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayer } from '@/hooks/usePlayer'
@@ -24,6 +25,7 @@ import { formatDuration, joinArtists } from '@/lib/utils/format'
 export function MiniPlayer() {
   const {
     currentTrack,
+    queue,
     status,
     currentTime,
     duration,
@@ -41,6 +43,7 @@ export function MiniPlayer() {
     cycleRepeatMode,
   } = usePlayer()
 
+  const [queueOpen, setQueueOpen] = useState(false)
   const [seekingValue, setSeekingValue] = useState<number | null>(null)
   const favorites = useOptionalFavorites()
 
@@ -58,8 +61,9 @@ export function MiniPlayer() {
       : currentTrack.album_artist || ''
 
   return (
-    <aside
-      aria-label="Audioplayer"
+    <>
+      <aside
+        aria-label="Audioplayer"
       className="fixed bottom-0 left-0 right-0 z-40 h-[68px] sm:h-[86px] border-t border-white/[0.06] bg-[#080a12]/94 backdrop-blur-xl shadow-[0_-8px_32px_rgba(0,0,0,0.6)] transition-all"
     >
       {/* Mobile Top Thin Progress Bar */}
@@ -309,14 +313,26 @@ export function MiniPlayer() {
             </div>
           </div>
 
-          {/* Queue Link */}
-          <Link
-            href="/player?tab=queue"
-            className="flex items-center justify-center size-8 rounded-lg text-neutral-400 hover:text-white hover:bg-white/5 transition-colors"
-            title="Wiedergabeliste / Queue"
+          {/* Queue Toggle */}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setQueueOpen((prev) => !prev)}
+            className={`relative flex items-center justify-center size-8 rounded-lg transition-colors ${
+              queueOpen
+                ? 'text-primary bg-primary/15'
+                : 'text-neutral-400 hover:text-white hover:bg-white/5'
+            }`}
+            title="Wiedergabeliste / Queue öffnen"
+            aria-label="Wiedergabeliste / Queue öffnen"
           >
             <ListMusic className="size-4" strokeWidth={1.8} />
-          </Link>
+            {queue.length > 1 && (
+              <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-white shadow">
+                {queue.length}
+              </span>
+            )}
+          </Button>
 
           {/* Expand Button: Clean Icon Button */}
           <Link
@@ -331,5 +347,8 @@ export function MiniPlayer() {
 
       </div>
     </aside>
-  )
+
+    <QueueDrawer open={queueOpen} onOpenChange={setQueueOpen} />
+  </>
+)
 }

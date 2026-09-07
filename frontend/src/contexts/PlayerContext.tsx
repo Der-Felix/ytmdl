@@ -48,10 +48,12 @@ export interface PlayerActionsContextValue {
   playAlbum: (tracks: LibraryTrack[], startIndex?: number) => void
   playArtist: (tracks: LibraryTrack[], shuffle?: boolean) => void
   playNext: (track: LibraryTrack) => void
+  playQueueIndex: (index: number) => void
   addToQueue: (tracks: LibraryTrack[] | LibraryTrack) => void
   removeFromQueue: (index: number) => void
   reorderQueue: (fromIndex: number, toIndex: number) => void
   clearQueue: () => void
+  clearUpcomingQueue: () => void
   togglePlayPause: () => void
   play: () => void
   pause: () => void
@@ -275,7 +277,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const actionHandlers: [MediaSessionAction, MediaSessionActionHandler][] = [
       ['play', () => { engine.play(); dispatch({ type: 'SET_STATUS', payload: 'playing' }) }],
       ['pause', () => { engine.pause(); dispatch({ type: 'SET_STATUS', payload: 'paused' }) }],
-      ['previoustrack', () => dispatch({ type: 'PREVIOUS' })],
+      ['previoustrack', () => {
+        if (stateRef.current.currentTime > 3.0) engine.seek(0)
+        dispatch({ type: 'PREVIOUS' })
+      }],
       ['nexttrack', () => dispatch({ type: 'NEXT', payload: { manual: true } })],
       ['seekto', (details) => {
         if (details.seekTime !== undefined) {
@@ -371,6 +376,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         case 'ArrowLeft':
           if (e.shiftKey) {
             e.preventDefault()
+            if (stateRef.current.currentTime > 3.0) engine.seek(0)
             dispatch({ type: 'PREVIOUS' })
           } else {
             e.preventDefault()
@@ -535,6 +541,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'PLAY_NEXT', payload: { track } })
   }, [])
 
+  const playQueueIndexAction = useCallback((index: number) => {
+    dispatch({ type: 'PLAY_QUEUE_INDEX', payload: { index } })
+  }, [])
+
   const addToQueueAction = useCallback((tracks: LibraryTrack[] | LibraryTrack) => {
     dispatch({ type: 'ADD_TO_QUEUE', payload: { tracks } })
   }, [])
@@ -551,6 +561,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'CLEAR_QUEUE' })
     engine.pause()
   }, [engine])
+
+  const clearUpcomingQueueAction = useCallback(() => {
+    dispatch({ type: 'CLEAR_UPCOMING_QUEUE' })
+  }, [])
 
   const togglePlayPause = useCallback(() => {
     if (stateRef.current.status === 'playing') {
@@ -581,8 +595,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   )
 
   const previousAction = useCallback(() => {
+    if (stateRef.current.currentTime > 3.0) {
+      engine.seek(0)
+    }
     dispatch({ type: 'PREVIOUS' })
-  }, [])
+  }, [engine])
 
   const nextAction = useCallback((manual = true) => {
     dispatch({ type: 'NEXT', payload: { manual } })
@@ -714,10 +731,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playAlbum,
       playArtist,
       playNext: playNextAction,
+      playQueueIndex: playQueueIndexAction,
       addToQueue: addToQueueAction,
       removeFromQueue: removeFromQueueAction,
       reorderQueue: reorderQueueAction,
       clearQueue: clearQueueAction,
+      clearUpcomingQueue: clearUpcomingQueueAction,
       togglePlayPause,
       play: playAction,
       pause: pauseAction,
@@ -760,10 +779,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playAlbum,
       playArtist,
       playNextAction,
+      playQueueIndexAction,
       addToQueueAction,
       removeFromQueueAction,
       reorderQueueAction,
       clearQueueAction,
+      clearUpcomingQueueAction,
       togglePlayPause,
       playAction,
       pauseAction,

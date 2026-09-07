@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   FolderPlus,
+  GripVertical,
   Heart,
   ListMusic,
   Maximize2,
@@ -117,7 +120,10 @@ export function NowPlaying() {
     setBalance,
     setMono,
     setVisualizerMode,
+    playQueueIndex,
     removeFromQueue,
+    reorderQueue,
+    clearUpcomingQueue,
     clearQueue,
   } = usePlayer()
 
@@ -135,6 +141,8 @@ export function NowPlaying() {
   const [savePresetOpen, setSavePresetOpen] = useState(false)
   const [customPresetName, setCustomPresetName] = useState('')
   const [showHistory, setShowHistory] = useState(false)
+  const [draggedQueueIndex, setDraggedQueueIndex] = useState<number | null>(null)
+  const [dropTargetQueueIndex, setDropTargetQueueIndex] = useState<number | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [visualizerMenuOpen, setVisualizerMenuOpen] = useState(false)
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false)
@@ -951,16 +959,32 @@ export function NowPlaying() {
                       </button>
                     </div>
 
-                    {!showHistory && queue.length > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={clearQueue}
-                        className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 rounded-lg"
-                      >
-                        <Trash2 className="size-3.5 mr-1" />
-                        Leeren
-                      </Button>
+                    {!showHistory && (
+                      <div className="flex items-center gap-1.5">
+                        {queueIndex >= 0 && queueIndex < queue.length - 1 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearUpcomingQueue}
+                            className="h-7 px-2 text-xs text-neutral-400 hover:text-white rounded-lg hover:bg-white/10"
+                            title="Kommende Titel entfernen (bereits gespielte und aktuellen Titel beibehalten)"
+                          >
+                            Nächste leeren
+                          </Button>
+                        )}
+                        {queue.length > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearQueue}
+                            className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 rounded-lg"
+                            title="Komplette Warteschlange leeren und Wiedergabe stoppen"
+                          >
+                            <Trash2 className="size-3.5 mr-1" />
+                            Leeren
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -976,17 +1000,58 @@ export function NowPlaying() {
                     <div className="space-y-1">
                       {queue.map((track, idx) => {
                         const isCurrent = idx === queueIndex
+                        const isDragging = draggedQueueIndex === idx
+                        const isDropTarget = dropTargetQueueIndex === idx
                         return (
                           <div
                             key={`${track.id}-${idx}`}
-                            className={`group flex items-center justify-between gap-3 p-2 rounded-xl transition-all cursor-pointer ${
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData('text/plain', String(idx))
+                              e.dataTransfer.effectAllowed = 'move'
+                              setDraggedQueueIndex(idx)
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
+                              if (dropTargetQueueIndex !== idx) {
+                                setDropTargetQueueIndex(idx)
+                              }
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault()
+                              const fromStr = e.dataTransfer.getData('text/plain')
+                              const fromIdx = parseInt(fromStr, 10)
+                              if (!isNaN(fromIdx) && fromIdx !== idx) {
+                                reorderQueue(fromIdx, idx)
+                              }
+                              setDraggedQueueIndex(null)
+                              setDropTargetQueueIndex(null)
+                            }}
+                            onDragEnd={() => {
+                              setDraggedQueueIndex(null)
+                              setDropTargetQueueIndex(null)
+                            }}
+                            aria-current={isCurrent ? 'true' : undefined}
+                            className={`group flex items-center justify-between gap-3 p-2 rounded-xl transition-all cursor-pointer select-none border ${
                               isCurrent
-                                ? 'bg-white/[0.05] border-l-2 border-primary'
-                                : 'hover:bg-white/[0.02]'
+                                ? 'bg-primary/10 border-primary/40 text-white'
+                                : 'border-transparent hover:bg-white/[0.04] text-neutral-200'
+                            } ${isDragging ? 'opacity-30 scale-98' : ''} ${
+                              isDropTarget && !isDragging ? 'border-primary/60 bg-white/[0.06]' : ''
                             }`}
-                            onClick={() => playTrack(track, queue, idx)}
+                            onClick={() => playQueueIndex(idx)}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <button
+                                type="button"
+                                className="cursor-grab active:cursor-grabbing p-1 text-neutral-500 hover:text-neutral-300 opacity-60 group-hover:opacity-100 transition-opacity shrink-0"
+                                title="Verschieben per Drag & Drop"
+                                aria-label="Verschieben per Drag & Drop"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <GripVertical className="size-3.5" />
+                              </button>
                               <Cover
                                 src={track.cover_url}
                                 alt={track.title}
@@ -1003,18 +1068,36 @@ export function NowPlaying() {
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-[11px] font-mono text-neutral-400 tabular-nums">
+                            <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-[11px] font-mono text-neutral-400 tabular-nums pr-1">
                                 {formatDuration(track.duration_ms)}
                               </span>
                               <button
                                 type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  removeFromQueue(idx)
-                                }}
-                                className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-white/10 text-neutral-400 hover:text-destructive transition-all"
+                                disabled={idx === 0}
+                                onClick={() => reorderQueue(idx, idx - 1)}
+                                className="p-1 rounded-md text-neutral-400 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:pointer-events-none transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                title="Nach oben verschieben"
+                                aria-label={`Titel ${track.title} nach oben verschieben`}
+                              >
+                                <ArrowUp className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === queue.length - 1}
+                                onClick={() => reorderQueue(idx, idx + 1)}
+                                className="p-1 rounded-md text-neutral-400 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:pointer-events-none transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                title="Nach unten verschieben"
+                                aria-label={`Titel ${track.title} nach unten verschieben`}
+                              >
+                                <ArrowDown className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeFromQueue(idx)}
+                                className="p-1 rounded-md text-neutral-400 hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                                 title="Aus Warteschlange entfernen"
+                                aria-label={`Titel ${track.title} aus Warteschlange entfernen`}
                               >
                                 <X className="size-3.5" />
                               </button>

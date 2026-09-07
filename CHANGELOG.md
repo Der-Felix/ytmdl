@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.25.0 — 2026-09-08
+
+### Features
+
+- **Interactive Playback Queue Drawer:** Slide-over queue drawer panel providing real-time visibility into the current listening session directly from the MiniPlayer or full Now Playing view.
+- **Queue Reordering:** Accessible keyboard controls (Move Up / Move Down) and drag-and-drop reordering with boundary disabling and immediate queue index alignment.
+- **Direct Queue Item Selection:** Click any queued track to immediately initiate playback while maintaining proper upcoming track progression.
+- **"Als Nächstes abspielen" (Play Next):** Insert tracks immediately after the currently playing item, cleanly repositioning existing queue items without duplicate entries.
+- **"Zur Queue hinzufügen" (Add to Queue):** Append tracks to the playback queue with full occurrence identity safety across duplicate tracks.
+- **Queue Pruning & Clear Controls:** "Nächste leeren" prunes upcoming tracks after the current item while preserving playback history for backward navigation; "Leeren" clears the entire queue and resets the player to idle.
+
+### Improvements
+
+- **Navigation Persistence:** In-memory temporary playback queue and audio state remain continuous across in-app navigation and browser history traversal (Back/Forward).
+- **Universal Queue Actions:** Consistent Play Next and Add to Queue action buttons across Library tables, Search results and quick-search flyouts, Album views, Playlists, and Favorites.
+- **Snapshot Isolation:** Queue manipulation operates exclusively on client playback state and never mutates persistent Playlists, user Favorites, or background download jobs.
+- **Responsive Layout:** Adaptive queue drawer optimized for desktop, tablet, and mobile viewports with dedicated accessible touch-friendly buttons.
+
+### Bug Fixes
+
+- **Audio Seek on Previous Track:** Restored expected player semantics when triggering Previous track past 3 seconds of playback, properly seeking the underlying audio engine to the start of the current track.
+
+### Changes
+
+- **Database Schema:** Schema remains at 12; no database migration is required.
+- **Queue Scope:** The playback queue represents temporary client-side session state; persistent collections are managed separately through Playlists.
+
+**Full Changelog:** `v0.24.0...v0.25.0`
+
 ## 0.24.0 — 2026-09-07
 
 ### Features

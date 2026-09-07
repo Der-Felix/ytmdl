@@ -5,6 +5,7 @@ import {
   ArrowUp,
   Heart,
   ListMusic,
+  ListPlus,
   Loader2,
   Pause,
   Pencil,
@@ -47,7 +48,7 @@ interface PlaylistDetailProps {
 export function PlaylistDetail({ id }: PlaylistDetailProps) {
   const navigate = useNavigate()
   const { currentTrack, status } = usePlayerState()
-  const { playTrack, playAlbum, togglePlayPause } = usePlayerActions()
+  const { playTrack, playAlbum, togglePlayPause, playNext, addToQueue } = usePlayerActions()
   const favorites = useOptionalFavorites()
 
   const { state, reload, setData } = useAsync(
@@ -492,6 +493,34 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                           title="Nach unten verschieben"
                         >
                           <ArrowDown className="size-3.5" />
+                        </Button>
+
+                        {/* Play Next */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-neutral-400 hover:text-primary hover:bg-white/10"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            playNext(pt)
+                          }}
+                          title="Als Nächstes abspielen"
+                        >
+                          <Play className="size-3" />
+                        </Button>
+
+                        {/* Add to Queue */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-neutral-400 hover:text-primary hover:bg-white/10"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            addToQueue(pt)
+                          }}
+                          title="Zur Queue hinzufügen"
+                        >
+                          <ListPlus className="size-3.5" />
                         </Button>
 
                         {/* Favorite */}

@@ -21,10 +21,12 @@ export type PlayerAction =
   | { type: 'PLAY_ALBUM'; payload: { tracks: LibraryTrack[]; startIndex?: number } }
   | { type: 'PLAY_ARTIST'; payload: { tracks: LibraryTrack[]; shuffle?: boolean } }
   | { type: 'PLAY_NEXT'; payload: { track: LibraryTrack } }
+  | { type: 'PLAY_QUEUE_INDEX'; payload: { index: number } }
   | { type: 'ADD_TO_QUEUE'; payload: { tracks: LibraryTrack[] | LibraryTrack } }
   | { type: 'REMOVE_FROM_QUEUE'; payload: { index: number } }
   | { type: 'REORDER_QUEUE'; payload: { fromIndex: number; toIndex: number } }
   | { type: 'CLEAR_QUEUE' }
+  | { type: 'CLEAR_UPCOMING_QUEUE' }
   | { type: 'SET_STATUS'; payload: PlaybackStatus }
   | { type: 'SET_CURRENT_TIME'; payload: { currentTime: number; duration?: number } }
   | { type: 'SET_VOLUME'; payload: number }
@@ -190,15 +192,47 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       if (!state.currentTrack || state.queue.length === 0) {
         return playerReducer(state, { type: 'PLAY_TRACK', payload: { track } })
       }
+      if (state.currentTrack.id === track.id) {
+        return state
+      }
+      let currentIdx = state.queueIndex
+      const existingIdx = state.queue.findIndex((t) => t.id === track.id)
       const newQueue = [...state.queue]
-      const insertAt = state.queueIndex + 1
+
+      if (existingIdx !== -1) {
+        newQueue.splice(existingIdx, 1)
+        if (existingIdx < currentIdx) {
+          currentIdx--
+        }
+      }
+
+      const insertAt = currentIdx + 1
       newQueue.splice(insertAt, 0, track)
-      const newOriginal = [...state.originalQueue]
+
+      const newOriginal = state.originalQueue.filter((t) => t.id !== track.id)
       newOriginal.push(track)
+
       return {
         ...state,
         queue: newQueue,
         originalQueue: newOriginal,
+        queueIndex: currentIdx,
+      }
+    }
+
+    case 'PLAY_QUEUE_INDEX': {
+      const { index } = action.payload
+      if (index < 0 || index >= state.queue.length) return state
+      const track = state.queue[index]!
+      return {
+        ...state,
+        currentTrack: track,
+        queueIndex: index,
+        status: 'buffering',
+        currentTime: 0,
+        duration: track.duration_ms ? track.duration_ms / 1000 : 0,
+        history: pushHistory(state.history, track),
+        error: null,
       }
     }
 
@@ -246,19 +280,29 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
 
       let newIndex = state.queueIndex
       let newCurrentTrack = state.currentTrack
+      let newStatus = state.status
+      let newCurrentTime = state.currentTime
+      let newDuration = state.duration
 
       if (index < state.queueIndex) {
         newIndex--
       } else if (index === state.queueIndex) {
         if (newIndex >= newQueue.length) {
-          newIndex = 0
+          newIndex = newQueue.length - 1
         }
         newCurrentTrack = newQueue[newIndex] ?? null
+        newStatus = 'buffering'
+        newCurrentTime = 0
+        newDuration = newCurrentTrack?.duration_ms ? newCurrentTrack.duration_ms / 1000 : 0
       }
 
-      const newOriginal = removedTrack
-        ? state.originalQueue.filter((t) => t.id !== removedTrack.id)
-        : state.originalQueue
+      let newOriginal = [...state.originalQueue]
+      if (removedTrack) {
+        const origIdx = newOriginal.findIndex((t) => t.id === removedTrack.id)
+        if (origIdx !== -1) {
+          newOriginal.splice(origIdx, 1)
+        }
+      }
 
       return {
         ...state,
@@ -266,6 +310,9 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         originalQueue: newOriginal,
         queueIndex: newIndex,
         currentTrack: newCurrentTrack,
+        status: newStatus,
+        currentTime: newCurrentTime,
+        duration: newDuration,
       }
     }
 
@@ -314,6 +361,26 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         status: 'idle',
         currentTime: 0,
         duration: 0,
+      }
+    }
+
+    case 'CLEAR_UPCOMING_QUEUE': {
+      if (!state.currentTrack || state.queueIndex < 0 || state.queueIndex >= state.queue.length - 1) {
+        return state
+      }
+      const removedTracks = state.queue.slice(state.queueIndex + 1)
+      const newQueue = state.queue.slice(0, state.queueIndex + 1)
+      let newOriginal = [...state.originalQueue]
+      for (const rt of removedTracks) {
+        const idx = newOriginal.findIndex((t) => t.id === rt.id)
+        if (idx !== -1) {
+          newOriginal.splice(idx, 1)
+        }
+      }
+      return {
+        ...state,
+        queue: newQueue,
+        originalQueue: newOriginal,
       }
     }
 

@@ -99,6 +99,83 @@ describe('playerReducer', () => {
     expect(state.queue[1].id).toBe('track-2')
   })
 
+  it('handles PLAY_NEXT no-op when target track is already playing', () => {
+    const queue = [dummyTrack1, dummyTrack2]
+    const state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue, queueIndex: 0 },
+    })
+
+    const nextState = playerReducer(state, {
+      type: 'PLAY_NEXT',
+      payload: { track: dummyTrack1 },
+    })
+
+    expect(nextState).toBe(state)
+  })
+
+  it('handles PLAY_NEXT repositioning existing track without duplicate', () => {
+    // Queue: [T1 (current), T2, T3]. Play Next T3 -> [T1, T3, T2]
+    const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue, queueIndex: 0 },
+    })
+
+    state = playerReducer(state, {
+      type: 'PLAY_NEXT',
+      payload: { track: dummyTrack3 },
+    })
+
+    expect(state.queue.length).toBe(3)
+    expect(state.queue[0].id).toBe('track-1')
+    expect(state.queue[1].id).toBe('track-3')
+    expect(state.queue[2].id).toBe('track-2')
+    expect(state.queueIndex).toBe(0)
+
+    // Now current is T3 at idx 1. Play Next T1 (which is before current) -> reposition
+    state = playerReducer(state, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack3, queue: state.queue, queueIndex: 1 },
+    })
+    state = playerReducer(state, {
+      type: 'PLAY_NEXT',
+      payload: { track: dummyTrack1 },
+    })
+    expect(state.queue.length).toBe(3)
+    // T1 moved after T3: [T3 (idx 0), T1 (idx 1), T2 (idx 2)]
+    expect(state.queue[0].id).toBe('track-3')
+    expect(state.queue[1].id).toBe('track-1')
+    expect(state.queue[2].id).toBe('track-2')
+    expect(state.queueIndex).toBe(0)
+  })
+
+  it('handles PLAY_QUEUE_INDEX playing track at index', () => {
+    const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue, queueIndex: 0 },
+    })
+
+    state = playerReducer(state, {
+      type: 'PLAY_QUEUE_INDEX',
+      payload: { index: 2 },
+    })
+
+    expect(state.currentTrack?.id).toBe('track-3')
+    expect(state.queueIndex).toBe(2)
+    expect(state.status).toBe('buffering')
+    expect(state.currentTime).toBe(0)
+    expect(state.history[0].track.id).toBe('track-3')
+
+    // Out of bounds is no-op
+    const noopState = playerReducer(state, {
+      type: 'PLAY_QUEUE_INDEX',
+      payload: { index: 99 },
+    })
+    expect(noopState).toBe(state)
+  })
+
   it('handles ADD_TO_QUEUE adding to end of queue', () => {
     let state = playerReducer(INITIAL_PLAYER_STATE, {
       type: 'PLAY_TRACK',
@@ -114,25 +191,108 @@ describe('playerReducer', () => {
     expect(state.queue[2].id).toBe('track-3')
   })
 
-  it('handles REMOVE_FROM_QUEUE and adjusts queueIndex properly', () => {
+  it('handles REMOVE_FROM_QUEUE before, after, and on active track', () => {
     const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
     let state = playerReducer(INITIAL_PLAYER_STATE, {
       type: 'PLAY_TRACK',
       payload: { track: dummyTrack2, queue, queueIndex: 1 },
     })
 
-    // Remove index 0 (before current)
+    // 1. Remove index 0 (before current) -> queueIndex shifts from 1 to 0
     state = playerReducer(state, {
       type: 'REMOVE_FROM_QUEUE',
       payload: { index: 0 },
     })
-
     expect(state.queue.length).toBe(2)
     expect(state.queueIndex).toBe(0)
     expect(state.currentTrack?.id).toBe('track-2')
+
+    // 2. Remove index 1 (after current) -> queueIndex stays 0
+    state = playerReducer(state, {
+      type: 'REMOVE_FROM_QUEUE',
+      payload: { index: 1 },
+    })
+    expect(state.queue.length).toBe(1)
+    expect(state.queueIndex).toBe(0)
+    expect(state.currentTrack?.id).toBe('track-2')
+
+    // 3. Remove index 0 (current, and only remaining track) -> queue becomes empty
+    state = playerReducer(state, {
+      type: 'REMOVE_FROM_QUEUE',
+      payload: { index: 0 },
+    })
+    expect(state.queue.length).toBe(0)
+    expect(state.queueIndex).toBe(-1)
+    expect(state.currentTrack).toBeNull()
+    expect(state.status).toBe('idle')
   })
 
-  it('handles REORDER_QUEUE', () => {
+  it('handles REMOVE_FROM_QUEUE on active track when next track exists', () => {
+    const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue, queueIndex: 0 },
+    })
+
+    // Remove active track at index 0 -> advances to dummyTrack2
+    state = playerReducer(state, {
+      type: 'REMOVE_FROM_QUEUE',
+      payload: { index: 0 },
+    })
+    expect(state.queue.length).toBe(2)
+    expect(state.queueIndex).toBe(0)
+    expect(state.currentTrack?.id).toBe('track-2')
+    expect(state.status).toBe('buffering')
+  })
+
+  it('handles REMOVE_FROM_QUEUE on active track when active was the last track', () => {
+    const queue = [dummyTrack1, dummyTrack2]
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack2, queue, queueIndex: 1 },
+    })
+
+    // Remove active track at index 1 (last) -> falls back to dummyTrack1 at index 0
+    state = playerReducer(state, {
+      type: 'REMOVE_FROM_QUEUE',
+      payload: { index: 1 },
+    })
+    expect(state.queue.length).toBe(1)
+    expect(state.queueIndex).toBe(0)
+    expect(state.currentTrack?.id).toBe('track-1')
+    expect(state.status).toBe('buffering')
+  })
+
+  it('handles CLEAR_UPCOMING_QUEUE preserving prior tracks and current track', () => {
+    const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
+
+    // 1. Current middle: [T1, T2, T3], active T2 at idx 1 -> leaves [T1, T2], idx 1
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack2, queue, queueIndex: 1 },
+    })
+
+    state = playerReducer(state, {
+      type: 'CLEAR_UPCOMING_QUEUE',
+    })
+
+    expect(state.queue.length).toBe(2)
+    expect(state.queue[0].id).toBe('track-1')
+    expect(state.queue[1].id).toBe('track-2')
+    expect(state.queueIndex).toBe(1)
+    expect(state.currentTrack?.id).toBe('track-2')
+
+    // Verify Previous still works
+    const prevState = playerReducer(state, { type: 'PREVIOUS' })
+    expect(prevState.queueIndex).toBe(0)
+    expect(prevState.currentTrack?.id).toBe('track-1')
+
+    // Verify Next reaches end of queue and pauses (repeat off)
+    const nextState = playerReducer(state, { type: 'NEXT', payload: { manual: false } })
+    expect(nextState.status).toBe('paused')
+  })
+
+  it('handles CLEAR_UPCOMING_QUEUE when current is first in queue', () => {
     const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
     let state = playerReducer(INITIAL_PLAYER_STATE, {
       type: 'PLAY_TRACK',
@@ -140,12 +300,110 @@ describe('playerReducer', () => {
     })
 
     state = playerReducer(state, {
+      type: 'CLEAR_UPCOMING_QUEUE',
+    })
+
+    expect(state.queue.length).toBe(1)
+    expect(state.queue[0].id).toBe('track-1')
+    expect(state.queueIndex).toBe(0)
+    expect(state.currentTrack?.id).toBe('track-1')
+  })
+
+  it('handles CLEAR_UPCOMING_QUEUE no-op when current is last in queue', () => {
+    const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
+    const state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack3, queue, queueIndex: 2 },
+    })
+
+    const result = playerReducer(state, {
+      type: 'CLEAR_UPCOMING_QUEUE',
+    })
+
+    expect(result).toBe(state)
+  })
+
+  it('handles CLEAR_UPCOMING_QUEUE no-op on one-item queue', () => {
+    const state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue: [dummyTrack1], queueIndex: 0 },
+    })
+
+    const result = playerReducer(state, {
+      type: 'CLEAR_UPCOMING_QUEUE',
+    })
+
+    expect(result).toBe(state)
+  })
+
+  it('handles CLEAR_UPCOMING_QUEUE while shuffle is active without ghost resurrection', () => {
+    const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue, queueIndex: 0 },
+    })
+
+    state = playerReducer(state, { type: 'SET_SHUFFLE', payload: true })
+    // In shuffle, assume queue has 3 tracks, current is at queueIndex 0
+    state = playerReducer(state, { type: 'CLEAR_UPCOMING_QUEUE' })
+    expect(state.queue.length).toBe(1)
+
+    // Turning off shuffle must not resurrect removed upcoming tracks
+    state = playerReducer(state, { type: 'SET_SHUFFLE', payload: false })
+    expect(state.queue.length).toBe(1)
+    expect(state.queue[0].id).toBe(state.currentTrack?.id)
+  })
+
+  it('handles ADD_TO_QUEUE allowing duplicate occurrences safely', () => {
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue: [dummyTrack1], queueIndex: 0 },
+    })
+
+    // Add dummyTrack1 again -> should have 2 occurrences
+    state = playerReducer(state, {
+      type: 'ADD_TO_QUEUE',
+      payload: { tracks: dummyTrack1 },
+    })
+    expect(state.queue.length).toBe(2)
+    expect(state.queue[0].id).toBe('track-1')
+    expect(state.queue[1].id).toBe('track-1')
+
+    // Remove first occurrence (index 0)
+    state = playerReducer(state, {
+      type: 'REMOVE_FROM_QUEUE',
+      payload: { index: 0 },
+    })
+    expect(state.queue.length).toBe(1)
+    expect(state.queue[0].id).toBe('track-1')
+    expect(state.originalQueue.length).toBe(1)
+  })
+
+  it('handles REORDER_QUEUE with index shift', () => {
+    const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue, queueIndex: 0 },
+    })
+
+    // Move current track from 0 to 2
+    state = playerReducer(state, {
       type: 'REORDER_QUEUE',
       payload: { fromIndex: 0, toIndex: 2 },
     })
 
     expect(state.queue[2].id).toBe('track-1')
     expect(state.queueIndex).toBe(2)
+
+    // Move track 0 (dummyTrack2) to 2 (after current at 1)
+    // Queue is [T2, T3, T1(current)]. Move T2 (0) to 2.
+    state = playerReducer(state, {
+      type: 'REORDER_QUEUE',
+      payload: { fromIndex: 0, toIndex: 2 },
+    })
+    // Queue becomes [T3, T1(current), T2], queueIndex shifts from 2 to 1
+    expect(state.queueIndex).toBe(1)
+    expect(state.queue[1].id).toBe('track-1')
   })
 
   it('handles SET_SHUFFLE on and off without losing original queue order', () => {
@@ -441,5 +699,53 @@ describe('playerReducer', () => {
     const prevState = playerReducer(state, { type: 'PREVIOUS' })
     expect(prevState.currentTrack?.id).toBe('d0-t3')
     expect(prevState.queueIndex).toBe(2)
+  })
+
+  it('preserves core queue invariant across all mutations', () => {
+    function assertQueueInvariant(s: typeof INITIAL_PLAYER_STATE) {
+      if (s.queue.length > 0) {
+        expect(s.queueIndex).toBeGreaterThanOrEqual(0)
+        expect(s.queueIndex).toBeLessThan(s.queue.length)
+        expect(s.currentTrack?.id).toBe(s.queue[s.queueIndex].id)
+      } else {
+        expect(s.queueIndex).toBe(-1)
+        expect(s.currentTrack).toBeNull()
+        expect(s.status).toBe('idle')
+      }
+    }
+
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue: [dummyTrack1, dummyTrack2, dummyTrack3], queueIndex: 0 },
+    })
+    assertQueueInvariant(state)
+
+    // Play next
+    state = playerReducer(state, { type: 'PLAY_NEXT', payload: { track: dummyTrack3 } })
+    assertQueueInvariant(state)
+
+    // Reorder
+    state = playerReducer(state, { type: 'REORDER_QUEUE', payload: { fromIndex: 0, toIndex: 2 } })
+    assertQueueInvariant(state)
+
+    // Play at index
+    state = playerReducer(state, { type: 'PLAY_QUEUE_INDEX', payload: { index: 1 } })
+    assertQueueInvariant(state)
+
+    // Remove non-current
+    state = playerReducer(state, { type: 'REMOVE_FROM_QUEUE', payload: { index: 0 } })
+    assertQueueInvariant(state)
+
+    // Remove current
+    state = playerReducer(state, { type: 'REMOVE_FROM_QUEUE', payload: { index: state.queueIndex } })
+    assertQueueInvariant(state)
+
+    // Clear upcoming
+    state = playerReducer(state, { type: 'CLEAR_UPCOMING_QUEUE' })
+    assertQueueInvariant(state)
+
+    // Full clear
+    state = playerReducer(state, { type: 'CLEAR_QUEUE' })
+    assertQueueInvariant(state)
   })
 })
