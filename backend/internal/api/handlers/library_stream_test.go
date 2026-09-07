@@ -246,6 +246,51 @@ func TestStreamFile_FullAndRange(t *testing.T) {
 		}
 	})
 
+	// 5b. Open-ended Range: bytes=100- -> 206
+	t.Run("Open-ended Range 100-", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/library/files/file-123/stream", nil)
+		req.Header.Set("Range", "bytes=100-")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusPartialContent {
+			t.Fatalf("expected 206 Partial Content; got %d: %s", rec.Code, rec.Body.String())
+		}
+		if rec.Header().Get("Content-Range") != "bytes 100-999/1000" {
+			t.Errorf("expected Content-Range 'bytes 100-999/1000'; got %q", rec.Header().Get("Content-Range"))
+		}
+		if rec.Header().Get("Content-Length") != "900" {
+			t.Errorf("expected Content-Length 900; got %q", rec.Header().Get("Content-Length"))
+		}
+		if !bytes.Equal(rec.Body.Bytes(), payload[100:1000]) {
+			t.Errorf("open-ended range body content mismatch")
+		}
+	})
+
+	// 5c. Out-of-bounds start range: bytes=9999999- -> 416
+	t.Run("Out-of-bounds Start Range 416", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/library/files/file-123/stream", nil)
+		req.Header.Set("Range", "bytes=9999999-")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusRequestedRangeNotSatisfiable {
+			t.Fatalf("expected 416 Range Not Satisfiable; got %d", rec.Code)
+		}
+	})
+
+	// 5d. Syntactically invalid bytes range: bytes=malformed -> 416
+	t.Run("Malformed Bytes Range 416", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/library/files/file-123/stream", nil)
+		req.Header.Set("Range", "bytes=malformed")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusRequestedRangeNotSatisfiable {
+			t.Fatalf("expected 416 Range Not Satisfiable for malformed bytes range; got %d", rec.Code)
+		}
+	})
+
 	// 6. HEAD request
 	t.Run("HEAD request", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodHead, "/api/v1/library/files/file-123/stream", nil)
@@ -348,6 +393,91 @@ func TestStreamFile_FullAndRange(t *testing.T) {
 
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("expected 401 Unauthorized; got %d", rec.Code)
+		}
+	})
+
+	// 13. URL Path Traversal variants in request URL -> 404
+	t.Run("URL Path Traversal Variants Blocked", func(t *testing.T) {
+		traversalPaths := []string{
+			"/api/v1/library/files/..%2F..%2Fetc%2Fpasswd/stream",
+			"/api/v1/library/files/%2e%2e%2f%2e%2e%2fetc%2fpasswd/stream",
+			"/api/v1/library/files/%2Fetc%2Fpasswd/stream",
+			"/api/v1/library/tracks/..%2F..%2Fetc%2Fpasswd/stream",
+		}
+		for _, p := range traversalPaths {
+			req := httptest.NewRequest(http.MethodGet, p, nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code == http.StatusOK {
+				t.Fatalf("traversal URL %q should not return 200 OK; got %d", p, rec.Code)
+			}
+		}
+	})
+
+	// 14. DB Record with Absolute Path -> Blocked
+	t.Run("DB Record Absolute Path Blocked", func(t *testing.T) {
+		absFile := music.File{
+			ID:        "file-abs",
+			Path:      "/etc/passwd",
+			SizeBytes: 50,
+			Codec:     "opus",
+		}
+		filesMock.files[absFile.Path] = absFile
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/library/files/file-abs/stream", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code == http.StatusOK {
+			t.Fatalf("absolute path should be blocked; got 200 OK")
+		}
+	})
+
+	// 15. Non-Audio Media Format in DB -> 415
+	t.Run("Non-Audio Format Blocked 415", func(t *testing.T) {
+		scriptFile := music.File{
+			ID:        "file-script",
+			Path:      "Artist/Album/exploit.sh",
+			SizeBytes: 50,
+		}
+		filesMock.files[scriptFile.Path] = scriptFile
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/library/files/file-script/stream", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnsupportedMediaType {
+			t.Fatalf("expected 415 Unsupported Media Type; got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	// 16. Symlink Escaping Library Root -> Blocked
+	t.Run("Symlink Escape Blocked", func(t *testing.T) {
+		outsideDir := t.TempDir()
+		outsideFile := filepath.Join(outsideDir, "secret.opus")
+		if err := os.WriteFile(outsideFile, []byte("secret"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		symlinkRel := "Artist/Album/symlink.opus"
+		symlinkAbs := filepath.Join(libRoot, symlinkRel)
+		_ = os.Symlink(outsideFile, symlinkAbs)
+
+		symlinkDbFile := music.File{
+			ID:        "file-symlink",
+			Path:      symlinkRel,
+			SizeBytes: 6,
+			Codec:     "opus",
+		}
+		filesMock.files[symlinkDbFile.Path] = symlinkDbFile
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/library/files/file-symlink/stream", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code == http.StatusOK {
+			t.Fatalf("symlink escaping root should be blocked; got 200 OK")
 		}
 	})
 }

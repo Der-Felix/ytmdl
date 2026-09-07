@@ -5,7 +5,7 @@ import { MenuIcon, XIcon } from 'lucide-react'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { MiniPlayer } from '@/components/player/MiniPlayer'
 import { Button } from '@/components/ui/button'
-import { usePlayer } from '@/hooks/usePlayer'
+import { usePlayerState } from '@/hooks/usePlayer'
 import { Link, paths } from '@/lib/router'
 import type { Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -25,7 +25,7 @@ interface AppShellProps {
  */
 function AppShell({ route, activeDownloads, children }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const { currentTrack } = usePlayer()
+  const { currentTrack } = usePlayerState()
   const isPlayerRoute = route.name === 'player'
   const showMiniPlayer = Boolean(currentTrack) && !isPlayerRoute
 

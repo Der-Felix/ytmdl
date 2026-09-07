@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useOptionalAuth } from '@/hooks/useAuth'
-import { usePlayer } from '@/hooks/usePlayer'
+import { usePlayerActions } from '@/hooks/usePlayer'
 import {
   deleteLibraryRelease,
   libraryReleaseDetail,
@@ -32,7 +32,7 @@ interface LibraryReleaseProps {
 export function LibraryRelease({ id }: LibraryReleaseProps) {
   const auth = useOptionalAuth()
   const isAdmin = auth ? auth.isAdmin : true
-  const { playAlbum, addToQueue } = usePlayer()
+  const { playAlbum, addToQueue } = usePlayerActions()
   const [detail, setDetail] = useState<LibraryReleaseDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -89,6 +89,16 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
 
     // Sort discs
     return Array.from(map.entries()).sort(([a], [b]) => a - b)
+  }, [detail?.tracks])
+
+  const canonicalTracks = useMemo(() => {
+    if (!detail?.tracks) return []
+    return [...detail.tracks].sort((a, b) => {
+      const discA = a.disc_number || 1
+      const discB = b.disc_number || 1
+      if (discA !== discB) return discA - discB
+      return (a.track_number || 0) - (b.track_number || 0)
+    })
   }, [detail?.tracks])
 
   const totalDurationMS = useMemo(() => {
@@ -225,7 +235,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
           <div className="flex flex-wrap sm:flex-col items-center sm:items-end gap-2 shrink-0">
             <Button
               size="sm"
-              onClick={() => detail?.tracks && playAlbum(detail.tracks)}
+              onClick={() => canonicalTracks.length > 0 && playAlbum(canonicalTracks)}
               className="gap-2 bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/25 hover:bg-primary/90"
             >
               <Play className="size-4 fill-current" />
@@ -235,7 +245,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => detail?.tracks && addToQueue(detail.tracks)}
+              onClick={() => canonicalTracks.length > 0 && addToQueue(canonicalTracks)}
               className="gap-1.5 text-xs border-white/10 hover:bg-white/5"
             >
               <ListPlus className="size-3.5" />
@@ -269,6 +279,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
               </h2>
               <TracksTable
                 tracks={discTracks}
+                fullQueue={canonicalTracks}
                 sort={trackSort}
                 order={trackOrder}
                 onSortChange={handleSortChange}
@@ -285,6 +296,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
             </h2>
             <TracksTable
               tracks={detail.tracks}
+              fullQueue={canonicalTracks}
               sort={trackSort}
               order={trackOrder}
               onSortChange={handleSortChange}

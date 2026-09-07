@@ -88,6 +88,10 @@ export class AudioEngine {
     this.deckB = new Audio()
     this.configureDeck(this.deckA, 'A')
     this.configureDeck(this.deckB, 'B')
+    if (import.meta.env.DEV && typeof window !== 'undefined') {
+      ;(window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }).__audioEngine = this
+      ;(window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }).__audioDecks = [this.deckA, this.deckB]
+    }
   }
 
   public static getInstance(): AudioEngine {

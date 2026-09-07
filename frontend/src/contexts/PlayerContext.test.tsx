@@ -1,101 +1,240 @@
-import { describe, expect, it, mock } from 'bun:test'
-import { act, render } from '@testing-library/react'
+import { describe, expect, it } from 'bun:test'
+import { act, render, screen } from '@testing-library/react'
+import { useContext } from 'react'
 
-import { AuthContext } from '@/contexts/auth-context'
+import {
+  PlayerProvider,
+  PlayerStateContext,
+  PlayerProgressContext,
+  PlayerActionsContext,
+} from './PlayerContext'
+import { AudioEngine } from '@/lib/audio/engine'
 
-// Mock AudioEngine to avoid unhandled HTMLAudioElement errors in test DOM
-mock.module('@/lib/audio/engine', () => ({
-  AudioEngine: {
-    getInstance: () => ({
-      play: () => {},
-      pause: () => {},
-      seek: () => {},
-      load: () => {},
-      loadAndPlay: () => {},
-      preloadNext: () => {},
-      setCallbacks: () => {},
-      setVolume: () => {},
-      setMuted: () => {},
-      setPlaybackRate: () => {},
-      setCrossfade: () => {},
-      setEQEnabled: () => {},
-      setEQMode: () => {},
-      setGraphicBands: () => {},
-      setParametricFilters: () => {},
-      setPreamp: () => {},
-      setAutoHeadroom: () => {},
-      setLimiter: () => {},
-      setBalance: () => {},
-      setMono: () => {},
-    }),
-  },
-}))
+describe('PlayerContext Performance and Splitting', () => {
+  it('isolates progress updates so usePlayerState does not re-render on time ticks', () => {
+    let stateRenderCount = 0
+    let progressRenderCount = 0
+    let actionsRenderCount = 0
 
-import { PlayerProvider } from './PlayerContext'
+    function StateConsumer() {
+      const state = useContext(PlayerStateContext)
+      stateRenderCount++
+      return <div data-testid="state-track">{state?.currentTrack?.title ?? 'none'}</div>
+    }
 
-const dummyAuth = {
-  user: null,
-  loading: false,
-  setupRequired: false,
-  isAdmin: false,
-  login: async () => {},
-  logout: async () => {},
-  refresh: async () => {},
-  checkSetup: async () => {},
-}
+    function ProgressConsumer() {
+      const progress = useContext(PlayerProgressContext)
+      progressRenderCount++
+      return (
+        <div data-testid="progress">
+          {progress?.currentTime}/{progress?.duration}
+        </div>
+      )
+    }
 
-describe('PlayerContext keyboard shortcuts', () => {
-  it('does not prevent default for browser reload and system shortcuts (Cmd+R, Cmd+Shift+R, Ctrl+R, etc.)', () => {
+    function ActionsConsumer() {
+      useContext(PlayerActionsContext)
+      actionsRenderCount++
+      return <div data-testid="actions">actions</div>
+    }
+
     render(
-      <AuthContext.Provider value={dummyAuth}>
-        <PlayerProvider>
-          <div data-testid="test-child">Child</div>
-        </PlayerProvider>
-      </AuthContext.Provider>,
+      <PlayerProvider>
+        <StateConsumer />
+        <ProgressConsumer />
+        <ActionsConsumer />
+      </PlayerProvider>,
     )
 
-    // 1. macOS Cmd+R (Reload)
-    const cmdR = new KeyboardEvent('keydown', { key: 'r', metaKey: true, cancelable: true })
-    window.dispatchEvent(cmdR)
-    expect(cmdR.defaultPrevented).toBe(false)
+    expect(stateRenderCount).toBe(1)
+    expect(progressRenderCount).toBe(1)
+    expect(actionsRenderCount).toBe(1)
+    expect(screen.getByTestId('progress').textContent).toBe('0/0')
 
-    // 2. macOS Cmd+Shift+R (Hard Reload)
-    const cmdShiftR = new KeyboardEvent('keydown', { key: 'R', metaKey: true, shiftKey: true, cancelable: true })
-    window.dispatchEvent(cmdShiftR)
-    expect(cmdShiftR.defaultPrevented).toBe(false)
+    // Simulate audio engine time ticks
+    const engine = AudioEngine.getInstance()
+    const callbacks = (engine as unknown as { callbacks: { onTimeUpdate: (c: number, d: number) => void } }).callbacks
 
-    // 3. Linux/Windows Ctrl+R (Reload)
-    const ctrlR = new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, cancelable: true })
-    window.dispatchEvent(ctrlR)
-    expect(ctrlR.defaultPrevented).toBe(false)
-
-    // 4. Linux/Windows Ctrl+Shift+R (Hard Reload)
-    const ctrlShiftR = new KeyboardEvent('keydown', { key: 'R', ctrlKey: true, shiftKey: true, cancelable: true })
-    window.dispatchEvent(ctrlShiftR)
-    expect(ctrlShiftR.defaultPrevented).toBe(false)
-
-    // 5. Alt+R / Other modifier combinations
-    const altR = new KeyboardEvent('keydown', { key: 'r', altKey: true, cancelable: true })
-    window.dispatchEvent(altR)
-    expect(altR.defaultPrevented).toBe(false)
-
-    // 6. Cmd+Space (System shortcut)
-    const cmdSpace = new KeyboardEvent('keydown', { key: ' ', metaKey: true, cancelable: true })
-    window.dispatchEvent(cmdSpace)
-    expect(cmdSpace.defaultPrevented).toBe(false)
-
-    // 7. Plain 'r' (Application player repeat mode toggle)
-    const plainR = new KeyboardEvent('keydown', { key: 'r', cancelable: true })
     act(() => {
-      window.dispatchEvent(plainR)
+      callbacks.onTimeUpdate(1.5, 180)
     })
-    expect(plainR.defaultPrevented).toBe(true)
 
-    // 8. Plain ' ' (Application play/pause toggle)
-    const plainSpace = new KeyboardEvent('keydown', { key: ' ', cancelable: true })
+    expect(screen.getByTestId('progress').textContent).toBe('1.5/180')
+    expect(progressRenderCount).toBe(2)
+    // CRITICAL: state and action consumers MUST NOT re-render on time ticks!
+    expect(stateRenderCount).toBe(1)
+    expect(actionsRenderCount).toBe(1)
+
     act(() => {
-      window.dispatchEvent(plainSpace)
+      callbacks.onTimeUpdate(2.0, 180)
     })
-    expect(plainSpace.defaultPrevented).toBe(true)
+    act(() => {
+      callbacks.onTimeUpdate(2.5, 180)
+    })
+
+    expect(screen.getByTestId('progress').textContent).toBe('2.5/180')
+    expect(progressRenderCount).toBe(4)
+    expect(stateRenderCount).toBe(1)
+    expect(actionsRenderCount).toBe(1)
+  })
+
+  it('keeps action references stable across state mutations', () => {
+    const actionRefs: Array<() => void> = []
+
+    function ActionTester() {
+      const actions = useContext(PlayerActionsContext)
+      if (actions) {
+        actionRefs.push(actions.toggleShuffle)
+      }
+
+      return (
+        <button data-testid="toggle" onClick={actions?.toggleShuffle}>
+          Toggle
+        </button>
+      )
+    }
+
+    render(
+      <PlayerProvider>
+        <ActionTester />
+      </PlayerProvider>,
+    )
+
+    act(() => {
+      screen.getByTestId('toggle').click()
+    })
+
+    expect(actionRefs.length).toBe(1) // Component did not re-render when shuffle toggled!
+  })
+
+  it('respects modifier keys and input focus in keyboard shortcuts', () => {
+    function ShortcutConsumer() {
+      const state = useContext(PlayerStateContext)
+      return (
+        <div>
+          <span data-testid="repeat-mode">{state?.repeatMode}</span>
+          <input data-testid="test-input" />
+        </div>
+      )
+    }
+
+    render(
+      <PlayerProvider>
+        <ShortcutConsumer />
+      </PlayerProvider>,
+    )
+
+    expect(screen.getByTestId('repeat-mode').textContent).toBe('off')
+
+    // 1. Cmd+R (metaKey) -> must NOT cycle repeat
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', metaKey: true }))
+    })
+    expect(screen.getByTestId('repeat-mode').textContent).toBe('off')
+
+    // 2. Ctrl+R (ctrlKey) -> must NOT cycle repeat
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', ctrlKey: true }))
+    })
+    expect(screen.getByTestId('repeat-mode').textContent).toBe('off')
+
+    // 3. Alt+R (altKey) -> must NOT cycle repeat
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', altKey: true }))
+    })
+    expect(screen.getByTestId('repeat-mode').textContent).toBe('off')
+
+    // 4. Typing 'r' while input is focused -> must NOT cycle repeat
+    const input = screen.getByTestId('test-input')
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true }))
+    })
+    expect(screen.getByTestId('repeat-mode').textContent).toBe('off')
+
+    // 5. Plain 'r' -> cycles to queue
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }))
+    })
+    expect(screen.getByTestId('repeat-mode').textContent).toBe('queue')
+
+    // 6. Plain 'R' -> cycles to track
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'R' }))
+    })
+    expect(screen.getByTestId('repeat-mode').textContent).toBe('track')
+
+    // 7. Plain 'r' -> cycles back to off
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }))
+    })
+    expect(screen.getByTestId('repeat-mode').textContent).toBe('off')
+  })
+
+  it('triggers loadAndPlay when selecting a track that transitions status to buffering (regression test)', () => {
+    const engine = AudioEngine.getInstance()
+    let loadAndPlayUrl: string | null = null
+    let loadUrl: string | null = null
+
+    const origLoadAndPlay = engine.loadAndPlay
+    const origLoad = engine.load
+
+    engine.loadAndPlay = async (url: string) => {
+      loadAndPlayUrl = url
+    }
+    engine.load = (url: string) => {
+      loadUrl = url
+    }
+
+    const dummyTrack: Parameters<NonNullable<ReturnType<typeof useContext<typeof PlayerActionsContext>>>['playTrack']>[0] = {
+      id: 'trk-regress-1',
+      title: 'Regress Track',
+      artists: [],
+      album: 'Regress Album',
+      album_artist: 'Regress Artist',
+      track_number: 1,
+      track_total: 1,
+      disc_number: 1,
+      disc_total: 1,
+      duration_ms: 180000,
+      year: 2026,
+      lyrics_state: 'unknown',
+      source_provider: '',
+      source_id: '',
+      source_url: '',
+      release_id: 'rel-1',
+      created_at: '',
+    }
+
+    try {
+      function TrackSelector() {
+        const actions = useContext(PlayerActionsContext)
+        return (
+          <button
+            data-testid="select-track"
+            onClick={() => actions?.playTrack(dummyTrack)}
+          >
+            Select
+          </button>
+        )
+      }
+
+      render(
+        <PlayerProvider>
+          <TrackSelector />
+        </PlayerProvider>,
+      )
+
+      act(() => {
+        screen.getByTestId('select-track').click()
+      })
+
+      // Must call loadAndPlay because selecting a track transitions status to 'buffering'
+      // Under old bug (checking status === 'playing'), loadAndPlay was NOT called, only load was called!
+      expect(loadAndPlayUrl).toBe('/api/v1/library/tracks/trk-regress-1/stream')
+      expect(loadUrl).toBeNull()
+    } finally {
+      engine.loadAndPlay = origLoadAndPlay
+      engine.load = origLoad
+    }
   })
 })

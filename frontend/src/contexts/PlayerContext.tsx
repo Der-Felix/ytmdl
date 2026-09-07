@@ -9,7 +9,7 @@ import {
 } from 'react'
 import type { ReactNode } from 'react'
 
-import { useAuth } from '@/hooks/useAuth'
+import { useOptionalAuth } from '@/hooks/useAuth'
 import { AudioEngine } from '@/lib/audio/engine'
 import {
   loadCustomPresets,
@@ -35,7 +35,14 @@ import {
   playerReducer,
 } from './player-reducer'
 
-export interface PlayerContextValue extends PlayerState {
+export interface PlayerProgressContextValue {
+  currentTime: number
+  duration: number
+}
+
+export type PlayerStateContextValue = Omit<PlayerState, 'currentTime' | 'duration'>
+
+export interface PlayerActionsContextValue {
   engine: AudioEngine
   playTrack: (track: LibraryTrack, queue?: LibraryTrack[], queueIndex?: number) => void
   playAlbum: (tracks: LibraryTrack[], startIndex?: number) => void
@@ -82,10 +89,18 @@ export interface PlayerContextValue extends PlayerState {
   setVisualizerMode: (mode: VisualizerMode) => void
 }
 
-const PlayerContext = createContext<PlayerContextValue | null>(null)
+export interface PlayerContextValue
+  extends PlayerState,
+    PlayerActionsContextValue {}
+
+export const PlayerStateContext = createContext<PlayerStateContextValue | null>(null)
+export const PlayerProgressContext = createContext<PlayerProgressContextValue | null>(null)
+export const PlayerActionsContext = createContext<PlayerActionsContextValue | null>(null)
+export const PlayerContext = createContext<PlayerContextValue | null>(null)
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth()
+  const auth = useOptionalAuth()
+  const user = auth?.user ?? null
   const [state, dispatch] = useReducer(playerReducer, INITIAL_PLAYER_STATE)
   const engine = useMemo(() => AudioEngine.getInstance(), [])
 
@@ -185,7 +200,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     if (currentEngineTrackIdRef.current !== track.id) {
       currentEngineTrackIdRef.current = track.id
-      if (state.status === 'playing') {
+      if (state.status === 'playing' || state.status === 'buffering') {
         void engine.loadAndPlay(streamUrl, state.currentTime)
       } else {
         engine.load(streamUrl, state.currentTime)
@@ -538,14 +553,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [engine])
 
   const togglePlayPause = useCallback(() => {
-    if (state.status === 'playing') {
+    if (stateRef.current.status === 'playing') {
       engine.pause()
       dispatch({ type: 'SET_STATUS', payload: 'paused' })
     } else {
       engine.play()
       dispatch({ type: 'SET_STATUS', payload: 'playing' })
     }
-  }, [engine, state.status])
+  }, [engine])
 
   const playAction = useCallback(() => {
     engine.play()
@@ -582,16 +597,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const toggleMuteAction = useCallback(() => {
-    dispatch({ type: 'SET_MUTED', payload: !state.muted })
-  }, [state.muted])
+    dispatch({ type: 'SET_MUTED', payload: !stateRef.current.muted })
+  }, [])
 
   const setShuffleAction = useCallback((shuffle: boolean) => {
     dispatch({ type: 'SET_SHUFFLE', payload: shuffle })
   }, [])
 
   const toggleShuffleAction = useCallback(() => {
-    dispatch({ type: 'SET_SHUFFLE', payload: !state.shuffle })
-  }, [state.shuffle])
+    dispatch({ type: 'SET_SHUFFLE', payload: !stateRef.current.shuffle })
+  }, [])
 
   const setRepeatModeAction = useCallback((mode: RepeatMode) => {
     dispatch({ type: 'SET_REPEAT_MODE', payload: mode })
@@ -599,10 +614,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const cycleRepeatModeAction = useCallback(() => {
     const modes: RepeatMode[] = ['off', 'queue', 'track']
-    const nextIdx = (modes.indexOf(state.repeatMode) + 1) % modes.length
+    const nextIdx = (modes.indexOf(stateRef.current.repeatMode) + 1) % modes.length
     const nextMode = modes[nextIdx] ?? 'off'
     dispatch({ type: 'SET_REPEAT_MODE', payload: nextMode })
-  }, [state.repeatMode])
+  }, [])
 
   const setPlaybackRateAction = useCallback((rate: number) => {
     dispatch({ type: 'SET_PLAYBACK_RATE', payload: rate })
@@ -629,8 +644,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const toggleEQAction = useCallback(() => {
-    dispatch({ type: 'SET_EQ_ENABLED', payload: !state.eqEnabled })
-  }, [state.eqEnabled])
+    dispatch({ type: 'SET_EQ_ENABLED', payload: !stateRef.current.eqEnabled })
+  }, [])
 
   const setEQModeAction = useCallback((mode: EQMode) => {
     dispatch({ type: 'SET_EQ_MODE', payload: mode })
@@ -692,9 +707,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SET_VISUALIZER_MODE', payload: mode })
   }, [])
 
-  const value = useMemo<PlayerContextValue>(
+  const actionsValue = useMemo<PlayerActionsContextValue>(
     () => ({
-      ...state,
       engine,
       playTrack,
       playAlbum,
@@ -741,7 +755,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setVisualizerMode: setVisualizerModeAction,
     }),
     [
-      state,
       engine,
       playTrack,
       playAlbum,
@@ -789,7 +802,94 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     ],
   )
 
-  return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
+  const progressValue = useMemo<PlayerProgressContextValue>(
+    () => ({
+      currentTime: state.currentTime,
+      duration: state.duration,
+    }),
+    [state.currentTime, state.duration],
+  )
+
+  const stateWithoutProgress = useMemo<PlayerStateContextValue>(() => {
+    const { currentTime: _c, duration: _d, ...rest } = state
+    return rest
+  }, [
+    state.currentTrack,
+    state.queue,
+    state.originalQueue,
+    state.queueIndex,
+    state.status,
+    state.volume,
+    state.muted,
+    state.shuffle,
+    state.repeatMode,
+    state.playbackRate,
+    state.crossfadeSeconds,
+    state.smartAlbumTransition,
+    state.sleepTimer,
+    state.sleepTimerEndsAt,
+    state.stopAfter,
+    state.error,
+    state.eqEnabled,
+    state.eqMode,
+    state.selectedPresetId,
+    state.graphicBands,
+    state.customPresets,
+    state.parametricFilters,
+    state.preamp,
+    state.autoHeadroom,
+    state.limiterEnabled,
+    state.balance,
+    state.mono,
+    state.bassBoost,
+    state.visualizerMode,
+    state.history,
+  ])
+
+  const combinedValue = useMemo<PlayerContextValue>(
+    () => ({
+      ...stateWithoutProgress,
+      ...progressValue,
+      ...actionsValue,
+    }),
+    [stateWithoutProgress, progressValue, actionsValue],
+  )
+
+  return (
+    <PlayerActionsContext.Provider value={actionsValue}>
+      <PlayerProgressContext.Provider value={progressValue}>
+        <PlayerStateContext.Provider value={stateWithoutProgress}>
+          <PlayerContext.Provider value={combinedValue}>
+            {children}
+          </PlayerContext.Provider>
+        </PlayerStateContext.Provider>
+      </PlayerProgressContext.Provider>
+    </PlayerActionsContext.Provider>
+  )
+}
+
+export function usePlayerState(): PlayerStateContextValue {
+  const ctx = useContext(PlayerStateContext)
+  if (!ctx) {
+    throw new Error('usePlayerState must be used within a PlayerProvider')
+  }
+  return ctx
+}
+
+export function usePlayerProgress(): PlayerProgressContextValue {
+  const ctx = useContext(PlayerProgressContext)
+  if (!ctx) {
+    throw new Error('usePlayerProgress must be used within a PlayerProvider')
+  }
+  return ctx
+}
+
+export function usePlayerActions(): PlayerActionsContextValue {
+  const ctx = useContext(PlayerActionsContext)
+  if (!ctx) {
+    throw new Error('usePlayerActions must be used within a PlayerProvider')
+  }
+  return ctx
 }
 
 export function usePlayer(): PlayerContextValue {

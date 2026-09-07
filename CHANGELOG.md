@@ -2,6 +2,32 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.22.0 — 2026-09-07
+
+### Features
+
+- Persistent browser player with playback queue, shuffle and repeat modes.
+- Album and multi-disc playback with canonical track sequencing.
+- Responsive desktop and mobile playback controls with mini-player.
+
+### Improvements
+
+- HTTP Range based media streaming for responsive audio seek behavior.
+- Context separation ensures progress ticks do not trigger re-rendering of the application or library view.
+- Resilient audio error recovery and cover art fallbacks.
+
+### Bug Fixes
+
+- Fixed selected tracks remaining in buffering state without reliably loading the audio source.
+
+### Changes
+
+- Player queue remains completely separate from the downloader/job queue.
+- Stored audio continues to be served natively without silent server-side transcoding.
+- **Database Schema:** Schema remains at 11; no database migration is required.
+
+**Full Changelog:** `v0.21.0...v0.22.0`
+
 ## 0.21.0 — 2026-09-07
 
 ### Features

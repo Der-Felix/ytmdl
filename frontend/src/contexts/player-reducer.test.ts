@@ -173,6 +173,136 @@ describe('playerReducer', () => {
     expect(state.queueIndex).toBe(0)
   })
 
+  it('handles SET_SHUFFLE with 0 tracks cleanly', () => {
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'SET_SHUFFLE',
+      payload: true,
+    })
+    expect(state.shuffle).toBe(true)
+    expect(state.queue.length).toBe(0)
+    expect(state.originalQueue.length).toBe(0)
+    expect(state.currentTrack).toBeNull()
+
+    state = playerReducer(state, {
+      type: 'SET_SHUFFLE',
+      payload: false,
+    })
+    expect(state.shuffle).toBe(false)
+    expect(state.queue.length).toBe(0)
+  })
+
+  it('handles SET_SHUFFLE with 1 track cleanly', () => {
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1 },
+    })
+    expect(state.queue.length).toBe(1)
+
+    state = playerReducer(state, {
+      type: 'SET_SHUFFLE',
+      payload: true,
+    })
+    expect(state.shuffle).toBe(true)
+    expect(state.queue.length).toBe(1)
+    expect(state.currentTrack?.id).toBe('track-1')
+
+    state = playerReducer(state, {
+      type: 'SET_SHUFFLE',
+      payload: false,
+    })
+    expect(state.shuffle).toBe(false)
+    expect(state.queue.length).toBe(1)
+    expect(state.currentTrack?.id).toBe('track-1')
+  })
+
+  it('preserves playback state (playing, currentTime) when toggling shuffle during playback', () => {
+    const original = [dummyTrack1, dummyTrack2, dummyTrack3]
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack2, queue: original, queueIndex: 1 },
+    })
+    state = { ...state, status: 'playing', currentTime: 45 }
+
+    // Toggle shuffle ON
+    state = playerReducer(state, { type: 'SET_SHUFFLE', payload: true })
+    expect(state.shuffle).toBe(true)
+    expect(state.status).toBe('playing') // MUST not restart or pause
+    expect(state.currentTime).toBe(45) // MUST not reset
+    expect(state.currentTrack?.id).toBe('track-2')
+    expect(state.queueIndex).toBe(0) // Current track pinned at front of shuffled queue
+
+    // Toggle shuffle OFF
+    state = playerReducer(state, { type: 'SET_SHUFFLE', payload: false })
+    expect(state.shuffle).toBe(false)
+    expect(state.status).toBe('playing')
+    expect(state.currentTime).toBe(45)
+    expect(state.currentTrack?.id).toBe('track-2')
+    expect(state.queue).toEqual(original)
+    expect(state.queueIndex).toBe(1) // Repositioned to index in original queue
+  })
+
+  it('handles NEXT and PREVIOUS correctly across shuffle toggles', () => {
+    const original = [dummyTrack1, dummyTrack2, dummyTrack3]
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue: original, queueIndex: 0 },
+    })
+
+    // Shuffle ON
+    state = playerReducer(state, { type: 'SET_SHUFFLE', payload: true })
+    expect(state.queueIndex).toBe(0)
+    expect(state.currentTrack?.id).toBe('track-1')
+
+    // Next in shuffled order
+    state = playerReducer(state, { type: 'NEXT', payload: { manual: true } })
+    expect(state.queueIndex).toBe(1)
+    const secondTrackId = state.currentTrack?.id
+    expect(secondTrackId).toBeDefined()
+
+    // Previous in shuffled order
+    state = playerReducer(state, { type: 'PREVIOUS' })
+    expect(state.queueIndex).toBe(0)
+    expect(state.currentTrack?.id).toBe('track-1')
+
+    // Advance to second track again
+    state = playerReducer(state, { type: 'NEXT', payload: { manual: true } })
+    expect(state.currentTrack?.id).toBe(secondTrackId)
+
+    // Shuffle OFF while on second track
+    state = playerReducer(state, { type: 'SET_SHUFFLE', payload: false })
+    expect(state.shuffle).toBe(false)
+    expect(state.currentTrack?.id).toBe(secondTrackId)
+    const expectedOriginalIndex = original.findIndex((t) => t.id === secondTrackId)
+    expect(state.queueIndex).toBe(expectedOriginalIndex)
+  })
+
+  it('synchronizes originalQueue when REMOVE_FROM_QUEUE is called while shuffle is active', () => {
+    const original = [dummyTrack1, dummyTrack2, dummyTrack3]
+    let state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: dummyTrack1, queue: original, queueIndex: 0 },
+    })
+
+    state = playerReducer(state, { type: 'SET_SHUFFLE', payload: true })
+    // Current is track-1 at index 0. Find where track-3 is in the shuffled queue
+    const track3Idx = state.queue.findIndex((t) => t.id === 'track-3')
+    expect(track3Idx).toBeGreaterThan(0)
+
+    // Remove track-3 while in shuffle mode
+    state = playerReducer(state, {
+      type: 'REMOVE_FROM_QUEUE',
+      payload: { index: track3Idx },
+    })
+    expect(state.queue.length).toBe(2)
+    expect(state.queue.find((t) => t.id === 'track-3')).toBeUndefined()
+    expect(state.originalQueue.find((t) => t.id === 'track-3')).toBeUndefined()
+
+    // Turn shuffle OFF: track-3 must NOT reappear
+    state = playerReducer(state, { type: 'SET_SHUFFLE', payload: false })
+    expect(state.queue.length).toBe(2)
+    expect(state.queue.find((t) => t.id === 'track-3')).toBeUndefined()
+  })
+
   it('handles PREVIOUS: restarts track if currentTime > 3s, otherwise goes to prev', () => {
     const queue = [dummyTrack1, dummyTrack2]
     let state = playerReducer(INITIAL_PLAYER_STATE, {
@@ -265,5 +395,51 @@ describe('playerReducer', () => {
     expect(state.currentTrack?.id).toBe('track-1')
     expect(state.volume).toBe(0.8)
     expect(state.status).toBe('paused') // MUST remain paused
+  })
+
+  it('correctly queues multi-disc albums in canonical order without queue truncation', () => {
+    // Disc 1: tracks 1, 2. Disc 2: tracks 1, 2. Track with 0 or missing disc number.
+    const disc1Track1: LibraryTrack = { ...dummyTrack1, id: 'd1-t1', disc_number: 1, track_number: 1 }
+    const disc1Track2: LibraryTrack = { ...dummyTrack1, id: 'd1-t2', disc_number: 1, track_number: 2 }
+    const disc2Track1: LibraryTrack = { ...dummyTrack1, id: 'd2-t1', disc_number: 2, track_number: 1 }
+    const disc2Track2: LibraryTrack = { ...dummyTrack1, id: 'd2-t2', disc_number: 2, track_number: 2 }
+    const noDiscTrack: LibraryTrack = { ...dummyTrack1, id: 'd0-t3', disc_number: 0, track_number: 3 }
+
+    const rawTracks = [disc2Track2, disc1Track1, noDiscTrack, disc2Track1, disc1Track2]
+    const canonical = [...rawTracks].sort((a, b) => {
+      const discA = a.disc_number || 1
+      const discB = b.disc_number || 1
+      if (discA !== discB) return discA - discB
+      return (a.track_number || 0) - (b.track_number || 0)
+    })
+
+    // Expected order:
+    // disc 1 track 1, disc 1 track 2, disc 0 track 3 (disc 0 defaults to 1), disc 2 track 1, disc 2 track 2
+    expect(canonical.map((t) => t.id)).toEqual(['d1-t1', 'd1-t2', 'd0-t3', 'd2-t1', 'd2-t2'])
+
+    // Clicking middle track: Disc 2 Track 1 (index 3 in canonical queue)
+    const clickedTrack = disc2Track1
+    const clickedIdx = canonical.findIndex((t) => t.id === clickedTrack.id)
+    expect(clickedIdx).toBe(3)
+
+    const state = playerReducer(INITIAL_PLAYER_STATE, {
+      type: 'PLAY_TRACK',
+      payload: { track: clickedTrack, queue: canonical, queueIndex: clickedIdx },
+    })
+
+    // Full queue must NOT be truncated
+    expect(state.queue.length).toBe(5)
+    expect(state.currentTrack?.id).toBe('d2-t1')
+    expect(state.queueIndex).toBe(3)
+
+    // Next track must be Disc 2 Track 2
+    const nextState = playerReducer(state, { type: 'NEXT', payload: { manual: true } })
+    expect(nextState.currentTrack?.id).toBe('d2-t2')
+    expect(nextState.queueIndex).toBe(4)
+
+    // Previous from clicked track must go to d0-t3
+    const prevState = playerReducer(state, { type: 'PREVIOUS' })
+    expect(prevState.currentTrack?.id).toBe('d0-t3')
+    expect(prevState.queueIndex).toBe(2)
   })
 })

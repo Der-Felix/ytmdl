@@ -10,6 +10,14 @@ mock.module('@/hooks/usePlayer', () => ({
   usePlayer: () => ({
     currentTrack: null,
   }),
+  usePlayerState: () => ({
+    currentTrack: null,
+  }),
+  usePlayerProgress: () => ({
+    currentTime: 0,
+    duration: 0,
+  }),
+  usePlayerActions: () => ({}),
 }))
 
 describe('AppShell Layout', () => {

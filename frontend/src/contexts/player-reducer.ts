@@ -229,6 +229,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       const { index } = action.payload
       if (index < 0 || index >= state.queue.length) return state
 
+      const removedTrack = state.queue[index]
       const newQueue = state.queue.filter((_, i) => i !== index)
       if (newQueue.length === 0) {
         return {
@@ -255,9 +256,14 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         newCurrentTrack = newQueue[newIndex] ?? null
       }
 
+      const newOriginal = removedTrack
+        ? state.originalQueue.filter((t) => t.id !== removedTrack.id)
+        : state.originalQueue
+
       return {
         ...state,
         queue: newQueue,
+        originalQueue: newOriginal,
         queueIndex: newIndex,
         currentTrack: newCurrentTrack,
       }
@@ -293,6 +299,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       return {
         ...state,
         queue: newQueue,
+        originalQueue: state.shuffle ? state.originalQueue : newQueue,
         queueIndex: newIndex,
       }
     }

@@ -11,7 +11,7 @@ import {
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { usePlayer } from '@/hooks/usePlayer'
+import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
 import type { LibraryTrack } from '@/types/api'
 import { LyricsBadge } from './LyricsBadge'
@@ -23,6 +23,7 @@ interface TracksTableProps {
   onSortChange: (sort: string) => void
   onTrackSelect: (track: LibraryTrack) => void
   onLyricsSelect?: (track: LibraryTrack) => void
+  fullQueue?: LibraryTrack[]
   showAlbum?: boolean
   showArtist?: boolean
   showDiscNumber?: boolean
@@ -36,12 +37,14 @@ export function TracksTable({
   onSortChange,
   onTrackSelect,
   onLyricsSelect,
+  fullQueue,
   showAlbum = true,
   showArtist = true,
   showDiscNumber = false,
   className = '',
 }: TracksTableProps) {
-  const { currentTrack, status, playTrack, togglePlayPause, playNext, addToQueue } = usePlayer()
+  const { currentTrack, status } = usePlayerState()
+  const { playTrack, togglePlayPause, playNext, addToQueue } = usePlayerActions()
 
   const renderSortHeader = (label: string, field: string) => {
     const isCurrent = sort === field
@@ -108,7 +111,11 @@ export function TracksTable({
               if (isCurrent) {
                 togglePlayPause()
               } else {
-                playTrack(track, tracks, trackIdx)
+                const targetQueue = fullQueue ?? tracks
+                const queueIdx = fullQueue
+                  ? fullQueue.findIndex((t) => t.id === track.id)
+                  : trackIdx
+                playTrack(track, targetQueue, queueIdx >= 0 ? queueIdx : trackIdx)
               }
             }
 

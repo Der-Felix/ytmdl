@@ -17,7 +17,7 @@ import { SubscribeControl } from '@/components/subscriptions/SubscribeControl'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useOptionalAuth } from '@/hooks/useAuth'
-import { usePlayer } from '@/hooks/usePlayer'
+import { usePlayerActions } from '@/hooks/usePlayer'
 import { libraryArtistDetail } from '@/lib/api/library'
 import { Link, paths } from '@/lib/router'
 import { formatBytes, pluralize } from '@/lib/utils/format'
@@ -30,7 +30,7 @@ interface LibraryArtistProps {
 export function LibraryArtist({ id }: LibraryArtistProps) {
   const auth = useOptionalAuth()
   const isAdmin = auth ? auth.isAdmin : true
-  const { playArtist } = usePlayer()
+  const { playArtist } = usePlayerActions()
   const [detail, setDetail] = useState<LibraryArtistDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
