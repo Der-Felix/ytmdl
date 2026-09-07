@@ -223,7 +223,7 @@ func TestLegacyAdapter_Compatibility(t *testing.T) {
 		t.Fatalf("expected fallback to legacy session, got %+v", resolved)
 	}
 
-	// Case B: DB has applicable enabled session -> DB takes precedence, legacy NOT used
+	// Case B: DB has applicable enabled session -> legacy session coexists with managed sessions
 	dbSession := mediasession.Session{
 		ID:             "db-sess-1",
 		ProviderFamily: provider.FamilyYouTube,
@@ -233,8 +233,8 @@ func TestLegacyAdapter_Compatibility(t *testing.T) {
 		HealthStatus:   mediasession.HealthHealthy,
 	}
 	resolvedWithDB := mediasession.ResolveActiveSessions([]mediasession.Session{dbSession}, adapter, provider.FamilyYouTube)
-	if len(resolvedWithDB) != 1 || resolvedWithDB[0].ID != "db-sess-1" {
-		t.Fatalf("expected DB session to take precedence, got %+v", resolvedWithDB)
+	if len(resolvedWithDB) != 2 {
+		t.Fatalf("expected 2 sessions (managed + legacy), got %+v", resolvedWithDB)
 	}
 
 	// Case C: DB has session for different provider family -> fallback for YouTube

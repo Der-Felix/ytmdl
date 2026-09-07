@@ -45,8 +45,8 @@ The recommended way to deploy YTMDL is using official prebuilt container images 
 mkdir -p ytmdl && cd ytmdl
 
 # Download compose file and sample environment
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.20.0/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.20.0/.env.example
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.20.1/compose.ghcr.yaml
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.20.1/.env.example
 cp .env.example .env
 ```
 
@@ -56,7 +56,7 @@ Edit `.env` to set your music storage path and database password:
 
 ```env
 # Pin a stable release (recommended) or use 'latest'
-YTMDL_VERSION=0.20.0
+YTMDL_VERSION=0.20.1
 
 # Path to your local music directory or host-mounted SMB/CIFS share
 YTMDL_MUSIC_PATH=/path/to/your/music
@@ -112,7 +112,7 @@ Configure and manage authenticated YouTube sessions under **Server Settings → 
 - **Add Managed Sessions:** Create named session entries and upload Netscape `cookies.txt` files to authenticate media acquisition.
 - **Explicit Health Probing:** Test session connectivity on demand to verify status (`Bereit`, `Rate-Limit`, `Bot-Prüfung erforderlich`, `Anmeldung erforderlich`).
 - **Safe Cookie Replacement:** Replace existing session cookies atomically with candidate validation before previous credentials are overwritten.
-- **External Legacy Support:** Existing external cookie configurations (`YTDM_COOKIEFILE`) remain automatically discovered as legacy sessions with zero manual migration required.
+- **External Legacy Support:** Existing external cookie configurations (`YTDM_COOKIEFILE`) remain automatically discovered and coexist with managed sessions in the runtime pool with zero manual migration required.
 
 ### System & Updates
 
@@ -138,16 +138,13 @@ Full documentation, configuration guides, and architecture references are availa
 
 ## Container Distribution
 
-Official container images (built natively for `linux/amd64` and `linux/arm64`) are published to the GitHub Container Registry:
-
-- **Backend:** `ghcr.io/der-felix/ytmdl-backend`
-- **Frontend:** `ghcr.io/der-felix/ytmdl-frontend`
+Official container images are published to the GitHub Container Registry (GHCR) with multi-architecture support for `linux/amd64` and `linux/arm64`.
 
 Images can be pulled anonymously without authentication:
 
 ```sh
-podman pull ghcr.io/der-felix/ytmdl-backend:0.20.0
-podman pull ghcr.io/der-felix/ytmdl-frontend:0.20.0
+podman pull ghcr.io/der-felix/ytmdl-backend:0.20.1
+podman pull ghcr.io/der-felix/ytmdl-frontend:0.20.1
 ```
 
 For building from source or running a development environment, see [docs/development.md](docs/development.md).

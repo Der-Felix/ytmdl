@@ -2,6 +2,20 @@
 
 Das Format folgt lose [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## 0.20.1 — 2026-09-07
+
+### Bug Fixes
+
+- Fixed legacy/external YouTube sessions being removed from the active `SessionPool` whenever a managed session existed.
+- Configured legacy and managed sessions now coexist in the runtime pool so a later retry can use another healthy session after a session-specific protection failure.
+
+### Changes
+
+- Preserves controlled retry semantics: no immediate cross-session cycling within the same media attempt.
+- **Database Schema:** Schema remains at 11; no database migration is required.
+
+**Full Changelog:** `v0.20.0...v0.20.1`
+
 ## 0.20.0 — 2026-09-06
 
 ### Features

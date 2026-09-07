@@ -2,6 +2,8 @@ package orchestrator_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -684,5 +686,258 @@ func TestOrchestrator_DownloadAffinity_NoControlPlaneLease(t *testing.T) {
 	sAfter := pool.Sessions()[0]
 	if sAfter.HealthStatus != mediasession.HealthAuthFailed {
 		t.Fatalf("expected HealthAuthFailed after auth failed download, got %s", sAfter.HealthStatus)
+	}
+}
+
+func setupTestEnvironmentWithLegacy(t *testing.T, sessions ...mediasession.Session) (*orchestrator.ProviderOrchestrator, *mediasession.SessionPool, *mockMediaProvider, *mockMediaProvider, *mockCooldown) {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	legacyFilePath := filepath.Join(tempDir, "legacy.cookies.txt")
+	if err := os.WriteFile(legacyFilePath, []byte("# Netscape HTTP Cookie File\n.youtube.com TRUE / FALSE 0 SID legacy_cookie\n"), 0600); err != nil {
+		t.Fatalf("write legacy cookie: %v", err)
+	}
+	legacyAdapter := mediasession.NewLegacyAdapter(legacyFilePath)
+
+	storageDir := filepath.Join(tempDir, "storage")
+	storage, err := mediasession.NewCookieStorage(storageDir, legacyAdapter)
+	if err != nil {
+		t.Fatalf("NewCookieStorage: %v", err)
+	}
+
+	for _, s := range sessions {
+		if s.CookieRef != "" && s.ID != mediasession.LegacySessionID {
+			_, err := storage.Store(s.ID, []byte("# Netscape HTTP Cookie File\n.youtube.com TRUE / FALSE 0 SID test\n"))
+			if err != nil {
+				t.Fatalf("Store: %v", err)
+			}
+		}
+	}
+
+	cfg := mediasession.PoolConfig{
+		Family:                provider.FamilyYouTube,
+		MaxLeasesPerSession:   1,
+		SessionRequestsPerSec: 100.0,
+		SessionBurst:          10,
+		GlobalRequestsPerSec:  100.0,
+		GlobalBurst:           10,
+		AllowUnknown:          true,
+	}
+
+	pool := mediasession.NewSessionPool(cfg, storage, nil, legacyAdapter)
+	pool.ReloadSessions(sessions)
+
+	ytm := newMockProvider("ytmusic")
+	yt := newMockProvider("youtube")
+
+	reg := provider.NewRegistry()
+	reg.RegisterMedia(ytm)
+	reg.RegisterMedia(yt)
+	reg.SetDefaults("ytmusic", "ytmusic")
+
+	engine := matcher.New(matcher.Options{
+		MinScore:            70.0,
+		DurationToleranceMS: 5000,
+	})
+
+	cooldown := newMockCooldown()
+
+	orch := orchestrator.New(orchestrator.Options{
+		Registry:    reg,
+		SessionPool: pool,
+		Matcher:     engine,
+		Cooldown:    cooldown,
+	})
+
+	return orch, pool, ytm, yt, cooldown
+}
+
+// TEST: Managed Session Bot Challenge -> Current attempt stops (item -> retry_wait), Later retry selects legacy session
+func TestOrchestrator_Coexistence_ManagedBotChallenge_LaterRetrySelectsLegacy(t *testing.T) {
+	// Managed session with ID alphabetically before "legacy:default_cookiefile" so it gets selected first on tie-break
+	sessA := mediasession.Session{
+		ID:             "a-managed",
+		ProviderFamily: provider.FamilyYouTube,
+		Name:           "Managed Session A",
+		CookieRef:      "managed://cookies/a-managed",
+		Enabled:        true,
+		HealthStatus:   mediasession.HealthHealthy,
+	}
+
+	orch, pool, ytm, _, _ := setupTestEnvironmentWithLegacy(t, sessA)
+
+	if len(pool.Sessions()) != 2 {
+		t.Fatalf("expected 2 sessions in pool (managed + legacy), got %d", len(pool.Sessions()))
+	}
+
+	track := music.Track{
+		Title:      "I Hear A Symphony",
+		Artists:    []string{"Jackson 5"},
+		DurationMS: 180000,
+	}
+
+	cand1 := provider.MediaCandidate{
+		Provider:   "ytmusic",
+		ID:         "vid-1",
+		Title:      "I Hear A Symphony",
+		Artists:    []string{"Jackson 5"},
+		DurationMS: 180000,
+	}
+	cand2 := provider.MediaCandidate{
+		Provider:   "ytmusic",
+		ID:         "vid-2",
+		Title:      "I Hear A Symphony (Audio)",
+		Artists:    []string{"Jackson 5"},
+		DurationMS: 180000,
+	}
+
+	ytm.SetCandidates([]provider.MediaCandidate{cand1, cand2})
+	ytm.SetResolveErr("vid-1", apperr.New(apperr.CodeSessionBotChallenge, "Sign in to confirm you’re not a bot"))
+
+	ctx := context.Background()
+
+	// Attempt 1: Managed session selected, hits Bot Challenge
+	res1, err1 := orch.ResolveMedia(ctx, "ytmusic", track, 5)
+	if err1 == nil {
+		t.Fatal("expected bot challenge error in attempt 1, got success")
+	}
+	if apperr.CodeOf(err1) != apperr.CodeSessionBotChallenge {
+		t.Fatalf("expected CodeSessionBotChallenge, got %s", apperr.CodeOf(err1))
+	}
+	if res1 != nil {
+		t.Fatal("expected nil result in attempt 1")
+	}
+
+	// Fanout stopped immediately: only 1 resolve call made
+	if ytm.ResolveCalls() != 1 {
+		t.Fatalf("expected 1 resolve call in attempt 1, got %d", ytm.ResolveCalls())
+	}
+
+	// Verify session states after attempt 1
+	var managedS, legacyS mediasession.Session
+	for _, s := range pool.Sessions() {
+		if s.ID == "a-managed" {
+			managedS = s
+		} else if s.ID == mediasession.LegacySessionID {
+			legacyS = s
+		}
+	}
+
+	if managedS.HealthStatus != mediasession.HealthBotChallenge {
+		t.Fatalf("expected managed session in HealthBotChallenge, got %s", managedS.HealthStatus)
+	}
+	if managedS.CooldownUntil == nil {
+		t.Fatal("expected managed session to have CooldownUntil set")
+	}
+
+	// Current attempt MUST NOT use legacy: legacy session must remain untouched
+	if legacyS.HealthStatus != mediasession.HealthUnknown && legacyS.HealthStatus != mediasession.HealthHealthy {
+		t.Fatalf("expected legacy session untouched, got %s", legacyS.HealthStatus)
+	}
+	if legacyS.ConsecutiveFailures != 0 {
+		t.Fatalf("expected legacy session 0 failures, got %d", legacyS.ConsecutiveFailures)
+	}
+
+	// Attempt 2 (Later Retry): Managed session in cooldown -> pool selects legacy session!
+	ytm.SetResolveErr("vid-1", nil) // stream resolution succeeds with valid legacy cookies
+	res2, err2 := orch.ResolveMedia(ctx, "ytmusic", track, 5)
+	if err2 != nil {
+		t.Fatalf("attempt 2 (later retry) failed: %v", err2)
+	}
+	if res2 == nil {
+		t.Fatal("expected non-nil result in attempt 2")
+	}
+	if res2.SessionID != mediasession.LegacySessionID {
+		t.Fatalf("expected attempt 2 to select legacy session (%s), got %s", mediasession.LegacySessionID, res2.SessionID)
+	}
+}
+
+// TEST: Reverse-Direction Failover: Legacy fails -> current attempt stops -> later retry selects managed session
+func TestOrchestrator_Coexistence_LegacyFailure_LaterRetrySelectsManaged(t *testing.T) {
+	// Managed session with ID alphabetically after "legacy:default_cookiefile" so legacy is picked first
+	sessZ := mediasession.Session{
+		ID:             "z-managed",
+		ProviderFamily: provider.FamilyYouTube,
+		Name:           "Managed Session Z",
+		CookieRef:      "managed://cookies/z-managed",
+		Enabled:        true,
+		HealthStatus:   mediasession.HealthHealthy,
+	}
+
+	orch, pool, ytm, _, _ := setupTestEnvironmentWithLegacy(t, sessZ)
+
+	if len(pool.Sessions()) != 2 {
+		t.Fatalf("expected 2 sessions in pool, got %d", len(pool.Sessions()))
+	}
+
+	track := music.Track{
+		Title:      "Dancing Queen",
+		Artists:    []string{"ABBA"},
+		DurationMS: 231000,
+	}
+
+	cand1 := provider.MediaCandidate{
+		Provider:   "ytmusic",
+		ID:         "vid-1",
+		Title:      "Dancing Queen",
+		Artists:    []string{"ABBA"},
+		DurationMS: 231000,
+	}
+	cand2 := provider.MediaCandidate{
+		Provider:   "ytmusic",
+		ID:         "vid-2",
+		Title:      "Dancing Queen (Official)",
+		Artists:    []string{"ABBA"},
+		DurationMS: 231000,
+	}
+
+	ytm.SetCandidates([]provider.MediaCandidate{cand1, cand2})
+	ytm.SetResolveErr("vid-1", apperr.New(apperr.CodeSessionRateLimited, "legacy session rate limited"))
+
+	ctx := context.Background()
+
+	// Attempt 1: Legacy session selected, gets rate-limited
+	res1, err1 := orch.ResolveMedia(ctx, "ytmusic", track, 5)
+	if err1 == nil {
+		t.Fatal("expected rate limited error in attempt 1, got success")
+	}
+	if apperr.CodeOf(err1) != apperr.CodeSessionRateLimited {
+		t.Fatalf("expected CodeSessionRateLimited, got %s", apperr.CodeOf(err1))
+	}
+	if res1 != nil {
+		t.Fatal("expected nil result in attempt 1")
+	}
+
+	// Fanout stopped immediately: only 1 resolve call
+	if ytm.ResolveCalls() != 1 {
+		t.Fatalf("expected 1 resolve call, got %d", ytm.ResolveCalls())
+	}
+
+	// Verify legacy is in rate-limited cooldown
+	var legacyS, managedS mediasession.Session
+	for _, s := range pool.Sessions() {
+		if s.ID == mediasession.LegacySessionID {
+			legacyS = s
+		} else if s.ID == "z-managed" {
+			managedS = s
+		}
+	}
+	if legacyS.HealthStatus != mediasession.HealthRateLimited {
+		t.Fatalf("expected legacy session in HealthRateLimited, got %s", legacyS.HealthStatus)
+	}
+
+	// Managed session was NOT used in attempt 1
+	if managedS.ConsecutiveFailures != 0 {
+		t.Fatalf("expected managed session 0 failures, got %d", managedS.ConsecutiveFailures)
+	}
+
+	// Attempt 2 (Later Retry): Legacy in cooldown -> pool selects managed session!
+	ytm.SetResolveErr("vid-1", nil)
+	res2, err2 := orch.ResolveMedia(ctx, "ytmusic", track, 5)
+	if err2 != nil {
+		t.Fatalf("attempt 2 (later retry) failed: %v", err2)
+	}
+	if res2.SessionID != "z-managed" {
+		t.Fatalf("expected attempt 2 to select managed session (z-managed), got %s", res2.SessionID)
 	}
 }

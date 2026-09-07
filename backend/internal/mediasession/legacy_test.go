@@ -88,3 +88,63 @@ func TestLegacyCookieCompatibility_RuntimeSession(t *testing.T) {
 		t.Errorf("database should contain 0 sessions, got %d", len(dbList))
 	}
 }
+
+func TestLegacyAndManagedCoexistence_ReloadSessions(t *testing.T) {
+	// Create synthetic legacy cookie file
+	tempDir := t.TempDir()
+	legacyFilePath := filepath.Join(tempDir, "synthetic.cookies.txt")
+	if err := os.WriteFile(legacyFilePath, []byte("# Legacy Cookie\n"), 0600); err != nil {
+		t.Fatalf("write legacy cookie: %v", err)
+	}
+
+	adapter := NewLegacyAdapter(legacyFilePath)
+	storageDir := t.TempDir()
+	storage, err := NewCookieStorage(storageDir, adapter)
+	if err != nil {
+		t.Fatalf("NewCookieStorage failed: %v", err)
+	}
+
+	managedID := "managed-sess-1"
+	managedCookieFile := filepath.Join(storageDir, managedID+".cookies.txt")
+	if err := os.WriteFile(managedCookieFile, []byte("# Managed Cookie\n"), 0600); err != nil {
+		t.Fatalf("write managed cookie: %v", err)
+	}
+
+	managedSession := Session{
+		ID:             managedID,
+		ProviderFamily: provider.FamilyYouTube,
+		Name:           "Managed Session",
+		CookieRef:      CookieRefPrefix + managedID,
+		Enabled:        true,
+		HealthStatus:   HealthHealthy,
+	}
+
+	repo := newMockRepo([]Session{managedSession})
+	cfg := DefaultPoolConfig(provider.FamilyYouTube)
+	pool := NewSessionPool(cfg, storage, repo, adapter)
+
+	// Reload with managed session present
+	pool.ReloadSessions([]Session{managedSession})
+
+	sessions := pool.Sessions()
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions in pool (legacy + managed), got %d: %+v", len(sessions), sessions)
+	}
+
+	hasLegacy := false
+	hasManaged := false
+	for _, s := range sessions {
+		if s.ID == LegacySessionID {
+			hasLegacy = true
+		}
+		if s.ID == managedID {
+			hasManaged = true
+		}
+	}
+	if !hasLegacy {
+		t.Errorf("pool missing synthetic legacy session")
+	}
+	if !hasManaged {
+		t.Errorf("pool missing managed session")
+	}
+}

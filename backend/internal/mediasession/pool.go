@@ -182,20 +182,33 @@ func (p *SessionPool) ReloadSessions(sessions []Session) {
 		newOrder = append(newOrder, s.ID)
 	}
 
-	// If no managed sessions exist and legacy is configured, include synthetic session
-	if len(newMap) == 0 && p.legacy != nil && p.legacy.IsConfigured() {
+	// Include synthetic legacy session alongside managed sessions if legacy is configured
+	if p.legacy != nil && p.legacy.IsConfigured() {
 		syn := p.legacy.SyntheticSession(p.family)
 		if syn != nil {
 			if old, ok := p.sessions[syn.ID]; ok && old != nil {
-				old.UpdateSession(*syn)
+				cur := old.Session()
+				cur.Name = syn.Name
+				cur.Enabled = syn.Enabled
+				cur.CookieRef = syn.CookieRef
+				old.UpdateSession(cur)
 				newMap[syn.ID] = old
-			} else {
+			} else if _, exists := newMap[syn.ID]; !exists {
 				rs := NewRuntimeSession(*syn, p.cfg.MaxLeasesPerSession)
 				rs.limiter = NewLimiter(p.cfg.SessionRequestsPerSec, p.cfg.SessionBurst)
 				rs.limiter.now = p.now
 				newMap[syn.ID] = rs
 			}
-			newOrder = append(newOrder, syn.ID)
+			found := false
+			for _, id := range newOrder {
+				if id == syn.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				newOrder = append(newOrder, syn.ID)
+			}
 		}
 	}
 

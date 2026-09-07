@@ -69,9 +69,8 @@ func (a *LegacyAdapter) CookiePath() string {
 	return a.cookieFilePath
 }
 
-// ResolveActiveSessions returns active managed sessions for the specified provider family.
-// If the media_sessions list has no applicable enabled sessions, it falls back to
-// the synthetic legacy session if configured and readable.
+// ResolveActiveSessions returns active sessions for the specified provider family,
+// including applicable managed sessions and the configured synthetic legacy session.
 func ResolveActiveSessions(sessions []Session, legacy *LegacyAdapter, family provider.Family) []Session {
 	var active []Session
 	for _, s := range sessions {
@@ -79,14 +78,11 @@ func ResolveActiveSessions(sessions []Session, legacy *LegacyAdapter, family pro
 			active = append(active, s)
 		}
 	}
-	if len(active) > 0 {
-		return active
-	}
 	if legacy != nil && legacy.IsConfigured() {
 		syn := legacy.SyntheticSession(family)
 		if syn != nil {
-			return []Session{*syn}
+			active = append(active, *syn)
 		}
 	}
-	return nil
+	return active
 }

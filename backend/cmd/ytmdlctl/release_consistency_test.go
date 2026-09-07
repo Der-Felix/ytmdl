@@ -144,7 +144,7 @@ func TestReleaseConsistency_CaseD_ZeroPublicationMutation(t *testing.T) {
 	buildCmd.Dir = repoRoot
 	buildCmd.Env = append(os.Environ(),
 		"OUTPUT_DIR="+tmpDir,
-		"VERSION=0.20.0",
+		"VERSION=0.20.1",
 		"GENERATE_MANIFEST=true",
 	)
 	buildOut, err := buildCmd.CombinedOutput()
