@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangleIcon,
   CheckCircle2Icon,
@@ -36,12 +36,12 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { useCurrentTracks, useJobs } from '@/hooks/useJobs'
 import { useQueueSummary } from '@/hooks/useQueueSummary'
-import { deleteJobHistory, section } from '@/lib/api/jobs'
+import { deleteJobHistory, isTerminal, section } from '@/lib/api/jobs'
 import { errorMessage, isAbortError } from '@/lib/api/client'
 import { useLocation, useNavigate } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import { formatNumber, pluralize } from '@/lib/utils/format'
-import type { JobPriority } from '@/types/api'
+import type { JobPriority, QueueSummary } from '@/types/api'
 
 type TabKey = 'all' | 'active' | 'queued' | 'paused' | 'done' | 'failed'
 
@@ -109,33 +109,24 @@ function Downloads({ jobId }: DownloadsPageProps) {
 
   const rawJobs = state.status === 'success' ? state.data : null
 
+  const lastKnownSummaryRef = useRef<QueueSummary | null>(null)
+  if (summaryState.status === 'success' && summaryState.data) {
+    lastKnownSummaryRef.current = summaryState.data
+  }
+  const summary = summaryState.data ?? lastKnownSummaryRef.current
+
   const counts = useMemo(() => {
-    let active = 0
-    let queued = 0
-    let paused = 0
-    let done = 0
-    let failed = 0
-
-    if (rawJobs) {
-      for (const job of rawJobs) {
-        if (job.paused) paused++
-        const s = section(job)
-        if (s === 'active') active++
-        else if (s === 'queued') queued++
-        else if (s === 'done') done++
-        else if (s === 'failed') failed++
-      }
-    }
-
+    // Badges represent global database counts from QueueSummary.
+    // When summary is unavailable or loading, avoid displaying misleading page-local slice counts (e.g. 20).
     return {
-      all: meta?.total ?? (rawJobs ? rawJobs.length : 0),
-      active,
-      queued,
-      paused,
-      done,
-      failed,
+      all: summary?.total_jobs ?? meta?.total,
+      active: summary?.active_jobs,
+      queued: summary?.queued_jobs,
+      paused: summary?.paused_jobs,
+      done: summary?.done_jobs,
+      failed: summary?.failed_jobs,
     }
-  }, [rawJobs, meta])
+  }, [summary, meta?.total])
 
   const filteredJobs = useMemo(() => {
     if (!rawJobs) return []
@@ -145,7 +136,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
     }
 
     if (activeTab === 'all') return rawJobs
-    if (activeTab === 'paused') return rawJobs.filter((j) => j.paused)
+    if (activeTab === 'paused') return rawJobs.filter((j) => j.paused && !isTerminal(j))
     return rawJobs.filter((j) => section(j) === activeTab)
   }, [rawJobs, activeTab, jobId])
 
@@ -176,7 +167,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
     }
   }
 
-  const tabs: { key: TabKey; label: string; icon: React.ReactNode; count: number }[] = [
+  const tabs: { key: TabKey; label: string; icon: React.ReactNode; count?: number }[] = [
 
     { key: 'all', label: 'Alle', icon: <DownloadIcon className="size-3.5" />, count: counts.all },
     { key: 'active', label: 'Aktiv', icon: <PlayCircleIcon className="size-3.5" />, count: counts.active },
@@ -273,7 +264,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
               >
                 {tab.icon}
                 <span>{tab.label}</span>
-                {tab.count > 0 && (
+                {typeof tab.count === 'number' && tab.count > 0 && (
                   <span
                     className={cn(
                       'ml-0.5 rounded-full px-1.5 py-0.2 text-[0.6875rem] font-semibold',

@@ -907,11 +907,17 @@ func (r *Jobs) QueueCounts(ctx context.Context) (jobs.QueueCounts, error) {
 				WHERE j.status NOT IN ($1, $2, $3)
 				  AND NOT j.paused
 				  AND ji.status = $10
-			), 0) AS completed_relevant
+			), 0) AS completed_relevant,
+			COALESCE((SELECT count(*) FROM jobs), 0) AS total_jobs,
+			COALESCE((SELECT count(*) FROM jobs WHERE status NOT IN ($1, $2, $3, $11)), 0) AS active_jobs,
+			COALESCE((SELECT count(*) FROM jobs WHERE status = $11), 0) AS queued_jobs,
+			COALESCE((SELECT count(*) FROM jobs WHERE status IN ($1, $3)), 0) AS done_jobs,
+			COALESCE((SELECT count(*) FROM jobs WHERE status = $2), 0) AS failed_jobs
 	`,
 		string(jobs.StatusCompleted), string(jobs.StatusFailed), string(jobs.StatusCancelled),
 		string(jobs.ItemPending), string(jobs.ItemMatching), string(jobs.ItemDownloading), string(jobs.ItemTagging), string(jobs.ItemFinalizing), string(jobs.ItemRetryWait),
 		string(jobs.ItemCompleted),
+		string(jobs.StatusQueued),
 	)
 
 	err := row.Scan(
@@ -923,6 +929,11 @@ func (r *Jobs) QueueCounts(ctx context.Context) (jobs.QueueCounts, error) {
 		&counts.CompletedLast6h,
 		&counts.TotalRelevant,
 		&counts.CompletedRelevant,
+		&counts.TotalJobs,
+		&counts.ActiveJobs,
+		&counts.QueuedJobs,
+		&counts.DoneJobs,
+		&counts.FailedJobs,
 	)
 	if err != nil {
 		return jobs.QueueCounts{}, wrapDB("get queue counts", err)

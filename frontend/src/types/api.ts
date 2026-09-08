@@ -326,6 +326,11 @@ export interface NextUpJob {
 }
 
 export interface QueueSummary {
+  total_jobs?: number
+  active_jobs?: number
+  queued_jobs?: number
+  done_jobs?: number
+  failed_jobs?: number
   active_items: number
   remaining_items: number
   paused_jobs: number

@@ -304,6 +304,7 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 		}
 
 		if !hasAny || !hasPotentiallyEligible {
+			p.drainWaitersLocked()
 			p.mu.Unlock()
 			return nil, apperr.New(apperr.CodeSessionNotFound, "no eligible media sessions available in pool")
 		}
@@ -312,6 +313,9 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 		if selected != nil {
 			// Acquire in-memory slot
 			selected.TryAcquireWithPolicy(now, p.cfg.AllowUnknown)
+			if len(p.waiters) > 0 && selectBestSession(candidateList, now, p.cfg.AllowUnknown) != nil {
+				p.wakeOneWaiterLocked()
+			}
 			s := selected.Session()
 			selectedLimiter := selected.limiter
 			p.mu.Unlock()
@@ -357,6 +361,7 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 		}
 
 		if totalActiveLeases == 0 {
+			p.drainWaitersLocked()
 			p.mu.Unlock()
 			return nil, apperr.New(apperr.CodeSessionNotFound, "no media sessions currently available in pool")
 		}
@@ -487,14 +492,30 @@ func (p *SessionPool) releaseLease(rs *RuntimeSession, err error) {
 	rs.Release()
 	p.updateSessionHealthLocked(rs, err, now)
 
-	// Wake up first waiter if any
-	if len(p.waiters) > 0 {
-		ch := p.waiters[0]
-		p.waiters = p.waiters[1:]
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
+	if len(p.waiters) == 0 {
+		return
+	}
+
+	candidateList := p.candidateListLocked()
+	selected := selectBestSession(candidateList, now, p.cfg.AllowUnknown)
+	if selected != nil {
+		// A session is ready to accept a lease: wake the next waiter in FIFO order
+		p.wakeOneWaiterLocked()
+		return
+	}
+
+	// No session is ready right now.
+	// Check if any other leases are still active in the pool.
+	totalActiveLeases := 0
+	for _, s := range candidateList {
+		totalActiveLeases += s.CurrentLeases()
+	}
+
+	if totalActiveLeases == 0 {
+		// Zero sessions available AND zero active leases remain.
+		// No future lease release will ever occur to wake these waiters.
+		// Drain all waiters so they return SESSION_NOT_FOUND promptly without starving.
+		p.drainWaitersLocked()
 	}
 }
 
@@ -535,6 +556,12 @@ func (p *SessionPool) UpsertSession(s *Session) {
 
 	if old, ok := p.sessions[s.ID]; ok && old != nil {
 		old.UpdateSession(*s)
+		if len(p.waiters) > 0 {
+			candidateList := p.candidateListLocked()
+			if selectBestSession(candidateList, p.now(), p.cfg.AllowUnknown) != nil {
+				p.wakeOneWaiterLocked()
+			}
+		}
 		return
 	}
 
@@ -543,6 +570,12 @@ func (p *SessionPool) UpsertSession(s *Session) {
 	rs.limiter.now = p.now
 	p.sessions[s.ID] = rs
 	p.sessionOrder = append(p.sessionOrder, s.ID)
+	if len(p.waiters) > 0 {
+		candidateList := p.candidateListLocked()
+		if selectBestSession(candidateList, p.now(), p.cfg.AllowUnknown) != nil {
+			p.wakeOneWaiterLocked()
+		}
+	}
 }
 
 // RemoveSession removes a session from the runtime pool.
@@ -558,6 +591,48 @@ func (p *SessionPool) RemoveSession(sessionID string) {
 		if id == sessionID {
 			p.sessionOrder = append(p.sessionOrder[:i], p.sessionOrder[i+1:]...)
 			break
+		}
+	}
+	if len(p.waiters) > 0 {
+		candidateList := p.candidateListLocked()
+		totalActiveLeases := 0
+		for _, s := range candidateList {
+			totalActiveLeases += s.CurrentLeases()
+		}
+		if totalActiveLeases == 0 && selectBestSession(candidateList, p.now(), p.cfg.AllowUnknown) == nil {
+			p.drainWaitersLocked()
+		}
+	}
+}
+
+func (p *SessionPool) candidateListLocked() []*RuntimeSession {
+	candidateList := make([]*RuntimeSession, 0, len(p.sessions))
+	for _, id := range p.sessionOrder {
+		if s := p.sessions[id]; s != nil {
+			candidateList = append(candidateList, s)
+		}
+	}
+	return candidateList
+}
+
+func (p *SessionPool) wakeOneWaiterLocked() {
+	if len(p.waiters) > 0 {
+		ch := p.waiters[0]
+		p.waiters = p.waiters[1:]
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (p *SessionPool) drainWaitersLocked() {
+	for len(p.waiters) > 0 {
+		ch := p.waiters[0]
+		p.waiters = p.waiters[1:]
+		select {
+		case ch <- struct{}{}:
+		default:
 		}
 	}
 }

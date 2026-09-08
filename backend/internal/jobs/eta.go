@@ -42,6 +42,11 @@ type QueueCounts struct {
 	CompletedLast6h   int
 	TotalRelevant     int
 	CompletedRelevant int
+	TotalJobs         int
+	ActiveJobs        int
+	QueuedJobs        int
+	DoneJobs          int
+	FailedJobs        int
 }
 
 // QueueSummary holds the aggregated live queue preview and ETA statistics.
@@ -57,6 +62,11 @@ type QueueSummary struct {
 	ETAText                string                `json:"eta_text"`
 	TotalRelevant          int                   `json:"total_relevant"`
 	CompletedRelevant      int                   `json:"completed_relevant"`
+	TotalJobs              int                   `json:"total_jobs"`
+	ActiveJobs             int                   `json:"active_jobs"`
+	QueuedJobs             int                   `json:"queued_jobs"`
+	DoneJobs               int                   `json:"done_jobs"`
+	FailedJobs             int                   `json:"failed_jobs"`
 	StorageHealthy         bool                  `json:"storage_healthy"`
 	Current                []ActiveWorkerPreview `json:"current"`
 	Next                   []NextUpJob           `json:"next"`

@@ -1993,3 +1993,80 @@ func TestJobProgressEdgeCases(t *testing.T) {
 		t.Errorf("listMixed = %+v, want 5/2/1", listMixed)
 	}
 }
+
+func TestQueueCounts_GlobalJobCounts(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	repo := NewJobs(db)
+
+	// Clear jobs for isolated counts test
+	if _, err := db.ExecContext(ctx, "DELETE FROM job_items; DELETE FROM jobs;"); err != nil {
+		t.Fatalf("truncate jobs: %v", err)
+	}
+
+	// 1 completed job
+	j1 := &jobs.Job{Type: jobs.TypeTrack, Label: "J1 Completed", Status: jobs.StatusQueued}
+	_ = repo.Create(ctx, j1)
+	_ = repo.SetStatus(ctx, j1.ID, jobs.StatusCompleted, "", "")
+
+	// 1 failed job
+	j2 := &jobs.Job{Type: jobs.TypeTrack, Label: "J2 Failed", Status: jobs.StatusQueued}
+	_ = repo.Create(ctx, j2)
+	_ = repo.SetStatus(ctx, j2.ID, jobs.StatusFailed, "", "")
+
+	// 1 cancelled job (paused: false)
+	j3 := &jobs.Job{Type: jobs.TypeTrack, Label: "J3 Cancelled", Status: jobs.StatusQueued}
+	_ = repo.Create(ctx, j3)
+	_ = repo.SetStatus(ctx, j3.ID, jobs.StatusCancelled, "", "")
+
+	// 1 historical cancelled job with paused=true (must NOT count as actionable paused!)
+	j4 := &jobs.Job{Type: jobs.TypeTrack, Label: "J4 Historical Cancelled Paused", Status: jobs.StatusQueued}
+	_ = repo.Create(ctx, j4)
+	_ = repo.SetPaused(ctx, j4.ID, true)
+	_ = repo.SetStatus(ctx, j4.ID, jobs.StatusCancelled, "", "")
+
+	// 1 active matching job (paused: false)
+	j5 := &jobs.Job{Type: jobs.TypeTrack, Label: "J5 Active", Status: jobs.StatusQueued}
+	_ = repo.Create(ctx, j5)
+	_ = repo.SetStatus(ctx, j5.ID, jobs.StatusMatching, "", "")
+	_ = repo.AddItems(ctx, j5.ID, []jobs.Item{{Position: 0, Status: jobs.ItemMatching, Track: music.Track{Title: "T5"}}})
+
+	// 1 runnable queued job (paused: false)
+	j6 := &jobs.Job{Type: jobs.TypeTrack, Label: "J6 Queued", Status: jobs.StatusQueued}
+	_ = repo.Create(ctx, j6)
+
+	// 1 actionable paused queued job (status: queued, paused: true)
+	j7 := &jobs.Job{Type: jobs.TypeTrack, Label: "J7 Paused Queued", Status: jobs.StatusQueued}
+	_ = repo.Create(ctx, j7)
+	_ = repo.SetPaused(ctx, j7.ID, true)
+
+	counts, err := repo.QueueCounts(ctx)
+	if err != nil {
+		t.Fatalf("QueueCounts failed: %v", err)
+	}
+
+	if counts.TotalJobs != 7 {
+		t.Errorf("TotalJobs = %d, want 7", counts.TotalJobs)
+	}
+	if counts.ActiveJobs != 1 {
+		t.Errorf("ActiveJobs = %d, want 1", counts.ActiveJobs)
+	}
+	if counts.QueuedJobs != 2 {
+		t.Errorf("QueuedJobs = %d, want 2 (both non-paused j6 and actionable paused j7)", counts.QueuedJobs)
+	}
+	if counts.PausedJobs != 1 {
+		t.Errorf("PausedJobs = %d, want 1 (actionable only, excluding historical cancelled)", counts.PausedJobs)
+	}
+	if counts.DoneJobs != 3 {
+		t.Errorf("DoneJobs = %d, want 3 (1 completed + 2 cancelled)", counts.DoneJobs)
+	}
+	if counts.FailedJobs != 1 {
+		t.Errorf("FailedJobs = %d, want 1", counts.FailedJobs)
+	}
+
+	// Verify exhaustive section partition: Active + Queued + Done + Failed == TotalJobs
+	sectionSum := counts.ActiveJobs + counts.QueuedJobs + counts.DoneJobs + counts.FailedJobs
+	if sectionSum != counts.TotalJobs {
+		t.Errorf("Section partition sum %d != TotalJobs %d", sectionSum, counts.TotalJobs)
+	}
+}

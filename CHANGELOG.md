@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.25.1 — 2026-09-08
+
+### Bug Fixes
+
+- **Media Session Pool Waiter Starvation:** Fixed downloader workers becoming stuck while waiting for an unavailable media session. True session exhaustion now promptly releases waiting callers rather than keeping acquisition worker slots blocked until the track timeout.
+- **Global Download Tab Counts:** Fixed Downloads page tab badges reflecting the paginated page slice length instead of global database job totals across page navigation and priority filtering. Paused tab badges and filtering accurately represent actionable paused jobs.
+
+### Changes
+
+- **Database Schema:** Schema remains at 12; no database migration is required.
+
+**Full Changelog:** `v0.25.0...v0.25.1`
+
 ## 0.25.0 — 2026-09-08
 
 ### Features
