@@ -3,10 +3,12 @@ package subscriptions
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,6 +37,8 @@ type fakeProvider struct {
 	artistErr error
 	discoErr  error
 	trackErrs map[string]error
+
+	onGetReleaseTracks func(ctx context.Context, id string)
 
 	mu         sync.Mutex
 	trackCalls int
@@ -77,10 +81,15 @@ func (f *fakeProvider) GetRelease(_ context.Context, id string) (*music.Release,
 	return nil, apperr.Newf(apperr.CodeReleaseNotFound, "no release %q", id)
 }
 
-func (f *fakeProvider) GetReleaseTracks(_ context.Context, id string) ([]music.Track, error) {
+func (f *fakeProvider) GetReleaseTracks(ctx context.Context, id string) ([]music.Track, error) {
 	f.mu.Lock()
 	f.trackCalls++
+	hook := f.onGetReleaseTracks
 	f.mu.Unlock()
+
+	if hook != nil {
+		hook(ctx, id)
+	}
 
 	if err, ok := f.trackErrs[id]; ok {
 		return nil, err
@@ -476,7 +485,7 @@ func track(title string, durationMS int, isrc string) music.Track {
 	}
 }
 
-func newHarness(t *testing.T, p *fakeProvider) *harness {
+func newHarnessWithTimeout(t *testing.T, p *fakeProvider, timeout time.Duration) *harness {
 	t.Helper()
 
 	registry := provider.NewRegistry()
@@ -508,12 +517,18 @@ func newHarness(t *testing.T, p *fakeProvider) *harness {
 		Logger:        quiet,
 		SyncInterval:  24 * time.Hour,
 		RetryInterval: time.Hour,
+		SyncTimeout:   timeout,
 	})
 	if err != nil {
 		t.Fatalf("subscription service: %v", err)
 	}
 	h.service = service
 	return h
+}
+
+func newHarness(t *testing.T, p *fakeProvider) *harness {
+	t.Helper()
+	return newHarnessWithTimeout(t, p, 0)
 }
 
 // discoveryProvider is the standard catalogue used by most tests: one album
@@ -976,6 +991,144 @@ type blockingProvider struct {
 	enter   chan struct{}
 	release chan struct{}
 	once    sync.Once
+}
+
+type admissionProvider struct {
+	*fakeProvider
+	release chan struct{}
+	entered chan struct{}
+	active  atomic.Int32
+	maximum atomic.Int32
+}
+
+func (p *admissionProvider) GetDiscography(ctx context.Context, id string) ([]music.Release, error) {
+	active := p.active.Add(1)
+	defer p.active.Add(-1)
+	for {
+		maxSeen := p.maximum.Load()
+		if active <= maxSeen || p.maximum.CompareAndSwap(maxSeen, active) {
+			break
+		}
+	}
+	select {
+	case p.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-p.release:
+		return p.fakeProvider.GetDiscography(ctx, id)
+	}
+}
+
+func createAdmissionSubscriptions(t *testing.T, h *harness, count int) []string {
+	t.Helper()
+	ids := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		sub, err := h.service.Create(context.Background(), NewSubscription{
+			Provider: "fake", ArtistSourceID: fmt.Sprintf("artist-%d", i), ArtistName: fmt.Sprintf("Artist %d", i),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, sub.ID)
+	}
+	return ids
+}
+
+func TestManualSyncSubmissionsShareBoundedServerAdmission(t *testing.T) {
+	base := discoveryProvider()
+	provider := &admissionProvider{fakeProvider: base, release: make(chan struct{}), entered: make(chan struct{}, 64)}
+	h := newHarness(t, base)
+	h.service.discography = mustDiscography(t, provider)
+	if err := h.service.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ids := createAdmissionSubscriptions(t, h, 55)
+
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		id := id
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := h.service.StartSync(context.Background(), id); err != nil {
+				t.Errorf("StartSync: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	select {
+	case <-provider.entered:
+	case <-time.After(time.Second):
+		t.Fatal("no sync entered provider")
+	}
+	time.Sleep(30 * time.Millisecond)
+	if got := provider.maximum.Load(); got != 1 {
+		t.Fatalf("concurrent catalogue walks = %d, want 1", got)
+	}
+	close(provider.release)
+	h.service.Stop()
+}
+
+func TestScheduledAndManualSyncShareAdmission(t *testing.T) {
+	base := discoveryProvider()
+	provider := &admissionProvider{fakeProvider: base, release: make(chan struct{}), entered: make(chan struct{}, 4)}
+	h := newHarness(t, base)
+	h.service.discography = mustDiscography(t, provider)
+	if err := h.service.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ids := createAdmissionSubscriptions(t, h, 2)
+	if _, err := h.service.StartSync(context.Background(), ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	<-provider.entered
+
+	scheduler := newScheduler(t, h, time.Hour)
+	done := make(chan struct{})
+	go func() {
+		_ = scheduler.tick(context.Background())
+		close(done)
+	}()
+	time.Sleep(30 * time.Millisecond)
+	if got := provider.maximum.Load(); got != 1 {
+		t.Fatalf("scheduled/manual concurrent catalogue walks = %d, want 1", got)
+	}
+	close(provider.release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("scheduled path did not resume after manual sync")
+	}
+	h.service.Stop()
+}
+
+func TestCancelledSyncWaiterDoesNotDeadlockAdmission(t *testing.T) {
+	base := discoveryProvider()
+	provider := &admissionProvider{fakeProvider: base, release: make(chan struct{}), entered: make(chan struct{}, 4)}
+	h := newHarness(t, base)
+	h.service.discography = mustDiscography(t, provider)
+	if err := h.service.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ids := createAdmissionSubscriptions(t, h, 3)
+	if _, err := h.service.StartSync(context.Background(), ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	<-provider.entered
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := h.service.Sync(ctx, ids[1]); apperr.CodeOf(err) != apperr.CodeJobCancelled {
+		t.Fatalf("cancelled waiter error = %v", err)
+	}
+	close(provider.release)
+	if _, err := h.service.Sync(context.Background(), ids[2]); err != nil {
+		t.Fatalf("admission stayed locked after cancellation: %v", err)
+	}
+	h.service.Stop()
 }
 
 func (b *blockingProvider) GetDiscography(ctx context.Context, id string) ([]music.Release, error) {
@@ -1620,5 +1773,171 @@ func TestImportOversizedLimit(t *testing.T) {
 	_, err := h.service.PreviewImport(context.Background(), payload)
 	if apperr.CodeOf(err) != apperr.CodeInvalidRequest {
 		t.Fatalf("expected INVALID_REQUEST on oversized import, got %v", err)
+	}
+}
+
+func TestAdmissionWaitDoesNotConsumeExecutionTimeout(t *testing.T) {
+	base := discoveryProvider()
+	h := newHarnessWithTimeout(t, base, 80*time.Millisecond)
+	sub := subscribe(t, h, false)
+
+	// Hold admission permit directly from outside.
+	h.service.syncAdmission <- struct{}{}
+
+	// Release after 120ms (longer than the 80ms execution timeout).
+	go func() {
+		time.Sleep(120 * time.Millisecond)
+		<-h.service.syncAdmission
+	}()
+
+	start := time.Now()
+	res, err := h.service.Sync(context.Background(), sub.ID)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Sync failed: %v", err)
+	}
+	if res.Status != StatusSuccess {
+		t.Fatalf("expected StatusSuccess, got %v", res.Status)
+	}
+	if elapsed < 120*time.Millisecond {
+		t.Fatalf("expected elapsed >= 120ms, got %v", elapsed)
+	}
+}
+
+func TestExecutionTimeoutCancelsLongRunningSyncAndReleasesAdmission(t *testing.T) {
+	base := discoveryProvider()
+	provider := &admissionProvider{fakeProvider: base, release: make(chan struct{}), entered: make(chan struct{}, 4)}
+	h := newHarnessWithTimeout(t, base, 60*time.Millisecond)
+	h.service.discography = mustDiscography(t, provider)
+
+	sub1 := subscribe(t, h, false)
+	sub2, err := h.service.Create(context.Background(), NewSubscription{
+		Provider: "fake", ArtistSourceID: "28", ArtistName: "Justice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. First sync will block in provider until the 60ms execution timeout cancels it.
+	_, err = h.service.Sync(context.Background(), sub1.ID)
+	if err == nil {
+		t.Fatal("expected execution timeout error, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected DeadlineExceeded, got %v", err)
+	}
+
+	// 2. Ensure admission permit was released after timeout.
+	// Allow second sync to finish by closing provider release.
+	close(provider.release)
+
+	res2, err := h.service.Sync(context.Background(), sub2.ID)
+	if err != nil {
+		t.Fatalf("subsequent sync failed after timeout: %v", err)
+	}
+	if res2.Status != StatusSuccess {
+		t.Fatalf("expected StatusSuccess, got %v", res2.Status)
+	}
+}
+
+func TestQueuedBatchDoesNotExpireFromAdmissionWait(t *testing.T) {
+	base := discoveryProvider()
+	base.onGetReleaseTracks = func(ctx context.Context, id string) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	h := newHarnessWithTimeout(t, base, 50*time.Millisecond)
+	ids := createAdmissionSubscriptions(t, h, 55)
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(ids))
+	results := make([]*SyncResult, len(ids))
+	for i, id := range ids {
+		wg.Add(1)
+		go func(idx int, subID string) {
+			defer wg.Done()
+			results[idx], errs[idx] = h.service.Sync(context.Background(), subID)
+		}(i, id)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("subscription %d (%s) failed: %v", i, ids[i], err)
+		}
+		if results[i].Status != StatusSuccess {
+			t.Fatalf("subscription %d (%s) status = %v, want Success", i, ids[i], results[i].Status)
+		}
+	}
+}
+
+func TestSchedulerWaitingBehindManualSyncReceivesFullExecutionBudget(t *testing.T) {
+	base := discoveryProvider()
+	h := newHarnessWithTimeout(t, base, 80*time.Millisecond)
+	sub := subscribe(t, h, false)
+
+	// Simulate manual sync or external process holding admission for 120ms.
+	h.service.syncAdmission <- struct{}{}
+	go func() {
+		time.Sleep(120 * time.Millisecond)
+		<-h.service.syncAdmission
+	}()
+
+	scheduler := newScheduler(t, h, time.Hour)
+	synced := scheduler.tick(context.Background())
+	if synced != 1 {
+		t.Fatalf("expected 1 subscription synced, got %d", synced)
+	}
+
+	loaded, err := h.service.Get(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if loaded.LastSyncStatus != StatusSuccess {
+		t.Fatalf("expected StatusSuccess, got %v", loaded.LastSyncStatus)
+	}
+}
+
+func TestCancellationWhileWaitingForAdmission(t *testing.T) {
+	base := discoveryProvider()
+	h := newHarness(t, base)
+	sub := subscribe(t, h, false)
+
+	// Hold admission permit directly.
+	h.service.syncAdmission <- struct{}{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := h.service.Sync(ctx, sub.ID)
+	elapsed := time.Since(start)
+
+	if apperr.CodeOf(err) != apperr.CodeJobCancelled {
+		t.Fatalf("expected CodeJobCancelled, got %v", err)
+	}
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("cancellation took too long to exit: %v", elapsed)
+	}
+
+	// Release our initial hold to verify permit was not leaked by the cancelled call.
+	<-h.service.syncAdmission
+
+	select {
+	case <-h.service.syncAdmission:
+		t.Fatal("unexpected extra permit leaked in admission channel")
+	default:
+	}
+
+	// Verify subsequent sync proceeds smoothly and can acquire admission.
+	res, err := h.service.Sync(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatalf("subsequent sync failed: %v", err)
+	}
+	if res.Status != StatusSuccess {
+		t.Fatalf("expected StatusSuccess, got %v", res.Status)
 	}
 }

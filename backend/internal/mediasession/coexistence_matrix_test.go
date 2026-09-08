@@ -268,8 +268,8 @@ func TestCoexistenceMatrix_Case8_AllUnavailable(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Acquire to fail when all sessions are unavailable, got success")
 	}
-	if apperr.CodeOf(err) != apperr.CodeSessionNotFound && err != context.DeadlineExceeded {
-		t.Fatalf("expected CodeSessionNotFound or DeadlineExceeded, got: %v", err)
+	if apperr.CodeOf(err) != apperr.CodeSessionUnavailable && err != context.DeadlineExceeded {
+		t.Fatalf("expected CodeSessionUnavailable or DeadlineExceeded, got: %v", err)
 	}
 }
 

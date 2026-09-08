@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/downloader"
@@ -26,6 +27,7 @@ type mockFallbackMediaProvider struct {
 	resolveErrors  map[string]error
 	resolvedOrder  []string
 	resolveCalls   map[string]int
+	searchErr      error
 	mu             sync.Mutex
 }
 
@@ -42,7 +44,36 @@ func newMockFallbackMediaProvider(name string, candidates []provider.MediaCandid
 func (p *mockFallbackMediaProvider) Name() string { return p.name }
 
 func (p *mockFallbackMediaProvider) Search(_ context.Context, _ music.Track) ([]provider.MediaCandidate, error) {
+	if p.searchErr != nil {
+		return nil, p.searchErr
+	}
 	return p.candidates, nil
+}
+
+func TestWorker_SessionUnavailableWaitDoesNotConsumeRetryBudget(t *testing.T) {
+	prov := newMockFallbackMediaProvider("youtube", nil)
+	prov.searchErr = apperr.NewRetryAfter(apperr.CodeSessionUnavailable, "sessions cooling", 2*time.Minute)
+	mgr, store := setupTestFallbackEnvironment(t, prov)
+	w := &worker{manager: mgr}
+	job := Job{ID: "job-1", MediaProvider: "youtube"}
+	item := store.items["item-1"]
+	before := time.Now()
+
+	w.process(context.Background(), job, item)
+
+	updated := store.items["item-1"]
+	if updated.Status != ItemRetryWait {
+		t.Fatalf("status = %v, want retry_wait", updated.Status)
+	}
+	if updated.Attempts != item.Attempts {
+		t.Fatalf("attempts = %d, want preserved %d", updated.Attempts, item.Attempts)
+	}
+	if updated.ErrorCode != string(apperr.CodeSessionUnavailable) {
+		t.Fatalf("error code = %s", updated.ErrorCode)
+	}
+	if updated.NextRetryAt == nil || updated.NextRetryAt.Before(before.Add(110*time.Second)) {
+		t.Fatalf("retry timing did not respect session wait: %v", updated.NextRetryAt)
+	}
 }
 
 func (p *mockFallbackMediaProvider) Resolve(_ context.Context, c provider.MediaCandidate) (*provider.MediaSource, error) {
@@ -476,5 +507,89 @@ func TestWorker_Fallback_NetworkTimeout_EntersRetryWait(t *testing.T) {
 	defer prov.mu.Unlock()
 	if len(prov.resolvedOrder) != 1 {
 		t.Fatalf("expected only 1 call before systemic stop on network timeout, got %d", len(prov.resolvedOrder))
+	}
+}
+
+func TestWorker_EarlySessionRecovery_WakesEligibleWorkPromptly(t *testing.T) {
+	candidates := []provider.MediaCandidate{
+		{ID: "cand-1", Title: "The Visitors", Artists: []string{"ABBA"}, DurationMS: 349000, Provider: "youtube"},
+	}
+	prov := newMockFallbackMediaProvider("youtube", candidates)
+	prov.searchErr = apperr.NewRetryAfter(apperr.CodeSessionUnavailable, "session cooled by bot challenge", 12*time.Hour)
+
+	mgr, store := setupTestFallbackEnvironment(t, prov)
+	w := &worker{manager: mgr}
+	job := Job{ID: "job-1", MediaProvider: "youtube"}
+	item := store.items["item-1"]
+
+	// Step 1: Process under cooling session -> enters retry_wait with T+12h cooldown
+	w.process(context.Background(), job, item)
+
+	updated := store.items["item-1"]
+	if updated.Status != ItemRetryWait {
+		t.Fatalf("status = %v, want %v", updated.Status, ItemRetryWait)
+	}
+	if updated.Attempts != 0 {
+		t.Fatalf("attempts = %d, want preserved 0", updated.Attempts)
+	}
+	if updated.NextRetryAt == nil || updated.NextRetryAt.Before(time.Now().Add(11*time.Hour)) {
+		t.Fatalf("NextRetryAt = %v, want ~T+12h", updated.NextRetryAt)
+	}
+
+	// Step 2: Session remains unhealthy if recovery has NOT happened (cooldown respected)
+	if updated.NextRetryAt.Before(time.Now().Add(10 * time.Hour)) {
+		t.Fatalf("old cooldown must be respected while session is cooling")
+	}
+
+	// Step 3: Legitimate session recovery occurs (e.g. admin replaces cookies and probe succeeds)
+	woken, err := mgr.WakeSessionWaiters(context.Background())
+	if err != nil {
+		t.Fatalf("WakeSessionWaiters: %v", err)
+	}
+	if woken != 1 {
+		t.Fatalf("woken = %d, want 1", woken)
+	}
+
+	// Verify NextRetryAt was advanced to now
+	wokenItem := store.items["item-1"]
+	if wokenItem.NextRetryAt == nil || wokenItem.NextRetryAt.After(time.Now().Add(time.Minute)) {
+		t.Fatalf("NextRetryAt after wake = %v, want <= now", wokenItem.NextRetryAt)
+	}
+	if wokenItem.Attempts != 0 {
+		t.Fatalf("attempts after wake = %d, want preserved 0", wokenItem.Attempts)
+	}
+
+	// Step 4: Provider is now healthy; worker re-evaluates item promptly
+	prov.searchErr = nil
+	w.process(context.Background(), job, wokenItem)
+
+	finalItem := store.items["item-1"]
+	if finalItem.Status != ItemCompleted {
+		t.Fatalf("status after recovery = %v, want %v", finalItem.Status, ItemCompleted)
+	}
+
+	// Step 5: Verify no busy loop if provider is still unhealthy on retried item
+	store.items["item-2"] = Item{
+		ID:          "item-2",
+		JobID:       "job-1",
+		Status:      ItemRetryWait,
+		Attempts:    1,
+		ErrorCode:   string(apperr.CodeSessionUnavailable),
+		NextRetryAt: nil, // ready immediately
+		Track:       item.Track,
+		Label:       item.Label,
+	}
+	prov.searchErr = apperr.NewRetryAfter(apperr.CodeSessionUnavailable, "still cooling", 6*time.Hour)
+	w.process(context.Background(), job, store.items["item-2"])
+
+	reblocked := store.items["item-2"]
+	if reblocked.Status != ItemRetryWait {
+		t.Fatalf("status = %v, want retry_wait", reblocked.Status)
+	}
+	if reblocked.Attempts != 1 {
+		t.Fatalf("attempts = %d, want preserved 1 (no retry budget consumed)", reblocked.Attempts)
+	}
+	if reblocked.NextRetryAt == nil || reblocked.NextRetryAt.Before(time.Now().Add(5*time.Hour)) {
+		t.Fatalf("NextRetryAt = %v, want repointed to remaining cooldown ~T+6h without busy loop", reblocked.NextRetryAt)
 	}
 }

@@ -31,6 +31,11 @@ const DefaultRetryInterval = time.Hour
 // be able to hold a subscription's guard forever.
 const DefaultSyncTimeout = 30 * time.Minute
 
+// DefaultMaxConcurrentSyncs is intentionally conservative. Catalogue walks
+// are request-heavy and every entry point (scheduled and manual) shares this
+// server-owned admission boundary.
+const DefaultMaxConcurrentSyncs = 1
+
 // Options configures the subscription service.
 type Options struct {
 	Store       Store
@@ -48,6 +53,7 @@ type Options struct {
 	SyncInterval        time.Duration
 	RetryInterval       time.Duration
 	SyncTimeout         time.Duration
+	MaxConcurrentSyncs  int
 	DurationToleranceMS int
 
 	Logger *slog.Logger
@@ -68,6 +74,7 @@ type Service struct {
 	retryInterval time.Duration
 	syncTimeout   time.Duration
 	toleranceMS   int
+	syncAdmission chan struct{}
 
 	// accepting closes when the service shuts down, so that a request arriving
 	// during the drain is refused rather than started and then killed.
@@ -119,6 +126,10 @@ func New(opts Options) (*Service, error) {
 	if syncTimeout <= 0 {
 		syncTimeout = DefaultSyncTimeout
 	}
+	maxConcurrentSyncs := opts.MaxConcurrentSyncs
+	if maxConcurrentSyncs <= 0 {
+		maxConcurrentSyncs = DefaultMaxConcurrentSyncs
+	}
 	tolerance := opts.DurationToleranceMS
 	if tolerance <= 0 {
 		tolerance = discography.DefaultDurationToleranceMS
@@ -141,6 +152,7 @@ func New(opts Options) (*Service, error) {
 		retryInterval: retryInterval,
 		syncTimeout:   syncTimeout,
 		toleranceMS:   tolerance,
+		syncAdmission: make(chan struct{}, maxConcurrentSyncs),
 	}
 	service.accepting.Store(true)
 	service.ctx = context.Background()
@@ -557,7 +569,21 @@ func (s *Service) Sync(ctx context.Context, id string) (*SyncResult, error) {
 	}
 	defer release()
 
-	return s.run(ctx, sub)
+	// PHASE A: wait for admission, cancellable by incoming ctx
+	if err := s.acquireSyncAdmission(ctx); err != nil {
+		return nil, err
+	}
+	defer s.releaseSyncAdmission()
+
+	// PHASE B: catalogue sync execution budget starts AFTER admission is acquired.
+	runCtx, cancel := context.WithTimeout(s.ctx, s.syncTimeout)
+	defer cancel()
+	if ctx != nil && ctx.Done() != nil {
+		stop := context.AfterFunc(ctx, cancel)
+		defer stop()
+	}
+
+	return s.run(runCtx, sub)
 }
 
 // StartSync begins a run in the background and returns at once.
@@ -579,6 +605,10 @@ func (s *Service) StartSync(ctx context.Context, id string) (*Subscription, erro
 	go func() {
 		defer s.wg.Done()
 		defer release()
+		if err := s.acquireSyncAdmission(s.ctx); err != nil {
+			return
+		}
+		defer s.releaseSyncAdmission()
 
 		// The run belongs to the service, not to the request that asked for
 		// it: the client is long gone by the time a discography is walked.
@@ -594,6 +624,17 @@ func (s *Service) StartSync(ctx context.Context, id string) (*Subscription, erro
 	answer.Syncing = true
 	return &answer, nil
 }
+
+func (s *Service) acquireSyncAdmission(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return apperr.Wrap(apperr.CodeJobCancelled, "The synchronisation was cancelled while waiting for admission.", ctx.Err())
+	case s.syncAdmission <- struct{}{}:
+		return nil
+	}
+}
+
+func (s *Service) releaseSyncAdmission() { <-s.syncAdmission }
 
 // DueForSync returns the enabled subscriptions whose next run is due. It is
 // what the scheduler selects on, and it lives here so that the scheduler has

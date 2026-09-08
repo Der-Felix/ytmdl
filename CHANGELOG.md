@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.25.2 — 2026-09-08
+
+### Bug Fixes
+
+- **Bounded Subscription Synchronization Admission:** Introduced server-owned admission bounding concurrent artist discography walks to 1 across manual, bulk, and scheduled synchronization triggers, preventing upstream request floods.
+- **YouTube Music Metadata Request Pacing:** Enforced a token-bucket rate limiter of 1.0 application request/sec (burst 1) across YouTube Music metadata and InnerTube catalogue queries.
+- **Managed Session yt-dlp Execution Gate:** Enforced mutual exclusion per managed session (maximum 1 active yt-dlp process per session while preserving cross-session concurrency) with process-start rate limiting (0.5 process starts/sec per session, 2.0 process starts/sec family ceiling).
+- **Temporary Provider & Session Protection:** Fixed item failure state handling when encountering bot challenges (`BOT_CHALLENGE`), provider rate limits (`RATE_LIMITED`), or temporary cooldowns (`SESSION_UNAVAILABLE`). Protected states preserve job items in `ItemRetryWait` without consuming ordinary retry budgets or busy-looping while awaiting session eligibility.
+- **Early Session Recovery Wakeup:** Wakes applicable session-waiting work and resets platform failure markers immediately when a session recovers or is updated, eliminating unnecessary idle waits.
+- **Paused Non-Terminal Deduplication & Atomic Enqueue:** Extended deduplication checking to include paused non-terminal jobs (`HasNonTerminalJob`), preventing duplicate queue creation when subscriptions run while existing jobs remain paused. Enforced serialized check-and-create around release enqueue to guarantee atomic single-job creation under concurrent requests.
+- **Subscription Timeout Decoupling:** Decoupled Phase A admission queue waiting from the Phase B catalogue execution budget. Subscriptions waiting in the admission queue receive a fresh 30-minute execution budget upon admission rather than burning down timeout headroom while waiting.
+
+### Changes
+
+- **Database Schema:** Schema remains at 12; no database migration is required.
+
+**Full Changelog:** `v0.25.1...v0.25.2`
+
 ## 0.25.1 — 2026-09-08
 
 ### Bug Fixes

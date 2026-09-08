@@ -278,8 +278,8 @@ func TestMediaSessionsConfig(t *testing.T) {
 	if d.MediaSessions.SessionRequestsPerSecond != 0.5 {
 		t.Errorf("default SessionRequestsPerSecond = %v, want 0.5", d.MediaSessions.SessionRequestsPerSecond)
 	}
-	if d.MediaSessions.SessionBurst != 2 {
-		t.Errorf("default SessionBurst = %d, want 2", d.MediaSessions.SessionBurst)
+	if d.MediaSessions.SessionBurst != 1 {
+		t.Errorf("default SessionBurst = %d, want 1", d.MediaSessions.SessionBurst)
 	}
 	if d.MediaSessions.GlobalRequestsPerSecond != 2.0 {
 		t.Errorf("default GlobalRequestsPerSecond = %v, want 2.0", d.MediaSessions.GlobalRequestsPerSecond)

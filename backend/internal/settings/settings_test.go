@@ -43,6 +43,9 @@ func (f *fakeJobStore) List(context.Context, jobs.ListFilter) ([]jobs.Job, int, 
 	return nil, 0, nil
 }
 func (f *fakeJobStore) ListUnfinished(context.Context) ([]jobs.Job, error) { return nil, nil }
+func (f *fakeJobStore) HasNonTerminalJob(context.Context, jobs.Type, string) (bool, error) {
+	return false, nil
+}
 
 type testGeniusCtrl struct {
 	enabled bool
@@ -86,6 +89,7 @@ func (f *fakeJobStore) ResetInFlightItems(context.Context) (int, error) { return
 func (f *fakeJobStore) ResetInterruptedJobs(context.Context) (int, error) {
 	return 0, nil
 }
+func (f *fakeJobStore) WakeSessionWaiters(context.Context) (int, error) { return 0, nil }
 func (f *fakeJobStore) QueueCounts(context.Context) (jobs.QueueCounts, error) {
 	return jobs.QueueCounts{}, nil
 }

@@ -31,31 +31,9 @@ func (q *JobQueue) EnqueueRelease(ctx context.Context, metadataProvider, release
 
 // EnqueueReleaseWithPriority queues one release with a specific download priority.
 func (q *JobQueue) EnqueueReleaseWithPriority(ctx context.Context, metadataProvider, releaseID, label string, priority jobs.Priority) (bool, error) {
-	running, err := q.manager.HasUnfinishedJob(ctx, jobs.TypeRelease, releaseID)
-	if err != nil {
-		return false, err
-	}
-	if running {
-		return false, nil
-	}
-
-	skipExisting := true
 	p := priority
 	if !p.Valid() {
 		p = jobs.PriorityNormal
 	}
-	_, err = q.manager.Enqueue(ctx, jobs.Request{
-		Type:             jobs.TypeRelease,
-		MetadataProvider: metadataProvider,
-		TargetID:         releaseID,
-		Label:            label,
-		Options: jobs.RequestOptions{
-			SkipExisting: &skipExisting,
-			Priority:     &p,
-		},
-	})
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return q.manager.EnqueueReleaseWithPriority(ctx, metadataProvider, releaseID, label, p)
 }

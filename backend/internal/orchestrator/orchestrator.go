@@ -13,6 +13,7 @@ import (
 	"ytdm/backend/internal/music"
 	"ytdm/backend/internal/provider"
 	"ytdm/backend/internal/provider/youtube"
+	"ytdm/backend/internal/ytdlp"
 )
 
 // DefaultMaxCandidates bounds the fallback candidate evaluation count.
@@ -125,12 +126,12 @@ func (o *ProviderOrchestrator) RecordDownloadOutcome(ctx context.Context, sessio
 
 // bindProvider returns a copy of p configured with the given cookie path if supported.
 // Providers not belonging to FamilyYouTube never receive cookies.
-func bindProvider(p provider.MediaProvider, cookiePath string) provider.MediaProvider {
+func bindProvider(p provider.MediaProvider, cookiePath string, gate ytdlp.ExecutionGate) provider.MediaProvider {
 	if provider.FamilyOf(p.Name()) != provider.FamilyYouTube {
 		return p
 	}
 	if yp, ok := p.(*youtube.MediaProvider); ok {
-		return yp.WithCookieFile(cookiePath)
+		return yp.WithCookieFile(cookiePath).WithExecutionGate(gate)
 	}
 	if saw, ok := p.(interface {
 		WithCookieFile(string) provider.MediaProvider
@@ -159,7 +160,12 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 
 	// 1. Check family-level cooldown before acquiring any session
 	if o.cooldown != nil {
-		if err := o.cooldown.Wait(ctx, string(fam)); err != nil {
+		if fam == provider.FamilyYouTube {
+			if remaining, active := o.cooldown.Remaining(string(fam)); active {
+				return nil, apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
+					"YouTube acquisition is temporarily paused after a provider protection response.", remaining)
+			}
+		} else if err := o.cooldown.Wait(ctx, string(fam)); err != nil {
 			return nil, err
 		}
 	}
@@ -189,7 +195,7 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 
 	// 3. Direct-ID Fast Path (if track carries a direct video ID)
 	if track.SourceID != "" && fam == provider.FamilyYouTube {
-		res, ok, err := o.tryDirectID(ctx, pref, track, cookiePath, sessionID, fam)
+		res, ok, err := o.tryDirectID(ctx, pref, track, lease, cookiePath, sessionID, fam)
 		if err != nil {
 			leaseErr = err
 			return nil, err
@@ -234,7 +240,13 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		provFam := provider.FamilyOf(provName)
 
 		if o.cooldown != nil {
-			if err := o.cooldown.Wait(ctx, string(provFam)); err != nil {
+			if provFam == provider.FamilyYouTube {
+				if remaining, active := o.cooldown.Remaining(string(provFam)); active {
+					leaseErr = apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
+						"YouTube acquisition is temporarily paused after a provider protection response.", remaining)
+					return nil, leaseErr
+				}
+			} else if err := o.cooldown.Wait(ctx, string(provFam)); err != nil {
 				leaseErr = err
 				return nil, leaseErr
 			}
@@ -257,7 +269,7 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 			continue
 		}
 
-		bp := bindProvider(p, cookiePath)
+		bp := bindProvider(p, cookiePath, lease)
 		candidates, err := bp.Search(ctx, genericTrack)
 		if err != nil {
 			if apperr.StopsCandidateFanout(err) {
@@ -353,7 +365,7 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 	return nil, leaseErr
 }
 
-func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, track music.Track, cookiePath string, sessionID string, fam provider.Family) (*ResolvedMedia, bool, error) {
+func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, track music.Track, lease *mediasession.Lease, cookiePath string, sessionID string, fam provider.Family) (*ResolvedMedia, bool, error) {
 	p, err := o.registry.Media(pref)
 	if err != nil {
 		p, err = o.registry.Media("youtube")
@@ -362,7 +374,7 @@ func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, tra
 		}
 	}
 
-	bp := bindProvider(p, cookiePath)
+	bp := bindProvider(p, cookiePath, lease)
 	candidates, err := bp.Search(ctx, track)
 	if err != nil {
 		if apperr.StopsCandidateFanout(err) {

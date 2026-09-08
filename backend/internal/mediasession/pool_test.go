@@ -534,12 +534,99 @@ func TestSessionPool_FailureContainment_CandidateVsSessionVsProvider(t *testing.
 			t.Errorf("auth_failed should have nil cooldown (indefinite exclusion), got %v", s1.CooldownUntil)
 		}
 
-		// Subsequent acquire must fail immediately with CodeSessionNotFound
+		// The configured session still exists, so acquisition becomes a
+		// non-destructive wait state rather than a configuration failure.
 		_, err = pool.Acquire(context.Background())
-		if err == nil {
-			t.Fatal("expected Acquire to fail when session is auth_failed, got nil")
+		if apperr.CodeOf(err) != apperr.CodeSessionUnavailable {
+			t.Fatalf("expected SESSION_UNAVAILABLE, got %v", err)
 		}
 	})
+}
+
+func TestSessionPoolProtectedStatesReturnTimedTemporaryUnavailable(t *testing.T) {
+	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name        string
+		health      HealthStatus
+		cooldown    time.Duration
+		minimumWait time.Duration
+	}{
+		{name: "bot challenge", health: HealthBotChallenge, cooldown: 24 * time.Hour, minimumWait: 23*time.Hour + 59*time.Minute},
+		{name: "rate limited", health: HealthRateLimited, cooldown: 2 * time.Minute, minimumWait: 119 * time.Second},
+		{name: "auth failed", health: HealthAuthFailed, minimumWait: 14 * time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var until *time.Time
+			if tt.cooldown > 0 {
+				value := now.Add(tt.cooldown)
+				until = &value
+			}
+			session := Session{
+				ID: "protected", ProviderFamily: provider.FamilyYouTube,
+				CookieRef: CookieRefPrefix + "protected", Enabled: true,
+				HealthStatus: tt.health, CooldownUntil: until,
+			}
+			pool := NewSessionPool(DefaultPoolConfig(provider.FamilyYouTube), nil, nil, nil)
+			pool.SetNow(func() time.Time { return now })
+			pool.ReloadSessions([]Session{session})
+			_, err := pool.Acquire(context.Background())
+			if apperr.CodeOf(err) != apperr.CodeSessionUnavailable {
+				t.Fatalf("Acquire error = %v", err)
+			}
+			wait, ok := apperr.RetryAfter(err)
+			if !ok || wait < tt.minimumWait {
+				t.Fatalf("retry-after = %v, want at least %v", wait, tt.minimumWait)
+			}
+		})
+	}
+
+	pool := NewSessionPool(DefaultPoolConfig(provider.FamilyYouTube), nil, nil, nil)
+	pool.ReloadSessions([]Session{{ID: "disabled", ProviderFamily: provider.FamilyYouTube, Enabled: false}})
+	if _, err := pool.Acquire(context.Background()); apperr.CodeOf(err) != apperr.CodeSessionNotFound {
+		t.Fatalf("unconfigured case = %v, want SESSION_NOT_FOUND", err)
+	}
+}
+
+func TestSessionUnavailable_MultiSessionSelectsEarliestEligibleCooldown(t *testing.T) {
+	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	cooldownA := now.Add(4 * time.Hour) // until 16:00
+	cooldownB := now.Add(1 * time.Hour) // until 13:00
+
+	sessionA := Session{
+		ID:             "session-a",
+		ProviderFamily: provider.FamilyYouTube,
+		CookieRef:      CookieRefPrefix + "a",
+		Enabled:        true,
+		HealthStatus:   HealthRateLimited,
+		CooldownUntil:  &cooldownA,
+	}
+	sessionB := Session{
+		ID:             "session-b",
+		ProviderFamily: provider.FamilyYouTube,
+		CookieRef:      CookieRefPrefix + "b",
+		Enabled:        true,
+		HealthStatus:   HealthRateLimited,
+		CooldownUntil:  &cooldownB,
+	}
+
+	pool := NewSessionPool(DefaultPoolConfig(provider.FamilyYouTube), nil, nil, nil)
+	pool.SetNow(func() time.Time { return now })
+	pool.ReloadSessions([]Session{sessionA, sessionB})
+
+	_, err := pool.Acquire(context.Background())
+	if apperr.CodeOf(err) != apperr.CodeSessionUnavailable {
+		t.Fatalf("Acquire error code = %v, want %v", apperr.CodeOf(err), apperr.CodeSessionUnavailable)
+	}
+	retryAfter, ok := apperr.RetryAfter(err)
+	if !ok {
+		t.Fatal("expected retry-after duration on session unavailable error")
+	}
+
+	// Must select earliest eligible opportunity (1 hour from session B, not 4 hours from session A)
+	if retryAfter != 1*time.Hour {
+		t.Fatalf("retry-after = %v, want earliest cooldown 1h", retryAfter)
+	}
 }
 
 func containsSanitizedCode(reason, code string) bool {

@@ -27,8 +27,15 @@ type Prober interface {
 
 // YTDLPProber validates media sessions by executing lightweight yt-dlp metadata queries.
 type YTDLPProber struct {
-	client *ytdlp.Client
-	target string
+	client       *ytdlp.Client
+	target       string
+	gateResolver func(sessionID string) ytdlp.ExecutionGate
+}
+
+// SetExecutionGateResolver binds manual and credential-validation probes to
+// the same per-session process gate as normal acquisition work.
+func (p *YTDLPProber) SetExecutionGateResolver(resolver func(string) ytdlp.ExecutionGate) {
+	p.gateResolver = resolver
 }
 
 // NewYTDLPProber creates a Prober backed by yt-dlp.
@@ -51,6 +58,9 @@ func (p *YTDLPProber) Probe(ctx context.Context, sessionID string, cookiePath st
 	}
 	if cookiePath != "" {
 		c = c.WithCookieFile(cookiePath)
+	}
+	if p.gateResolver != nil && sessionID != "" {
+		c = c.WithExecutionGate(p.gateResolver(sessionID))
 	}
 
 	infos, err := c.Query(ctx, p.target, "--no-playlist", "--no-warnings")

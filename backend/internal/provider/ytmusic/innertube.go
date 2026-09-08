@@ -43,6 +43,7 @@ type innerTube struct {
 	baseURL    string
 	language   string
 	region     string
+	limiter    *requestLimiter
 }
 
 // request is the InnerTube request envelope.
@@ -94,6 +95,15 @@ func (t *innerTube) call(ctx context.Context, endpoint string, payload request) 
 	req.Header.Set("X-YouTube-Client-Version", clientVersion)
 	req.Header.Set("Origin", "https://music.youtube.com")
 	req.Header.Set("Referer", "https://music.youtube.com/")
+
+	if t.limiter != nil {
+		release, err := t.limiter.admit(ctx)
+		if err != nil {
+			return node{}, apperr.Wrap(apperr.CodeProviderUnavailable,
+				"The YouTube Music request was cancelled while waiting for admission.", err)
+		}
+		defer release()
+	}
 
 	resp, err := t.httpClient.Do(req)
 	if err != nil {

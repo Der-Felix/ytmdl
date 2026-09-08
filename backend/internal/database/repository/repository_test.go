@@ -1485,6 +1485,53 @@ func TestJobPriorityAndPause(t *testing.T) {
 	}
 }
 
+func TestHasNonTerminalJobIncludesPausedAndExcludesTerminal(t *testing.T) {
+	ctx := context.Background()
+	repo := NewJobs(openTestDB(t))
+	tests := []struct {
+		name   string
+		status jobs.Status
+		paused bool
+		want   bool
+	}{
+		{name: "queued paused", status: jobs.StatusQueued, paused: true, want: true},
+		{name: "active paused", status: jobs.StatusDownloading, paused: true, want: true},
+		{name: "unpaused non-terminal", status: jobs.StatusRetryWait, want: true},
+		{name: "completed", status: jobs.StatusCompleted},
+		{name: "failed", status: jobs.StatusFailed},
+		{name: "cancelled", status: jobs.StatusCancelled},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := fmt.Sprintf("dedup-target-%d", i)
+			job := &jobs.Job{
+				Type: jobs.TypeRelease, Status: jobs.StatusQueued, Label: tt.name,
+				MetadataProvider: "ytmusic", TargetID: target, Options: jobs.DefaultOptions(),
+			}
+			if err := repo.Create(ctx, job); err != nil {
+				t.Fatal(err)
+			}
+			if tt.status != jobs.StatusQueued {
+				if err := repo.SetStatus(ctx, job.ID, tt.status, "", ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.paused {
+				if err := repo.SetPaused(ctx, job.ID, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := repo.HasNonTerminalJob(ctx, jobs.TypeRelease, target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("HasNonTerminalJob = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeleteHistoryPreservesLibrary(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
@@ -2068,5 +2115,110 @@ func TestQueueCounts_GlobalJobCounts(t *testing.T) {
 	sectionSum := counts.ActiveJobs + counts.QueuedJobs + counts.DoneJobs + counts.FailedJobs
 	if sectionSum != counts.TotalJobs {
 		t.Errorf("Section partition sum %d != TotalJobs %d", sectionSum, counts.TotalJobs)
+	}
+}
+
+func TestWakeSessionWaitersOnlyResetsSessionUnavailableItems(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	repo := NewJobs(db)
+
+	job := &jobs.Job{
+		Type:   jobs.TypeTrack,
+		Label:  "Session Wake Test Job",
+		Status: jobs.StatusDownloading,
+	}
+	if err := repo.Create(ctx, job); err != nil {
+		t.Fatalf("Create job: %v", err)
+	}
+
+	futureRetry := time.Now().UTC().Add(12 * time.Hour)
+	items := []jobs.Item{
+		{
+			ID:          "item-session-wait",
+			JobID:       job.ID,
+			Position:    0,
+			Status:      jobs.ItemRetryWait,
+			Attempts:    2,
+			MaxAttempts: 5,
+			ErrorCode:   string(apperr.CodeSessionUnavailable),
+			NextRetryAt: &futureRetry,
+			Track:       music.Track{Title: "Track 1", Artists: []string{"Artist 1"}},
+			Label:       "Track 1",
+		},
+		{
+			ID:          "item-download-fail",
+			JobID:       job.ID,
+			Position:    1,
+			Status:      jobs.ItemRetryWait,
+			Attempts:    3,
+			MaxAttempts: 5,
+			ErrorCode:   string(apperr.CodeDownloadFailed),
+			NextRetryAt: &futureRetry,
+			Track:       music.Track{Title: "Track 2", Artists: []string{"Artist 1"}},
+			Label:       "Track 2",
+		},
+		{
+			ID:          "item-permanent-fail",
+			JobID:       job.ID,
+			Position:    2,
+			Status:      jobs.ItemFailed,
+			Attempts:    5,
+			MaxAttempts: 5,
+			ErrorCode:   string(apperr.CodeSessionUnavailable),
+			Track:       music.Track{Title: "Track 3", Artists: []string{"Artist 1"}},
+			Label:       "Track 3",
+		},
+	}
+	if err := repo.AddItems(ctx, job.ID, items); err != nil {
+		t.Fatalf("AddItems: %v", err)
+	}
+
+	// Wake session waiters
+	affected, err := repo.WakeSessionWaiters(ctx)
+	if err != nil {
+		t.Fatalf("WakeSessionWaiters: %v", err)
+	}
+	if affected != 1 {
+		t.Fatalf("affected = %d, want 1", affected)
+	}
+
+	// Verify item-session-wait has next_retry_at advanced to <= now, attempts unchanged
+	sessItem, err := repo.GetItem(ctx, "item-session-wait")
+	if err != nil {
+		t.Fatalf("GetItem(item-session-wait): %v", err)
+	}
+	if sessItem.Status != jobs.ItemRetryWait {
+		t.Errorf("status = %v, want %v", sessItem.Status, jobs.ItemRetryWait)
+	}
+	if sessItem.Attempts != 2 {
+		t.Errorf("attempts = %d, want preserved 2", sessItem.Attempts)
+	}
+	if sessItem.NextRetryAt == nil || sessItem.NextRetryAt.After(time.Now().UTC().Add(time.Minute)) {
+		t.Errorf("expected NextRetryAt advanced to now, got %v", sessItem.NextRetryAt)
+	}
+
+	// Verify item-download-fail is completely untouched
+	dlItem, err := repo.GetItem(ctx, "item-download-fail")
+	if err != nil {
+		t.Fatalf("GetItem(item-download-fail): %v", err)
+	}
+	if dlItem.Status != jobs.ItemRetryWait {
+		t.Errorf("status = %v, want %v", dlItem.Status, jobs.ItemRetryWait)
+	}
+	if dlItem.Attempts != 3 {
+		t.Errorf("attempts = %d, want preserved 3", dlItem.Attempts)
+	}
+	if dlItem.NextRetryAt == nil || dlItem.NextRetryAt.Before(time.Now().UTC().Add(11*time.Hour)) {
+		t.Errorf("expected NextRetryAt untouched at ~T+12h, got %v", dlItem.NextRetryAt)
+	}
+
+	// Verify item-permanent-fail is completely untouched
+	failItem, err := repo.GetItem(ctx, "item-permanent-fail")
+	if err != nil {
+		t.Fatalf("GetItem(item-permanent-fail): %v", err)
+	}
+	if failItem.Status != jobs.ItemFailed {
+		t.Errorf("status = %v, want %v", failItem.Status, jobs.ItemFailed)
 	}
 }

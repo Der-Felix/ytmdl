@@ -66,6 +66,13 @@ type Options struct {
 	Logger         *slog.Logger
 }
 
+// ExecutionGate is acquired immediately before a yt-dlp process starts and
+// held until that process exits. Managed-session callers bind a per-session
+// implementation; unauthenticated and non-YouTube clients leave it nil.
+type ExecutionGate interface {
+	Acquire(ctx context.Context) (release func(), err error)
+}
+
 // Client runs yt-dlp.
 type Client struct {
 	binary         string
@@ -74,6 +81,7 @@ type Client struct {
 	timeout        time.Duration
 	ffmpegLocation string
 	logger         *slog.Logger
+	executionGate  ExecutionGate
 }
 
 // New builds a client. An empty binary name falls back to "yt-dlp".
@@ -123,6 +131,19 @@ func (c *Client) WithCookieFile(cookieFile string) *Client {
 	clone.cookieFile = strings.TrimSpace(cookieFile)
 	return &clone
 }
+
+// WithExecutionGate returns a shallow client copy whose every process start
+// participates in gate. The original client remains unchanged.
+func (c *Client) WithExecutionGate(gate ExecutionGate) *Client {
+	clone := *c
+	clone.executionGate = gate
+	return &clone
+}
+
+// SetExecutionGate installs the base client's gate during application wiring,
+// before the client is exposed to concurrent callers. Session-bound clones
+// override it with WithExecutionGate.
+func (c *Client) SetExecutionGate(gate ExecutionGate) { c.executionGate = gate }
 
 // Available reports whether the binary can be executed.
 func (c *Client) Available(ctx context.Context) error {
@@ -287,6 +308,11 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 	if trimmed := strings.TrimSpace(req.CookieFile); trimmed != "" {
 		client = c.WithCookieFile(trimmed)
 	}
+	releaseExecution, err := client.acquireExecution(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer releaseExecution()
 
 	args := append(client.baseArgs(), downloadArgs(selector, retries, req.Dir, req.RateLimit)...)
 	args = append(args, "--", req.URL)
@@ -393,6 +419,12 @@ func (c *Client) command(ctx context.Context, args ...string) *exec.Cmd {
 
 // run executes yt-dlp and returns its standard output.
 func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
+	releaseExecution, err := c.acquireExecution(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseExecution()
+
 	cmd := c.command(ctx, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -408,6 +440,13 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, classifyError(stderr.String(), err)
 	}
 	return stdout.Bytes(), nil
+}
+
+func (c *Client) acquireExecution(ctx context.Context) (func(), error) {
+	if c.executionGate == nil {
+		return func() {}, nil
+	}
+	return c.executionGate.Acquire(ctx)
 }
 
 func startError(binary string, err error) error {

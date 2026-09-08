@@ -246,6 +246,17 @@ func (s *memorySchedulerStore) ListUnfinished(_ context.Context) ([]Job, error) 
 	return res, nil
 }
 
+func (s *memorySchedulerStore) HasNonTerminalJob(_ context.Context, jobType Type, targetID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, job := range s.jobs {
+		if job.Type == jobType && job.TargetID == targetID && !job.Status.Terminal() {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *memorySchedulerStore) ListPendingItems(_ context.Context, jobID string) ([]Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -372,6 +383,9 @@ func (s *memorySchedulerStore) GetItem(_ context.Context, id string) (*Item, err
 func (s *memorySchedulerStore) HasItems(context.Context, string) (bool, error)  { return false, nil }
 func (s *memorySchedulerStore) ResetInFlightItems(context.Context) (int, error) { return 0, nil }
 func (s *memorySchedulerStore) ResetInterruptedJobs(context.Context) (int, error) {
+	return 0, nil
+}
+func (s *memorySchedulerStore) WakeSessionWaiters(context.Context) (int, error) {
 	return 0, nil
 }
 func (s *memorySchedulerStore) QueueCounts(context.Context) (QueueCounts, error) {

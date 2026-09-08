@@ -55,6 +55,21 @@ func (s *fakeStore) UpdateItem(_ context.Context, id string, update ItemUpdate) 
 	return nil
 }
 
+func (s *fakeStore) WakeSessionWaiters(_ context.Context) (int, error) {
+	var count int
+	now := time.Now().UTC()
+	for id, it := range s.items {
+		if it.Status == ItemRetryWait && it.ErrorCode == string(apperr.CodeSessionUnavailable) {
+			if it.NextRetryAt == nil || it.NextRetryAt.After(now) {
+				it.NextRetryAt = &now
+				s.items[id] = it
+				count++
+			}
+		}
+	}
+	return count, nil
+}
+
 func TestWorker_StorageGuardWaitTransitionsWithoutRetryPenalty(t *testing.T) {
 	root := t.TempDir()
 	library, err := storage.NewLibrary(root)

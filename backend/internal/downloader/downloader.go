@@ -70,24 +70,25 @@ type Options struct {
 	// CookieResolver resolves an opaque session ID to a cookie file path.
 	CookieResolver func(sessionID string) string
 
-	// DataPlaneLocker acquires exclusive access to a session's writable cookie file during download.
-	DataPlaneLocker func(ctx context.Context, sessionID string) (func(), error)
+	// ExecutionGateResolver binds the same per-session yt-dlp gate used during
+	// search and resolution to the later download process.
+	ExecutionGateResolver func(sessionID string) ytdlp.ExecutionGate
 
 	Logger *slog.Logger
 }
 
 // YTDLPDownloader implements Downloader on top of yt-dlp and ffmpeg.
 type YTDLPDownloader struct {
-	ytdlp           *ytdlp.Client
-	ffmpeg          *ffmpeg.Runner
-	prober          *Prober
-	allowTranscode  bool
-	toleranceMS     int
-	retries         int
-	cookieResolver  func(sessionID string) string
-	dataPlaneLocker func(ctx context.Context, sessionID string) (func(), error)
-	rateLimit       atomic.Pointer[string]
-	logger          *slog.Logger
+	ytdlp                 *ytdlp.Client
+	ffmpeg                *ffmpeg.Runner
+	prober                *Prober
+	allowTranscode        bool
+	toleranceMS           int
+	retries               int
+	cookieResolver        func(sessionID string) string
+	executionGateResolver func(sessionID string) ytdlp.ExecutionGate
+	rateLimit             atomic.Pointer[string]
+	logger                *slog.Logger
 }
 
 // New builds a downloader.
@@ -110,15 +111,15 @@ func New(opts Options) (*YTDLPDownloader, error) {
 		logger = slog.Default()
 	}
 	return &YTDLPDownloader{
-		ytdlp:           opts.YTDLP,
-		ffmpeg:          opts.FFmpeg,
-		prober:          opts.Prober,
-		allowTranscode:  opts.AllowTranscode,
-		toleranceMS:     tolerance,
-		retries:         opts.Retries,
-		cookieResolver:  opts.CookieResolver,
-		dataPlaneLocker: opts.DataPlaneLocker,
-		logger:          logger,
+		ytdlp:                 opts.YTDLP,
+		ffmpeg:                opts.FFmpeg,
+		prober:                opts.Prober,
+		allowTranscode:        opts.AllowTranscode,
+		toleranceMS:           tolerance,
+		retries:               opts.Retries,
+		cookieResolver:        opts.CookieResolver,
+		executionGateResolver: opts.ExecutionGateResolver,
+		logger:                logger,
 	}, nil
 }
 
@@ -165,21 +166,20 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 		cookiePath = d.cookieResolver(sessID)
 	}
 
-	if d.dataPlaneLocker != nil && sessID != "" {
-		release, err := d.dataPlaneLocker(ctx, sessID)
-		if err != nil {
-			return nil, err
-		}
-		defer release()
+	client := d.ytdlp
+	if cookiePath != "" {
+		client = client.WithCookieFile(cookiePath)
+	}
+	if d.executionGateResolver != nil && sessID != "" {
+		client = client.WithExecutionGate(d.executionGateResolver(sessID))
 	}
 
-	rawPath, err := d.ytdlp.Download(ctx, ytdlp.DownloadRequest{
+	rawPath, err := client.Download(ctx, ytdlp.DownloadRequest{
 		URL:            source.URL,
 		Dir:            workDir,
 		FormatSelector: FormatSelector(source.Formats),
 		Retries:        d.retries,
 		RateLimit:      d.RateLimit(),
-		CookieFile:     cookiePath,
 	}, wrapProgress(progress))
 
 	if err != nil {

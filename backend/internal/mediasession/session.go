@@ -207,8 +207,9 @@ func (rs *RuntimeSession) Release() {
 	}
 }
 
-// AcquireDataPlane acquires exclusive mutual exclusion for data-plane operations (e.g. yt-dlp download)
-// on this session's writable cookie file. It blocks until available or ctx is done.
+// AcquireDataPlane acquires the session's exclusive yt-dlp execution slot. The
+// historical name remains for compatibility; both control-plane queries and
+// downloads now share this same gate.
 func (rs *RuntimeSession) AcquireDataPlane(ctx context.Context) (func(), error) {
 	if rs == nil {
 		return func() {}, nil
@@ -227,6 +228,36 @@ func (rs *RuntimeSession) AcquireDataPlane(ctx context.Context) (func(), error) 
 			default:
 			}
 		})
+	}
+	return release, nil
+}
+
+// acquireExecution takes the per-session slot and then paces this exact
+// process start through the family and session token buckets.
+func (rs *RuntimeSession) acquireExecution(ctx context.Context, global *Limiter) (func(), error) {
+	releaseSlot, err := rs.AcquireDataPlane(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rs.RetainDataPlane()
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			rs.ReleaseDataPlane()
+			releaseSlot()
+		})
+	}
+	if global != nil && global.Enabled() {
+		if err := global.Wait(ctx); err != nil {
+			release()
+			return nil, err
+		}
+	}
+	if limiter := rs.Limiter(); limiter != nil && limiter.Enabled() {
+		if err := limiter.Wait(ctx); err != nil {
+			release()
+			return nil, err
+		}
 	}
 	return release, nil
 }

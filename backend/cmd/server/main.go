@@ -223,8 +223,12 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	} else {
 		sessionPool.ReloadSessions(nil)
 	}
+	// The base client can carry only the legacy cookie file. Managed-session
+	// clones replace this gate when the orchestrator binds their cookie path.
+	ytdlpClient.SetExecutionGate(sessionPool.ExecutionGate(mediasession.LegacySessionID))
 
 	sessionProber := mediasession.NewYTDLPProber(ytdlpClient, "")
+	sessionProber.SetExecutionGateResolver(sessionPool.ExecutionGate)
 	mediaSessionService := mediasession.NewService(mediasession.ServiceOptions{
 		Repo:          mediaSessionsRepo,
 		Storage:       cookieStorage,
@@ -245,15 +249,15 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	})
 
 	audioDownloader, err := downloader.New(downloader.Options{
-		YTDLP:               ytdlpClient,
-		FFmpeg:              ffmpegRunner,
-		Prober:              prober,
-		AllowTranscode:      cfg.Downloads.AllowTranscode,
-		DurationToleranceMS: durationVerifyTolerance(cfg.Matching.DurationToleranceMS),
-		Retries:             cfg.Downloads.MaxRetries,
-		CookieResolver:      providerOrchestrator.ResolveCookiePath,
-		DataPlaneLocker:     providerOrchestrator.AcquireDataPlaneLock,
-		Logger:              logger,
+		YTDLP:                 ytdlpClient,
+		FFmpeg:                ffmpegRunner,
+		Prober:                prober,
+		AllowTranscode:        cfg.Downloads.AllowTranscode,
+		DurationToleranceMS:   durationVerifyTolerance(cfg.Matching.DurationToleranceMS),
+		Retries:               cfg.Downloads.MaxRetries,
+		CookieResolver:        providerOrchestrator.ResolveCookiePath,
+		ExecutionGateResolver: sessionPool.ExecutionGate,
+		Logger:                logger,
 	})
 	if err != nil {
 		db.Close()
@@ -269,10 +273,11 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		}),
 	}
 	if cfg.Providers.YTMusic.Enabled {
-		lyricsProviders = append(lyricsProviders, ytmusic.NewLyricsProvider(ytmusic.Config{
-			BaseURL:    cfg.Providers.YTMusic.BaseURL,
-			HTTPClient: httpx.New(cfg.Providers.HTTPTimeout),
-		}))
+		if metadataProvider, err := registry.Metadata(ytmusic.ProviderName); err == nil {
+			if ytMetadata, ok := metadataProvider.(*ytmusic.MetadataProvider); ok {
+				lyricsProviders = append(lyricsProviders, ytmusic.NewLyricsProviderFromMetadata(ytMetadata))
+			}
+		}
 	}
 	geniusLyricsProvider := genius.NewLyricsProvider(genius.Config{
 		Enabled:     cfg.Providers.Genius.Enabled,
@@ -321,6 +326,12 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		db.Close()
 		return nil, err
 	}
+
+	mediaSessionService.SetRecoveryHandler(func(ctx context.Context) {
+		if _, err := manager.WakeSessionWaiters(ctx); err != nil {
+			logger.Warn("failed to wake session waiters after session recovery", logging.KeyError, err.Error())
+		}
+	})
 
 	settingsService, err := settings.New(settingsRepo, manager, engine, cfg)
 	if err != nil {
@@ -552,8 +563,10 @@ func buildProviders(cfg config.Config, client *ytdlp.Client, logger *slog.Logger
 
 	if cfg.Providers.YTMusic.Enabled {
 		metadataProvider := ytmusic.NewMetadataProvider(ytmusic.Config{
-			BaseURL:    cfg.Providers.YTMusic.BaseURL,
-			HTTPClient: httpClient,
+			BaseURL:           cfg.Providers.YTMusic.BaseURL,
+			HTTPClient:        httpClient,
+			RequestsPerSecond: cfg.Providers.YTMusic.RequestsPerSecond,
+			Burst:             cfg.Providers.YTMusic.Burst,
 		})
 		registry.RegisterMetadata(metadataProvider)
 		logger.Info("provider registered", logging.KeyProvider, metadataProvider.Name(), "kind", "metadata")

@@ -230,6 +230,23 @@ func (r *Jobs) ListUnfinished(ctx context.Context) ([]jobs.Job, error) {
 	return collectJobs(rows, "list unfinished jobs")
 }
 
+// HasNonTerminalJob reports whether any queued, active, paused, or waiting job
+// already covers the target. Pausing affects dispatch only; it must not remove
+// a job from enqueue deduplication.
+func (r *Jobs) HasNonTerminalJob(ctx context.Context, jobType jobs.Type, targetID string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM jobs
+		WHERE type = $1 AND target_id = $2
+		  AND status NOT IN ($3, $4, $5)
+	)`, string(jobType), targetID,
+		string(jobs.StatusCompleted), string(jobs.StatusFailed), string(jobs.StatusCancelled)).Scan(&exists)
+	if err != nil {
+		return false, wrapDB("check non-terminal job", err)
+	}
+	return exists, nil
+}
+
 func collectJobs(rows *sql.Rows, operation string) ([]jobs.Job, error) {
 	out := make([]jobs.Job, 0, 16)
 	for rows.Next() {
@@ -847,6 +864,27 @@ func (r *Jobs) ResetFailedItemsInJob(ctx context.Context, jobID string) (int, in
 		string(jobs.StatusFailed), string(jobs.StatusCompleted))
 
 	return int(retried), 0, nil
+}
+
+// WakeSessionWaiters advances next_retry_at to now for any items currently in retry_wait
+// due to session unavailability whose cooldown has not yet elapsed.
+func (r *Jobs) WakeSessionWaiters(ctx context.Context) (int, error) {
+	now := time.Now().UTC()
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE job_items
+		SET next_retry_at = $1, updated_at = $1
+		WHERE status = $2
+		  AND error_code = $3
+		  AND (next_retry_at IS NULL OR next_retry_at > $1)`,
+		now, string(jobs.ItemRetryWait), string(apperr.CodeSessionUnavailable))
+	if err != nil {
+		return 0, wrapDB("wake session waiters", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, wrapDB("wake session waiters rows affected", err)
+	}
+	return int(affected), nil
 }
 
 // QueueCounts returns aggregated item counts and completion metrics for queue preview.

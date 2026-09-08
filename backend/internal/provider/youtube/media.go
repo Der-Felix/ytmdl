@@ -200,6 +200,15 @@ func (p *MediaProvider) WithCookieFile(cookieFile string) *MediaProvider {
 	return p.WithClient(p.client.WithCookieFile(cookieFile))
 }
 
+// WithExecutionGate returns an immutable provider copy whose yt-dlp process
+// starts use the supplied managed-session gate.
+func (p *MediaProvider) WithExecutionGate(gate ytdlp.ExecutionGate) *MediaProvider {
+	if p.client == nil {
+		return p
+	}
+	return p.WithClient(p.client.WithExecutionGate(gate))
+}
+
 var youtubeVideoIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
 func isYouTubeVideoID(id string) bool {

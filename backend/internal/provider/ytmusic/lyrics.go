@@ -34,6 +34,15 @@ func NewLyricsProvider(cfg Config) *LyricsProvider {
 	return &LyricsProvider{api: NewMetadataProvider(cfg).api}
 }
 
+// NewLyricsProviderFromMetadata shares the exact InnerTube client and request
+// admission boundary used by catalogue operations.
+func NewLyricsProviderFromMetadata(metadata *MetadataProvider) *LyricsProvider {
+	if metadata == nil {
+		return NewLyricsProvider(Config{})
+	}
+	return &LyricsProvider{api: metadata.api}
+}
+
 // Name returns the provider identifier.
 func (p *LyricsProvider) Name() string { return ProviderName }
 

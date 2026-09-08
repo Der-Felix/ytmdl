@@ -114,6 +114,7 @@ type Manager struct {
 	accepting           atomic.Bool
 	stopping            atomic.Bool
 	admissionMu         sync.RWMutex
+	enqueueTargetMu     sync.Mutex
 
 	maxWorkers       atomic.Int32
 	activeWorkers    atomic.Int32
@@ -500,16 +501,7 @@ func (m *Manager) HasUnfinishedJob(ctx context.Context, jobType Type, targetID s
 	if targetID == "" {
 		return false, nil
 	}
-	unfinished, err := m.store.ListUnfinished(ctx)
-	if err != nil {
-		return false, err
-	}
-	for _, job := range unfinished {
-		if job.Type == jobType && job.TargetID == targetID {
-			return true, nil
-		}
-	}
-	return false, nil
+	return m.store.HasNonTerminalJob(ctx, jobType, targetID)
 }
 
 // Items returns the items of a job.
@@ -895,6 +887,23 @@ func (m *Manager) RetryItem(ctx context.Context, jobID, itemID string) (*Item, e
 	return item, nil
 }
 
+// WakeSessionWaiters resets the cooldown wait for items blocked by SESSION_UNAVAILABLE,
+// clears the media cooldown, and signals the dispatcher.
+func (m *Manager) WakeSessionWaiters(ctx context.Context) (int, error) {
+	if m.cooldown != nil {
+		m.cooldown.Clear("youtube")
+	}
+	count, err := m.store.WakeSessionWaiters(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if count > 0 {
+		m.logger.Info("woke session waiting items after session recovery", "count", count)
+	}
+	m.signal()
+	return count, nil
+}
+
 // DeleteHistory removes completed/cancelled jobs older than the given cutoff.
 func (m *Manager) DeleteHistory(ctx context.Context, olderThanDays int, statuses []Status) (int, int, error) {
 	if olderThanDays < 7 {
@@ -906,16 +915,24 @@ func (m *Manager) DeleteHistory(ctx context.Context, olderThanDays int, statuses
 
 // EnqueueReleaseWithPriority queues a release download with a specified priority.
 func (m *Manager) EnqueueReleaseWithPriority(ctx context.Context, provider, releaseID, artistName string, priority Priority) (bool, error) {
+	// Keep the non-terminal check and create indivisible inside this process.
+	// The server has a single Manager, so concurrent manual/scheduled syncs for
+	// the same target cannot pass the check together.
+	m.enqueueTargetMu.Lock()
+	defer m.enqueueTargetMu.Unlock()
+
 	if exists, err := m.HasUnfinishedJob(ctx, TypeRelease, releaseID); err != nil || exists {
 		return false, err
 	}
+	skipExisting := true
 	_, err := m.Enqueue(ctx, Request{
 		Type:             TypeRelease,
 		MetadataProvider: provider,
 		TargetID:         releaseID,
-		Label:            artistName + " — " + releaseID,
+		Label:            artistName,
 		Options: RequestOptions{
-			Priority: &priority,
+			Priority:     &priority,
+			SkipExisting: &skipExisting,
 		},
 	})
 	if err != nil {

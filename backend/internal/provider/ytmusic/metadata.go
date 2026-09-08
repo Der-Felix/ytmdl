@@ -16,6 +16,12 @@ const (
 	maxSearchResults = 20
 	maxReleases      = 400
 	maxTracks        = 300
+
+	// InnerTube is an undocumented provider boundary. Keep its default to one
+	// request at a time with no burst; this bounds application traffic but is
+	// not a guarantee against provider protection.
+	DefaultInnerTubeRequestsPerSecond = 1.0
+	DefaultInnerTubeBurst             = 1
 )
 
 // Config configures the metadata provider.
@@ -24,6 +30,11 @@ type Config struct {
 	Language   string
 	Region     string
 	HTTPClient *http.Client
+	// RequestsPerSecond and Burst pace every InnerTube HTTP request, including
+	// browse continuations and lyrics calls. Non-positive values use the
+	// conservative defaults above rather than disabling protection.
+	RequestsPerSecond float64
+	Burst             int
 }
 
 // MetadataProvider reads the YouTube Music catalogue.
@@ -59,6 +70,7 @@ func NewMetadataProvider(cfg Config) *MetadataProvider {
 		baseURL:    baseURL,
 		language:   language,
 		region:     region,
+		limiter:    newRequestLimiter(cfg.RequestsPerSecond, cfg.Burst),
 	}}
 }
 

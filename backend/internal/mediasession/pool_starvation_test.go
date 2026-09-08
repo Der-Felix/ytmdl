@@ -101,8 +101,8 @@ func TestSessionPool_LostWakeupStarvation_Reproduction(t *testing.T) {
 	for i, res := range results {
 		if errors.Is(res.err, context.DeadlineExceeded) {
 			t.Errorf("waiter %d TIMED OUT (lost wakeup bug! blocked until context deadline): duration %v", i, res.duration)
-		} else if apperr.CodeOf(res.err) != apperr.CodeSessionNotFound {
-			t.Errorf("waiter %d unexpected error: %v, want CodeSessionNotFound", i, res.err)
+		} else if apperr.CodeOf(res.err) != apperr.CodeSessionUnavailable {
+			t.Errorf("waiter %d unexpected error: %v, want CodeSessionUnavailable", i, res.err)
 		}
 		if res.duration > 1*time.Second {
 			t.Errorf("waiter %d took %v, which is too slow (expected prompt resolution < 500ms)", i, res.duration)
@@ -291,8 +291,8 @@ func TestSessionPool_TransitionToCooldown_MultipleWaiters(t *testing.T) {
 	for i, err := range results {
 		if errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("waiter %d timed out instead of receiving immediate rejection", i)
-		} else if apperr.CodeOf(err) != apperr.CodeSessionNotFound {
-			t.Errorf("waiter %d unexpected err: %v, want SESSION_NOT_FOUND", i, err)
+		} else if apperr.CodeOf(err) != apperr.CodeSessionUnavailable {
+			t.Errorf("waiter %d unexpected err: %v, want SESSION_UNAVAILABLE", i, err)
 		}
 	}
 

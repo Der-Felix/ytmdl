@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // Code is a stable, machine readable error identifier.
@@ -38,6 +39,7 @@ const (
 	CodeInvalidCredentials   Code = "INVALID_CREDENTIALS"
 	CodeUserNotFound         Code = "USER_NOT_FOUND"
 	CodeSessionNotFound      Code = "SESSION_NOT_FOUND"
+	CodeSessionUnavailable   Code = "SESSION_UNAVAILABLE"
 	CodePlaylistNotFound     Code = "PLAYLIST_NOT_FOUND"
 	CodeSessionInUse         Code = "SESSION_IN_USE"
 	CodeLastAdmin            Code = "LAST_ADMIN"
@@ -61,9 +63,10 @@ const (
 // Error is an application error with a stable code and a human readable
 // message. The wrapped cause is kept for logging but never exposed over HTTP.
 type Error struct {
-	Code    Code
-	Message string
-	cause   error
+	Code       Code
+	Message    string
+	cause      error
+	retryAfter time.Duration
 }
 
 func (e *Error) Error() string {
@@ -84,6 +87,26 @@ func New(code Code, message string) *Error {
 // Newf builds an application error with a formatted message.
 func Newf(code Code, format string, args ...any) *Error {
 	return &Error{Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
+// NewRetryAfter builds an error whose caller should preserve work until the
+// supplied delay elapses. The timing hint is operational metadata and is not
+// exposed in the public message.
+func NewRetryAfter(code Code, message string, retryAfter time.Duration) *Error {
+	if retryAfter < 0 {
+		retryAfter = 0
+	}
+	return &Error{Code: code, Message: message, retryAfter: retryAfter}
+}
+
+// RetryAfter returns a wait hint carried by an application error.
+func RetryAfter(err error) (time.Duration, bool) {
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if appErr, ok := current.(*Error); ok && appErr.retryAfter > 0 {
+			return appErr.retryAfter, true
+		}
+	}
+	return 0, false
 }
 
 // Wrap attaches a code and message to an existing error.
@@ -144,6 +167,8 @@ func HTTPStatus(code Code) int {
 		return http.StatusPreconditionRequired
 	case CodeProviderRateLimited, CodeRateLimited, CodeSessionRateLimited:
 		return http.StatusTooManyRequests
+	case CodeSessionUnavailable:
+		return http.StatusServiceUnavailable
 	case CodeProviderUnavailable, CodeToolUnavailable, CodeStorageUnavailable, CodeStorageGuardMismatch, CodeStorageReadOnly,
 		CodeSessionAuthFailed, CodeSessionBotChallenge:
 		return http.StatusBadGateway
@@ -166,7 +191,7 @@ func HTTPStatus(code Code) int {
 func Retryable(err error) bool {
 	switch CodeOf(err) {
 	case CodeProviderUnavailable, CodeProviderRateLimited, CodeDownloadFailed, CodeMediaVerifyFailed,
-		CodeSessionRateLimited, CodeSessionBotChallenge, CodeSessionAuthFailed:
+		CodeSessionRateLimited, CodeSessionBotChallenge, CodeSessionAuthFailed, CodeSessionUnavailable:
 		return true
 	default:
 		return false
@@ -188,7 +213,7 @@ func ScopeOf(err error) Scope {
 	switch CodeOf(err) {
 	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType, CodePlaylistNotFound:
 		return ScopeCandidate
-	case CodeSessionAuthFailed, CodeSessionBotChallenge, CodeSessionRateLimited:
+	case CodeSessionAuthFailed, CodeSessionBotChallenge, CodeSessionRateLimited, CodeSessionUnavailable:
 		return ScopeSession
 	case CodeProviderRateLimited, CodeProviderUnavailable, CodeProviderNotFound:
 		return ScopeProvider
@@ -217,8 +242,16 @@ func StopsCandidateFanout(err error) bool {
 // ConsumesJobRetry reports whether an error should consume the standard job/item retry budget.
 // Infrastructure wait states (storage/space/shutdown) must not penalize job retries.
 func ConsumesJobRetry(err error) bool {
+	if CodeOf(err) == CodeSessionUnavailable {
+		return false
+	}
 	return ScopeOf(err) != ScopeInfrastructure
 }
+
+// IsSessionWait reports that configured protected sessions exist but none is
+// currently eligible. This is a wait state, not a terminal configuration
+// error and not a normal retry-budget event.
+func IsSessionWait(err error) bool { return CodeOf(err) == CodeSessionUnavailable }
 
 // IsStorageWait reports whether an error indicates that the library storage
 // is unavailable, mismatched, or read-only and requires pausing without consuming retries.

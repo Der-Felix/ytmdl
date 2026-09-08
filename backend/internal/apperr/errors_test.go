@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"ytdm/backend/internal/apperr"
 )
@@ -88,6 +89,17 @@ func TestErrorScopesAndSemantics(t *testing.T) {
 			wantConsumesJobRetry: true,
 			wantRetryable:        true,
 			wantHTTPStatus:       http.StatusTooManyRequests,
+		},
+		{
+			name:                 "configured sessions temporarily unavailable",
+			err:                  apperr.NewRetryAfter(apperr.CodeSessionUnavailable, "sessions cooling", time.Minute),
+			wantCode:             apperr.CodeSessionUnavailable,
+			wantScope:            apperr.ScopeSession,
+			wantAllowsFallback:   false,
+			wantStopsFanout:      true,
+			wantConsumesJobRetry: false,
+			wantRetryable:        true,
+			wantHTTPStatus:       http.StatusServiceUnavailable,
 		},
 
 		// Provider-systemic
@@ -196,5 +208,12 @@ func TestErrorScopesAndSemantics(t *testing.T) {
 				t.Errorf("HTTPStatus = %d, want %d", got, tt.wantHTTPStatus)
 			}
 		})
+	}
+}
+
+func TestRetryAfterMetadata(t *testing.T) {
+	err := apperr.NewRetryAfter(apperr.CodeSessionUnavailable, "wait", 3*time.Minute)
+	if got, ok := apperr.RetryAfter(err); !ok || got != 3*time.Minute {
+		t.Fatalf("RetryAfter = %v/%v", got, ok)
 	}
 }

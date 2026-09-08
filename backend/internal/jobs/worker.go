@@ -89,6 +89,26 @@ func (w *worker) process(ctx context.Context, job Job, item Item) {
 		m.publishItem(job, item, ItemWaitingSpace, 0, err)
 		return
 
+	case apperr.IsSessionWait(err):
+		delay, ok := apperr.RetryAfter(err)
+		if !ok || delay < 5*time.Second {
+			delay = 15 * time.Minute
+		}
+		nextRetry := m.now().Add(delay)
+		attempts := item.Attempts
+		logger.Warn("item waiting for an eligible media session",
+			"retry_in_ms", delay.Milliseconds(),
+			logging.KeyErrorCode, string(apperr.CodeOf(err)))
+		_ = m.updateItem(ctx, item.ID, ItemUpdate{
+			Status:       ItemRetryWait,
+			Attempts:     &attempts,
+			NextRetryAt:  &nextRetry,
+			ErrorCode:    string(apperr.CodeOf(err)),
+			ErrorMessage: apperr.MessageOf(err),
+		})
+		m.publishItem(job, item, ItemRetryWait, 0, err)
+		return
+
 	case apperr.Retryable(err):
 		maxAttempts := item.MaxAttempts
 		if maxAttempts <= 0 {
@@ -562,7 +582,7 @@ func isSystemicResolutionError(err error) bool {
 	}
 	switch apperr.CodeOf(err) {
 	case apperr.CodeProviderRateLimited, apperr.CodeProviderUnavailable, apperr.CodeToolUnavailable, apperr.CodeJobCancelled,
-		apperr.CodeSessionRateLimited, apperr.CodeSessionBotChallenge, apperr.CodeSessionAuthFailed:
+		apperr.CodeSessionRateLimited, apperr.CodeSessionBotChallenge, apperr.CodeSessionAuthFailed, apperr.CodeSessionUnavailable:
 		return true
 	default:
 		return false

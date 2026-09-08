@@ -9,7 +9,10 @@ import (
 
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/provider"
+	"ytdm/backend/internal/ytdlp"
 )
+
+const defaultUnavailableRetry = 15 * time.Minute
 
 // SessionRepository abstracts storage persistence for media session health.
 type SessionRepository interface {
@@ -35,7 +38,7 @@ func DefaultPoolConfig(family provider.Family) PoolConfig {
 		Family:                family,
 		MaxLeasesPerSession:   1,   // conservative default: 1 lease per session
 		SessionRequestsPerSec: 0.5, // 1 request per 2 seconds
-		SessionBurst:          2,
+		SessionBurst:          1,
 		GlobalRequestsPerSec:  2.0, // 2 requests per second across all sessions
 		GlobalBurst:           4,
 		AllowUnknown:          true, // allow controlled single probe of unverified sessions
@@ -79,7 +82,7 @@ func NewSessionPool(cfg PoolConfig, storage *CookieStorage, repo SessionReposito
 		cfg.SessionRequestsPerSec = 0.5
 	}
 	if cfg.SessionBurst <= 0 {
-		cfg.SessionBurst = 2
+		cfg.SessionBurst = 1
 	}
 	if cfg.GlobalRequestsPerSec <= 0 {
 		cfg.GlobalRequestsPerSec = 2.0
@@ -225,6 +228,18 @@ type Lease struct {
 	releaseOnce sync.Once
 }
 
+// Acquire makes Lease a yt-dlp ExecutionGate bound to its selected session.
+func (l *Lease) Acquire(ctx context.Context) (func(), error) {
+	if l == nil || l.session == nil {
+		return func() {}, nil
+	}
+	var global *Limiter
+	if l.pool != nil {
+		global = l.pool.GlobalLimiter()
+	}
+	return l.session.acquireExecution(ctx, global)
+}
+
 // CookiePath returns the filesystem path to the cookie file for trusted internal use.
 func (l *Lease) CookiePath() string {
 	if l == nil {
@@ -272,7 +287,7 @@ func (l *Lease) Release(err error) {
 
 // Acquire requests a concurrency lease on an eligible media session.
 // It blocks until a session is available, or until ctx is done.
-// Pacing order: global family ceiling limiter -> per-session limiter.
+// Process pacing happens later at the yt-dlp execution boundary.
 func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 	if p == nil {
 		return nil, apperr.New(apperr.CodeInvalidRequest, "session pool is nil")
@@ -287,7 +302,7 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 		now := p.now()
 
 		hasAny := false
-		hasPotentiallyEligible := false
+		hasConfigured := false
 		candidateList := make([]*RuntimeSession, 0, len(p.sessions))
 
 		for _, id := range p.sessionOrder {
@@ -297,16 +312,24 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 			}
 			hasAny = true
 			s := rs.Session()
-			if s.Enabled && s.HealthStatus != HealthAuthFailed && strings.TrimSpace(s.CookieRef) != "" {
-				hasPotentiallyEligible = true
+			if s.Enabled && strings.TrimSpace(s.CookieRef) != "" {
+				hasConfigured = true
 			}
 			candidateList = append(candidateList, rs)
 		}
 
-		if !hasAny || !hasPotentiallyEligible {
+		if !hasAny || !hasConfigured {
 			p.drainWaitersLocked()
 			p.mu.Unlock()
 			return nil, apperr.New(apperr.CodeSessionNotFound, "no eligible media sessions available in pool")
+		}
+
+		if !p.platformFailure.OccurredAt.IsZero() && now.Before(p.platformFailure.CooldownUntil) {
+			retryAfter := p.platformFailure.CooldownUntil.Sub(now)
+			p.drainWaitersLocked()
+			p.mu.Unlock()
+			return nil, apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
+				"YouTube acquisition is temporarily paused after a provider protection response.", retryAfter)
 		}
 
 		selected := selectBestSession(candidateList, now, p.cfg.AllowUnknown)
@@ -317,7 +340,6 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 				p.wakeOneWaiterLocked()
 			}
 			s := selected.Session()
-			selectedLimiter := selected.limiter
 			p.mu.Unlock()
 
 			// Resolve cookie file path
@@ -331,21 +353,6 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 				cookiePath = path
 			} else if s.ID == LegacySessionID && p.legacy != nil {
 				cookiePath = p.legacy.CookiePath()
-			}
-
-			// Pacing order: 1. Global family ceiling -> 2. Per-session limiter
-			if p.globalLimiter != nil && p.globalLimiter.Enabled() {
-				if err := p.globalLimiter.Wait(ctx); err != nil {
-					p.releaseLease(selected, err)
-					return nil, err
-				}
-			}
-
-			if selectedLimiter != nil && selectedLimiter.Enabled() {
-				if err := selectedLimiter.Wait(ctx); err != nil {
-					p.releaseLease(selected, err)
-					return nil, err
-				}
 			}
 
 			return &Lease{
@@ -362,8 +369,9 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 
 		if totalActiveLeases == 0 {
 			p.drainWaitersLocked()
+			err := p.sessionUnavailableLocked(now)
 			p.mu.Unlock()
-			return nil, apperr.New(apperr.CodeSessionNotFound, "no media sessions currently available in pool")
+			return nil, err
 		}
 
 		// All eligible sessions are currently leased to capacity. Wait for a release.
@@ -388,6 +396,31 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 			continue
 		}
 	}
+}
+
+func (p *SessionPool) sessionUnavailableLocked(now time.Time) error {
+	var retryAfter time.Duration
+	for _, id := range p.sessionOrder {
+		rs := p.sessions[id]
+		if rs == nil {
+			continue
+		}
+		s := rs.Session()
+		if !s.Enabled || strings.TrimSpace(s.CookieRef) == "" || s.CooldownUntil == nil || !s.CooldownUntil.After(now) {
+			continue
+		}
+		if wait := s.CooldownUntil.Sub(now); retryAfter == 0 || wait < retryAfter {
+			retryAfter = wait
+		}
+	}
+	if retryAfter == 0 {
+		retryAfter = defaultUnavailableRetry
+	}
+	if retryAfter < 5*time.Second {
+		retryAfter = 5 * time.Second
+	}
+	return apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
+		"Configured YouTube sessions are temporarily unavailable; the item will wait for session eligibility.", retryAfter)
 }
 
 // selectBestSession implements health-aware least-loaded selection with LRU tie-break
@@ -556,6 +589,9 @@ func (p *SessionPool) UpsertSession(s *Session) {
 
 	if old, ok := p.sessions[s.ID]; ok && old != nil {
 		old.UpdateSession(*s)
+		if s.HealthStatus == HealthHealthy && (s.CooldownUntil == nil || !s.CooldownUntil.After(p.now())) {
+			p.platformFailure = PlatformFailure{}
+		}
 		if len(p.waiters) > 0 {
 			candidateList := p.candidateListLocked()
 			if selectBestSession(candidateList, p.now(), p.cfg.AllowUnknown) != nil {
@@ -570,12 +606,25 @@ func (p *SessionPool) UpsertSession(s *Session) {
 	rs.limiter.now = p.now
 	p.sessions[s.ID] = rs
 	p.sessionOrder = append(p.sessionOrder, s.ID)
+	if s.HealthStatus == HealthHealthy && (s.CooldownUntil == nil || !s.CooldownUntil.After(p.now())) {
+		p.platformFailure = PlatformFailure{}
+	}
 	if len(p.waiters) > 0 {
 		candidateList := p.candidateListLocked()
 		if selectBestSession(candidateList, p.now(), p.cfg.AllowUnknown) != nil {
 			p.wakeOneWaiterLocked()
 		}
 	}
+}
+
+// ClearPlatformFailure clears any active platform-wide systemic failure cooldown.
+func (p *SessionPool) ClearPlatformFailure() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.platformFailure = PlatformFailure{}
 }
 
 // RemoveSession removes a session from the runtime pool.
@@ -645,6 +694,7 @@ func (p *SessionPool) RecordSuccess(ctx context.Context, sessionID string, now t
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	p.platformFailure = PlatformFailure{}
 	rs, ok := p.sessions[sessionID]
 	if !ok || rs == nil {
 		return
@@ -720,6 +770,38 @@ func (p *SessionPool) AcquireDataPlane(ctx context.Context, sessionID string) (f
 		return func() {}, nil
 	}
 	return rs.AcquireDataPlane(ctx)
+}
+
+type sessionExecutionGate struct {
+	pool    *SessionPool
+	session *RuntimeSession
+}
+
+func (g *sessionExecutionGate) Acquire(ctx context.Context) (func(), error) {
+	if g == nil || g.session == nil {
+		return func() {}, nil
+	}
+	var global *Limiter
+	if g.pool != nil {
+		global = g.pool.GlobalLimiter()
+	}
+	return g.session.acquireExecution(ctx, global)
+}
+
+// ExecutionGate returns the process gate for a managed session. Different
+// sessions receive different mutexes while sharing only the family start-rate
+// ceiling.
+func (p *SessionPool) ExecutionGate(sessionID string) ytdlp.ExecutionGate {
+	if p == nil || sessionID == "" {
+		return nil
+	}
+	p.mu.Lock()
+	rs := p.sessions[sessionID]
+	p.mu.Unlock()
+	if rs == nil {
+		return nil
+	}
+	return &sessionExecutionGate{pool: p, session: rs}
 }
 
 // RetainDataPlane increments the in-flight data-plane reference count for sessionID.

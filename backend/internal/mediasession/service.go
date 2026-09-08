@@ -75,8 +75,24 @@ type Service struct {
 	prober        Prober
 	logger        *slog.Logger
 
-	probeMu   sync.Mutex
-	lastProbe map[string]time.Time
+	probeMu         sync.Mutex
+	lastProbe       map[string]time.Time
+	recoveryHandler func(ctx context.Context)
+}
+
+// SetRecoveryHandler installs an optional callback invoked when a session
+// is confirmed to have recovered its health (e.g. successful cookie upload or manual probe).
+func (s *Service) SetRecoveryHandler(fn func(ctx context.Context)) {
+	s.recoveryHandler = fn
+}
+
+func (s *Service) notifyRecovery(ctx context.Context) {
+	if s.pool != nil {
+		s.pool.ClearPlatformFailure()
+	}
+	if s.recoveryHandler != nil {
+		s.recoveryHandler(ctx)
+	}
 }
 
 // NewService creates a new media session administrative service.
@@ -305,12 +321,14 @@ func (s *Service) UploadCookies(ctx context.Context, id string, content []byte) 
 	}
 
 	s.logger.Info("media session cookies replaced", "session_id", sess.ID)
+	s.notifyRecovery(ctx)
 	view := s.sessionToView(updated)
 	return &view, probeRes, nil
 }
 
 // ProbeSession executes an explicit administrator probe against a session.
-// Enforces global and session token bucket rate limits, plus endpoint debounce protection.
+// Enforces endpoint debounce protection. The yt-dlp adapter applies global
+// and per-session process-start admission at the actual execution boundary.
 func (s *Service) ProbeSession(ctx context.Context, id string) (*ProbeResult, *SessionView, error) {
 	var cookiePath string
 	var sessID string
@@ -350,20 +368,6 @@ func (s *Service) ProbeSession(ctx context.Context, id string) (*ProbeResult, *S
 	s.lastProbe[sessID] = time.Now()
 	s.probeMu.Unlock()
 
-	// Rate limiting: participate in global ceiling limiter and per-session limiter
-	if s.pool != nil {
-		if gl := s.pool.GlobalLimiter(); gl != nil {
-			if err := gl.Wait(ctx); err != nil {
-				return nil, nil, err
-			}
-		}
-		if rs := s.pool.GetSession(sessID); rs != nil && rs.Limiter() != nil {
-			if err := rs.Limiter().Wait(ctx); err != nil {
-				return nil, nil, err
-			}
-		}
-	}
-
 	if s.prober == nil {
 		return nil, nil, apperr.New(apperr.CodeToolUnavailable, "Session prober is not configured.")
 	}
@@ -375,6 +379,7 @@ func (s *Service) ProbeSession(ctx context.Context, id string) (*ProbeResult, *S
 	if s.pool != nil {
 		if probeErr == nil && res != nil && res.Status == HealthHealthy {
 			s.pool.RecordSuccess(ctx, sessID, now)
+			s.notifyRecovery(ctx)
 		} else if probeErr != nil {
 			s.pool.RecordFailure(ctx, sessID, probeErr, now)
 		}

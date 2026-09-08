@@ -20,6 +20,7 @@ type Store interface {
 	Get(ctx context.Context, id string) (*Job, error)
 	List(ctx context.Context, filter ListFilter) ([]Job, int, error)
 	ListUnfinished(ctx context.Context) ([]Job, error)
+	HasNonTerminalJob(ctx context.Context, jobType Type, targetID string) (bool, error)
 	SetStatus(ctx context.Context, id string, status Status, errorCode, errorMessage string) error
 	SetLabel(ctx context.Context, id, label string) error
 	SetTotal(ctx context.Context, id string, total int) error
@@ -43,6 +44,10 @@ type Store interface {
 	// returned to a state the queue can start from again.
 	ResetInFlightItems(ctx context.Context) (int, error)
 	ResetInterruptedJobs(ctx context.Context) (int, error)
+
+	// WakeSessionWaiters advances next_retry_at to now for items in retry_wait
+	// due to session unavailability whose cooldown has not yet expired.
+	WakeSessionWaiters(ctx context.Context) (int, error)
 
 	QueueCounts(ctx context.Context) (QueueCounts, error)
 	NextUpJobs(ctx context.Context, limit int) ([]NextUpJob, error)
