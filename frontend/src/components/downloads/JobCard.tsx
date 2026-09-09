@@ -20,6 +20,7 @@ import {
   cancelJob,
   getJob,
   isTerminal,
+  isWaitingForProvider,
   pauseJob,
   processed,
   progressPercent,
@@ -30,7 +31,7 @@ import {
 } from '@/lib/api/jobs'
 import { errorMessage, isAbortError } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
-import { formatNumber, formatRelative } from '@/lib/utils/format'
+import { formatContinuationTime, formatNumber, formatRelative } from '@/lib/utils/format'
 import type { Job, JobItem, JobPriority, JobStatus } from '@/types/api'
 
 interface JobCardProps {
@@ -160,7 +161,7 @@ function JobCard({
         </div>
         <div className="flex items-center gap-2">
           <PriorityBadge priority={job.priority} />
-          <StatusBadge status={job.status} />
+          <StatusBadge status={job.status} errorCode={job.error_code} />
         </div>
       </div>
 
@@ -176,6 +177,8 @@ function JobCard({
                 </span>
               ) : job.paused ? (
                 'Pausiert (aktive Downloads laufen aus)'
+              ) : isWaitingForProvider(job) ? (
+                'Wartet auf Provider'
               ) : (
                 JOB_STATUS_LABELS[job.status]
               )}
@@ -193,8 +196,17 @@ function JobCard({
       <Outcome job={job} />
 
       {job.error_message && (
-        <p className="rounded-xl border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs leading-relaxed text-destructive">
-          {job.error_message}
+        <p
+          className={cn(
+            'rounded-xl border px-3 py-2 text-xs leading-relaxed',
+            isWaitingForProvider(job)
+              ? 'border-amber-500/20 bg-amber-500/8 text-amber-600 dark:text-amber-400'
+              : 'border-destructive/20 bg-destructive/8 text-destructive',
+          )}
+        >
+          {isWaitingForProvider(job)
+            ? (job.error_message || 'Provider vorübergehend nicht verfügbar')
+            : job.error_message}
         </p>
       )}
 
@@ -307,15 +319,21 @@ function JobCard({
                       · {item.track.artists.join(', ')}
                     </span>
                   ) : null}
-                  {item.error_message && (
+                  {isWaitingForProvider(item) ? (
+                    <p className="truncate text-[0.6875rem] text-amber-500/90 dark:text-amber-400/90">
+                      {item.next_retry_at
+                        ? formatContinuationTime(item.next_retry_at)
+                        : 'Provider vorübergehend nicht verfügbar'}
+                    </p>
+                  ) : item.error_message ? (
                     <p className="truncate text-[0.6875rem] text-destructive">
                       {item.error_message}
                     </p>
-                  )}
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <ItemStatusBadge status={item.status} />
-                  {(item.status === 'failed' || item.status === 'retry_wait') && (
+                  <ItemStatusBadge status={item.status} errorCode={item.error_code} />
+                  {(item.status === 'failed' || (item.status === 'retry_wait' && !isWaitingForProvider(item))) && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -393,10 +411,14 @@ const STATUS_TONE: Record<
   cancelled: 'neutral',
 }
 
-function StatusBadge({ status }: { status: JobStatus }) {
+function StatusBadge({ status, errorCode }: { status: JobStatus; errorCode?: string }) {
+  const isWaiting = isWaitingForProvider({ status, error_code: errorCode })
+  const tone = isWaiting ? 'warning' : STATUS_TONE[status]
+  const label = isWaiting ? 'Wartet auf Provider' : (JOB_STATUS_LABELS[status] || status)
+
   return (
-    <Badge variant={STATUS_TONE[status]} className="shrink-0">
-      {JOB_STATUS_LABELS[status]}
+    <Badge variant={tone} className="shrink-0">
+      {label}
     </Badge>
   )
 }
@@ -424,7 +446,8 @@ function PriorityBadge({ priority }: { priority?: JobPriority }) {
   )
 }
 
-function ItemStatusBadge({ status }: { status: string }) {
+function ItemStatusBadge({ status, errorCode }: { status: string; errorCode?: string }) {
+  const isWaiting = isWaitingForProvider({ status, error_code: errorCode })
   const tone =
     status === 'completed'
       ? 'text-success'
@@ -436,9 +459,11 @@ function ItemStatusBadge({ status }: { status: string }) {
       ? 'text-amber-500'
       : 'text-muted-foreground'
 
+  const label = isWaiting ? 'Wartet auf Provider' : (ITEM_STATUS_LABELS[status] || status)
+
   return (
     <span className={cn('text-[0.6875rem] font-medium', tone)}>
-      {ITEM_STATUS_LABELS[status] || status}
+      {label}
     </span>
   )
 }

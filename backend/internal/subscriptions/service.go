@@ -943,7 +943,7 @@ func (s *Service) recordFailure(ctx context.Context, sub *Subscription, result *
 
 	s.publish(jobs.Event{
 		Type: jobs.EventSubscriptionSyncFailed, SubscriptionID: sub.ID,
-		Label: result.Artist, ErrorCode: string(code), ErrorMessage: message,
+		Label: result.Artist, ErrorCode: jobs.Ptr(string(code)), ErrorMessage: jobs.Ptr(message),
 	})
 	return cause
 }

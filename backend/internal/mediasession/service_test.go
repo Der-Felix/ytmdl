@@ -17,12 +17,27 @@ import (
 
 // mockRepo is an in-memory repository for unit testing the service.
 type mockRepo struct {
-	mu       sync.Mutex
-	sessions map[string]*mediasession.Session
+	mu            sync.Mutex
+	sessions      map[string]*mediasession.Session
+	healthUpdates []mediasession.HealthUpdate
 }
 
 func newMockRepo() *mockRepo {
 	return &mockRepo{sessions: make(map[string]*mediasession.Session)}
+}
+
+func (m *mockRepo) ResetHealthUpdates() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.healthUpdates = nil
+}
+
+func (m *mockRepo) GetHealthUpdates() []mediasession.HealthUpdate {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]mediasession.HealthUpdate, len(m.healthUpdates))
+	copy(out, m.healthUpdates)
+	return out
 }
 
 func (m *mockRepo) ListSessions(ctx context.Context, filter mediasession.Filter) ([]mediasession.Session, error) {
@@ -96,6 +111,7 @@ func (m *mockRepo) UpdateCookieRef(ctx context.Context, id string, cookieRef str
 func (m *mockRepo) UpdateHealth(ctx context.Context, id string, params mediasession.HealthUpdate) (*mediasession.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.healthUpdates = append(m.healthUpdates, params)
 	s, ok := m.sessions[id]
 	if !ok {
 		return nil, apperr.Newf(apperr.CodeSessionNotFound, "session %s not found", id)
@@ -425,8 +441,8 @@ func TestService_SafeReplace(t *testing.T) {
 	if probeRes == nil || probeRes.Status != mediasession.HealthHealthy {
 		t.Fatalf("expected healthy probe result on successful replacement")
 	}
-	if view.HealthStatus != mediasession.HealthHealthy {
-		t.Errorf("health status after successful replacement = %s, want healthy", view.HealthStatus)
+	if view.HealthStatus != mediasession.HealthUnknown {
+		t.Errorf("health status after successful replacement = %s, want unknown", view.HealthStatus)
 	}
 
 	readAfterSuccess, _ := storage.Read(initialCookieRef)
@@ -523,14 +539,14 @@ func TestService_ProbeOutcomes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProbeSession: %v", err)
 	}
-	if probeRes.Status != mediasession.HealthHealthy || view.HealthStatus != mediasession.HealthHealthy {
-		t.Errorf("expected healthy status, got probe=%s, view=%s", probeRes.Status, view.HealthStatus)
+	if probeRes.Status != mediasession.HealthHealthy || view.HealthStatus != mediasession.HealthUnknown {
+		t.Errorf("expected probe=healthy, view=unknown, got probe=%s, view=%s", probeRes.Status, view.HealthStatus)
 	}
 
-	// Check DB persistence
+	// Check DB persistence: status remains unconfirmed (HealthUnknown)
 	dbSess, _ := repo.GetSession(ctx, sess.ID)
-	if dbSess.HealthStatus != mediasession.HealthHealthy {
-		t.Errorf("db health status = %s, want healthy", dbSess.HealthStatus)
+	if dbSess.HealthStatus != mediasession.HealthUnknown {
+		t.Errorf("db health status = %s, want unknown (metadata probe must not falsely certify full health)", dbSess.HealthStatus)
 	}
 
 	// Advance time to bypass debounce

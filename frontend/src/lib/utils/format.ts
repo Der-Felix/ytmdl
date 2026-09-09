@@ -42,6 +42,37 @@ export function formatDateTime(iso: string | undefined): string {
   }).format(date)
 }
 
+/**
+ * "Automatische Fortsetzung ab 14:20" or "Automatische Fortsetzung ab 09.09., 14:20"
+ * Formats a scheduled continuation timestamp cleanly in German locale.
+ */
+export function formatContinuationTime(iso: string | undefined): string {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const timeStr = new Intl.DateTimeFormat('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+
+  const now = new Date()
+  const isToday =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear()
+
+  if (isToday) {
+    return `Automatische Fortsetzung ab ${timeStr}`
+  }
+
+  const dateStr = new Intl.DateTimeFormat('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+  }).format(date)
+  return `Automatische Fortsetzung ab ${dateStr}, ${timeStr}`
+}
+
 /** "vor 5 Minuten" — coarse, because exact ages do not matter here. */
 export function formatRelative(iso: string | undefined): string {
   if (!iso) return ''

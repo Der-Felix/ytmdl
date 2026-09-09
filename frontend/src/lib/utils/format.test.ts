@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   formatBytes,
+  formatContinuationTime,
   formatDuration,
   formatNumber,
   formatYear,
@@ -56,5 +57,27 @@ describe('joinArtists & formatYear', () => {
     expect(formatYear(2024)).toBe('2024')
     expect(formatYear(0)).toBe('')
     expect(formatYear(undefined)).toBe('')
+  })
+})
+
+describe('formatContinuationTime', () => {
+  it('formats continuation time for today', () => {
+    const now = new Date()
+    const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 20, 0)
+    const res = formatContinuationTime(target.toISOString())
+    expect(res).toBe('Automatische Fortsetzung ab 14:20')
+  })
+
+  it('formats continuation time for a future date', () => {
+    const future = new Date(2026, 8, 9, 14, 20, 0) // Sept 9, 2026
+    const res = formatContinuationTime(future.toISOString())
+    expect(res).toContain('Automatische Fortsetzung ab')
+    expect(res).toContain('14:20')
+  })
+
+  it('returns empty string for missing or invalid dates', () => {
+    expect(formatContinuationTime(undefined)).toBe('')
+    expect(formatContinuationTime('')).toBe('')
+    expect(formatContinuationTime('invalid')).toBe('')
   })
 })

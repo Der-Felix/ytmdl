@@ -17,23 +17,26 @@ type artistDownloadRequest struct {
 	ArtistID      string               `json:"artist_id"`
 	ReleaseFilter *music.ReleaseFilter `json:"release_filter"`
 	SkipExisting  *bool                `json:"skip_existing"`
+	Priority      *jobs.Priority       `json:"priority,omitempty"`
 }
 
 // releaseDownloadRequest is the body of POST /downloads/release.
 type releaseDownloadRequest struct {
-	Provider      string `json:"provider"`
-	MediaProvider string `json:"media_provider"`
-	ReleaseID     string `json:"release_id"`
-	SkipExisting  *bool  `json:"skip_existing"`
+	Provider      string         `json:"provider"`
+	MediaProvider string         `json:"media_provider"`
+	ReleaseID     string         `json:"release_id"`
+	SkipExisting  *bool          `json:"skip_existing"`
+	Priority      *jobs.Priority `json:"priority,omitempty"`
 }
 
 // trackDownloadRequest is the body of POST /downloads/track.
 type trackDownloadRequest struct {
-	Provider      string `json:"provider"`
-	MediaProvider string `json:"media_provider"`
-	TrackID       string `json:"track_id"`
-	ReleaseID     string `json:"release_id"`
-	SkipExisting  *bool  `json:"skip_existing"`
+	Provider      string         `json:"provider"`
+	MediaProvider string         `json:"media_provider"`
+	TrackID       string         `json:"track_id"`
+	ReleaseID     string         `json:"release_id"`
+	SkipExisting  *bool          `json:"skip_existing"`
+	Priority      *jobs.Priority `json:"priority,omitempty"`
 }
 
 // DownloadArtist answers POST /downloads/artist. It only creates the job; the
@@ -53,6 +56,7 @@ func (h *Handlers) DownloadArtist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	manualOrigin := jobs.OriginManual
 	h.enqueue(w, r, jobs.Request{
 		Type:             jobs.TypeArtist,
 		MetadataProvider: body.Provider,
@@ -61,6 +65,8 @@ func (h *Handlers) DownloadArtist(w http.ResponseWriter, r *http.Request) {
 		Options: jobs.RequestOptions{
 			ReleaseFilter: body.ReleaseFilter,
 			SkipExisting:  body.SkipExisting,
+			Priority:      body.Priority,
+			Origin:        &manualOrigin,
 		},
 	})
 }
@@ -77,12 +83,17 @@ func (h *Handlers) DownloadRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	manualOrigin := jobs.OriginManual
 	h.enqueue(w, r, jobs.Request{
 		Type:             jobs.TypeRelease,
 		MetadataProvider: body.Provider,
 		MediaProvider:    body.MediaProvider,
 		TargetID:         body.ReleaseID,
-		Options:          jobs.RequestOptions{SkipExisting: body.SkipExisting},
+		Options: jobs.RequestOptions{
+			SkipExisting: body.SkipExisting,
+			Priority:     body.Priority,
+			Origin:       &manualOrigin,
+		},
 	})
 }
 
@@ -98,13 +109,18 @@ func (h *Handlers) DownloadTrack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	manualOrigin := jobs.OriginManual
 	h.enqueue(w, r, jobs.Request{
 		Type:             jobs.TypeTrack,
 		MetadataProvider: body.Provider,
 		MediaProvider:    body.MediaProvider,
 		TargetID:         body.TrackID,
 		ReleaseID:        body.ReleaseID,
-		Options:          jobs.RequestOptions{SkipExisting: body.SkipExisting},
+		Options: jobs.RequestOptions{
+			SkipExisting: body.SkipExisting,
+			Priority:     body.Priority,
+			Origin:       &manualOrigin,
+		},
 	})
 }
 

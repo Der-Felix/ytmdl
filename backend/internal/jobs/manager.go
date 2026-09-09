@@ -399,6 +399,7 @@ type RequestOptions struct {
 	ReleaseFilter *music.ReleaseFilter
 	SkipExisting  *bool
 	Priority      *Priority
+	Origin        *Origin
 }
 
 // Enqueue creates a job and hands it to the resolver. The HTTP request returns
@@ -438,15 +439,20 @@ func (m *Manager) Enqueue(ctx context.Context, req Request) (*Job, error) {
 	if req.Options.SkipExisting != nil {
 		options.SkipExisting = *req.Options.SkipExisting
 	}
+	if req.Options.Origin != nil && req.Options.Origin.Valid() {
+		options.Origin = *req.Options.Origin
+	}
 
 	mediaProvider := req.MediaProvider
 	if mediaProvider == "" {
 		mediaProvider = m.registry.DefaultMediaName()
 	}
 
-	jobPriority := PriorityNormal
+	jobPriority := PriorityLow
 	if req.Options.Priority != nil && req.Options.Priority.Valid() {
 		jobPriority = req.Options.Priority.Canonical()
+	} else if options.Origin == OriginManual {
+		jobPriority = PriorityHigh
 	}
 
 	job := &Job{
@@ -552,17 +558,31 @@ func (m *Manager) Broker() *Broker { return m.broker }
 // setStatus moves a job forward. A rejected transition is logged and ignored:
 // the state machine is a guard rail, not a reason to fail a running job.
 func (m *Manager) setStatus(ctx context.Context, job *Job, status Status) {
-	if job.Status == status {
+	m.setStatusWithReason(ctx, job, status, "", "")
+}
+
+// setStatusWithReason moves a job into a new state and sets optional error details.
+func (m *Manager) setStatusWithReason(ctx context.Context, job *Job, status Status, errorCode, errorMessage string) {
+	if job.Status == status && job.ErrorCode == errorCode && job.ErrorMessage == errorMessage {
 		return
 	}
-	if err := m.store.SetStatus(ctx, job.ID, status, "", ""); err != nil {
+	if err := m.store.SetStatus(ctx, job.ID, status, errorCode, errorMessage); err != nil {
 		m.logger.Debug("job status transition rejected",
 			logging.KeyJobID, job.ID, "from", string(job.Status), "to", string(status),
 			logging.KeyError, err.Error())
 		return
 	}
 	job.Status = status
-	m.broker.Publish(Event{Type: EventJobStatus, JobID: job.ID, Status: status, Label: job.Label})
+	job.ErrorCode = errorCode
+	job.ErrorMessage = errorMessage
+	m.broker.Publish(Event{
+		Type:         EventJobStatus,
+		JobID:        job.ID,
+		Status:       status,
+		Label:        job.Label,
+		ErrorCode:    Ptr(errorCode),
+		ErrorMessage: Ptr(errorMessage),
+	})
 }
 
 // fail marks a job as failed.
@@ -584,7 +604,7 @@ func (m *Manager) fail(ctx context.Context, job *Job, err error) {
 		logging.KeyJobID, job.ID, logging.KeyErrorCode, code, logging.KeyError, err.Error())
 	m.broker.Publish(Event{
 		Type: EventJobFailed, JobID: job.ID, Status: StatusFailed, Label: job.Label,
-		ErrorCode: code, ErrorMessage: message,
+		ErrorCode: Ptr(code), ErrorMessage: Ptr(message),
 	})
 }
 
@@ -620,8 +640,8 @@ func (m *Manager) publishItem(job Job, item Item, status ItemStatus, score float
 		MatchScore: score,
 	}
 	if err != nil {
-		event.ErrorCode = string(apperr.CodeOf(err))
-		event.ErrorMessage = apperr.MessageOf(err)
+		event.ErrorCode = Ptr(string(apperr.CodeOf(err)))
+		event.ErrorMessage = Ptr(apperr.MessageOf(err))
 	}
 	m.broker.Publish(event)
 }
@@ -925,6 +945,7 @@ func (m *Manager) EnqueueReleaseWithPriority(ctx context.Context, provider, rele
 		return false, err
 	}
 	skipExisting := true
+	subOrigin := OriginSubscription
 	_, err := m.Enqueue(ctx, Request{
 		Type:             TypeRelease,
 		MetadataProvider: provider,
@@ -933,6 +954,7 @@ func (m *Manager) EnqueueReleaseWithPriority(ctx context.Context, provider, rele
 		Options: RequestOptions{
 			Priority:     &priority,
 			SkipExisting: &skipExisting,
+			Origin:       &subOrigin,
 		},
 	})
 	if err != nil {

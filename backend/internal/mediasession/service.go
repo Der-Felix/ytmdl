@@ -81,14 +81,20 @@ type Service struct {
 }
 
 // SetRecoveryHandler installs an optional callback invoked when a session
-// is confirmed to have recovered its health (e.g. successful cookie upload or manual probe).
+// is confirmed to have recovered its health (e.g. successful cookie upload or real media recovery).
 func (s *Service) SetRecoveryHandler(fn func(ctx context.Context)) {
 	s.recoveryHandler = fn
+	if s.pool != nil {
+		s.pool.SetRecoveryHandler(fn)
+	}
 }
 
 func (s *Service) notifyRecovery(ctx context.Context) {
-	if s.pool != nil {
-		s.pool.ClearPlatformFailure()
+	if s.pool != nil && s.pool.IsPlatformCooling() {
+		// Platform-wide failure is actively cooling. Cookie replacement
+		// alone does not prove platform media recovery; do NOT clear
+		// platform failure and do NOT trigger a waiter wake storm.
+		return
 	}
 	if s.recoveryHandler != nil {
 		s.recoveryHandler(ctx)
@@ -299,11 +305,13 @@ func (s *Service) UploadCookies(ctx context.Context, id string, content []byte) 
 		return nil, nil, err
 	}
 
-	now := time.Now().UTC()
 	healthUpdate := HealthUpdate{
-		HealthStatus:        HealthHealthy,
+		HealthStatus:        HealthUnknown,
 		ConsecutiveFailures: 0,
-		LastSuccessAt:       &now,
+		LastUsedAt:          sess.LastUsedAt,
+		LastSuccessAt:       sess.LastSuccessAt,
+		LastFailureAt:       sess.LastFailureAt,
+		LastFailureReason:   sess.LastFailureReason,
 		CooldownUntil:       nil,
 	}
 
@@ -374,37 +382,34 @@ func (s *Service) ProbeSession(ctx context.Context, id string) (*ProbeResult, *S
 
 	res, probeErr := s.prober.Probe(ctx, sessID, cookiePath)
 	now := time.Now().UTC()
-
-	// Record outcome in runtime pool and update database
 	if s.pool != nil {
-		if probeErr == nil && res != nil && res.Status == HealthHealthy {
-			s.pool.RecordSuccess(ctx, sessID, now)
-			s.notifyRecovery(ctx)
-		} else if probeErr != nil {
-			s.pool.RecordFailure(ctx, sessID, probeErr, now)
-		}
+		now = s.pool.Now()
 	}
 
-	if s.repo != nil && sessID != LegacySessionID {
-		var update HealthUpdate
-		if probeErr == nil && res != nil && res.Status == HealthHealthy {
-			update = HealthUpdate{
-				HealthStatus:        HealthHealthy,
-				ConsecutiveFailures: 0,
-				LastSuccessAt:       &now,
-				LastUsedAt:          &now,
+	// Record outcome in runtime pool and update database
+	// NOTE: A metadata-only probe success does NOT prove media acquisition health.
+	// It must NOT clear protection cooldowns, erase failure history, mark the session
+	// HealthHealthy, or wake media waiters.
+	// Only confirmed probe failures update session health state.
+	if probeErr != nil || (res != nil && res.Status != HealthHealthy) {
+		if s.pool != nil {
+			errToRecord := probeErr
+			if errToRecord == nil && res != nil {
+				switch res.Status {
+				case HealthBotChallenge:
+					errToRecord = apperr.New(apperr.CodeSessionBotChallenge, res.FailureCategory)
+				case HealthRateLimited:
+					errToRecord = apperr.New(apperr.CodeSessionRateLimited, res.FailureCategory)
+				case HealthAuthFailed:
+					errToRecord = apperr.New(apperr.CodeSessionAuthFailed, res.FailureCategory)
+				default:
+					errToRecord = apperr.New(apperr.CodeMediaVerifyFailed, "probe failed")
+				}
+			} else if errToRecord == nil {
+				errToRecord = apperr.New(apperr.CodeMediaVerifyFailed, "probe failed")
 			}
-		} else if res != nil {
-			update = HealthUpdate{
-				HealthStatus:        res.Status,
-				ConsecutiveFailures: 1,
-				LastFailureAt:       &now,
-				LastFailureReason:   res.FailureCategory,
-				CooldownUntil:       res.CooldownUntil,
-				LastUsedAt:          &now,
-			}
+			s.pool.RecordFailure(ctx, sessID, errToRecord, now)
 		}
-		_, _ = s.repo.UpdateHealth(ctx, sessID, update)
 	}
 
 	s.logger.Info("media session probe executed",

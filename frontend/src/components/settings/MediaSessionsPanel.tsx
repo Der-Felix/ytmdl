@@ -154,10 +154,17 @@ export function MediaSessionsPanel() {
         prev.map((s) => (s.id === session.id ? res.session : s)),
       )
       if (res.probe.status === 'healthy') {
-        setNotification({
-          type: 'success',
-          message: `Session-Test für "${session.name}" erfolgreich: Bereit.`,
-        })
+        if (res.session.health_status === 'healthy') {
+          setNotification({
+            type: 'success',
+            message: `Session-Test für "${session.name}" erfolgreich: Bereit.`,
+          })
+        } else {
+          setNotification({
+            type: 'info',
+            message: `Session-Test für "${session.name}": Metadaten erreichbar, Medienstatus unbestätigt.`,
+          })
+        }
       } else {
         const badgeInfo = getHealthBadgeInfo(res.session)
         const reason = getHealthExplanation(res.probe.status) || badgeInfo.label

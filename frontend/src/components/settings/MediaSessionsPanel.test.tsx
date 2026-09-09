@@ -502,6 +502,62 @@ describe('MediaSessionsPanel - Probe & Toggle', () => {
     expect(screen.getAllByText('Bereit').length).toBeGreaterThan(0)
   })
 
+  it('shows unconfirmed info notification and preserves protection when metadata probe passes on protected session', async () => {
+    const session = createMockSession({
+      id: 'sess_bot_probe',
+      name: 'Protected Bot Session',
+      health_status: 'bot_challenge',
+      cooldown_until: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    })
+
+    let probeCalled = false
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (url.includes('/probe')) {
+        probeCalled = true
+        return new Response(
+          JSON.stringify({
+            data: {
+              probe: {
+                status: 'healthy',
+                tested_at: new Date().toISOString(),
+                metadata_ok: true,
+                usable_audio_formats: true,
+              },
+              session: {
+                ...session,
+                // Status remains protected!
+                health_status: 'bot_challenge',
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      return new Response(JSON.stringify({ data: [session] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    render(<MediaSessionsPanel />)
+
+    expect((await screen.findAllByText('Protected Bot Session')).length).toBeGreaterThan(0)
+
+    const probeBtn = (await screen.findAllByRole('button', { name: /Session "Protected Bot Session" testen/i }))[0]
+    fireEvent.click(probeBtn)
+
+    await waitFor(() => expect(probeCalled).toBe(true))
+
+    // Must NOT claim "Bereit"!
+    expect(screen.queryByText(/erfolgreich: Bereit/i)).toBeNull()
+    // Must show metadata reachable info notification
+    expect(
+      await screen.findByText('Session-Test für "Protected Bot Session": Metadaten erreichbar, Medienstatus unbestätigt.'),
+    ).toBeDefined()
+    // Status badge still shows Bot-Prüfung erforderlich, not Bereit
+    expect(screen.getAllByText('Bot-Prüfung erforderlich').length).toBeGreaterThan(0)
+  })
+
   it('toggles enabled state while keeping health distinct', async () => {
     const session = createMockSession({
       id: 'sess_toggle',

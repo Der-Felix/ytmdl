@@ -131,3 +131,78 @@ func TestDeriveParentStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestDeriveParentStatusDetails(t *testing.T) {
+	cases := []struct {
+		name         string
+		items        []jobs.Item
+		wantStatus   jobs.Status
+		wantCode     string
+		wantMsgEmpty bool
+	}{
+		{
+			name: "all retry_wait session_unavailable",
+			items: []jobs.Item{
+				{Status: jobs.ItemRetryWait, ErrorCode: "SESSION_UNAVAILABLE", ErrorMessage: "wait for session"},
+				{Status: jobs.ItemRetryWait, ErrorCode: "SESSION_UNAVAILABLE", ErrorMessage: "wait for session"},
+			},
+			wantStatus:   jobs.StatusRetryWait,
+			wantCode:     "SESSION_UNAVAILABLE",
+			wantMsgEmpty: false,
+		},
+		{
+			name: "retry_wait generic rate_limited",
+			items: []jobs.Item{
+				{Status: jobs.ItemRetryWait, ErrorCode: "RATE_LIMITED", ErrorMessage: "too many requests"},
+			},
+			wantStatus:   jobs.StatusRetryWait,
+			wantCode:     "",
+			wantMsgEmpty: true,
+		},
+		{
+			name: "mixed completed and session_unavailable",
+			items: []jobs.Item{
+				{Status: jobs.ItemCompleted},
+				{Status: jobs.ItemRetryWait, ErrorCode: "SESSION_UNAVAILABLE", ErrorMessage: "wait for session"},
+			},
+			wantStatus:   jobs.StatusRetryWait,
+			wantCode:     "SESSION_UNAVAILABLE",
+			wantMsgEmpty: false,
+		},
+		{
+			name: "active downloading takes precedence over retry_wait",
+			items: []jobs.Item{
+				{Status: jobs.ItemDownloading},
+				{Status: jobs.ItemRetryWait, ErrorCode: "SESSION_UNAVAILABLE", ErrorMessage: "wait for session"},
+			},
+			wantStatus:   jobs.StatusDownloading,
+			wantCode:     "",
+			wantMsgEmpty: true,
+		},
+		{
+			name:         "empty items",
+			items:        []jobs.Item{},
+			wantStatus:   jobs.StatusQueued,
+			wantCode:     "",
+			wantMsgEmpty: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotStatus, gotCode, gotMsg := jobs.DeriveParentStatusDetails(tc.items)
+			if gotStatus != tc.wantStatus {
+				t.Errorf("status = %v, want %v", gotStatus, tc.wantStatus)
+			}
+			if gotCode != tc.wantCode {
+				t.Errorf("errorCode = %v, want %v", gotCode, tc.wantCode)
+			}
+			if tc.wantMsgEmpty && gotMsg != "" {
+				t.Errorf("expected empty error message, got %q", gotMsg)
+			}
+			if !tc.wantMsgEmpty && gotMsg == "" {
+				t.Errorf("expected non-empty error message")
+			}
+		})
+	}
+}

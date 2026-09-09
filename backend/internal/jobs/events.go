@@ -59,11 +59,14 @@ type Event struct {
 	DownloadPercent float64 `json:"download_percent,omitempty"`
 	MatchScore      float64 `json:"match_score,omitempty"`
 
-	ErrorCode    string `json:"error_code,omitempty"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	ErrorCode    *string `json:"error_code,omitempty"`
+	ErrorMessage *string `json:"error_message,omitempty"`
 
 	Summary *Summary `json:"summary,omitempty"`
 }
+
+// Ptr returns a pointer to the given value.
+func Ptr[T any](value T) *T { return &value }
 
 // subscriberBuffer is how many events a slow client may fall behind before
 // events are dropped for it. Dropping protects the workers: a stalled HTTP

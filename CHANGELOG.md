@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.26.0 — 2026-09-08
+
+### Features
+
+- **Independent Provider Pre-Routing:** Manual download requests automatically evaluate and route to independent media providers (such as SoundCloud) when the YouTube provider family is already known to be unavailable prior to execution, preventing unnecessary attempt failures.
+- **Provider Wait Status & Non-Terminal Feedback:** Added explicit "Wartet auf Provider" non-terminal status reporting across the interface when downloads are deferred due to temporary provider or session cooldowns (`SESSION_UNAVAILABLE`).
+- **Priority-Differentiated Queue Execution:** Manual download requests default to High priority to ensure user-initiated tasks execute ahead of background tasks, while subscription synchronization jobs remain Low priority.
+
+### Improvements
+
+- **Managed Media Session Recovery & Cooldown Dynamics:** Refined session health lifecycle to distinguish temporary cooldowns from unconfigured or unusable states. Real media download successes legitimately clear active protection and notify eligible waiting jobs for immediate retry.
+- **SoundCloud Routing Policy & Subscription Protection:** Subscription and background discovery jobs do not automatically substitute alternative providers, preserving artist catalog integrity and quota limits, while SoundCloud remains fully accessible when manually requested or configured as preferred provider.
+- **Live State Synchronization & SSE Updates:** Fixed REST responses and Server-Sent Events (SSE) dispatch to immediately clear stale error codes and error messages when deferred jobs recover and resume downloading.
+- **Cookie Replacement State Preservation:** Updating or replacing session credentials preserves operational health history and cooldown state, preventing premature release and sudden flooding of recovering provider backlogs.
+- **Ordered Lock-Free Health Persistence:** Transitioned media session health snapshots to an ordered asynchronous persistence drainer, ensuring database writes never hold in-memory session pool family locks.
+- **Bounded Recovery Notifications:** Bound and serialized recovery callbacks with context cancellation support, eliminating notification stampedes and blocking when sessions return to service.
+- **Conservative Job Origin Compatibility:** Maintained safe default origin attribution and fallback handling across legacy database records and API clients.
+
+### Bug Fixes
+
+- **Tiered Bot Challenge Cooldown Duration:** Bounded bot challenge cooldowns to a finite 24-hour window for first-time challenges, escalating to a finite 72-hour window only upon genuine repeated verification challenges, eliminating indefinite cooldown dead-ends.
+- **Metadata Probe Protection Preservation:** Fixed metadata-only probe queries to prevent lightweight inspection passes from clearing active provider media cooldowns or falsely certifying full audio download health.
+- **Exhausted & Unusable Session Handling:** Terminated infinite retry loops on non-retriable configurations where no usable or valid session exists, transitioning items to terminal failure rather than indefinitely consuming scheduler cycles.
+- **Provider Deferral YouTube Health Neutrality:** Prevented independent provider deferrals or track lookup failures on alternative platforms from penalizing or degrading healthy YouTube media session health.
+- **Pool and Database Health State Convergence:** Resolved state divergence between in-memory session pool metrics and persisted database health snapshots, ensuring failure counts and cooldown timestamps remain strictly consistent across restarts and concurrent operations.
+
+### Changes
+
+- **Queue Priority Defaults:** Manual downloads now default to High priority, while background subscription synchronization jobs remain Low priority to ensure interactive requests process ahead of bulk operations.
+- **Provider Fallback Boundaries:** Independent provider pre-routing to alternative services (such as SoundCloud) is strictly scoped to manual requests; automated subscription discovery jobs do not substitute alternative providers.
+- **Job Origin Attribution:** Retained conservative origin mapping and fallback handling for jobs created in earlier versions.
+- **Database Schema:** Schema remains at 12; no database migration is required.
+
+**Full Changelog:** `v0.25.2...v0.26.0`
+
 ## 0.25.2 — 2026-09-08
 
 ### Bug Fixes

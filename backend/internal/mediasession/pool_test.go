@@ -58,17 +58,13 @@ func (m *mockRepo) UpdateHealth(ctx context.Context, id string, update HealthUpd
 	if !ok {
 		return nil, apperr.New(apperr.CodeSessionNotFound, "session not found")
 	}
+	// Mirrors repository.MediaSessions.UpdateHealth: every health column is
+	// rewritten, so a field the update omits is nulled, not preserved.
 	s.HealthStatus = update.HealthStatus
 	s.ConsecutiveFailures = update.ConsecutiveFailures
-	if update.LastUsedAt != nil {
-		s.LastUsedAt = update.LastUsedAt
-	}
-	if update.LastSuccessAt != nil {
-		s.LastSuccessAt = update.LastSuccessAt
-	}
-	if update.LastFailureAt != nil {
-		s.LastFailureAt = update.LastFailureAt
-	}
+	s.LastUsedAt = update.LastUsedAt
+	s.LastSuccessAt = update.LastSuccessAt
+	s.LastFailureAt = update.LastFailureAt
 	s.LastFailureReason = update.LastFailureReason
 	s.CooldownUntil = update.CooldownUntil
 	m.sessions[id] = s

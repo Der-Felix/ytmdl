@@ -17,6 +17,7 @@ import (
 	"ytdm/backend/internal/matcher"
 	"ytdm/backend/internal/metadata"
 	"ytdm/backend/internal/music"
+	"ytdm/backend/internal/orchestrator"
 	"ytdm/backend/internal/provider"
 	"ytdm/backend/internal/storage"
 )
@@ -232,7 +233,8 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		return ItemFailed, apperr.New(apperr.CodeInternal, "no media orchestrator configured")
 	}
 
-	resolved, err := orch.ResolveMedia(ctx, job.MediaProvider, track, DefaultMaxFallbackCandidates)
+	resolveCtx := orchestrator.WithOrigin(ctx, resolutionOrigin(job))
+	resolved, err := orch.ResolveMedia(resolveCtx, job.MediaProvider, track, DefaultMaxFallbackCandidates)
 	if err != nil {
 		if apperr.CodeOf(err) == apperr.CodeProviderRateLimited && m.cooldown != nil {
 			m.cooldown.Trigger(job.MediaProvider, 60*time.Second)

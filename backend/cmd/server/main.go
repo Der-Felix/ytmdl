@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -106,6 +107,123 @@ type application struct {
 	subscriptions  *subscriptions.Service
 	scheduler      *subscriptions.Scheduler
 	libraryService *libsvc.Service
+	sessionPool    *mediasession.SessionPool
+
+	// shutdownDeadline is the single absolute budget for one controlled
+	// shutdown. It is stamped once - by serve when the signal arrives, or by
+	// close when the server never got that far - and is then shared by the HTTP
+	// drain, the worker stop and the final health flush. Both stampers run on
+	// the same goroutine (serve, then the deferred close), so no lock is needed.
+	shutdownDeadline time.Time
+
+	// stopWorkersOnce guards the producer and worker stop sequence so that serve
+	// and close start it at most once between them; workersStopped is closed
+	// when that sequence has finished.
+	stopWorkersOnce sync.Once
+	workersStopped  chan struct{}
+}
+
+const (
+	// fallbackShutdownTimeout bounds the controlled shutdown when the
+	// configuration carries no positive value.
+	fallbackShutdownTimeout = 10 * time.Second
+	// maxShutdownPhaseReserve caps each of the two tail phases the shutdown
+	// budget holds back: the wait for worker quiescence and the final media
+	// session health flush behind it.
+	maxShutdownPhaseReserve = 5 * time.Second
+)
+
+// shutdownTimeout is the total budget for one controlled shutdown.
+func (a *application) shutdownTimeout() time.Duration {
+	if a.cfg.Server.ShutdownTimeout > 0 {
+		return a.cfg.Server.ShutdownTimeout
+	}
+	return fallbackShutdownTimeout
+}
+
+// phaseReserve is the slice of the shutdown budget kept back for one tail phase,
+// so a slow HTTP drain can never consume all of it and leave either the workers'
+// final database writes or the health snapshots behind them unfinished.
+func (a *application) phaseReserve() time.Duration {
+	reserve := a.shutdownTimeout() / 4
+	if reserve > maxShutdownPhaseReserve {
+		reserve = maxShutdownPhaseReserve
+	}
+	return reserve
+}
+
+// beginShutdownBudget stamps the shared absolute deadline on first use and
+// returns it unchanged afterwards, so serve and close can never hand out two
+// budgets for the same shutdown.
+func (a *application) beginShutdownBudget() time.Time {
+	if a.shutdownDeadline.IsZero() {
+		a.shutdownDeadline = time.Now().Add(a.shutdownTimeout())
+	}
+	return a.shutdownDeadline
+}
+
+// drainDeadline is the point by which the HTTP server and the bulk of the worker
+// drain must be done. The two reserves behind it belong to the wait for worker
+// quiescence and to the final health flush, which is why the drain is cut short
+// rather than allowed to run on.
+func (a *application) drainDeadline() time.Time {
+	return a.beginShutdownBudget().Add(-2 * a.phaseReserve())
+}
+
+// workersDeadline is the point by which the workers must be quiescent. Only
+// past it can a health flush be the final one: jobs.Manager.Stop has returned,
+// so every worker goroutine is gone, the interrupted-job requeue has written,
+// and nothing is left that could record a session outcome and queue another
+// health snapshot behind the flush.
+func (a *application) workersDeadline() time.Time {
+	return a.beginShutdownBudget().Add(-a.phaseReserve())
+}
+
+// stopWorkers runs the producer and worker stop sequence exactly once and
+// returns the channel closed when it has finished. serve and close both wait on
+// it under the shared budget, so the sequence never runs twice and is never
+// waited on without a bound.
+func (a *application) stopWorkers() <-chan struct{} {
+	a.stopWorkersOnce.Do(func() {
+		a.workersStopped = make(chan struct{})
+		go func() {
+			defer close(a.workersStopped)
+			// The scheduler goes first so that nothing new is picked up while
+			// the service drains what is already running.
+			stopScheduler(a.scheduler)
+			if a.subscriptions != nil {
+				a.subscriptions.Stop()
+			}
+			if a.manager != nil {
+				a.manager.Stop()
+			}
+			if a.libraryService != nil {
+				a.libraryService.Stop()
+			}
+		}()
+	})
+	return a.workersStopped
+}
+
+// awaitWorkers starts the stop sequence if it is not running yet and waits for
+// it until deadline, reporting whether the workers came down in time. Every wait
+// is bounded by a point inside the shared budget, never by a timeout of its own.
+func (a *application) awaitWorkers(deadline time.Time) bool {
+	workersDone := a.stopWorkers()
+	select {
+	case <-workersDone:
+		return true
+	default:
+	}
+
+	waitCtx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	select {
+	case <-workersDone:
+		return true
+	case <-waitCtx.Done():
+		return false
+	}
 }
 
 // build wires the whole backend together.
@@ -327,6 +445,11 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		return nil, err
 	}
 
+	// Recovery notifications fired from pool callbacks run database work on the
+	// goroutine that observed the recovery - a download worker, for instance.
+	// Binding them to the application context lets shutdown cancel that work
+	// instead of racing db.Close() or holding a worker against a stalled database.
+	sessionPool.SetLifecycleContext(ctx)
 	mediaSessionService.SetRecoveryHandler(func(ctx context.Context) {
 		if _, err := manager.WakeSessionWaiters(ctx); err != nil {
 			logger.Warn("failed to wake session waiters after session recovery", logging.KeyError, err.Error())
@@ -509,6 +632,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		subscriptions:  subscriptionService,
 		scheduler:      scheduler,
 		libraryService: libraryService,
+		sessionPool:    sessionPool,
 	}, nil
 }
 
@@ -657,6 +781,9 @@ func (a *application) serve(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		a.logger.Info("shutdown requested")
+		// One budget from here on: HTTP drain, worker stop and the health flush
+		// in close all share this deadline.
+		a.beginShutdownBudget()
 		a.manager.BeginShutdown()
 		// No further synchronisation may begin; the one in flight is drained
 		// below together with the download workers.
@@ -667,51 +794,108 @@ func (a *application) serve(ctx context.Context) error {
 		a.broker.Close()
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), a.cfg.Server.ShutdownTimeout)
+	drainCtx, cancel := context.WithDeadline(context.Background(), a.drainDeadline())
 	defer cancel()
-	workersDone := make(chan struct{})
-	go func() {
-		// The scheduler goes first so that nothing new is picked up while the
-		// service drains what is already running.
-		stopScheduler(a.scheduler)
-		a.subscriptions.Stop()
-		a.manager.Stop()
-		if a.libraryService != nil {
-			a.libraryService.Stop()
-		}
-		close(workersDone)
-	}()
+	// Start the stop sequence while the HTTP server drains.
+	a.stopWorkers()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
+	if err := server.Shutdown(drainCtx); err != nil {
 		a.logger.Error("the HTTP server did not shut down cleanly", logging.KeyError, err.Error())
 		if closeErr := server.Close(); closeErr != nil {
 			a.logger.Error("the HTTP connections could not be forced closed", logging.KeyError, closeErr.Error())
 		}
 	}
-	<-workersDone
+	// Waiting for the workers must not eat the tail reserves: the drain deadline
+	// cuts the wait short so close still gets to wait the workers out and to
+	// persist the health snapshots behind them.
+	if !a.awaitWorkers(a.drainDeadline()) {
+		a.logger.Warn("the workers did not stop within the drain budget; continuing with the remaining budget")
+	}
 	return <-errs
 }
 
 // close releases everything the application holds. Running downloads are
-// terminated through the job contexts.
+// terminated through the job contexts. It walks the phases of the shared
+// shutdown budget in the only order that makes the last flush a final one: wait
+// the producers and workers out, seal and flush the health snapshots behind
+// them, and only then let the database go away.
 func (a *application) close() {
 	a.logger.Info("stopping workers")
-	stopScheduler(a.scheduler)
-	if a.subscriptions != nil {
-		a.subscriptions.Stop()
+	// Reuses the deadline serve already stamped; only a shutdown that never
+	// reached serve gets a budget stamped here.
+	deadline := a.beginShutdownBudget()
+
+	// Phase one: producers and workers down, on the first tail reserve.
+	// jobs.Manager.Stop returns only once every worker goroutine is gone and the
+	// interrupted-job requeue has written, so past this point nothing can record
+	// a session outcome and queue a health snapshot behind the flush below.
+	workersDown := a.awaitWorkers(a.workersDeadline())
+	if !workersDown {
+		a.logger.Warn("the workers did not stop within the shutdown budget; the health flush cannot be the final one and the database stays open")
+	} else {
+		// Nothing legitimate produces health snapshots any more. Sealing makes
+		// that structural, so even a request handler that outlived the HTTP
+		// drain cannot queue a write that would still run during the teardown.
+		a.sessionPool.SealHealthPersist()
 	}
-	a.manager.Stop()
-	if a.libraryService != nil {
-		a.libraryService.Stop()
+
+	// Phase two: the final health flush, on the last reserve and behind the
+	// producers rather than in front of them.
+	quiescent := a.flushSessionHealth(deadline)
+
+	if a.broker != nil {
+		a.broker.Close()
 	}
-	a.broker.Close()
 	if a.authLimiter != nil {
 		a.authLimiter.Close()
+	}
+
+	// The pool may only go away once nothing can still be writing through it:
+	// the workers are down, their final writes are done, and health persistence
+	// has come to rest.
+	safe := workersDown && quiescent
+	if !safe {
+		a.logger.Warn("database writes were still in flight at the shutdown deadline; leaving the pool to process exit rather than blocking in Close")
+	}
+	a.closeDatabase(safe)
+	a.logger.Info("stopped")
+}
+
+// closeDatabase releases the pool, but only once nothing can still be writing
+// through it. pgxpool.Close blocks until every connection is returned, so
+// closing while a worker or the health drainer holds one would add exactly the
+// unbounded tail behind the shutdown deadline that the shared budget exists to
+// prevent. The process is exiting either way, so an unsafe pool is left to
+// process teardown instead.
+func (a *application) closeDatabase(safe bool) {
+	if a.db == nil || !safe {
+		return
 	}
 	if err := a.db.Close(); err != nil {
 		a.logger.Error("the database could not be closed", logging.KeyError, err.Error())
 	}
-	a.logger.Info("stopped")
+}
+
+// flushSessionHealth drains any queued media session health writes to the
+// database before the connection pool is closed. It runs on what is left of the
+// shared shutdown budget up to deadline, never on a fresh timeout, and reports
+// whether health persistence actually came to rest.
+//
+// Quiescence is what the pool reports, never what the context says. A flush over
+// an already drained queue returns instantly even on an expired deadline, so an
+// expired context is no evidence that a write is still in flight - reading it as
+// such would leave the pool open on every shutdown that ran the budget close.
+func (a *application) flushSessionHealth(deadline time.Time) bool {
+	if a.sessionPool == nil {
+		return true
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	if err := a.sessionPool.FlushHealthPersist(ctx); err != nil {
+		a.logger.Error("failed to flush media session health persistence", logging.KeyError, err.Error())
+	}
+	return a.sessionPool.AwaitHealthPersistIdle(ctx)
 }
 
 // ffmpegLocation returns the directory yt-dlp should look for ffmpeg in, but

@@ -320,9 +320,9 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 			continue
 		}
 
-		derivedStatus := DeriveParentStatus(items)
-		if derivedStatus != job.Status && !job.Status.Terminal() {
-			m.setStatus(ctx, &job, derivedStatus)
+		derivedStatus, derivedErrCode, derivedErrMsg := DeriveParentStatusDetails(items)
+		if (derivedStatus != job.Status || (derivedStatus == StatusRetryWait && job.ErrorCode != derivedErrCode)) && !job.Status.Terminal() {
+			m.setStatusWithReason(ctx, &job, derivedStatus, derivedErrCode, derivedErrMsg)
 		}
 
 		var readyItems []Item
@@ -482,6 +482,7 @@ func (m *Manager) resolve(ctx context.Context, jobID string) {
 	m.broker.Publish(Event{
 		Type: EventJobStatus, JobID: jobID, Status: job.Status,
 		Label: job.Label, Current: 0, Total: job.Total,
+		ErrorCode: Ptr(job.ErrorCode), ErrorMessage: Ptr(job.ErrorMessage),
 	})
 	m.signal()
 }
@@ -499,6 +500,7 @@ func (m *Manager) resolveTracks(ctx context.Context, job *Job, logger *slog.Logg
 			m.broker.Publish(Event{
 				Type: EventJobStatus, JobID: job.ID, Status: job.Status,
 				Label: job.Label, Current: current, Total: total,
+				ErrorCode: Ptr(job.ErrorCode), ErrorMessage: Ptr(job.ErrorMessage),
 			})
 		})
 		if err != nil {

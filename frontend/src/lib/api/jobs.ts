@@ -246,6 +246,31 @@ export const ITEM_STATUS_LABELS: Record<string, string> = {
   cancelled: 'Abgebrochen',
 }
 
+/** True when an item or job is in retry_wait specifically due to session/provider unavailability. */
+export function isWaitingForProvider(entity?: { status?: string; error_code?: string } | null): boolean {
+  return Boolean(entity && entity.status === 'retry_wait' && entity.error_code === 'SESSION_UNAVAILABLE')
+}
+
+/**
+ * The German label of a job status, taking into account honest provider-waiting semantics.
+ */
+export function getJobStatusLabel(status: JobStatus, errorCode?: string): string {
+  if (status === 'retry_wait' && errorCode === 'SESSION_UNAVAILABLE') {
+    return 'Wartet auf Provider'
+  }
+  return JOB_STATUS_LABELS[status] || status
+}
+
+/**
+ * The German label of an item status, taking into account honest provider-waiting semantics.
+ */
+export function getItemStatusLabel(status: string, errorCode?: string): string {
+  if (status === 'retry_wait' && errorCode === 'SESSION_UNAVAILABLE') {
+    return 'Wartet auf Provider'
+  }
+  return ITEM_STATUS_LABELS[status] || status
+}
+
 /** The German label of a job type. */
 export const JOB_TYPE_LABELS: Record<JobType, string> = {
   artist: 'Diskografie',

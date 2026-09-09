@@ -408,8 +408,8 @@ export interface JobEvent {
   total?: number
   download_percent?: number
   match_score?: number
-  error_code?: string
-  error_message?: string
+  error_code?: string | null
+  error_message?: string | null
   summary?: JobSummary
 }
 

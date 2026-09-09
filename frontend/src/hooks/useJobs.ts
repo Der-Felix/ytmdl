@@ -131,7 +131,7 @@ export function useJobs(options: UseJobsOptions = {}): JobsResult {
  * Applies one event to the job list. A job the list does not hold is ignored:
  * the reload triggered by job.created is what brings it in.
  */
-function applyEvent(jobs: Job[], event: JobEvent): Job[] {
+export function applyEvent(jobs: Job[], event: JobEvent): Job[] {
   let changed = false
 
   const next = jobs.map((job) => {
@@ -144,7 +144,7 @@ function applyEvent(jobs: Job[], event: JobEvent): Job[] {
   return changed ? next : jobs
 }
 
-function patchJob(job: Job, event: JobEvent): Job {
+export function patchJob(job: Job, event: JobEvent): Job {
   const patch: Partial<Job> = {}
 
   if (event.status && event.status !== job.status) patch.status = event.status
@@ -163,13 +163,22 @@ function patchJob(job: Job, event: JobEvent): Job {
     patch.total = event.total
   }
 
-  if (event.type === 'job.failed') {
-    if (event.error_code) patch.error_code = event.error_code
-    if (event.error_message) patch.error_message = event.error_message
+  if (event.type === 'job.failed' || event.type === 'job.status') {
+    if (event.error_code !== undefined) {
+      const nextCode = event.error_code || undefined
+      if (nextCode !== job.error_code) patch.error_code = nextCode
+    }
+    if (event.error_message !== undefined) {
+      const nextMsg = event.error_message || undefined
+      if (nextMsg !== job.error_message) patch.error_message = nextMsg
+    }
   }
 
   if (Object.keys(patch).length === 0) return job
-  return { ...job, ...patch, updated_at: event.time }
+  const updated = { ...job, ...patch, updated_at: event.time ?? job.updated_at }
+  if (updated.error_code === undefined) delete updated.error_code
+  if (updated.error_message === undefined) delete updated.error_message
+  return updated
 }
 
 

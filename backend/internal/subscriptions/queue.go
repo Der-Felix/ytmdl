@@ -26,14 +26,14 @@ func NewJobQueue(manager *jobs.Manager) *JobQueue { return &JobQueue{manager: ma
 // ended partial comes back early, and without this check the retry would put a
 // second job on the same release while the first is still downloading it.
 func (q *JobQueue) EnqueueRelease(ctx context.Context, metadataProvider, releaseID, label string) (bool, error) {
-	return q.EnqueueReleaseWithPriority(ctx, metadataProvider, releaseID, label, jobs.PriorityNormal)
+	return q.EnqueueReleaseWithPriority(ctx, metadataProvider, releaseID, label, jobs.PriorityLow)
 }
 
 // EnqueueReleaseWithPriority queues one release with a specific download priority.
 func (q *JobQueue) EnqueueReleaseWithPriority(ctx context.Context, metadataProvider, releaseID, label string, priority jobs.Priority) (bool, error) {
 	p := priority
 	if !p.Valid() {
-		p = jobs.PriorityNormal
+		p = jobs.PriorityLow
 	}
 	return q.manager.EnqueueReleaseWithPriority(ctx, metadataProvider, releaseID, label, p)
 }

@@ -650,12 +650,16 @@ func (s *Service) RedownloadTrack(ctx context.Context, trackID string) (*jobs.Jo
 			return nil, apperr.Newf(apperr.CodeAlreadyExists, "A download job for track %q is already in progress.", track.DisplayTitle())
 		}
 
+		manualOrigin := jobs.OriginManual
 		return s.jobs.Enqueue(ctx, jobs.Request{
 			Type:             jobs.TypeTrack,
 			MetadataProvider: metadataProvider,
 			TargetID:         targetID,
 			ReleaseID:        track.ReleaseID,
 			Label:            track.Label(),
+			Options: jobs.RequestOptions{
+				Origin: &manualOrigin,
+			},
 		})
 	}
 

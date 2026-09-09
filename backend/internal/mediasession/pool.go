@@ -2,7 +2,9 @@ package mediasession
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -12,7 +14,32 @@ import (
 	"ytdm/backend/internal/ytdlp"
 )
 
-const defaultUnavailableRetry = 15 * time.Minute
+const (
+	defaultUnavailableRetry      = 15 * time.Minute
+	botChallengeInitialCooldown  = 24 * time.Hour
+	botChallengeRepeatedCooldown = 72 * time.Hour
+	healthPersistTimeout         = 5 * time.Second
+	recoveryNotifyTimeout        = 10 * time.Second
+)
+
+// PoolState represents the operational availability status of the session pool.
+type PoolState string
+
+const (
+	PoolStateEligible            PoolState = "eligible"
+	PoolStateCapacityConstrained PoolState = "capacity_constrained"
+	PoolStateCooling             PoolState = "cooling"
+	PoolStateNoUsableSession     PoolState = "no_usable_session"
+)
+
+// PoolAvailability provides detailed status on whether sessions in the pool
+// can serve requests now, are temporarily waiting for cooldown/capacity, or are
+// unconfigured / permanently unusable without operator intervention.
+type PoolAvailability struct {
+	State      PoolState
+	RetryAfter time.Duration
+	Reason     string
+}
 
 // SessionRepository abstracts storage persistence for media session health.
 type SessionRepository interface {
@@ -71,6 +98,59 @@ type SessionPool struct {
 	platformFailure PlatformFailure
 	now             func() time.Time
 	syncPersist     bool
+	recoveryHandler func(ctx context.Context)
+
+	// lifecycleCtx bounds out-of-band work started from pool callbacks to the
+	// application lifetime. The recovery handler performs database work, so it
+	// must be cancellable at shutdown instead of racing db.Close().
+	lifecycleCtx context.Context
+
+	// Health persistence runs outside p.mu on a strictly ordered single-drainer
+	// queue: repository I/O must never block the family-wide pool lock, and an
+	// older health snapshot must never overwrite a newer one.
+	persistMu      sync.Mutex
+	persistQueue   []healthPersistJob
+	persistRunning bool
+	// persistIdle is closed when the drainer goes idle, so a waiter can observe
+	// that nothing is queued or in flight any more without polling. It is
+	// non-nil exactly while persistRunning is true.
+	persistIdle chan struct{}
+	// persistSealed stops accepting new snapshots. A controlled shutdown seals
+	// the queue once the producers are down, which is what makes the flush
+	// behind it the final one: nothing can queue a write that would still be
+	// running when the pool is closed.
+	persistSealed bool
+	// persistInFlight is the session whose snapshot the drainer is writing right
+	// now, empty while it holds no write. persistInFlightDropped marks that this
+	// session was removed while its write ran, so the outcome is discarded
+	// instead of recording a failure against a session that no longer exists.
+	persistInFlight        string
+	persistInFlightDropped bool
+	// persistFailures holds, per session, the health snapshot that never reached
+	// the repository and has not been superseded since. Because HealthUpdate
+	// stores a complete snapshot, a later successful write for the same session
+	// resolves the entry - a success for a different session never does. Beyond
+	// that only removing the session clears an entry: a barrier merely reads the
+	// map, so a flush that gives up on its context cannot make an unresolved
+	// failure disappear for the next one.
+	persistFailures map[string]error
+}
+
+// healthPersistJob is one queued health snapshot write. A job with an empty
+// sessionID is a flush barrier and performs no repository call.
+type healthPersistJob struct {
+	sessionID string
+	update    HealthUpdate
+	done      chan struct{}
+	// result is set on barrier jobs only. The drainer fills it in before it
+	// closes done, so the waiting FlushHealthPersist reads it without a lock.
+	result *healthPersistResult
+}
+
+// healthPersistResult carries the unresolved failures a barrier observed among
+// the writes queued ahead of it.
+type healthPersistResult struct {
+	err error
 }
 
 // NewSessionPool initializes a SessionPool for the given provider family.
@@ -119,11 +199,57 @@ func (p *SessionPool) SetNow(fn func() time.Time) {
 	}
 }
 
+// Now returns the pool's current time (or overridden time if configured for testing).
+func (p *SessionPool) Now() time.Time {
+	if p == nil {
+		return time.Now().UTC()
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.now == nil {
+		return time.Now().UTC()
+	}
+	return p.now()
+}
+
 // SetSyncPersist enables synchronous repository health persistence for testing.
 func (p *SessionPool) SetSyncPersist(sync bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.syncPersist = sync
+}
+
+// SetRecoveryHandler installs an optional callback invoked when a session
+// is confirmed to have recovered its health via real media-path success.
+func (p *SessionPool) SetRecoveryHandler(fn func(ctx context.Context)) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.recoveryHandler = fn
+}
+
+// SetLifecycleContext binds recovery notifications to the application lifecycle.
+// Cancelling ctx aborts an in-flight recovery callback, so a slow or closing
+// database cannot hold a download worker - and therefore shutdown - open.
+// Without it the pool falls back to context.Background().
+func (p *SessionPool) SetLifecycleContext(ctx context.Context) {
+	if p == nil || ctx == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lifecycleCtx = ctx
+}
+
+// recoveryContextLocked derives the bounded, cancellable context handed to the
+// recovery handler.
+func (p *SessionPool) recoveryContextLocked() context.Context {
+	if p.lifecycleCtx != nil {
+		return p.lifecycleCtx
+	}
+	return context.Background()
 }
 
 // GlobalLimiter returns the provider family's global ceiling rate limiter.
@@ -215,6 +341,14 @@ func (p *SessionPool) ReloadSessions(sessions []Session) {
 		}
 	}
 
+	// Sessions the reload dropped are gone for the same reasons a delete removes
+	// one, so their pending and failed health state goes with them.
+	for id := range p.sessions {
+		if _, kept := newMap[id]; !kept {
+			p.forgetHealthPersistLocked(id)
+		}
+	}
+
 	p.sessions = newMap
 	p.sessionOrder = newOrder
 }
@@ -274,13 +408,35 @@ func (l *Lease) Session() Session {
 
 // Release releases the acquired lease and evaluates health state transitions based on err.
 // It is protected by sync.Once and is safe for double-release and defer calls.
+//
+// err must be attributable to this session: a nil err records a confirmed
+// success on it. Callers whose outcome was decided by something other than this
+// session must use ReleaseNeutral instead.
 func (l *Lease) Release(err error) {
 	if l == nil {
 		return
 	}
 	l.releaseOnce.Do(func() {
 		if l.pool != nil && l.session != nil {
-			l.pool.releaseLease(l.session, err)
+			l.pool.releaseLease(l.session, err, true)
+		}
+	})
+}
+
+// ReleaseNeutral releases the acquired lease without attributing any health
+// outcome to the session. It frees the concurrency slot and wakes waiters, but
+// records neither a success nor a failure.
+//
+// It is the correct release when the leased session did its own work without
+// fault yet the operation ended for an unrelated reason - an independent
+// provider cooldown, a cancellation, or a failure on another provider family.
+func (l *Lease) ReleaseNeutral() {
+	if l == nil {
+		return
+	}
+	l.releaseOnce.Do(func() {
+		if l.pool != nil && l.session != nil {
+			l.pool.releaseLease(l.session, nil, false)
 		}
 	})
 }
@@ -347,7 +503,7 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 			if p.storage != nil {
 				path, err := p.storage.ResolvePath(s.CookieRef)
 				if err != nil {
-					p.releaseLease(selected, err)
+					p.releaseLease(selected, err, true)
 					return nil, err
 				}
 				cookiePath = path
@@ -400,6 +556,9 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 
 func (p *SessionPool) sessionUnavailableLocked(now time.Time) error {
 	var retryAfter time.Duration
+	if !p.platformFailure.OccurredAt.IsZero() && now.Before(p.platformFailure.CooldownUntil) {
+		retryAfter = p.platformFailure.CooldownUntil.Sub(now)
+	}
 	for _, id := range p.sessionOrder {
 		rs := p.sessions[id]
 		if rs == nil {
@@ -517,15 +676,23 @@ func selectBestSession(candidates []*RuntimeSession, now time.Time, allowUnknown
 	return best
 }
 
-func (p *SessionPool) releaseLease(rs *RuntimeSession, err error) {
+// releaseLease frees rs's concurrency slot. When attributeHealth is false the
+// session's health state is left untouched, because the outcome was not caused
+// by this session.
+func (p *SessionPool) releaseLease(rs *RuntimeSession, err error, attributeHealth bool) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	now := p.now()
 	rs.Release()
-	p.updateSessionHealthLocked(rs, err, now)
+	var notify func()
+	if attributeHealth {
+		notify = p.updateSessionHealthLocked(rs, err, now, p.syncPersist)
+	}
 
 	if len(p.waiters) == 0 {
+		p.mu.Unlock()
+		if notify != nil {
+			notify()
+		}
 		return
 	}
 
@@ -534,6 +701,10 @@ func (p *SessionPool) releaseLease(rs *RuntimeSession, err error) {
 	if selected != nil {
 		// A session is ready to accept a lease: wake the next waiter in FIFO order
 		p.wakeOneWaiterLocked()
+		p.mu.Unlock()
+		if notify != nil {
+			notify()
+		}
 		return
 	}
 
@@ -550,6 +721,10 @@ func (p *SessionPool) releaseLease(rs *RuntimeSession, err error) {
 		// Drain all waiters so they return SESSION_NOT_FOUND promptly without starving.
 		p.drainWaitersLocked()
 	}
+	p.mu.Unlock()
+	if notify != nil {
+		notify()
+	}
 }
 
 // RecordOutcome records the outcome of an operation (such as download) executed
@@ -559,14 +734,18 @@ func (p *SessionPool) RecordOutcome(sessionID string, err error) {
 		return
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	rs, ok := p.sessions[sessionID]
 	if !ok || rs == nil {
+		p.mu.Unlock()
 		return
 	}
 	now := p.now()
-	p.updateSessionHealthLocked(rs, err, now)
+	notify := p.updateSessionHealthLocked(rs, err, now, p.syncPersist)
+	p.mu.Unlock()
+
+	if notify != nil {
+		notify()
+	}
 }
 
 // GetSession retrieves the RuntimeSession for the given session ID, or nil if not present.
@@ -635,6 +814,10 @@ func (p *SessionPool) RemoveSession(sessionID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// The row is already gone by the time the service gets here, so queued or
+	// recorded health state for it can never reach the database again.
+	p.forgetHealthPersistLocked(sessionID)
+
 	delete(p.sessions, sessionID)
 	for i, id := range p.sessionOrder {
 		if id == sessionID {
@@ -692,14 +875,17 @@ func (p *SessionPool) RecordSuccess(ctx context.Context, sessionID string, now t
 		return
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.platformFailure = PlatformFailure{}
 	rs, ok := p.sessions[sessionID]
 	if !ok || rs == nil {
+		p.mu.Unlock()
 		return
 	}
-	p.updateSessionHealthLocked(rs, nil, now)
+	notify := p.updateSessionHealthLocked(rs, nil, now, true)
+	p.mu.Unlock()
+
+	if notify != nil {
+		notify()
+	}
 }
 
 // RecordFailure records a failure on a session.
@@ -708,13 +894,17 @@ func (p *SessionPool) RecordFailure(ctx context.Context, sessionID string, err e
 		return
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	rs, ok := p.sessions[sessionID]
 	if !ok || rs == nil {
+		p.mu.Unlock()
 		return
 	}
-	p.updateSessionHealthLocked(rs, err, now)
+	notify := p.updateSessionHealthLocked(rs, err, now, true)
+	p.mu.Unlock()
+
+	if notify != nil {
+		notify()
+	}
 }
 
 // ResolveCookiePath returns the filesystem cookie path for a given session ID,
@@ -754,6 +944,107 @@ func (p *SessionPool) HasConfiguredSessions() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.sessions) > 0
+}
+
+// Availability reports the operational availability status of the pool.
+func (p *SessionPool) Availability() PoolAvailability {
+	if p == nil {
+		return PoolAvailability{State: PoolStateNoUsableSession, Reason: "pool is nil"}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := p.now()
+	if !p.platformFailure.OccurredAt.IsZero() && now.Before(p.platformFailure.CooldownUntil) {
+		wait := p.platformFailure.CooldownUntil.Sub(now)
+		if wait < 5*time.Second {
+			wait = 5 * time.Second
+		}
+		return PoolAvailability{
+			State:      PoolStateCooling,
+			RetryAfter: wait,
+			Reason:     "platform protection cooldown",
+		}
+	}
+
+	hasConfigured := false
+	candidateList := make([]*RuntimeSession, 0, len(p.sessions))
+	for _, id := range p.sessionOrder {
+		rs := p.sessions[id]
+		if rs == nil {
+			continue
+		}
+		s := rs.Session()
+		if s.Enabled && strings.TrimSpace(s.CookieRef) != "" {
+			hasConfigured = true
+		}
+		candidateList = append(candidateList, rs)
+	}
+
+	if !hasConfigured {
+		return PoolAvailability{
+			State:  PoolStateNoUsableSession,
+			Reason: "no enabled sessions with configured credentials",
+		}
+	}
+
+	selected := selectBestSession(candidateList, now, p.cfg.AllowUnknown)
+	if selected != nil {
+		return PoolAvailability{State: PoolStateEligible}
+	}
+
+	totalActiveLeases := 0
+	for _, rs := range candidateList {
+		totalActiveLeases += rs.CurrentLeases()
+	}
+	if totalActiveLeases > 0 {
+		return PoolAvailability{State: PoolStateCapacityConstrained}
+	}
+
+	var retryAfter time.Duration
+	for _, rs := range candidateList {
+		s := rs.Session()
+		if !s.Enabled || strings.TrimSpace(s.CookieRef) == "" || s.CooldownUntil == nil || !s.CooldownUntil.After(now) {
+			continue
+		}
+		if wait := s.CooldownUntil.Sub(now); retryAfter == 0 || wait < retryAfter {
+			retryAfter = wait
+		}
+	}
+	if retryAfter > 0 {
+		if retryAfter < 5*time.Second {
+			retryAfter = 5 * time.Second
+		}
+		return PoolAvailability{
+			State:      PoolStateCooling,
+			RetryAfter: retryAfter,
+			Reason:     "sessions in cooldown",
+		}
+	}
+
+	return PoolAvailability{
+		State:  PoolStateNoUsableSession,
+		Reason: "no eligible media sessions available in pool",
+	}
+}
+
+// HasEligibleSession reports whether the pool currently has at least one session
+// eligible for work (or active leases in flight), and if not, returns the duration
+// until the earliest session cooldown expires. If no session is cooling and none is
+// eligible, it returns (false, 0).
+func (p *SessionPool) HasEligibleSession() (bool, time.Duration) {
+	if p == nil {
+		return false, 0
+	}
+	avail := p.Availability()
+	switch avail.State {
+	case PoolStateEligible, PoolStateCapacityConstrained:
+		return true, 0
+	case PoolStateCooling:
+		return false, avail.RetryAfter
+	default:
+		return false, 0
+	}
 }
 
 // AcquireDataPlane acquires exclusive data-plane execution on sessionID's writable cookie file.
@@ -847,31 +1138,70 @@ func (p *SessionPool) IsInUse(sessionID string) bool {
 	return false
 }
 
-func (p *SessionPool) updateSessionHealthLocked(rs *RuntimeSession, err error, now time.Time) {
+// healthUpdateOf snapshots the complete health state of s for persistence.
+//
+// repo.UpdateHealth rewrites every health column, so a partial HealthUpdate does
+// not "leave a field alone" - it nulls it. Persisting the full in-memory snapshot
+// is what keeps the SessionPool and the database in the same state after every
+// transition, and what makes a reload reproduce the pre-restart pool state.
+func healthUpdateOf(s Session) HealthUpdate {
+	return HealthUpdate{
+		HealthStatus:        s.HealthStatus,
+		ConsecutiveFailures: s.ConsecutiveFailures,
+		LastUsedAt:          s.LastUsedAt,
+		LastSuccessAt:       s.LastSuccessAt,
+		LastFailureAt:       s.LastFailureAt,
+		LastFailureReason:   s.LastFailureReason,
+		CooldownUntil:       s.CooldownUntil,
+	}
+}
+
+func (p *SessionPool) updateSessionHealthLocked(rs *RuntimeSession, err error, now time.Time, sync bool) func() {
 	s := rs.Session()
 	var healthUpdated bool
 	var update HealthUpdate
+	var notifyRecovery func()
 
 	if err == nil {
-		// Confirmed success: transition UNKNOWN -> HEALTHY, clear failures and cooldowns
+		// Confirmed success: transition UNKNOWN -> HEALTHY, clear failures and cooldowns.
+		// LastFailureAt is cleared together with LastFailureReason: repo.UpdateHealth
+		// overwrites every health column, so leaving the timestamp in memory would
+		// make the pool disagree with the row it just wrote.
 		prevStatus := s.HealthStatus
+		prevFailures := s.ConsecutiveFailures
+		prevLastFailureAt := s.LastFailureAt
+		prevLastFailureReason := s.LastFailureReason
+		prevCooldownUntil := s.CooldownUntil
+
 		s.HealthStatus = HealthHealthy
 		s.ConsecutiveFailures = 0
 		s.LastSuccessAt = &now
 		s.LastUsedAt = &now
+		s.LastFailureAt = nil
 		s.LastFailureReason = ""
 		s.CooldownUntil = nil
 		s.UpdatedAt = now
 		rs.UpdateSession(s)
 
-		if prevStatus != HealthHealthy {
+		statusChanged := prevStatus != HealthHealthy
+		failureCleared := prevFailures != 0 || prevLastFailureAt != nil || prevLastFailureReason != "" || prevCooldownUntil != nil
+		hadPlatformFailure := !p.platformFailure.OccurredAt.IsZero()
+
+		if statusChanged || failureCleared {
 			healthUpdated = true
-			update = HealthUpdate{
-				HealthStatus:        s.HealthStatus,
-				ConsecutiveFailures: s.ConsecutiveFailures,
-				LastUsedAt:          s.LastUsedAt,
-				LastSuccessAt:       s.LastSuccessAt,
-				CooldownUntil:       nil,
+			update = healthUpdateOf(s)
+		}
+
+		if statusChanged || hadPlatformFailure {
+			p.platformFailure = PlatformFailure{}
+			if p.recoveryHandler != nil {
+				h := p.recoveryHandler
+				base := p.recoveryContextLocked()
+				notifyRecovery = func() {
+					ctx, cancel := context.WithTimeout(base, recoveryNotifyTimeout)
+					defer cancel()
+					h(ctx)
+				}
 			}
 		}
 	} else {
@@ -898,6 +1228,7 @@ func (p *SessionPool) updateSessionHealthLocked(rs *RuntimeSession, err error, n
 
 		case scope == apperr.ScopeSession:
 			// Session-specific failure
+			prevStatus := s.HealthStatus
 			s.ConsecutiveFailures++
 			s.LastFailureAt = &now
 			s.LastFailureReason = sanitizeFailureReason(err)
@@ -911,12 +1242,9 @@ func (p *SessionPool) updateSessionHealthLocked(rs *RuntimeSession, err error, n
 
 			case apperr.CodeSessionBotChallenge:
 				s.HealthStatus = HealthBotChallenge
-				if s.ConsecutiveFailures == 1 {
-					until := now.Add(24 * time.Hour)
-					s.CooldownUntil = &until
-				} else {
-					s.CooldownUntil = nil // Review required
-				}
+				cd := calculateBotChallengeCooldown(prevStatus == HealthBotChallenge)
+				until := now.Add(cd)
+				s.CooldownUntil = &until
 
 			case apperr.CodeSessionAuthFailed:
 				s.HealthStatus = HealthAuthFailed
@@ -925,30 +1253,312 @@ func (p *SessionPool) updateSessionHealthLocked(rs *RuntimeSession, err error, n
 
 			rs.UpdateSession(s)
 			healthUpdated = true
-			update = HealthUpdate{
-				HealthStatus:        s.HealthStatus,
-				ConsecutiveFailures: s.ConsecutiveFailures,
-				LastUsedAt:          s.LastUsedAt,
-				LastFailureAt:       s.LastFailureAt,
-				LastFailureReason:   s.LastFailureReason,
-				CooldownUntil:       s.CooldownUntil,
-			}
+			update = healthUpdateOf(s)
 		default:
 			rs.UpdateSession(s)
 		}
 	}
 
-	// Persist health update if repository available and session is persisted
-	if healthUpdated && p.repo != nil && s.ID != LegacySessionID {
-		sessionID := s.ID
-		if p.syncPersist {
-			_, _ = p.repo.UpdateHealth(context.Background(), sessionID, update)
-		} else {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				_, _ = p.repo.UpdateHealth(ctx, sessionID, update)
-			}()
+	// Queue the health snapshot for persistence. Enqueueing performs no I/O, so
+	// it is safe under p.mu; the actual repository write happens on the ordered
+	// drainer after the caller has released the pool lock. Only a live session
+	// may queue one: the in-memory transition above is harmless on a runtime
+	// session nobody can reach any more, but its write would fail against a row
+	// that is gone and leave an unresolvable failure behind.
+	var persisted <-chan struct{}
+	if healthUpdated && p.repo != nil && s.ID != LegacySessionID && p.sessionIsLiveLocked(s.ID, rs) {
+		persisted = p.enqueueHealthPersistLocked(s.ID, update)
+	}
+
+	waitForPersist := sync && persisted != nil
+	if !waitForPersist && notifyRecovery == nil {
+		return nil
+	}
+
+	return func() {
+		if waitForPersist {
+			<-persisted
+		}
+		if notifyRecovery != nil {
+			notifyRecovery()
+		}
+	}
+}
+
+// sessionIsLiveLocked reports whether rs is still the pool's runtime session for
+// id. Callers must hold p.mu.
+//
+// A Lease holds its RuntimeSession directly and never looks the id up again, so
+// it can outlive both the removal of that session and a later session created
+// under the same id. Comparing identity rather than merely the id separates the
+// two: the orphaned runtime session of a deleted row is rejected, while the
+// session a reload or an upsert carried over keeps the very same pointer and is
+// unaffected. Every RuntimeSession the pool hands out is inserted into p.sessions
+// when it is created, so no live session is ever missed here.
+func (p *SessionPool) sessionIsLiveLocked(id string, rs *RuntimeSession) bool {
+	current, ok := p.sessions[id]
+	return ok && current == rs
+}
+
+// enqueueHealthPersistLocked appends a health snapshot to the ordered persistence
+// queue and starts the drainer if it is idle. It performs no blocking I/O and is
+// safe to call while p.mu is held. The returned channel is closed once this exact
+// snapshot has been written; it is nil once the queue has been sealed for
+// shutdown and the snapshot is therefore not going to be written at all.
+func (p *SessionPool) enqueueHealthPersistLocked(sessionID string, update HealthUpdate) <-chan struct{} {
+	p.persistMu.Lock()
+	defer p.persistMu.Unlock()
+
+	if p.persistSealed {
+		// The final flush has already claimed everything that can still reach
+		// the database. Queueing behind it would only race the teardown.
+		return nil
+	}
+
+	job := healthPersistJob{sessionID: sessionID, update: update, done: make(chan struct{})}
+	p.persistQueue = append(p.persistQueue, job)
+	p.startHealthDrainerLocked()
+
+	return job.done
+}
+
+// startHealthDrainerLocked starts the single drainer unless one is already
+// running. Callers must hold p.persistMu. Pairing the running flag with a fresh
+// idle channel in one place keeps the two in step, so persistIdle is non-nil
+// exactly while a drainer is alive.
+func (p *SessionPool) startHealthDrainerLocked() {
+	if p.persistRunning {
+		return
+	}
+	p.persistRunning = true
+	p.persistIdle = make(chan struct{})
+	go p.drainHealthPersist()
+}
+
+// SealHealthPersist stops accepting new health snapshots for persistence.
+// A controlled shutdown seals the queue once the producers are down and before
+// the final flush: that is what makes the flush final, because nothing can queue
+// a write behind it that would still be running when the pool is closed.
+// Snapshots already queued are unaffected and still drain in FIFO order.
+func (p *SessionPool) SealHealthPersist() {
+	if p == nil {
+		return
+	}
+	p.persistMu.Lock()
+	p.persistSealed = true
+	p.persistMu.Unlock()
+}
+
+// forgetHealthPersistLocked drops every trace of sessionID from the health
+// persistence machinery: the snapshots still queued for a row that is already
+// gone, the outcome of a write that is in flight right now, and any failure
+// recorded for it. Callers must hold p.mu.
+//
+// Without it a session deleted between the enqueue and the write leaves a
+// SessionNotFound failure behind that no later snapshot for that session can
+// ever supersede, so every flush from then on reports the same dead session and
+// the failure map grows with every delete.
+func (p *SessionPool) forgetHealthPersistLocked(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	p.persistMu.Lock()
+	kept := p.persistQueue[:0]
+	var abandoned []chan struct{}
+	for _, job := range p.persistQueue {
+		// Barriers carry no session and must survive: dropping one would leave
+		// a flush waiting for a write that is never going to happen.
+		if job.sessionID == sessionID {
+			abandoned = append(abandoned, job.done)
+			continue
+		}
+		kept = append(kept, job)
+	}
+	p.persistQueue = kept
+	if p.persistInFlight == sessionID {
+		p.persistInFlightDropped = true
+	}
+	delete(p.persistFailures, sessionID)
+	p.persistMu.Unlock()
+
+	// The waiters are synchronous HealthUpdate callers, never the drainer, so
+	// releasing them here cannot deadlock the queue.
+	for _, done := range abandoned {
+		close(done)
+	}
+}
+
+// drainHealthPersist writes queued health snapshots strictly in transition order.
+// Exactly one drainer runs at a time, so a stale snapshot can never overwrite a
+// newer status or cooldown. Every snapshot gets exactly one bounded attempt -
+// retrying here would delay shutdown without bound - and a failed attempt is
+// recorded for the next barrier instead of being discarded. It never takes p.mu
+// and never performs repository I/O while holding p.persistMu.
+func (p *SessionPool) drainHealthPersist() {
+	for {
+		p.persistMu.Lock()
+		if len(p.persistQueue) == 0 {
+			p.persistRunning = false
+			if p.persistIdle != nil {
+				close(p.persistIdle)
+				p.persistIdle = nil
+			}
+			p.persistMu.Unlock()
+			return
+		}
+		job := p.persistQueue[0]
+		p.persistQueue = p.persistQueue[1:]
+
+		if job.sessionID == "" {
+			// Barrier: report what is still unresolved among the writes queued
+			// ahead of it. Reading is all it does - consuming here would lose the
+			// state whenever the waiting flush has already given up on its
+			// context and nobody reads the result.
+			if job.result != nil {
+				job.result.err = p.unresolvedPersistErrorLocked()
+			}
+			p.persistMu.Unlock()
+			close(job.done)
+			continue
+		}
+		// Publish the write, so a removal that lands while it runs can discard
+		// its outcome instead of recording a failure for a session that is gone.
+		p.persistInFlight = job.sessionID
+		p.persistInFlightDropped = false
+		p.persistMu.Unlock()
+
+		var (
+			attempted bool
+			err       error
+		)
+		if p.repo != nil {
+			attempted = true
+			ctx, cancel := context.WithTimeout(context.Background(), healthPersistTimeout)
+			_, err = p.repo.UpdateHealth(ctx, job.sessionID, job.update)
+			cancel()
+		}
+
+		p.persistMu.Lock()
+		dropped := p.persistInFlightDropped
+		p.persistInFlight = ""
+		p.persistInFlightDropped = false
+		switch {
+		case !attempted || dropped:
+			// Either nothing was written at all, or the session was removed
+			// underneath the write. In both cases there is no snapshot state
+			// left worth tracking for it.
+		case err != nil:
+			if _, seen := p.persistFailures[job.sessionID]; !seen {
+				if p.persistFailures == nil {
+					p.persistFailures = make(map[string]error)
+				}
+				p.persistFailures[job.sessionID] = fmt.Errorf(
+					"persist health snapshot for session %s: %w", job.sessionID, err)
+			}
+		default:
+			// The write stored a complete snapshot for this session, so
+			// whatever failed for it earlier is superseded. Sessions that
+			// did not get a new snapshot stay unresolved.
+			delete(p.persistFailures, job.sessionID)
+		}
+		p.persistMu.Unlock()
+		close(job.done)
+	}
+}
+
+// unresolvedPersistErrorLocked summarises the health snapshots that never
+// reached the repository and have not been superseded by a later write for the
+// same session. Callers must hold p.persistMu.
+func (p *SessionPool) unresolvedPersistErrorLocked() error {
+	if len(p.persistFailures) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(p.persistFailures))
+	for id := range p.persistFailures {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	joined := make([]error, 0, len(ids))
+	for _, id := range ids {
+		joined = append(joined, p.persistFailures[id])
+	}
+	return errors.Join(joined...)
+}
+
+// FlushHealthPersist blocks until every health snapshot queued before the call
+// has been written, or until ctx is done. It then reports the snapshots that are
+// still missing from the repository: a failed write for a session that a later
+// write did not supersede. Snapshots queued after the call belong to the next
+// flush. A nil return therefore means the pending health state reached the
+// database, not merely that the queue drained. An unresolved failure keeps being
+// reported until a successful snapshot for that session replaces it, so neither
+// a cancelled flush nor a success for an unrelated session can lose it.
+func (p *SessionPool) FlushHealthPersist(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
+
+	p.persistMu.Lock()
+	if !p.persistRunning && len(p.persistQueue) == 0 {
+		err := p.unresolvedPersistErrorLocked()
+		p.persistMu.Unlock()
+		return err
+	}
+	result := &healthPersistResult{}
+	barrier := healthPersistJob{done: make(chan struct{}), result: result}
+	p.persistQueue = append(p.persistQueue, barrier)
+	p.startHealthDrainerLocked()
+	p.persistMu.Unlock()
+
+	select {
+	case <-barrier.done:
+		return result.err
+	case <-ctx.Done():
+		select {
+		case <-barrier.done:
+			return result.err
+		default:
+			return ctx.Err()
+		}
+	}
+}
+
+// AwaitHealthPersistIdle reports whether health persistence has come to rest:
+// nothing queued, and no repository write in flight. It waits for that state
+// until ctx is done.
+//
+// The answer comes from the pool's own state, never from ctx: a flush over an
+// already drained queue returns instantly even on an expired deadline, so an
+// expired deadline on its own is no evidence that a write is still running. A
+// caller that has to decide whether the connection pool may be torn down must
+// ask this rather than inspect its own context.
+func (p *SessionPool) AwaitHealthPersistIdle(ctx context.Context) bool {
+	if p == nil {
+		return true
+	}
+	for {
+		p.persistMu.Lock()
+		if !p.persistRunning && len(p.persistQueue) == 0 {
+			p.persistMu.Unlock()
+			return true
+		}
+		idle := p.persistIdle
+		p.persistMu.Unlock()
+
+		if idle == nil {
+			// A non-empty queue without a drainer cannot happen - both enqueue
+			// paths start one under the same lock - but nothing would ever
+			// drain it, so "busy" is the only safe answer.
+			return false
+		}
+		select {
+		case <-idle:
+			// The drainer went idle; confirm under the lock, because a new
+			// snapshot may have started another one in the meantime.
+		case <-ctx.Done():
+			return false
 		}
 	}
 }
@@ -969,6 +1579,15 @@ func calculateRateLimitCooldown(failures int) time.Duration {
 	default:
 		return 1 * time.Hour
 	}
+}
+
+// calculateBotChallengeCooldown computes bounded cooldown for bot challenge events.
+// First challenge: 24h. Repeated/subsequent challenges: 72h.
+func calculateBotChallengeCooldown(isRepeat bool) time.Duration {
+	if !isRepeat {
+		return botChallengeInitialCooldown
+	}
+	return botChallengeRepeatedCooldown
 }
 
 // sanitizeFailureReason ensures that no raw stderr, auth secrets, cookies,
