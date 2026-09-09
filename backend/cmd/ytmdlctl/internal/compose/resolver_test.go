@@ -164,7 +164,7 @@ func TestResolveOverrideNotTreatedAsCandidate(t *testing.T) {
 
 	res, err := compose.Resolve(compose.ResolveOptions{
 		ProjectDir: tmpDir,
-		IsMutating:  true,
+		IsMutating: true,
 	})
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
@@ -179,4 +179,3 @@ func TestResolveOverrideNotTreatedAsCandidate(t *testing.T) {
 		t.Errorf("Candidates = %v, want [compose.ghcr.yaml]", res.Candidates)
 	}
 }
-
