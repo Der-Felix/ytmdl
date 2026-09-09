@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -712,3 +715,184 @@ func TestVerifyBothExpectedDigests(t *testing.T) {
 		})
 	}
 }
+
+func TestComposeArgs(t *testing.T) {
+	t.Run("without override file present", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		got := engine.ComposeArgs(tmpDir, "compose.ghcr.yaml")
+		want := []string{"compose", "-f", "compose.ghcr.yaml"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("with compose.ghcr.override.yaml present", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		overridePath := filepath.Join(tmpDir, "compose.ghcr.override.yaml")
+		if err := os.WriteFile(overridePath, []byte("services: {}\n"), 0644); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+
+		got := engine.ComposeArgs(tmpDir, "compose.ghcr.yaml")
+		want := []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("with absolute compose path and override present", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		absCompose := filepath.Join(tmpDir, "compose.ghcr.yaml")
+		overridePath := filepath.Join(tmpDir, "compose.ghcr.override.yaml")
+		if err := os.WriteFile(overridePath, []byte("services: {}\n"), 0644); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+
+		got := engine.ComposeArgs(tmpDir, absCompose)
+		want := []string{"compose", "-f", absCompose, "-f", overridePath}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("different compose file does not include ghcr override", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		overridePath := filepath.Join(tmpDir, "compose.ghcr.override.yaml")
+		if err := os.WriteFile(overridePath, []byte("services: {}\n"), 0644); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+
+		got := engine.ComposeArgs(tmpDir, "compose.yaml")
+		want := []string{"compose", "-f", "compose.yaml"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("override is a directory not a file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		overrideDir := filepath.Join(tmpDir, "compose.ghcr.override.yaml")
+		if err := os.Mkdir(overrideDir, 0755); err != nil {
+			t.Fatalf("Mkdir failed: %v", err)
+		}
+
+		got := engine.ComposeArgs(tmpDir, "compose.ghcr.yaml")
+		want := []string{"compose", "-f", "compose.ghcr.yaml"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+}
+
+func TestEngineCommandsWithComposeOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	overridePath := filepath.Join(tmpDir, "compose.ghcr.override.yaml")
+	if err := os.WriteFile(overridePath, []byte("services: {}\n"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	fake := runner.NewFake()
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "ps", "--format", "{{.Service}}"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte("backend\nfrontend\n"),
+	}, nil)
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "port", "frontend", "8080"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte("0.0.0.0:8080\n"),
+	}, nil)
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "config"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte("name: test\n"),
+	}, nil)
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "pull", "backend"}, &runner.RunResult{
+		ExitCode: 0,
+	}, nil)
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "up", "-d", "--no-deps", "backend"}, &runner.RunResult{
+		ExitCode: 0,
+	}, nil)
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "stop", "backend"}, &runner.RunResult{
+		ExitCode: 0,
+	}, nil)
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "ps", "-q", "backend"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte("c12345\n"),
+	}, nil)
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "ps", "--status", "running"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte("backend\n"),
+	}, nil)
+	fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "exec", "-T", "backend", "echo", "hello"}, &runner.RunResult{
+		ExitCode: 0,
+		Stdout:   []byte("hello\n"),
+	}, nil)
+
+	eng := engine.NewDocker(fake)
+	ctx := context.Background()
+
+	// 1. IsServiceRunning
+	running, err := eng.IsServiceRunning(ctx, tmpDir, "compose.ghcr.yaml", "backend")
+	if err != nil {
+		t.Fatalf("IsServiceRunning failed: %v", err)
+	}
+	if !running {
+		t.Errorf("expected backend to be running")
+	}
+
+	// 2. Port
+	port, err := eng.Port(ctx, tmpDir, "compose.ghcr.yaml", "frontend", 8080)
+	if err != nil {
+		t.Fatalf("Port failed: %v", err)
+	}
+	if port != "0.0.0.0:8080" {
+		t.Errorf("Port = %q, want 0.0.0.0:8080", port)
+	}
+
+	// 3. Config
+	res, err := eng.Config(ctx, tmpDir, "compose.ghcr.yaml", nil)
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("Config failed: %v", err)
+	}
+
+	// 4. Pull
+	res, err = eng.Pull(ctx, tmpDir, "compose.ghcr.yaml", nil, "backend")
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("Pull failed: %v", err)
+	}
+
+	// 5. UpServices
+	res, err = eng.UpServices(ctx, tmpDir, "compose.ghcr.yaml", nil, "backend")
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("UpServices failed: %v", err)
+	}
+
+	// 6. StopServices
+	res, err = eng.StopServices(ctx, tmpDir, "compose.ghcr.yaml", "backend")
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("StopServices failed: %v", err)
+	}
+
+	// 7. GetServiceContainerID
+	cid, err := eng.GetServiceContainerID(ctx, tmpDir, "compose.ghcr.yaml", "backend")
+	if err != nil {
+		t.Fatalf("GetServiceContainerID failed: %v", err)
+	}
+	if cid != "c12345" {
+		t.Errorf("cid = %q, want c12345", cid)
+	}
+
+	// 8. PS
+	res, err = eng.PS(ctx, tmpDir, "compose.ghcr.yaml", "--status", "running")
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("PS failed: %v", err)
+	}
+
+	// 9. Exec
+	res, err = eng.Exec(ctx, tmpDir, "compose.ghcr.yaml", "backend", nil, "echo", "hello")
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("Exec failed: %v", err)
+	}
+	if strings.TrimSpace(string(res.Stdout)) != "hello" {
+		t.Errorf("Exec output = %q, want hello", string(res.Stdout))
+	}
+}
+

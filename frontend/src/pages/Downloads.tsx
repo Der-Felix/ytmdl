@@ -223,18 +223,34 @@ function Downloads({ jobId }: DownloadsPageProps) {
       </header>
 
       {/* Live Queue ETA and Worker Previews */}
-      {summaryState.status === 'success' && (
+      {summary && (
         <section aria-label="Warteschlangen-Status und Vorschau" className="space-y-4">
-          <QueueSummaryCard summary={summaryState.data} />
+          {summaryState.status === 'error' && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300">
+              <div className="flex items-start sm:items-center gap-2 min-w-0">
+                <AlertTriangleIcon className="size-4 shrink-0 mt-0.5 sm:mt-0" />
+                <span className="leading-relaxed">Hintergrundaktualisierung fehlgeschlagen — angezeigte Warteschlangendaten sind möglicherweise veraltet.</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={reloadSummary}
+                className="h-7 self-start sm:self-auto shrink-0 text-xs text-amber-200 hover:text-white hover:bg-amber-500/20"
+              >
+                Erneut versuchen
+              </Button>
+            </div>
+          )}
+          <QueueSummaryCard summary={summary} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <ActiveWorkersCard workers={summaryState.data.current} />
-            <NextUpCard jobs={summaryState.data.next} />
+            <ActiveWorkersCard workers={summary.current} />
+            <NextUpCard jobs={summary.next} />
           </div>
         </section>
       )}
 
-      {summaryState.status === 'loading' && (
+      {!summary && summaryState.status === 'loading' && (
         <div className="space-y-4" aria-busy="true">
           <div className="h-44 rounded-xl border border-border/50 bg-white/[0.02] animate-pulse" />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -242,6 +258,12 @@ function Downloads({ jobId }: DownloadsPageProps) {
             <div className="h-40 rounded-xl border border-border/50 bg-white/[0.02] animate-pulse" />
           </div>
         </div>
+      )}
+
+      {!summary && summaryState.status === 'error' && (
+        <Panel className="p-4 sm:p-5">
+          <ErrorState error={summaryState.error} onRetry={reloadSummary} />
+        </Panel>
       )}
 
       {/* Filter Toolbar */}

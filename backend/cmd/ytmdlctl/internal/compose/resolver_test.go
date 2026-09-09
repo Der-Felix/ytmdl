@@ -156,3 +156,27 @@ func TestResolveNoComposeFilesFound(t *testing.T) {
 		t.Fatalf("got %v, want ErrNoComposeFound", err)
 	}
 }
+
+func TestResolveOverrideNotTreatedAsCandidate(t *testing.T) {
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmpDir, "compose.ghcr.yaml"), []byte("services: {}"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "compose.ghcr.override.yaml"), []byte("services: {}"), 0644)
+
+	res, err := compose.Resolve(compose.ResolveOptions{
+		ProjectDir: tmpDir,
+		IsMutating:  true,
+	})
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if res.SelectedFile != "compose.ghcr.yaml" {
+		t.Errorf("SelectedFile = %q, want compose.ghcr.yaml", res.SelectedFile)
+	}
+	if res.IsAmbiguous {
+		t.Errorf("expected IsAmbiguous == false, got true")
+	}
+	if len(res.Candidates) != 1 || res.Candidates[0] != "compose.ghcr.yaml" {
+		t.Errorf("Candidates = %v, want [compose.ghcr.yaml]", res.Candidates)
+	}
+}
+

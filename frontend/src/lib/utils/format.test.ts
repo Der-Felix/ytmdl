@@ -4,6 +4,7 @@ import {
   formatContinuationTime,
   formatDuration,
   formatNumber,
+  formatPlaybackTime,
   formatYear,
   joinArtists,
   pluralize,
@@ -20,6 +21,22 @@ describe('formatDuration', () => {
   it('formats hours into h:mm:ss', () => {
     expect(formatDuration(3661000)).toBe('1:01:01')
     expect(formatDuration(7322000)).toBe('2:02:02')
+  })
+})
+
+describe('formatPlaybackTime', () => {
+  it('formats elapsed seconds including valid zero as 0:00', () => {
+    expect(formatPlaybackTime(0)).toBe('0:00')
+    expect(formatPlaybackTime(0.4)).toBe('0:00')
+    expect(formatPlaybackTime(5)).toBe('0:05')
+    expect(formatPlaybackTime(65)).toBe('1:05')
+    expect(formatPlaybackTime(3665)).toBe('1:01:05')
+  })
+
+  it('safely handles negative or invalid inputs with 0:00', () => {
+    expect(formatPlaybackTime(-10)).toBe('0:00')
+    expect(formatPlaybackTime(NaN)).toBe('0:00')
+    expect(formatPlaybackTime(Infinity)).toBe('0:00')
   })
 })
 

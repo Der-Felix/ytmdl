@@ -16,6 +16,22 @@ export function formatDuration(ms: number): string {
   return `${minutes}:${padded}`
 }
 
+/** Formats elapsed playback time in seconds (0 -> "0:00", 65 -> "1:05"). Always formats valid non-negative numbers as time. */
+export function formatPlaybackTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
+
+  const totalSeconds = Math.floor(seconds)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const secs = totalSeconds % 60
+
+  const padded = secs.toString().padStart(2, '0')
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${padded}`
+  }
+  return `${minutes}:${padded}`
+}
+
 /** "1.234" with German grouping. */
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat('de-DE').format(value)

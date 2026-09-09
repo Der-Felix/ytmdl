@@ -2,6 +2,12 @@
 
 > **Self-hosted music downloader, library manager, and web player.**
 
+> [!WARNING]
+> **Development Snapshot (`dev` Branch)**  
+> This branch reflects the ongoing, unreleased development state of YTMDL. It is **not a stable release**.  
+> Official prebuilt container images (`ghcr.io/der-felix/ytmdl-*`) correspond only to tagged releases and do **not** contain the unreleased changes on this branch.  
+> To test or run this development state, you must clone this repository on the `dev` branch and build the container images locally from source using `compose.yaml` (see below).
+
 YTMDL lets you build, automate, and stream a personal music library from a modern web interface. It combines artist discography discovery, automated subscriptions, metadata enrichment, synchronized lyrics, and an integrated audio player with parametric EQ and audio DSP.
 
 [![Latest Release](https://img.shields.io/github/v/release/Der-Felix/ytmdl?label=release)](https://github.com/Der-Felix/ytmdl/releases)
@@ -34,19 +40,18 @@ YTMDL is an independent, self-hosted web application designed to help you build 
 
 ---
 
-## Quick Start
+## Quick Start (Development Build)
 
-The recommended way to deploy YTMDL is using official prebuilt container images from the GitHub Container Registry. No local compilation or build dependencies are required.
+Because prebuilt container images on GHCR represent stable releases, running this development snapshot requires cloning the `dev` branch and building the containers locally from source.
 
-### 1. Download Compose Configuration
+### 1. Clone Development Branch
 
 ```sh
-# Create project folder
-mkdir -p ytmdl && cd ytmdl
+# Clone repository on dev branch
+git clone -b dev https://github.com/Der-Felix/ytmdl.git
+cd ytmdl
 
-# Download compose file and sample environment
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.26.0/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.26.0/.env.example
+# Prepare environment configuration
 cp .env.example .env
 ```
 
@@ -55,9 +60,6 @@ cp .env.example .env
 Edit `.env` to set your music storage path and database password:
 
 ```env
-# Pin a stable release (recommended) or use 'latest'
-YTMDL_VERSION=0.26.0
-
 # Path to your local music directory or host-mounted SMB/CIFS share
 YTMDL_MUSIC_PATH=/path/to/your/music
 
@@ -66,16 +68,16 @@ POSTGRES_PASSWORD=replace_with_a_secure_password
 MUSICDL_DATABASE_URL=postgres://ytmdl:replace_with_a_secure_password@db:5432/ytmdl?sslmode=disable
 ```
 
-### 3. Start the Stack
+### 3. Build and Start from Source
 
-Start the containers using Docker Compose or Podman Compose:
+Start the containers using local source builds via `compose.yaml`:
 
 ```sh
 # Using Docker Compose:
-docker compose -f compose.ghcr.yaml up -d
+docker compose -f compose.yaml up -d --build
 
 # Or using Podman Compose:
-podman compose -f compose.ghcr.yaml up -d
+podman compose -f compose.yaml up -d --build
 ```
 
 ### 4. Access the Web Interface
@@ -138,7 +140,10 @@ Full documentation, configuration guides, and architecture references are availa
 
 ## Container Distribution
 
-Official container images are published to the GitHub Container Registry (GHCR) with multi-architecture support for `linux/amd64` and `linux/arm64`.
+Official prebuilt container images are published to the GitHub Container Registry (GHCR) for stable releases with multi-architecture support for `linux/amd64` and `linux/arm64`.
+
+> [!NOTE]
+> Prebuilt images reflect official tagged releases (e.g. `0.26.0`). To run this development state (`dev` branch), build locally from source via `compose.yaml`.
 
 Images can be pulled anonymously without authentication:
 
@@ -164,6 +169,10 @@ ytmdlctl update --dry-run
 # Apply update with automatic verified backup and rollback protection
 ytmdlctl update
 ```
+
+> [!NOTE]
+> `ytmdlctl update` tracks official tagged releases. To test development changes in `ytmdlctl`, build the binary locally:
+> `(cd backend && go build -o /usr/local/bin/ytmdlctl ./cmd/ytmdlctl)`
 
 For complete documentation on installation, backups, rollback, and troubleshooting, see the [Updates & Maintenance Guide](https://der-felix.github.io/ytmdl/updates).
 
