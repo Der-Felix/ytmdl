@@ -9,6 +9,8 @@ import {
   UsersIcon,
 } from 'lucide-react'
 
+import { useMemo } from 'react'
+
 import { JobCard } from '@/components/downloads/JobCard'
 import { Cover } from '@/components/music/Cover'
 import { SearchField } from '@/components/music/SearchField'
@@ -23,6 +25,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAsync } from '@/hooks/useAsync'
 import { useCurrentTracks, useJobs } from '@/hooks/useJobs'
+import { useQueueSummary } from '@/hooks/useQueueSummary'
 import { isTerminal, section } from '@/lib/api/jobs'
 import {
   libraryReleases,
@@ -40,11 +43,18 @@ import type { Health, Job } from '@/types/api'
  */
 function Dashboard() {
   const jobs = useJobs({ limit: 50 })
+  const { state: summaryState } = useQueueSummary()
   const currentTracks = useCurrentTracks()
 
   const allJobs = jobs.state.status === 'success' ? jobs.state.data : []
   const active = allJobs.filter((job) => section(job) === 'active' || section(job) === 'queued')
   const recent = allJobs.filter(isTerminal).slice(0, 4)
+
+  const openJobsCount = useMemo(() => {
+    if (summaryState.status !== 'success' || !summaryState.data) return undefined
+    const total = (summaryState.data.active_jobs ?? 0) + (summaryState.data.queued_jobs ?? 0)
+    return total > 0 ? total : undefined
+  }, [summaryState])
 
   return (
     <div className="space-y-7">
@@ -62,9 +72,11 @@ function Dashboard() {
         <PanelHeader
           title={<span id="active-downloads">Aktive Downloads</span>}
           description={
-            active.length > 0
-              ? `${formatNumber(active.length)} ${active.length === 1 ? 'Job läuft' : 'Jobs laufen'}`
-              : undefined
+            openJobsCount !== undefined
+              ? `${formatNumber(openJobsCount)} ${openJobsCount === 1 ? 'offener Job' : 'offene Jobs'}`
+              : active.length > 0
+                ? `${formatNumber(active.length)} ${active.length === 1 ? 'offener Job' : 'offene Jobs'}`
+                : undefined
           }
           action={
             <Button

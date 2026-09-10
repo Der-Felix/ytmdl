@@ -74,8 +74,9 @@ State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid CSRF 
 | Method | Endpoint | Access | Purpose |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/v1/jobs` | User | List jobs with status, priority, and progress. |
+| `GET` | `/api/v1/jobs/summary` | User | Global queue counters (active, queued, paused, done, failed) used by the Downloads tab badges. |
 | `GET` | `/api/v1/jobs/{id}` | User | Inspect job items, attempts, and error details. |
-| `PATCH` | `/api/v1/jobs/{id}` | User | Update job priority. |
+| `PATCH` | `/api/v1/jobs/{id}` | User | Update job priority and/or paused state (`{"priority": "...", "paused": true}`). |
 | `POST` | `/api/v1/jobs/{id}/pause` | User | Pause a specific job. |
 | `POST` | `/api/v1/jobs/{id}/resume` | User | Resume a paused job. |
 | `POST` | `/api/v1/jobs/{id}/retry-failed` | User | Retry all failed items in a job. |
@@ -83,6 +84,28 @@ State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid CSRF 
 | `DELETE` | `/api/v1/jobs/{id}` | User | Cancel an active or pending job. |
 | `DELETE` | `/api/v1/jobs/history` | Admin | Clear completed and cancelled job history. |
 | `GET` | `/api/v1/events` | User | Server-Sent Events (SSE) stream for real-time progress. |
+
+---
+
+## Playlists & Favorites
+
+Playlists and favorites are strictly scoped to the authenticated user.
+
+| Method | Endpoint | Access | Purpose |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/playlists` | User | List the current user's playlists. |
+| `GET` | `/api/v1/playlists/{id}` | User | Get one playlist with its ordered tracks. |
+| `POST` | `/api/v1/playlists` | User | Create a playlist. |
+| `PATCH` | `/api/v1/playlists/{id}` | User | Rename a playlist. |
+| `DELETE` | `/api/v1/playlists/{id}` | User | Delete a playlist. |
+| `POST` | `/api/v1/playlists/{id}/tracks` | User | Add a track to a playlist. |
+| `DELETE` | `/api/v1/playlists/{id}/tracks/{track_id}` | User | Remove a track (positions re-compact to `1..N`). |
+| `PUT` | `/api/v1/playlists/{id}/tracks/reorder` | User | Reorder playlist tracks. |
+| `GET` | `/api/v1/favorites` | User | List favorited tracks. |
+| `GET` | `/api/v1/favorites/ids` | User | List favorited track IDs only. |
+| `GET` | `/api/v1/favorites/{track_id}` | User | Check whether a track is favorited. |
+| `PUT` | `/api/v1/favorites/{track_id}` | User | Mark a track as favorite. |
+| `DELETE` | `/api/v1/favorites/{track_id}` | User | Remove a favorite. |
 
 ---
 
@@ -110,10 +133,16 @@ State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid CSRF 
 | `POST` | `/api/v1/library/tracks/{id}/retag` | User | Losslessly rewrite Vorbis comment tags from database. |
 | `GET` | `/api/v1/library/compatibility` | User | Media server compatibility report. |
 | `POST` | `/api/v1/library/reorganize` | User | Reorganize files into canonical directory layout. |
+| `GET` | `/api/v1/library/scan` | User | Read-only reconciliation scan: physical files vs. database (`files` table), including legacy/orphan issues. |
+| `POST` | `/api/v1/library/scan` | User | Start a background reconciliation scan. |
+| `DELETE` | `/api/v1/library/scan/issues/{id}` | **Admin** | Resolve a specific orphan/legacy scan issue (may quarantine the unreferenced file). |
 
 ---
 
-## Library Maintenance & Audits (Admin Only)
+## Library Maintenance & Audits
+
+Audit *reads* are available to any authenticated user; starting audits, cancelling
+them, and every repair or delete action require an Administrator.
 
 | Method | Endpoint | Access | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -148,6 +177,24 @@ State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid CSRF 
 | `GET` | `/api/v1/system/update` | Admin | Get current or cached GitHub release update status. |
 | `POST` | `/api/v1/system/update/check` | Admin | Force a fresh update check against the official release repository (CSRF required). |
 
+---
+
+## Managed Media Sessions (Admin Only)
+
+Manage authenticated YouTube sessions used for media acquisition. The same
+handlers are mounted under both `/api/v1/media-sessions` and
+`/api/v1/admin/media-sessions`. See [Providers → Managed Media Sessions](/features/providers).
+
+| Method | Endpoint | Access | Purpose |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/media-sessions` | Admin | List managed sessions and their health status. |
+| `GET` | `/api/v1/media-sessions/{id}` | Admin | Get one session's detail and cooldown state. |
+| `POST` | `/api/v1/media-sessions` | Admin | Create a named session entry. |
+| `POST` | `/api/v1/media-sessions/{id}/cookies` | Admin | Upload / replace the session's Netscape `cookies.txt` (validated before the previous file is overwritten). |
+| `POST` | `/api/v1/media-sessions/{id}/probe` | Admin | Run an on-demand health probe for the session. |
+| `PATCH` | `/api/v1/media-sessions/{id}` | Admin | Rename or reconfigure a session. |
+| `DELETE` | `/api/v1/media-sessions/{id}` | Admin | Remove a session. |
+
 ### Update Status Schema
 
 Endpoints under `/api/v1/system/update` require Administrator privileges. `POST /api/v1/system/update/check` requires a valid `X-CSRF-Token` header.
@@ -155,14 +202,14 @@ Endpoints under `/api/v1/system/update` require Administrator privileges. `POST 
 **Response Structure (`{"data": ...}`):**
 ```json
 {
-  "current_version": "0.14.1",
-  "latest_version": "0.15.0",
+  "current_version": "0.25.2",
+  "latest_version": "0.26.0",
   "state": "update_available",
-  "release_name": "YTMDL v0.15.0",
-  "published_at": "2026-09-03T12:00:00Z",
-  "release_url": "https://github.com/Der-Felix/ytmdl/releases/tag/v0.15.0",
+  "release_name": "YTMDL v0.26.0",
+  "published_at": "2026-09-08T12:00:00Z",
+  "release_url": "https://github.com/Der-Felix/ytmdl/releases/tag/v0.26.0",
   "release_notes": "...",
-  "checked_at": "2026-09-03T14:30:00Z",
+  "checked_at": "2026-09-08T14:30:00Z",
   "cached": true
 }
 ```

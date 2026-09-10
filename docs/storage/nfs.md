@@ -95,21 +95,19 @@ sudo chown 10001:10001 /srv/music/.ytmdl-storage-id
 echo "Configured Storage UUID: ${STORAGE_UUID}"
 ```
 
-In your YTMDL configuration (`config.yaml` or `.env`):
-
-```yaml
-library:
-  path: /music
-  storage_guard_id: "<PASTE-YOUR-STORAGE_UUID-HERE>"
-  min_free_bytes: 1073741824 # 1 GiB safety reserve
-```
-
-Or via environment variable:
+Then set the matching value in `.env` (Compose passes it to `ytmdl-backend`).
+`MUSICDL_STORAGE_GUARD_ID` accepts the bare UUID **or** the full
+`ytmdl-storage:<uuid>` string:
 
 ```bash
-MUSICDL_LIBRARY_STORAGE_GUARD_ID="<PASTE-YOUR-STORAGE_UUID-HERE>"
-MUSICDL_LIBRARY_MIN_FREE_BYTES="1073741824"
+# .env
+MUSICDL_STORAGE_GUARD_ID=<PASTE-YOUR-STORAGE_UUID-HERE>
+# Optional but recommended for network storage: pause downloads below 1 GiB free
+MUSICDL_LIBRARY_MIN_FREE_BYTES=1073741824
 ```
+
+After editing `.env`, recreate the backend so it re-reads the value
+(`ytmdlctl update` on an unchanged version, or `podman compose -f compose.ghcr.yaml up -d`).
 
 ---
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Heart,
   ListMusic,
+  Loader2,
   Maximize2,
   Pause,
   Play,
@@ -20,7 +21,7 @@ import { Button } from '@/components/ui/button'
 import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayer } from '@/hooks/usePlayer'
 import { Link, paths } from '@/lib/router'
-import { formatDuration, joinArtists } from '@/lib/utils/format'
+import { formatDuration, formatPlaybackTime, joinArtists } from '@/lib/utils/format'
 
 export function MiniPlayer() {
   const {
@@ -64,11 +65,11 @@ export function MiniPlayer() {
     <>
       <aside
         aria-label="Audioplayer"
-      className="fixed bottom-0 left-0 right-0 z-40 h-[68px] sm:h-[86px] border-t border-white/[0.06] bg-[#080a12]/94 backdrop-blur-xl shadow-[0_-8px_32px_rgba(0,0,0,0.6)] transition-all"
+      className="fixed bottom-0 left-0 right-0 z-40 h-[80px] sm:h-[86px] border-t border-white/[0.06] bg-[#080a12]/94 backdrop-blur-xl shadow-[0_-8px_32px_rgba(0,0,0,0.6)] transition-all"
     >
-      {/* Mobile Top Thin Progress Bar */}
+      {/* Mobile Top Thin Progress Bar (24px interactive hit area completely within player) */}
       <div
-        className="sm:hidden absolute top-0 left-0 right-0 h-1 bg-white/10 cursor-pointer"
+        className="sm:hidden absolute top-0 left-0 right-0 h-6 flex items-start cursor-pointer z-10"
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect()
           const clickX = e.clientX - rect.left
@@ -76,13 +77,15 @@ export function MiniPlayer() {
           seek(ratio * (duration || 0))
         }}
       >
-        <div
-          className="h-full bg-primary transition-all"
-          style={{ width: `${progressPercent}%` }}
-        />
+        <div className="w-full h-1 bg-white/10">
+          <div
+            className="h-full bg-primary transition-all"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
       </div>
 
-      <div className="mx-auto flex h-full max-w-[94rem] items-center justify-between px-3 sm:px-6 gap-3 sm:gap-6">
+      <div className="mx-auto flex h-full max-w-[94rem] items-center justify-between px-3 sm:px-6 gap-2 sm:gap-6 pt-6 sm:pt-0">
         
         {/* ======================================================== */}
         {/* LEFT ZONE (~25%): Cover + Track Metadata (Click -> /player) */}
@@ -107,14 +110,16 @@ export function MiniPlayer() {
           <div className="min-w-0 flex-1">
             <Link
               href={paths.player ? paths.player() : '/player'}
-              className="block truncate text-sm sm:text-[15px] font-semibold text-foreground hover:text-primary transition-colors leading-snug"
-              title={currentTrack.title}
+              className="group/meta block min-w-0 focus-visible:outline-none"
+              title={`${currentTrack.title} · ${artistText}`}
             >
-              {currentTrack.title}
+              <span className="block truncate text-sm sm:text-[15px] font-semibold text-foreground group-hover/meta:text-primary transition-colors leading-snug">
+                {currentTrack.title}
+              </span>
+              <p className="truncate text-xs text-neutral-400 mt-0.5">
+                {artistText}
+              </p>
             </Link>
-            <p className="truncate text-xs text-neutral-400 mt-0.5" title={artistText}>
-              {artistText}
-            </p>
           </div>
 
           {favorites && (
@@ -122,7 +127,7 @@ export function MiniPlayer() {
               variant="ghost"
               size="icon-sm"
               onClick={() => void favorites.toggleFavorite(currentTrack.id)}
-              className={`size-8 shrink-0 rounded-full transition-colors ${
+              className={`hidden sm:inline-flex size-8 shrink-0 rounded-full transition-colors ${
                 favorites.isFavorite(currentTrack.id)
                   ? 'text-rose-500 hover:text-rose-400'
                   : 'text-neutral-400 hover:text-rose-400'
@@ -152,10 +157,10 @@ export function MiniPlayer() {
         {/* ======================================================== */}
         {/* CENTER ZONE (~50%): Centered Playback Controls + Seekbar */}
         {/* ======================================================== */}
-        <div className="flex flex-col items-center justify-center flex-1 max-w-2xl px-2 sm:px-4">
+        <div className="flex flex-col items-center justify-center shrink-0 sm:flex-1 sm:max-w-2xl px-1 sm:px-4 gap-1">
           
           {/* Top Controls Row */}
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             {/* Shuffle */}
             <Button
               variant="ghost"
@@ -177,7 +182,7 @@ export function MiniPlayer() {
               variant="ghost"
               size="icon-sm"
               onClick={previous}
-              className="size-8.5 sm:size-9 rounded-full text-neutral-300 hover:text-white hover:bg-white/8 transition-colors"
+              className="hidden sm:inline-flex size-8.5 sm:size-9 rounded-full text-neutral-300 hover:text-white hover:bg-white/8 transition-colors"
               title="Vorheriger Titel / Neustart"
               aria-label="Vorheriger Titel"
             >
@@ -190,10 +195,12 @@ export function MiniPlayer() {
               onClick={togglePlayPause}
               disabled={isBuffering}
               className="size-10 sm:size-11 rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/20 hover:scale-105 active:scale-95 transition-all duration-150"
-              title={isPlaying ? 'Pause' : 'Wiedergabe'}
-              aria-label={isPlaying ? 'Pause' : 'Wiedergabe'}
+              title={isBuffering ? 'Puffern...' : isPlaying ? 'Pause' : 'Wiedergabe'}
+              aria-label={isBuffering ? 'Puffern...' : isPlaying ? 'Pause' : 'Wiedergabe'}
             >
-              {isPlaying ? (
+              {isBuffering ? (
+                <Loader2 className="size-5 animate-spin" strokeWidth={2} />
+              ) : isPlaying ? (
                 <Pause className="size-5 fill-current" strokeWidth={1.8} />
               ) : (
                 <Play className="size-5 fill-current ml-0.5" strokeWidth={1.8} />
@@ -236,9 +243,9 @@ export function MiniPlayer() {
           </div>
 
           {/* Bottom Seekbar Row (Desktop & Tablet with hidden thumb by default) */}
-          <div className="hidden sm:flex w-full items-center justify-between gap-3 text-xs text-neutral-400 font-mono mt-1">
+          <div className="hidden sm:flex w-full items-center justify-between gap-3 text-xs text-neutral-400 font-mono">
             <span className="w-10 text-right text-[11px] tabular-nums select-none">
-              {formatDuration(displayTime * 1000)}
+              {formatPlaybackTime(displayTime)}
             </span>
             <div className="relative flex-1 group py-1.5 flex items-center">
               <input
@@ -264,7 +271,7 @@ export function MiniPlayer() {
                 }}
                 className="slider-quiet w-full outline-none"
                 style={{
-                  background: `linear-gradient(to right, #ce3463 0%, #ce3463 ${progressPercent}%, rgba(255,255,255,0.15) ${progressPercent}%, rgba(255,255,255,0.15) 100%)`,
+                  background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${progressPercent}%, rgba(255,255,255,0.15) ${progressPercent}%, rgba(255,255,255,0.15) 100%)`,
                 }}
                 aria-label="Fortschritt"
               />
@@ -278,7 +285,7 @@ export function MiniPlayer() {
         {/* ======================================================== */}
         {/* RIGHT ZONE (~25%): Volume, Queue & Clean Expand Icon     */}
         {/* ======================================================== */}
-        <div className="flex items-center justify-end gap-1.5 sm:gap-3 sm:w-64 lg:w-72">
+        <div className="flex items-center justify-end shrink-0 gap-1.5 sm:gap-3 sm:w-64 lg:w-72">
           
           {/* Volume Control (Slider with quiet thumb) */}
           <div className="hidden lg:flex items-center gap-2 pr-1">
@@ -337,7 +344,7 @@ export function MiniPlayer() {
           {/* Expand Button: Clean Icon Button */}
           <Link
             href="/player"
-            className="flex items-center justify-center size-8.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/8 text-neutral-300 hover:text-white transition-all shadow-sm"
+            className="hidden sm:flex items-center justify-center size-8.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/8 text-neutral-300 hover:text-white transition-all shadow-sm"
             title="Player öffnen"
             aria-label="Player öffnen"
           >

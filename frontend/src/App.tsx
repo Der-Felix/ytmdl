@@ -4,8 +4,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { FavoritesProvider } from '@/contexts/FavoritesContext'
 import { PlayerProvider } from '@/contexts/PlayerContext'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
-import { useJobs } from '@/hooks/useJobs'
-import { section } from '@/lib/api/jobs'
+import { useQueueSummary } from '@/hooks/useQueueSummary'
 import { matchRoute, useLocation } from '@/lib/router'
 import { Artist } from '@/pages/Artist'
 import { Dashboard } from '@/pages/Dashboard'
@@ -30,15 +29,13 @@ export function AppContent() {
   const location = useLocation()
   const route = useMemo(() => matchRoute(location), [location])
   const { user, loading, setupRequired, isAdmin } = useAuth()
-  const { state: jobsState } = useJobs({ limit: 50 })
+  const { state: summaryState } = useQueueSummary()
 
   const activeDownloads = useMemo(() => {
-    if (jobsState.status !== 'success') return 0
-    return jobsState.data.filter((j) => {
-      const s = section(j)
-      return s === 'active' || s === 'queued'
-    }).length
-  }, [jobsState])
+    if (summaryState.status !== 'success' || !summaryState.data) return undefined
+    const totalOpen = (summaryState.data.active_jobs ?? 0) + (summaryState.data.queued_jobs ?? 0)
+    return totalOpen > 0 ? totalOpen : undefined
+  }, [summaryState])
 
   if (loading) {
     return (

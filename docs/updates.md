@@ -27,7 +27,7 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 ## How Update Detection Works
 
 1. **GitHub Releases API:** The YTMDL backend queries the official GitHub API (`GET /repos/Der-Felix/ytmdl/releases/latest`) on a background schedule (default: once per hour).
-2. **SemVer Comparison:** The installed version (e.g. `0.16.0`) is compared against the latest stable release tag using strict Semantic Versioning. Pre-releases and drafts are filtered out.
+2. **SemVer Comparison:** The installed version (e.g. `0.27.0`) is compared against the latest stable release tag using strict Semantic Versioning. Pre-releases and drafts are filtered out.
 3. **WebUI Notifications:** When a newer stable version is available, the WebUI displays an informational banner and details in **Settings → System & Updates**, including release notes, a direct command to execute on the host, and links to the release and documentation.
 
 ## Privacy & Network Transparency
@@ -53,7 +53,7 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 1. **Download the binary and checksums for your platform:**
    ```sh
    # Example for Linux (x86_64 / amd64):
-   VERSION="0.26.0"
+   VERSION="0.27.0"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/ytmdlctl-linux-amd64"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/SHA256SUMS"
    ```
@@ -229,4 +229,3 @@ ytmdlctl recover restore
      ```sh
      ytmdlctl recover restore
      ```
-

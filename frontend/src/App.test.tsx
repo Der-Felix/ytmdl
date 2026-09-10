@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { render, screen } from '@testing-library/react'
 
 import { AppContent } from './App'
@@ -133,8 +133,26 @@ describe('App Layout Consolidation and Route Permissions', () => {
     isAdmin: false,
   }
 
+  let originalFetch: typeof fetch
+
   beforeEach(() => {
     ;(window as any).happyDOM.setURL('http://localhost/')
+    originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      const parsed = new URL(url, 'http://localhost')
+      if (parsed.pathname === '/api/v1/jobs/summary') {
+        return new Response(JSON.stringify({ data: { active_jobs: 0, queued_jobs: 0 } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return originalFetch(input)
+    }) as typeof fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
   })
 
   it('renders Users within AppShell (with sidebar and header) for admin on /users', async () => {

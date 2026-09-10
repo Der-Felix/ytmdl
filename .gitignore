@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+compose.ghcr.override.yaml
 
 # Runtime data, database dumps and library content
 /data/

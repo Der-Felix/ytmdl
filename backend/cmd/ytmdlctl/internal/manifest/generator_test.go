@@ -280,8 +280,8 @@ func TestGenerateSchema11Manifest(t *testing.T) {
 func TestGenerateSchema12Manifest(t *testing.T) {
 	opts := manifest.GeneratorOptions{
 		ManifestVersion: manifest.ManifestVersion3,
-		ReleaseVersion:  "0.26.0",
-		ReleaseTag:      "v0.26.0",
+		ReleaseVersion:  "0.27.0",
+		ReleaseTag:      "v0.27.0",
 		TargetSchema:    12,
 		MinUpgradeFrom:  "0.15.0",
 		BackendDigest:   validDigest1,

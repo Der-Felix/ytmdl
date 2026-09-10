@@ -54,7 +54,7 @@ import type {
   VisualizerMode,
 } from '@/lib/audio/types'
 import { Link, paths, useLocation } from '@/lib/router'
-import { formatDuration, joinArtists } from '@/lib/utils/format'
+import { formatDuration, formatPlaybackTime, joinArtists } from '@/lib/utils/format'
 import { parseLrc } from '@/lib/utils/lrc'
 import type { TrackLyrics } from '@/types/api'
 
@@ -513,7 +513,7 @@ export function NowPlaying() {
               </div>
 
               <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400">
-                <span className="tabular-nums">{formatDuration(displayTime * 1000)}</span>
+                <span className="tabular-nums">{formatPlaybackTime(displayTime)}</span>
                 <span className="tabular-nums">{formatDuration(duration * 1000)}</span>
               </div>
             </div>
@@ -857,7 +857,7 @@ export function NowPlaying() {
               {/* TAB 1: LYRICS                                        */}
               {/* ---------------------------------------------------- */}
               {activeTab === 'lyrics' && (
-                <div ref={lyricsContainerRef} className="lyrics-fade-mask space-y-4 py-2 min-h-[380px]">
+                <div ref={lyricsContainerRef} className="space-y-4 py-2 min-h-[380px]">
                   {lyricsLoading && (
                     <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
                       <RefreshCw className="size-6 animate-spin mb-3 text-primary" />
@@ -905,8 +905,8 @@ export function NowPlaying() {
                             onClick={() => seek(line.timeSeconds)}
                             className={`cursor-pointer transition-all duration-200 select-none py-1 px-3 rounded-xl ${
                               isActive
-                                ? 'text-white font-bold text-lg sm:text-xl xl:text-2xl bg-white/[0.04]'
-                                : 'text-neutral-400/50 hover:text-neutral-200 font-medium text-sm sm:text-base xl:text-lg'
+                                ? 'text-foreground font-bold text-lg sm:text-xl xl:text-2xl bg-white/[0.04]'
+                                : 'text-muted-foreground hover:text-foreground font-medium text-sm sm:text-base xl:text-lg'
                             }`}
                           >
                             {line.text || '♪'}

@@ -9,7 +9,7 @@ YTMDL lets you build, automate, and stream a personal music library from a moder
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-green)](https://der-felix.github.io/ytmdl/)
 [![Container](https://img.shields.io/badge/container-GHCR-blue)](https://github.com/Der-Felix/ytmdl/pkgs/container/ytmdl-backend)
 
-![YTMDL Music Library](docs/public/screenshots/library.webp)
+![YTMDL dashboard with active download queue (v0.27.0)](docs/public/screenshots/dashboard.webp)
 
 ---
 
@@ -45,8 +45,8 @@ The recommended way to deploy YTMDL is using official prebuilt container images 
 mkdir -p ytmdl && cd ytmdl
 
 # Download compose file and sample environment
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.26.0/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.26.0/.env.example
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.27.0/compose.ghcr.yaml
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.27.0/.env.example
 cp .env.example .env
 ```
 
@@ -56,7 +56,7 @@ Edit `.env` to set your music storage path and database password:
 
 ```env
 # Pin a stable release (recommended) or use 'latest'
-YTMDL_VERSION=0.26.0
+YTMDL_VERSION=0.27.0
 
 # Path to your local music directory or host-mounted SMB/CIFS share
 YTMDL_MUSIC_PATH=/path/to/your/music
@@ -93,11 +93,17 @@ http://localhost:8080
 
 ## Interface Showcase
 
+> The following captures show the stable v0.27.0 UI.
+
 ### Web Player & Synchronized Lyrics
 
 Full-screen Now Playing experience with synchronized lyrics, spectrum visualizer, 10-band graphic equalizer, parametric audio filters, and queue management.
 
 ![YTMDL Web Player](docs/public/screenshots/player.webp)
+
+### Downloads & Queue
+
+![YTMDL downloads and queue (v0.27.0)](docs/public/screenshots/downloads.webp)
 
 ### Automated Artist Subscriptions
 
@@ -133,6 +139,7 @@ Full documentation, configuration guides, and architecture references are availa
 - [Storage & SMB Setup](https://der-felix.github.io/ytmdl/storage/)
 - [REST API Reference](https://der-felix.github.io/ytmdl/api)
 - [Updates & Versioning](https://der-felix.github.io/ytmdl/updates)
+- [FAQ](https://der-felix.github.io/ytmdl/faq) · [Troubleshooting](https://der-felix.github.io/ytmdl/troubleshooting) · [Tips & Best Practices](https://der-felix.github.io/ytmdl/tips) · [Glossary](https://der-felix.github.io/ytmdl/glossary)
 
 ---
 
@@ -143,8 +150,8 @@ Official container images are published to the GitHub Container Registry (GHCR) 
 Images can be pulled anonymously without authentication:
 
 ```sh
-podman pull ghcr.io/der-felix/ytmdl-backend:0.26.0
-podman pull ghcr.io/der-felix/ytmdl-frontend:0.26.0
+podman pull ghcr.io/der-felix/ytmdl-backend:0.27.0
+podman pull ghcr.io/der-felix/ytmdl-frontend:0.27.0
 ```
 
 For building from source or running a development environment, see [docs/development.md](docs/development.md).
@@ -164,6 +171,10 @@ ytmdlctl update --dry-run
 # Apply update with automatic verified backup and rollback protection
 ytmdlctl update
 ```
+
+Host-specific tweaks to the official stack go in an optional, git-ignored
+`compose.ghcr.override.yaml`; recent `ytmdlctl` versions pick it up automatically.
+See [Local customisations](https://der-felix.github.io/ytmdl/deployment#lokale-anpassungen-mit-compose-ghcr-override-yaml).
 
 For complete documentation on installation, backups, rollback, and troubleshooting, see the [Updates & Maintenance Guide](https://der-felix.github.io/ytmdl/updates).
 

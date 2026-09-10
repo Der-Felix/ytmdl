@@ -83,6 +83,11 @@ export class AudioEngine {
   private isPreloadingNext = false
   private nextTrackUrl: string | null = null
 
+  // Guard against stale load and metadata events across deck switches and reloads
+  private loadGeneration: { A: number; B: number } = { A: 0, B: 0 }
+  private pendingInitialPosition: { A: number; B: number } = { A: 0, B: 0 }
+  private currentTrackUrl: { A: string | null; B: string | null } = { A: null, B: null }
+
   private constructor() {
     this.deckA = new Audio()
     this.deckB = new Audio()
@@ -115,9 +120,42 @@ export class AudioEngine {
     // @ts-expect-error browser compatibility prefix
     deck.webkitPreservesPitch = true
 
+    const handleMetadata = () => {
+      if (this.activeDeck !== deckId || this.isCrossfading) return
+
+      // Guard: Ignore events if the deck URL doesn't match the current expected track URL
+      const expectedUrl = this.currentTrackUrl[deckId]
+      if (expectedUrl && deck.src && !deck.src.includes(expectedUrl)) {
+        return
+      }
+
+      // Apply pending initial position on metadata if needed
+      const pending = this.pendingInitialPosition[deckId]
+      if (pending > 0) {
+        if (Math.abs(deck.currentTime - pending) > 0.25) {
+          try {
+            deck.currentTime = pending
+          } catch {
+            // Ignore if seeking fails before user gesture
+          }
+        }
+        this.pendingInitialPosition[deckId] = 0
+      }
+
+      const d = deck.duration
+      if (Number.isFinite(d) && d > 0) {
+        this.callbacks.onTimeUpdate?.(deck.currentTime || 0, d)
+      }
+    }
+
+    deck.addEventListener('loadedmetadata', handleMetadata)
+    deck.addEventListener('durationchange', handleMetadata)
+
     deck.addEventListener('timeupdate', () => {
       if (this.activeDeck === deckId && !this.isCrossfading) {
-        this.callbacks.onTimeUpdate?.(deck.currentTime || 0, deck.duration || 0)
+        const d = deck.duration
+        const validDuration = Number.isFinite(d) && d > 0 ? d : 0
+        this.callbacks.onTimeUpdate?.(deck.currentTime || 0, validDuration)
         this.checkCrossfadeTrigger(deck)
       }
     })
@@ -334,12 +372,20 @@ export class AudioEngine {
 
     this.setDeckGains(this.activeDeck === 'A' ? 1.0 : 0.0, this.activeDeck === 'B' ? 1.0 : 0.0)
 
+    this.currentTrackUrl[this.activeDeck] = streamUrl
+    this.loadGeneration[this.activeDeck]++
+    this.pendingInitialPosition[this.activeDeck] = initialPosition > 0 ? initialPosition : 0
+
     if (active.src !== streamUrl) {
       active.src = streamUrl
     }
     active.playbackRate = this.playbackRate
     if (initialPosition > 0) {
-      active.currentTime = initialPosition
+      try {
+        active.currentTime = initialPosition
+      } catch {
+        // Will be applied in loadedmetadata
+      }
     }
     this.setStatus('paused')
   }
@@ -357,10 +403,18 @@ export class AudioEngine {
 
     this.setDeckGains(this.activeDeck === 'A' ? 1.0 : 0.0, this.activeDeck === 'B' ? 1.0 : 0.0)
 
+    this.currentTrackUrl[this.activeDeck] = streamUrl
+    this.loadGeneration[this.activeDeck]++
+    this.pendingInitialPosition[this.activeDeck] = initialPosition > 0 ? initialPosition : 0
+
     active.src = streamUrl
     active.playbackRate = this.playbackRate
     if (initialPosition > 0) {
-      active.currentTime = initialPosition
+      try {
+        active.currentTime = initialPosition
+      } catch {
+        // Will be applied in loadedmetadata
+      }
     }
 
     try {
@@ -439,7 +493,11 @@ export class AudioEngine {
     this.crossfadeTimer = window.setTimeout(() => {
       currentDeck.pause()
       currentDeck.src = ''
+      this.currentTrackUrl[currentDeckId] = null
       this.activeDeck = nextDeckId
+      this.currentTrackUrl[nextDeckId] = this.nextTrackUrl
+      this.loadGeneration[nextDeckId]++
+      this.pendingInitialPosition[nextDeckId] = 0
       this.isCrossfading = false
       this.isPreloadingNext = false
       this.nextTrackUrl = null
@@ -464,7 +522,11 @@ export class AudioEngine {
     currentDeck.pause()
     currentDeck.src = ''
 
+    this.currentTrackUrl[this.activeDeck] = null
     this.activeDeck = nextDeckId
+    this.currentTrackUrl[nextDeckId] = this.nextTrackUrl
+    this.loadGeneration[nextDeckId]++
+    this.pendingInitialPosition[nextDeckId] = 0
     this.setDeckGains(this.activeDeck === 'A' ? 1.0 : 0.0, this.activeDeck === 'B' ? 1.0 : 0.0)
   }
 

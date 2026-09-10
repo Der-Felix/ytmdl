@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.27.0 — 2026-09-10
+
+### Highlights
+
+- **Player Lifecycle & MiniPlayer Polish:** Stabilized persistent playback state across navigation and refined the responsive MiniPlayer for 390 px and 320 px layouts.
+- **Queue Visibility:** Improved queue indicators, active download counts, priority presentation, and next-up status across the dashboard and Downloads view.
+- **Compose Override Support:** Added optional `compose.ghcr.override.yaml` support for local mounts and environment customizations without changing the versioned stable stack.
+- **Knowledge Base & Screenshots:** Expanded the documentation with library, subscriptions, player, storage, troubleshooting, and operational guidance, including current desktop and mobile UI captures.
+
+### Improvements
+
+- **Player State Recovery:** Preserved queue and playback lifecycle state through in-app navigation and browser history transitions.
+- **Documentation Accuracy:** Corrected environment-variable names, defaults, API examples, update guidance, and release-facing screenshots against the current implementation.
+- **Release Safety:** Kept the database schema at 12 and retained local compose overrides outside the release snapshot.
+
+### Changes
+
+- **Database Schema:** Schema remains at 12; no database migration is required.
+
+### Verification Notes
+
+- Backend and frontend test suites, linting, builds, CLI compilation, and release metadata checks are required release gates.
+- Safari/iOS behaviour and acoustic gapless playback/crossfade remain not conclusively verified; Chromium/Firefox desktop is the verified baseline.
+
+**Full Changelog:** `v0.26.0...v0.27.0`
+
 ## 0.26.0 — 2026-09-08
 
 ### Features

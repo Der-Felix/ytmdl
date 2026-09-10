@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 
 interface AppShellProps {
   route: Route
-  activeDownloads: number
+  activeDownloads?: number
   children: ReactNode
 }
 
@@ -129,7 +129,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
             isPlayerRoute
               ? 'p-0 flex flex-col'
               : showMiniPlayer
-                ? 'px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-8 pb-28 sm:pb-32'
+                ? 'px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-8 pb-32 sm:pb-32'
                 : 'px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-8 pb-8',
           )}
         >

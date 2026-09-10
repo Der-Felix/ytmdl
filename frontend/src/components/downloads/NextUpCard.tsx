@@ -73,9 +73,17 @@ export function NextUpCard({ jobs, className }: NextUpCardProps) {
               </div>
 
               <div className="shrink-0 flex items-center gap-2">
-                <Badge variant="neutral" className="text-[0.6875rem]">
-                  {pluralize(job.open_tracks, 'Track', 'Tracks')} offen
-                </Badge>
+                {typeof job.open_tracks === 'number' &&
+                Number.isFinite(job.open_tracks) &&
+                job.open_tracks >= 0 ? (
+                  <Badge variant="neutral" className="text-[0.6875rem]">
+                    {pluralize(job.open_tracks, 'Track', 'Tracks')} offen
+                  </Badge>
+                ) : (
+                  <Badge variant="neutral" className="text-[0.6875rem]">
+                    Anzahl unbekannt
+                  </Badge>
+                )}
               </div>
             </div>
           ))}
