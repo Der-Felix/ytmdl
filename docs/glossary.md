@@ -149,6 +149,7 @@ ordering.
 ## Versioning
 
 **Stable release**
+<<<<<<< HEAD
 : A tagged version (`v0.26.0`) with published GHCR images. `ytmdlctl` tracks
 these.
 
@@ -158,6 +159,17 @@ from source.
 
 **Schema version**
 : The database schema revision. Stable v0.26.0 = schema **12**.
+=======
+: A tagged version (`v0.27.0`) with published GHCR images. `ytmdlctl` tracks
+these.
+
+**`dev` branch**
+: The development snapshot on public GitHub. Stable releases have prebuilt images;
+build from source for unreleased changes.
+
+**Schema version**
+: The database schema revision. Stable v0.27.0 = schema **12**.
+>>>>>>> public/main
 
 **`schema_neutral`**
 : A release classification meaning an automatic rollback is safe because the

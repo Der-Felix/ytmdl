@@ -55,8 +55,13 @@ Global player shortcuts are available during active browsing and automatically i
 
 ## Mobile Controls
 
+<<<<<<< HEAD
 On narrow viewports the player collapses to a compact MiniPlayer. From **v0.27**
 (unreleased) the mobile MiniPlayer is tuned for 390 px and 320 px widths: the
+=======
+On narrow viewports the player collapses to a compact MiniPlayer. From **v0.27.0**
+the mobile MiniPlayer is tuned for 390 px and 320 px widths: the
+>>>>>>> public/main
 cover and track text open the full Now Playing view, secondary controls
 (favorite, previous, a separate expand button) are hidden to give the track title
 room to ellipsize, and a 24 px seek strip stays along the top edge. Play/pause
@@ -76,6 +81,13 @@ plays therefore depends on the browser, not on YTMDL:
 - **iOS / Safari:** audio must be started by a user gesture, and Web Audio
   routing of a media element has known quirks on iOS. Basic playback works; EQ,
   crossfade, and the visualizer may behave differently or be unavailable.
+<<<<<<< HEAD
+=======
+
+Safari/iOS behaviour and acoustic gapless playback/crossfade have not been
+conclusively verified for this release; Chromium/Firefox desktop results are
+the verified baseline.
+>>>>>>> public/main
 - **No offline / PWA mode.** YTMDL is not an installable Progressive Web App and
   ships no service worker. There is no native desktop, mobile, or TV
   (tvOS / Android TV) application — the web UI in a browser is the only client.

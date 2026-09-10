@@ -50,7 +50,11 @@ cp .env.example .env
 ```
 
 In `.env` mindestens `POSTGRES_PASSWORD` setzen und denselben Wert in
+<<<<<<< HEAD
 `MUSICDL_DATABASE_URL` eintragen. Für ein Deployment mit den offiziellen Images (`compose.ghcr.yaml`) empfiehlt es sich, die Version fest anzugeben (z. B. `YTMDL_VERSION=0.26.0`), um deterministische Updates mit `ytmdlctl` zu ermöglichen.
+=======
+`MUSICDL_DATABASE_URL` eintragen. Für ein Deployment mit den offiziellen Images (`compose.ghcr.yaml`) empfiehlt es sich, die Version fest anzugeben (z. B. `YTMDL_VERSION=0.27.0`), um deterministische Updates mit `ytmdlctl` zu ermöglichen.
+>>>>>>> public/main
 
 ```sh
 mkdir -p data music
@@ -288,7 +292,11 @@ podman login <registry-url>
 bewusst keinen Build-Kontext:
 
 ```sh
+<<<<<<< HEAD
 YTMDL_VERSION=0.26.0 podman compose -f compose.registry.yaml up -d
+=======
+YTMDL_VERSION=0.27.0 podman compose -f compose.registry.yaml up -d
+>>>>>>> public/main
 ```
 
 `YTMDL_VERSION` hat dort keinen Standardwert — ein Tippfehler bricht ab,
@@ -304,7 +312,11 @@ damit lokal — Updates überschreiben sie nie.
 
 > [!NOTE]
 > Die Datei selbst funktioniert mit jedem Compose-Provider. Die **automatische**
+<<<<<<< HEAD
 > Einbindung durch `ytmdlctl` ist in Stable **v0.26.0 noch nicht enthalten** und
+=======
+> Einbindung durch `ytmdlctl` ist in Stable **v0.27.0 enthalten** und
+>>>>>>> public/main
 > kommt mit dem nächsten Release; bis dahin gilt der manuelle Aufruf weiter
 > unten.
 

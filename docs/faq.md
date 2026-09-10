@@ -135,7 +135,11 @@ pre-update backup always remains in `backups/`.
 
 ### Is there a database migration in the current stable release?
 
+<<<<<<< HEAD
 Stable **v0.26.0** keeps schema **12**; no migration. The last migration was
+=======
+Stable **v0.27.0** keeps schema **12**; no migration. The last migration was
+>>>>>>> public/main
 schema 11 → 12 in v0.23.0 (playlists/favorites).
 
 ## Player

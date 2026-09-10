@@ -9,7 +9,11 @@ YTMDL lets you build, automate, and stream a personal music library from a moder
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-green)](https://der-felix.github.io/ytmdl/)
 [![Container](https://img.shields.io/badge/container-GHCR-blue)](https://github.com/Der-Felix/ytmdl/pkgs/container/ytmdl-backend)
 
+<<<<<<< HEAD
 ![YTMDL dashboard with active download queue (v0.27 development snapshot)](docs/public/screenshots/dashboard.webp)
+=======
+![YTMDL dashboard with active download queue (v0.27.0)](docs/public/screenshots/dashboard.webp)
+>>>>>>> public/main
 
 ---
 
@@ -45,8 +49,8 @@ The recommended way to deploy YTMDL is using official prebuilt container images 
 mkdir -p ytmdl && cd ytmdl
 
 # Download compose file and sample environment
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.26.0/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.26.0/.env.example
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.27.0/compose.ghcr.yaml
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.27.0/.env.example
 cp .env.example .env
 ```
 
@@ -56,7 +60,7 @@ Edit `.env` to set your music storage path and database password:
 
 ```env
 # Pin a stable release (recommended) or use 'latest'
-YTMDL_VERSION=0.26.0
+YTMDL_VERSION=0.27.0
 
 # Path to your local music directory or host-mounted SMB/CIFS share
 YTMDL_MUSIC_PATH=/path/to/your/music
@@ -93,7 +97,11 @@ http://localhost:8080
 
 ## Interface Showcase
 
+<<<<<<< HEAD
 > The following current captures show the unreleased v0.27 development state; the stable v0.26.0 release does not include these UI changes.
+=======
+> The following captures show the stable v0.27.0 UI.
+>>>>>>> public/main
 
 ### Web Player & Synchronized Lyrics
 
@@ -103,7 +111,11 @@ Full-screen Now Playing experience with synchronized lyrics, spectrum visualizer
 
 ### Downloads & Queue
 
+<<<<<<< HEAD
 ![YTMDL downloads and queue (v0.27 development snapshot)](docs/public/screenshots/downloads.webp)
+=======
+![YTMDL downloads and queue (v0.27.0)](docs/public/screenshots/downloads.webp)
+>>>>>>> public/main
 
 ### Automated Artist Subscriptions
 
@@ -150,8 +162,8 @@ Official container images are published to the GitHub Container Registry (GHCR) 
 Images can be pulled anonymously without authentication:
 
 ```sh
-podman pull ghcr.io/der-felix/ytmdl-backend:0.26.0
-podman pull ghcr.io/der-felix/ytmdl-frontend:0.26.0
+podman pull ghcr.io/der-felix/ytmdl-backend:0.27.0
+podman pull ghcr.io/der-felix/ytmdl-frontend:0.27.0
 ```
 
 For building from source or running a development environment, see [docs/development.md](docs/development.md).
