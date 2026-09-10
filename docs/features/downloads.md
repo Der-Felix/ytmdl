@@ -1,5 +1,7 @@
 # Download Automation & Queue
 
+![YTMDL Downloads und Warteschlange — v0.27-Entwicklungssnapshot](/screenshots/downloads.webp)
+
 The YTMDL download engine coordinates background worker pools to process individual tracks, complete albums, and full discographies without starving shorter jobs.
 
 ## Fair Queue Scheduling

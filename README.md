@@ -2,12 +2,6 @@
 
 > **Self-hosted music downloader, library manager, and web player.**
 
-> [!WARNING]
-> **Development Snapshot (`dev` Branch)**  
-> This branch reflects the ongoing, unreleased development state of YTMDL. It is **not a stable release**.  
-> Official prebuilt container images (`ghcr.io/der-felix/ytmdl-*`) correspond only to tagged releases and do **not** contain the unreleased changes on this branch.  
-> To test or run this development state, you must clone this repository on the `dev` branch and build the container images locally from source using `compose.yaml` (see below).
-
 YTMDL lets you build, automate, and stream a personal music library from a modern web interface. It combines artist discography discovery, automated subscriptions, metadata enrichment, synchronized lyrics, and an integrated audio player with parametric EQ and audio DSP.
 
 [![Latest Release](https://img.shields.io/github/v/release/Der-Felix/ytmdl?label=release)](https://github.com/Der-Felix/ytmdl/releases)
@@ -15,7 +9,7 @@ YTMDL lets you build, automate, and stream a personal music library from a moder
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-green)](https://der-felix.github.io/ytmdl/)
 [![Container](https://img.shields.io/badge/container-GHCR-blue)](https://github.com/Der-Felix/ytmdl/pkgs/container/ytmdl-backend)
 
-![YTMDL Music Library](docs/public/screenshots/library.webp)
+![YTMDL dashboard with active download queue (v0.27 development snapshot)](docs/public/screenshots/dashboard.webp)
 
 ---
 
@@ -40,18 +34,19 @@ YTMDL is an independent, self-hosted web application designed to help you build 
 
 ---
 
-## Quick Start (Development Build)
+## Quick Start
 
-Because prebuilt container images on GHCR represent stable releases, running this development snapshot requires cloning the `dev` branch and building the containers locally from source.
+The recommended way to deploy YTMDL is using official prebuilt container images from the GitHub Container Registry. No local compilation or build dependencies are required.
 
-### 1. Clone Development Branch
+### 1. Download Compose Configuration
 
 ```sh
-# Clone repository on dev branch
-git clone -b dev https://github.com/Der-Felix/ytmdl.git
-cd ytmdl
+# Create project folder
+mkdir -p ytmdl && cd ytmdl
 
-# Prepare environment configuration
+# Download compose file and sample environment
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.26.0/compose.ghcr.yaml
+curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.26.0/.env.example
 cp .env.example .env
 ```
 
@@ -60,6 +55,9 @@ cp .env.example .env
 Edit `.env` to set your music storage path and database password:
 
 ```env
+# Pin a stable release (recommended) or use 'latest'
+YTMDL_VERSION=0.26.0
+
 # Path to your local music directory or host-mounted SMB/CIFS share
 YTMDL_MUSIC_PATH=/path/to/your/music
 
@@ -68,16 +66,16 @@ POSTGRES_PASSWORD=replace_with_a_secure_password
 MUSICDL_DATABASE_URL=postgres://ytmdl:replace_with_a_secure_password@db:5432/ytmdl?sslmode=disable
 ```
 
-### 3. Build and Start from Source
+### 3. Start the Stack
 
-Start the containers using local source builds via `compose.yaml`:
+Start the containers using Docker Compose or Podman Compose:
 
 ```sh
 # Using Docker Compose:
-docker compose -f compose.yaml up -d --build
+docker compose -f compose.ghcr.yaml up -d
 
 # Or using Podman Compose:
-podman compose -f compose.yaml up -d --build
+podman compose -f compose.ghcr.yaml up -d
 ```
 
 ### 4. Access the Web Interface
@@ -95,11 +93,17 @@ http://localhost:8080
 
 ## Interface Showcase
 
+> The following current captures show the unreleased v0.27 development state; the stable v0.26.0 release does not include these UI changes.
+
 ### Web Player & Synchronized Lyrics
 
 Full-screen Now Playing experience with synchronized lyrics, spectrum visualizer, 10-band graphic equalizer, parametric audio filters, and queue management.
 
 ![YTMDL Web Player](docs/public/screenshots/player.webp)
+
+### Downloads & Queue
+
+![YTMDL downloads and queue (v0.27 development snapshot)](docs/public/screenshots/downloads.webp)
 
 ### Automated Artist Subscriptions
 
@@ -141,10 +145,7 @@ Full documentation, configuration guides, and architecture references are availa
 
 ## Container Distribution
 
-Official prebuilt container images are published to the GitHub Container Registry (GHCR) for stable releases with multi-architecture support for `linux/amd64` and `linux/arm64`.
-
-> [!NOTE]
-> Prebuilt images reflect official tagged releases (e.g. `0.26.0`). To run this development state (`dev` branch), build locally from source via `compose.yaml`.
+Official container images are published to the GitHub Container Registry (GHCR) with multi-architecture support for `linux/amd64` and `linux/arm64`.
 
 Images can be pulled anonymously without authentication:
 
@@ -170,10 +171,6 @@ ytmdlctl update --dry-run
 # Apply update with automatic verified backup and rollback protection
 ytmdlctl update
 ```
-
-> [!NOTE]
-> `ytmdlctl update` tracks official tagged releases. To test development changes in `ytmdlctl`, build the binary locally:
-> `(cd backend && go build -o /usr/local/bin/ytmdlctl ./cmd/ytmdlctl)`
 
 Host-specific tweaks to the official stack go in an optional, git-ignored
 `compose.ghcr.override.yaml`; recent `ytmdlctl` versions pick it up automatically.

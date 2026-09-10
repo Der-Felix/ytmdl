@@ -42,7 +42,7 @@ features:
 
 <div class="hero-showcase">
   <div class="hero-showcase-window">
-    <img src="/screenshots/library.webp" alt="YTMDL Web Application Interface" />
+    <img src="/screenshots/dashboard.webp" alt="YTMDL dashboard with active downloads — v0.27 development snapshot" />
   </div>
 </div>
 
