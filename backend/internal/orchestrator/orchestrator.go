@@ -179,8 +179,6 @@ type sessionOutcome int
 const (
 	// sessionOutcomeNeutral means the session is not answerable for the result.
 	sessionOutcomeNeutral sessionOutcome = iota
-	// sessionOutcomeSuccess means this session completed real media work.
-	sessionOutcomeSuccess
 	// sessionOutcomeFailure means this session itself failed.
 	sessionOutcomeFailure
 )
@@ -296,7 +294,8 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 	// 3. Lazy session state for YouTube
 	//
 	// The lease outcome is tracked separately from the error this call returns.
-	// Only work performed by the leased session itself may change its health.
+	// ResolveMedia only resolves a source; successful media acquisition is
+	// recorded later by RecordDownloadOutcome after download verification.
 	var (
 		lease      *mediasession.Lease
 		cookiePath string
@@ -309,8 +308,6 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 			return
 		}
 		switch outcome {
-		case sessionOutcomeSuccess:
-			lease.Release(nil)
 		case sessionOutcomeFailure:
 			lease.Release(sessionErr)
 		default:
@@ -353,7 +350,6 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 			if o.sessionPool != nil && sessionID != "" {
 				o.sessionPool.RetainDataPlane(sessionID)
 			}
-			outcome = sessionOutcomeSuccess
 			return res, nil
 		}
 		o.logger.Info("direct-ID candidate unavailable, falling back to generic search",
@@ -478,7 +474,6 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 						if o.sessionPool != nil && sessionID != "" {
 							o.sessionPool.RetainDataPlane(sessionID)
 						}
-						outcome = sessionOutcomeSuccess
 					} else {
 						// An independent provider's success proves nothing about the
 						// YouTube session and must not certify its health.

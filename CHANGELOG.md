@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.27.1 — 2026-09-10
+
+### Bug Fixes
+
+- **Deferred Session Recovery:** Successful matching and source resolution now release the session lease neutrally. Protected sessions are healed only after a genuinely successful, verified media acquisition through `RecordDownloadOutcome(nil)`.
+- **Health Attribution:** Resolve failures remain attributed to the actual provider/session, while independent provider fallback and pre-routing semantics remain unchanged.
+
+### Verification Notes
+
+- This hotfix prevents premature session healing; it does not eliminate all provider rate limits or matching/SoundCloud verification failures.
+- Verification diagnostics remain a separate follow-up. Safari/iOS behaviour and acoustic gapless playback/crossfade remain not conclusively verified.
+
+### Changes
+
+- **Database Schema:** Schema remains at 12; no database migration is required.
+
+**Full Changelog:** `v0.27.0...v0.27.1`
+
 ## 0.27.0 — 2026-09-10
 
 ### Highlights

@@ -300,6 +300,13 @@ func TestOrchestrator_CandidateFallback_PreservesSessionHealth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveMedia failed: %v", err)
 	}
+	beforeDownload := pool.Sessions()[0]
+	if beforeDownload.HealthStatus != mediasession.HealthHealthy {
+		t.Fatalf("resolve must preserve health, got %s", beforeDownload.HealthStatus)
+	}
+	if beforeDownload.LastSuccessAt != nil {
+		t.Fatal("resolve must not record media success")
+	}
 
 	if res.Candidate.ID != "vid-2" {
 		t.Fatalf("expected candidate vid-2, got %s", res.Candidate.ID)
@@ -658,6 +665,9 @@ func TestOrchestrator_DownloadAffinity_NoControlPlaneLease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveMedia failed: %v", err)
 	}
+	if s := pool.Sessions()[0]; s.HealthStatus != mediasession.HealthHealthy || s.LastSuccessAt != nil {
+		t.Fatalf("resolve must not record a download success: %+v", s)
+	}
 
 	// Verify lease was RELEASED immediately upon resolve completion!
 	rs := pool.RuntimeSessions()[0]
@@ -686,6 +696,64 @@ func TestOrchestrator_DownloadAffinity_NoControlPlaneLease(t *testing.T) {
 	sAfter := pool.Sessions()[0]
 	if sAfter.HealthStatus != mediasession.HealthAuthFailed {
 		t.Fatalf("expected HealthAuthFailed after auth failed download, got %s", sAfter.HealthStatus)
+	}
+}
+
+func TestOrchestrator_ResolveDoesNotRecoverProtectedSession(t *testing.T) {
+	lastSuccess := time.Now().Add(-2 * time.Hour)
+	lastFailure := time.Now().Add(-90 * time.Minute)
+	cooldown := time.Now().Add(-time.Minute)
+	sess := mediasession.Session{
+		ID:                  "sess-protected",
+		ProviderFamily:      provider.FamilyYouTube,
+		Name:                "Protected session",
+		CookieRef:           "managed://cookies/sess-protected",
+		Enabled:             true,
+		HealthStatus:        mediasession.HealthRateLimited,
+		ConsecutiveFailures: 3,
+		LastSuccessAt:       &lastSuccess,
+		LastFailureAt:       &lastFailure,
+		LastFailureReason:   "rate limited",
+		CooldownUntil:       &cooldown,
+	}
+
+	orch, pool, ytm, _, _ := setupTestEnvironment(t, sess)
+	ytm.SetCandidates([]provider.MediaCandidate{{
+		Provider: "ytmusic", ID: "vid-protected", Title: "Protected track",
+		Artists: []string{"Artist"}, DurationMS: 180000,
+	}})
+
+	ctx := context.Background()
+	res, err := orch.ResolveMedia(ctx, "ytmusic", music.Track{
+		Title: "Protected track", Artists: []string{"Artist"}, DurationMS: 180000,
+	}, 5)
+	if err != nil {
+		t.Fatalf("ResolveMedia failed: %v", err)
+	}
+	if res.SessionID != sess.ID {
+		t.Fatalf("expected protected session affinity, got %q", res.SessionID)
+	}
+
+	afterResolve := pool.Sessions()[0]
+	if afterResolve.HealthStatus != sess.HealthStatus ||
+		afterResolve.ConsecutiveFailures != sess.ConsecutiveFailures ||
+		afterResolve.LastFailureReason != sess.LastFailureReason ||
+		afterResolve.LastSuccessAt == nil || !afterResolve.LastSuccessAt.Equal(lastSuccess) ||
+		afterResolve.LastFailureAt == nil || !afterResolve.LastFailureAt.Equal(lastFailure) ||
+		afterResolve.CooldownUntil == nil || !afterResolve.CooldownUntil.Equal(cooldown) {
+		t.Fatalf("successful resolve changed protected session health: before=%+v after=%+v", sess, afterResolve)
+	}
+	if pool.RuntimeSessions()[0].CurrentLeases() != 0 {
+		t.Fatal("successful resolve must release its lease neutrally")
+	}
+
+	// A verification failure is not a recovery event either.
+	orch.RecordDownloadOutcome(ctx, res.SessionID,
+		apperr.New(apperr.CodeMediaVerifyFailed, "media verification failed"))
+	afterFailure := pool.Sessions()[0]
+	if afterFailure.HealthStatus != sess.HealthStatus || afterFailure.ConsecutiveFailures != sess.ConsecutiveFailures ||
+		afterFailure.LastSuccessAt == nil || !afterFailure.LastSuccessAt.Equal(lastSuccess) {
+		t.Fatalf("failed acquisition unexpectedly changed recovery state: %+v", afterFailure)
 	}
 }
 

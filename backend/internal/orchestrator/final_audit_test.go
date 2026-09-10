@@ -393,6 +393,13 @@ func TestFinalAudit_F2_YouTubeSuccess_StillRecordsHealthy(t *testing.T) {
 	if res.SessionID != "sess-yt-1" {
 		t.Fatalf("SessionID = %q, want sess-yt-1", res.SessionID)
 	}
+	if s := pool.Sessions()[0]; s.HealthStatus != mediasession.HealthUnknown {
+		t.Fatalf("session status = %s, want unchanged after resolve", s.HealthStatus)
+	}
+
+	// Resolve only proves source resolution. Recovery is recorded by the worker
+	// after the downloader has completed and verified the media.
+	orch.RecordDownloadOutcome(manualCtx(), res.SessionID, nil)
 	if s := pool.Sessions()[0]; s.HealthStatus != mediasession.HealthHealthy {
 		t.Fatalf("session status = %s, want healthy after real media success", s.HealthStatus)
 	}
