@@ -242,58 +242,37 @@ weiterhin auf die Bundles der vorherigen Version zeigen.
 Der SSE-Strom `/api/v1/events` läuft durch denselben `location`-Block mit
 `proxy_buffering off`, damit Ereignisse den Browser sofort erreichen.
 
-## CI und Release über Gitea Actions
+## CI und Release über GitHub Actions
 
-Zwei Workflows unter `.gitea/workflows/`:
+Die Entwicklung findet ausschließlich in
+[Der-Felix/ytmdl auf GitHub](https://github.com/Der-Felix/ytmdl) statt.
+Pull Requests integrieren Änderungen nach `dev`; `main` bleibt der geprüfte
+stabile Stand. Promotion nach `main`, Release und Deployment sind separate Schritte.
 
-| Workflow | Auslöser | Tut |
+Workflows unter `.github/workflows/`:
+
+| Workflow | Auslöser | Aufgabe |
 | --- | --- | --- |
-| `ci.yml` | Push auf `main`, Pull Request gegen `main` | Tests und Builds, veröffentlicht nichts |
-| `release.yml` | Tag `v*` | dieselben Tests, danach Images in die Registry |
+| `ci.yml` | PR gegen `dev`/`main`, Push auf `dev` | Tests und Builds; veröffentlicht nichts |
+| `release.yml` | Tag `v*`, manueller Qualifikationslauf | Release-Qualifikation; Veröffentlichung nur bei Release-Tag |
+| `pages.yml` | Push auf `main`, manueller Lauf | Dokumentations-Deployment |
 
-Beide führen die PostgreSQL-Integrationstests wirklich aus: Der Job startet
-`postgres:18-alpine` als Service und setzt `MUSICDL_TEST_DATABASE_URL`. Ohne
-diese Variable überspringen sich die Repository-Tests selbst — in CI tun sie
-das nicht. Die Zugangsdaten dieses Dienstes gelten für die Dauer eines Jobs und
-haben mit dem Deployment nichts zu tun.
+CI und Release-Qualifikation starten PostgreSQL 18 als isolierten Test-Service
+und setzen `MUSICDL_TEST_DATABASE_URL`. Die Test-Zugangsdaten gelten ausschließlich
+für den kurzlebigen Dienst. Sie werden nicht für Deployments verwendet.
 
-### Versionierung
+### Versionierung und Registry
 
-Der Git-Tag ist die Quelle der Wahrheit. `refs/tags/v0.4.0` ergibt die Images:
+Der Release-Workflow prüft den Versions-Tag gegen `.release-version`, qualifiziert
+die Artefakte und veröffentlicht freigegebene Images unter
+`ghcr.io/der-felix/ytmdl-backend:<version>` und
+`ghcr.io/der-felix/ytmdl-frontend:<version>`. Erst nach erfolgreicher Qualifikation
+wird `latest` auf die geprüften Digests gesetzt. Die Registry-Anmeldung im
+GitHub-Workflow verwendet den kurzlebigen `GITHUB_TOKEN`.
 
-```text
-<registry-url>/<owner>/ytmdl-backend:<version>    und :latest
-<registry-url>/<owner>/ytmdl-frontend:<version>   und :latest
-```
-
-Vor dem Bauen vergleicht der Workflow den Tag mit `.release-version` und bricht
-bei einer Abweichung ab. Ein Release beginnt deshalb damit, `.release-version`
-zu setzen, zu committen und dann erst zu taggen. `latest` entsteht
-ausschließlich aus einem `v*`-Tag, nie aus einem Branch-Build.
-
-### Registry-Anmeldung
-
-Der Workflow meldet sich mit dem konfigurierten Secret `REGISTRY_TOKEN`
-(bzw. dem Fallback `GITHUB_TOKEN`) an.
-Für einen Host, der Images zieht, reicht eine einmalige Anmeldung:
-
-```sh
-podman login <registry-url>
-```
-
-### Deployment aus der Registry
-
-`compose.yaml` baut lokal und bleibt das Werkzeug für die Entwicklung.
-`compose.registry.yaml` zieht stattdessen die veröffentlichten Images und hat
-bewusst keinen Build-Kontext:
-
-```sh
-YTMDL_VERSION=0.27.0 podman compose -f compose.registry.yaml up -d
-```
-
-`YTMDL_VERSION` hat dort keinen Standardwert — ein Tippfehler bricht ab,
-statt unbemerkt eine andere Version zu starten. Netz, Volume, `.env` und die
-Healthchecks sind mit `compose.yaml` identisch.
+Entwicklungs-PRs ändern weder Release-Tags noch Production. `compose.yaml`
+baut lokal; `compose.ghcr.yaml` beschreibt den offiziellen veröffentlichten Stack.
+Für einen tatsächlichen Release oder Rollout gilt der separat freigegebene Ablauf.
 
 ## Lokale Anpassungen mit `compose.ghcr.override.yaml`
 

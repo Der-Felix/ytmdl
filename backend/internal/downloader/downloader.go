@@ -154,9 +154,9 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 	}
 
 	logger := d.logger.With(
-		logging.KeyProvider, source.Provider,
+		logging.KeyProvider, diagnosticToken(source.Provider),
 		logging.KeyOperation, "download",
-		"media_id", source.ID,
+		"media_id", diagnosticToken(source.ID),
 	)
 
 	started := time.Now()
@@ -188,6 +188,7 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 
 	rawInfo, err := d.prober.Probe(ctx, rawPath)
 	if err != nil {
+		logVerificationFailure(logger, "raw", nil, source.DurationMS, d.toleranceMS, err)
 		return nil, err
 	}
 
@@ -221,10 +222,12 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 
 	finalInfo, err := d.prober.Probe(ctx, target)
 	if err != nil {
+		logVerificationFailure(logger, "final", nil, source.DurationMS, d.toleranceMS, err)
 		_ = os.Remove(target)
 		return nil, err
 	}
 	if err := Verify(finalInfo, source.DurationMS, d.toleranceMS); err != nil {
+		logVerificationFailure(logger, "final", finalInfo, source.DurationMS, d.toleranceMS, err)
 		_ = os.Remove(target)
 		return nil, apperr.Wrap(apperr.CodeMediaVerifyFailed, "Downloaded audio failed duration/stream verification.", err)
 	}

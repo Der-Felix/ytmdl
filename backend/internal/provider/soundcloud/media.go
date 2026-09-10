@@ -198,7 +198,10 @@ func (p *MediaProvider) Resolve(ctx context.Context, candidate provider.MediaCan
 	}
 
 	for _, f := range info.Formats {
-		if !f.IsAudioOnly() {
+		// yt-dlp marks SoundCloud snipped streams with an _preview suffix.
+		// Their source metadata and probed files can report different durations; they
+		// are not full-track sources regardless of the matching score.
+		if !f.IsAudioOnly() || strings.HasSuffix(strings.ToLower(f.FormatID), "_preview") {
 			continue
 		}
 		source.Formats = append(source.Formats, provider.AudioFormat{
@@ -212,6 +215,9 @@ func (p *MediaProvider) Resolve(ctx context.Context, candidate provider.MediaCan
 		})
 	}
 
+	if len(source.Formats) == 0 {
+		return nil, apperr.New(apperr.CodeTrackNotFound, "SoundCloud offers no full-length audio format for this candidate (preview-only or unavailable).")
+	}
 	return source, nil
 }
 
