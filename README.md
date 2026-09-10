@@ -9,11 +9,7 @@ YTMDL lets you build, automate, and stream a personal music library from a moder
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-green)](https://der-felix.github.io/ytmdl/)
 [![Container](https://img.shields.io/badge/container-GHCR-blue)](https://github.com/Der-Felix/ytmdl/pkgs/container/ytmdl-backend)
 
-<<<<<<< HEAD
-![YTMDL dashboard with active download queue (v0.27 development snapshot)](docs/public/screenshots/dashboard.webp)
-=======
 ![YTMDL dashboard with active download queue (v0.27.0)](docs/public/screenshots/dashboard.webp)
->>>>>>> public/main
 
 ---
 
@@ -97,11 +93,7 @@ http://localhost:8080
 
 ## Interface Showcase
 
-<<<<<<< HEAD
-> The following current captures show the unreleased v0.27 development state; the stable v0.26.0 release does not include these UI changes.
-=======
 > The following captures show the stable v0.27.0 UI.
->>>>>>> public/main
 
 ### Web Player & Synchronized Lyrics
 
@@ -111,11 +103,7 @@ Full-screen Now Playing experience with synchronized lyrics, spectrum visualizer
 
 ### Downloads & Queue
 
-<<<<<<< HEAD
-![YTMDL downloads and queue (v0.27 development snapshot)](docs/public/screenshots/downloads.webp)
-=======
 ![YTMDL downloads and queue (v0.27.0)](docs/public/screenshots/downloads.webp)
->>>>>>> public/main
 
 ### Automated Artist Subscriptions
 

@@ -42,11 +42,7 @@ features:
 
 <div class="hero-showcase">
   <div class="hero-showcase-window">
-<<<<<<< HEAD
-    <img src="/screenshots/dashboard.webp" alt="YTMDL dashboard with active downloads — v0.27 development snapshot" />
-=======
     <img src="/screenshots/dashboard.webp" alt="YTMDL dashboard with active downloads — v0.27.0" />
->>>>>>> public/main
   </div>
 </div>
 
