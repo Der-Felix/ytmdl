@@ -30,6 +30,15 @@ export default defineConfig({
       { text: 'API', link: '/api' },
       { text: 'Updates', link: '/updates' },
       {
+        text: 'Help',
+        items: [
+          { text: 'FAQ', link: '/faq' },
+          { text: 'Troubleshooting', link: '/troubleshooting' },
+          { text: 'Tips & Best Practices', link: '/tips' },
+          { text: 'Glossary', link: '/glossary' },
+        ],
+      },
+      {
         text: 'Links',
         items: [
           { text: 'GitHub Repository', link: 'https://github.com/Der-Felix/ytmdl' },
@@ -60,7 +69,7 @@ export default defineConfig({
       {
         text: 'Core Features',
         items: [
-          { text: 'Metadata Providers', link: '/features/providers' },
+          { text: 'Providers & Media Sessions', link: '/features/providers' },
           { text: 'Download Automation', link: '/features/downloads' },
           { text: 'Artist Subscriptions', link: '/features/subscriptions' },
           { text: 'Library Management & Audit', link: '/features/library' },
@@ -78,8 +87,12 @@ export default defineConfig({
         ],
       },
       {
-        text: 'Reference',
+        text: 'Help & Reference',
         items: [
+          { text: 'FAQ', link: '/faq' },
+          { text: 'Troubleshooting', link: '/troubleshooting' },
+          { text: 'Tips & Best Practices', link: '/tips' },
+          { text: 'Glossary', link: '/glossary' },
           { text: 'REST API Reference', link: '/api' },
           { text: 'Legal Notice & License', link: '/legal' },
         ],

@@ -52,3 +52,33 @@ Global player shortcuts are available during active browsing and automatically i
 | `P` | Previous track |
 | `S` | Toggle shuffle |
 | `R` | Cycle repeat mode |
+
+## Mobile Controls
+
+On narrow viewports the player collapses to a compact MiniPlayer. From **v0.27**
+(unreleased) the mobile MiniPlayer is tuned for 390 px and 320 px widths: the
+cover and track text open the full Now Playing view, secondary controls
+(favorite, previous, a separate expand button) are hidden to give the track title
+room to ellipsize, and a 24 px seek strip stays along the top edge. Play/pause
+and next remain directly on the bar.
+
+## Known Browser Limitations
+
+The player is a standard HTML5 `<audio>` element plus the Web Audio API
+(`AudioContext`) for the equalizer, crossfade, and visualizer. What actually
+plays therefore depends on the browser, not on YTMDL:
+
+- **Container/codec support is the browser's.** Opus-in-Ogg plays in Chromium and
+  Firefox; Safari's support for Ogg/Opus has historically been partial and
+  version-dependent. AAC/M4A, MP3, and FLAC are widely supported. YTMDL streams
+  the stored file as-is (HTTP range requests) and never transcodes on the fly, so
+  an unsupported codec fails in that browser only.
+- **iOS / Safari:** audio must be started by a user gesture, and Web Audio
+  routing of a media element has known quirks on iOS. Basic playback works; EQ,
+  crossfade, and the visualizer may behave differently or be unavailable.
+- **No offline / PWA mode.** YTMDL is not an installable Progressive Web App and
+  ships no service worker. There is no native desktop, mobile, or TV
+  (tvOS / Android TV) application — the web UI in a browser is the only client.
+- **Automated tests** cover the player logic (state machine, queue, formatting)
+  in a headless DOM. Cross-browser playback of specific codecs is not part of the
+  automated suite and should be verified in the browsers you actually use.

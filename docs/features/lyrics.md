@@ -28,7 +28,7 @@ Track Metadata
 
 1. **LRCLIB:** Primary lyrics source providing synchronized `.lrc` and plain `.txt` lyrics. Tracks identified as instrumental terminate the chain immediately to prevent false matches.
 2. **YouTube Music:** Secondary fallback extracting official plain lyrics.
-3. **Genius (Optional Fallback):** Conservative plain-text search fallback. Disabled by default; can be enabled via `MUSICDL_PROVIDERS_GENIUS_ENABLED=true`.
+3. **Genius (Optional Fallback):** Conservative plain-text search fallback. Disabled by default; can be enabled via `MUSICDL_GENIUS_ENABLED=true` or in **Settings**. Setting `MUSICDL_GENIUS_ACCESS_TOKEN` switches searches to the authenticated Genius API.
 
 > [!NOTE]
 > Existing lyrics files are never silently overwritten. Manual refreshes can be initiated on demand from the WebUI.

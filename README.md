@@ -135,6 +135,7 @@ Full documentation, configuration guides, and architecture references are availa
 - [Storage & SMB Setup](https://der-felix.github.io/ytmdl/storage/)
 - [REST API Reference](https://der-felix.github.io/ytmdl/api)
 - [Updates & Versioning](https://der-felix.github.io/ytmdl/updates)
+- [FAQ](https://der-felix.github.io/ytmdl/faq) · [Troubleshooting](https://der-felix.github.io/ytmdl/troubleshooting) · [Tips & Best Practices](https://der-felix.github.io/ytmdl/tips) · [Glossary](https://der-felix.github.io/ytmdl/glossary)
 
 ---
 
@@ -173,6 +174,10 @@ ytmdlctl update
 > [!NOTE]
 > `ytmdlctl update` tracks official tagged releases. To test development changes in `ytmdlctl`, build the binary locally:
 > `(cd backend && go build -o /usr/local/bin/ytmdlctl ./cmd/ytmdlctl)`
+
+Host-specific tweaks to the official stack go in an optional, git-ignored
+`compose.ghcr.override.yaml`; recent `ytmdlctl` versions pick it up automatically.
+See [Local customisations](https://der-felix.github.io/ytmdl/deployment#lokale-anpassungen-mit-compose-ghcr-override-yaml).
 
 For complete documentation on installation, backups, rollback, and troubleshooting, see the [Updates & Maintenance Guide](https://der-felix.github.io/ytmdl/updates).
 

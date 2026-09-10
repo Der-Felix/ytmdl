@@ -64,4 +64,7 @@ podman compose -f compose.ghcr.yaml up -d
   <div style="margin-top: 14px; font-size: 0.9rem; color: var(--vp-c-text-2);">
     Then open <code>http://localhost:8080</code> to complete first-run setup. Read the full <a href="/getting-started">Getting Started Guide →</a>
   </div>
+  <div style="margin-top: 8px; font-size: 0.9rem; color: var(--vp-c-text-2);">
+    New here? See the <a href="/faq">FAQ</a>, <a href="/troubleshooting">Troubleshooting</a>, and <a href="/tips">Tips &amp; Best Practices</a>.
+  </div>
 </div>
