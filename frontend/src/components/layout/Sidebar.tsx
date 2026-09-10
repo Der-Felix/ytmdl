@@ -82,8 +82,8 @@ const PRIMARY: NavItem[] = [
 
 interface SidebarProps {
   route: Route
-  /** Number of jobs currently queued or running; hidden when zero. */
-  activeDownloads: number
+  /** Number of jobs currently queued or running; hidden when zero or undefined. */
+  activeDownloads?: number
   /** Closes the mobile drawer after a navigation. */
   onNavigate?: () => void
 }
@@ -127,7 +127,7 @@ function Sidebar({ route, activeDownloads, onNavigate }: SidebarProps) {
                 route={route}
                 onNavigate={onNavigate}
                 badge={
-                  item.label === 'Downloads' && activeDownloads > 0
+                  item.label === 'Downloads' && activeDownloads !== undefined && activeDownloads > 0
                     ? activeDownloads
                     : undefined
                 }

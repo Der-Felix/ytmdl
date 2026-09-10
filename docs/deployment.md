@@ -50,7 +50,7 @@ cp .env.example .env
 ```
 
 In `.env` mindestens `POSTGRES_PASSWORD` setzen und denselben Wert in
-`MUSICDL_DATABASE_URL` eintragen. Für ein Deployment mit den offiziellen Images (`compose.ghcr.yaml`) empfiehlt es sich, die Version fest anzugeben (z. B. `YTMDL_VERSION=0.17.0`), um deterministische Updates mit `ytmdlctl` zu ermöglichen.
+`MUSICDL_DATABASE_URL` eintragen. Für ein Deployment mit den offiziellen Images (`compose.ghcr.yaml`) empfiehlt es sich, die Version fest anzugeben (z. B. `YTMDL_VERSION=0.27.0`), um deterministische Updates mit `ytmdlctl` zu ermöglichen.
 
 ```sh
 mkdir -p data music
@@ -288,12 +288,75 @@ podman login <registry-url>
 bewusst keinen Build-Kontext:
 
 ```sh
-YTMDL_VERSION=0.14.1 podman compose -f compose.registry.yaml up -d
+YTMDL_VERSION=0.27.0 podman compose -f compose.registry.yaml up -d
 ```
 
 `YTMDL_VERSION` hat dort keinen Standardwert — ein Tippfehler bricht ab,
 statt unbemerkt eine andere Version zu starten. Netz, Volume, `.env` und die
 Healthchecks sind mit `compose.yaml` identisch.
+
+## Lokale Anpassungen mit `compose.ghcr.override.yaml`
+
+Für host-spezifische Ergänzungen zum offiziellen GHCR-Stack gibt es eine
+optionale Override-Datei `compose.ghcr.override.yaml` im Projektverzeichnis
+(neben `compose.ghcr.yaml`). Sie ist in `.gitignore` eingetragen und bleibt
+damit lokal — Updates überschreiben sie nie.
+
+> [!NOTE]
+> Die Datei selbst funktioniert mit jedem Compose-Provider. Die **automatische**
+> Einbindung durch `ytmdlctl` ist in Stable **v0.27.0 enthalten** und
+> kommt mit dem nächsten Release; bis dahin gilt der manuelle Aufruf weiter
+> unten.
+
+Typischer Einsatz: einen zusätzlichen Bind-Mount oder eine Umgebungsvariable
+ergänzen, ohne die versionierte `compose.ghcr.yaml` zu verändern. Beispiel
+(mappt eine Host-Cookie-Datei in den Backend-Container; Pfad kommt aus `.env`):
+
+```yaml
+services:
+  backend:
+    volumes:
+      - ${YTMDL_YOUTUBE_COOKIE_PATH:?YTMDL_YOUTUBE_COOKIE_PATH must be set in .env}:/run/secrets/ytmdl-youtube.cookies.txt:rw,Z
+```
+
+Compose führt die beiden Dateien nach den üblichen Override-Regeln zusammen
+(zuletzt genannte Datei gewinnt bei gleichem Schlüssel; Listen wie `volumes`
+werden ergänzt).
+
+### Automatische Einbindung durch `ytmdlctl`
+
+`ytmdlctl` (in der Version mit dieser Funktion) hängt `-f
+compose.ghcr.override.yaml` automatisch an **jeden** Compose-Aufruf an, sobald
+
+* die aufgelöste Compose-Datei `compose.ghcr.yaml` heißt **und**
+* `compose.ghcr.override.yaml` im selben Verzeichnis existiert.
+
+Das gilt für alle intern ausgeführten Compose-Operationen (`ps`, `port`,
+`pull`, `up`, `stop`, `exec`, `config` …), also auch für `ytmdlctl update`,
+`ytmdlctl backup` und `ytmdlctl rollback`. Es ist keine zusätzliche Option
+nötig; fehlt die Datei, verhält sich `ytmdlctl` unverändert.
+
+### Manueller Aufruf mit beiden Dateien
+
+Ohne `ytmdlctl` beide `-f`-Dateien in fester Reihenfolge angeben:
+
+```sh
+podman compose -f compose.ghcr.yaml -f compose.ghcr.override.yaml up -d
+# oder: docker compose -f compose.ghcr.yaml -f compose.ghcr.override.yaml up -d
+```
+
+### Ältere `ytmdlctl`-Versionen
+
+`ytmdlctl`-Versionen ohne diese Funktion binden die Override-Datei **nicht**
+automatisch ein und akzeptieren pro Aufruf nur ein einziges `-f`/`--file`.
+In dem Fall:
+
+* `ytmdlctl` auf eine Version mit Override-Unterstützung aktualisieren, **oder**
+* die Lifecycle-Schritte übergangsweise direkt über `podman compose` /
+  `docker compose` mit beiden `-f`-Dateien ausführen. Dabei entfallen die
+  transaktionalen Schutzmechanismen von `ytmdlctl` (verifizierter
+  Pre-Update-Backup, Digest-Prüfung, Rollback) — nur als kurzfristiger Behelf
+  verwenden.
 
 ## Stop, Restart und Recovery
 
@@ -325,7 +388,18 @@ heruntergeladen und keine Datei doppelt zugeordnet.
 
 ## Backup und Restore
 
-Sichern lassen sich Katalog und Bibliothek getrennt.
+> [!TIP]
+> Für Installationen mit den offiziellen GHCR-Images ist `ytmdlctl backup`
+> (verifizierter `pg_dump -Fc` inkl. `pg_restore --list`-Prüfung) der empfohlene
+> Weg. Details, Umfang und Grenzen: [Updates & Wartung → Datenbank-Backups](/updates#database-backups).
+> Die folgenden Compose-Befehle sind der manuelle Unterbau und funktionieren mit
+> jeder Variante.
+
+Sichern lassen sich Katalog und Bibliothek getrennt. Der Datenbank-Dump enthält
+**nur** den Katalog (Nutzer, Künstler, Alben, Tracks, Jobs, Playlists, Audits) —
+die Audiodateien unter `./music` und optionale Dateien unter `./data`
+(z. B. `cookies.txt`, hochgeladene Session-Cookies) müssen separat gesichert
+werden.
 
 ```sh
 # Datenbank sichern
@@ -359,16 +433,24 @@ Daten: das Volume `ytmdl-postgres-data` und `./music` bleiben erhalten, und
 
 ## Update
 
+**Offizielle Images (`compose.ghcr.yaml`):** `YTMDL_VERSION` in `.env` anheben
+und `ytmdlctl update` ausführen — transaktional, mit verifiziertem
+Pre-Update-Backup, Digest-Prüfung und Rollback. Siehe
+[Updates & Wartung mit `ytmdlctl`](/updates).
+
+**Lokaler Build (`compose.yaml`):**
+
 ```sh
+git pull
 podman compose down
 podman compose build --no-cache
 podman compose up -d
 ```
 
-Migrationen laufen automatisch beim Start und sind gegen parallele Starts durch
-einen Advisory Lock abgesichert. Updates von Alpine, `yt-dlp`, `ffmpeg` oder
-PostgreSQL erfolgen reproduzierbar über einen neuen Build, nicht durch
-Änderungen im laufenden Container.
+Migrationen laufen in beiden Fällen automatisch beim Start und sind gegen
+parallele Starts durch einen Advisory Lock abgesichert. Updates von Alpine,
+`yt-dlp`, `ffmpeg` oder PostgreSQL erfolgen reproduzierbar über ein neues Image
+bzw. einen neuen Build, nicht durch Änderungen im laufenden Container.
 
 ## Logs
 

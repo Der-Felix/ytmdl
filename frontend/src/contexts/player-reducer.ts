@@ -119,6 +119,13 @@ function pushHistory(history: PlayerHistoryItem[], track: LibraryTrack): PlayerH
   return [item, ...filtered].slice(0, 100)
 }
 
+function trackDurationSeconds(track: LibraryTrack | null | undefined): number {
+  if (!track || typeof track.duration_ms !== 'number' || !Number.isFinite(track.duration_ms) || track.duration_ms <= 0) {
+    return 0
+  }
+  return track.duration_ms / 1000
+}
+
 export function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
   switch (action.type) {
     case 'PLAY_TRACK': {
@@ -137,7 +144,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         queueIndex: idx,
         status: 'buffering',
         currentTime: 0,
-        duration: track.duration_ms ? track.duration_ms / 1000 : 0,
+        duration: trackDurationSeconds(track),
         history: pushHistory(state.history, track),
         error: null,
       }
@@ -157,7 +164,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         shuffle: false,
         status: 'buffering',
         currentTime: 0,
-        duration: track.duration_ms ? track.duration_ms / 1000 : 0,
+        duration: trackDurationSeconds(track),
         history: pushHistory(state.history, track),
         error: null,
       }
@@ -181,7 +188,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         shuffle,
         status: 'buffering',
         currentTime: 0,
-        duration: track.duration_ms ? track.duration_ms / 1000 : 0,
+        duration: trackDurationSeconds(track),
         history: pushHistory(state.history, track),
         error: null,
       }
@@ -230,7 +237,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         queueIndex: index,
         status: 'buffering',
         currentTime: 0,
-        duration: track.duration_ms ? track.duration_ms / 1000 : 0,
+        duration: trackDurationSeconds(track),
         history: pushHistory(state.history, track),
         error: null,
       }
@@ -293,7 +300,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         newCurrentTrack = newQueue[newIndex] ?? null
         newStatus = 'buffering'
         newCurrentTime = 0
-        newDuration = newCurrentTrack?.duration_ms ? newCurrentTrack.duration_ms / 1000 : 0
+        newDuration = trackDurationSeconds(newCurrentTrack)
       }
 
       let newOriginal = [...state.originalQueue]
@@ -377,6 +384,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
           newOriginal.splice(idx, 1)
         }
       }
+
       return {
         ...state,
         queue: newQueue,
@@ -390,10 +398,17 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
 
     case 'SET_CURRENT_TIME': {
       const { currentTime, duration } = action.payload
+      const isPositiveDuration = duration !== undefined && Number.isFinite(duration) && duration > 0
+      const currentTrackDuration = trackDurationSeconds(state.currentTrack)
+
       return {
         ...state,
-        currentTime,
-        duration: duration !== undefined && duration > 0 ? duration : state.duration,
+        currentTime: Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0,
+        duration: isPositiveDuration
+          ? duration
+          : state.duration > 0
+            ? state.duration
+            : currentTrackDuration,
       }
     }
 
@@ -621,7 +636,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         currentTrack: prevTrack,
         queueIndex: prevIdx,
         currentTime: 0,
-        duration: prevTrack?.duration_ms ? prevTrack.duration_ms / 1000 : 0,
+        duration: trackDurationSeconds(prevTrack),
         status: 'buffering',
         history: prevTrack ? pushHistory(state.history, prevTrack) : state.history,
       }
@@ -685,7 +700,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         currentTrack: nextTrack,
         queueIndex: nextIdx,
         currentTime: 0,
-        duration: nextTrack?.duration_ms ? nextTrack.duration_ms / 1000 : 0,
+        duration: trackDurationSeconds(nextTrack),
         status: 'buffering',
         history: nextTrack ? pushHistory(state.history, nextTrack) : state.history,
       }
@@ -700,10 +715,13 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
           ? (restoredQueue[restoredIndex] ?? null)
           : null)
 
+      const restoredDuration = trackDurationSeconds(restoredCurrentTrack)
+
       return {
         ...state,
         ...action.payload,
         currentTrack: restoredCurrentTrack,
+        duration: restoredDuration,
         status: 'paused', // NEVER autoplay on restored state
       }
     }

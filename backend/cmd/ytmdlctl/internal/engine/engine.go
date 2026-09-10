@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -15,6 +17,38 @@ import (
 	"ytdm/backend/cmd/ytmdlctl/internal/manifest"
 	"ytdm/backend/cmd/ytmdlctl/internal/runner"
 )
+
+const (
+	// ComposeFileGHCR is the canonical GHCR compose filename.
+	ComposeFileGHCR = "compose.ghcr.yaml"
+	// ComposeFileOverride is the optional host-specific override filename.
+	ComposeFileOverride = "compose.ghcr.override.yaml"
+)
+
+// ComposeArgs builds the base compose CLI arguments for the given compose file.
+// When targeting compose.ghcr.yaml, it automatically appends -f compose.ghcr.override.yaml
+// if that override file exists in the project directory.
+func ComposeArgs(projectDir, composeFile string) []string {
+	args := []string{"compose", "-f", composeFile}
+	if filepath.Base(composeFile) == ComposeFileGHCR {
+		overridePath := ComposeFileOverride
+		checkPath := ComposeFileOverride
+		if projectDir != "" {
+			checkPath = filepath.Join(projectDir, ComposeFileOverride)
+		} else if filepath.IsAbs(composeFile) {
+			checkPath = filepath.Join(filepath.Dir(composeFile), ComposeFileOverride)
+		}
+		if filepath.IsAbs(composeFile) {
+			overridePath = checkPath
+		}
+		if fi, err := os.Stat(checkPath); err == nil && !fi.IsDir() {
+			args = append(args, "-f", overridePath)
+		}
+	}
+	res := make([]string, len(args))
+	copy(res, args)
+	return res
+}
 
 var (
 	// ErrNoEngineFound is returned when neither Docker nor Podman Compose is available.
@@ -75,9 +109,10 @@ func (e *BaseEngine) ComposeVersion(ctx context.Context) (string, error) {
 
 // IsServiceRunning inspects if a service is actively running for the given compose project.
 func (e *BaseEngine) IsServiceRunning(ctx context.Context, projectDir, composeFile, service string) (bool, error) {
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "ps", "--format", "{{.Service}}")
 	res, err := e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
-		Args:       []string{"compose", "-f", composeFile, "ps", "--format", "{{.Service}}"},
+		Args:       cmdArgs,
 		Dir:        projectDir,
 	})
 	if err != nil {
@@ -94,9 +129,10 @@ func (e *BaseEngine) IsServiceRunning(ctx context.Context, projectDir, composeFi
 
 // Port queries the host-forwarded port for a service's container port.
 func (e *BaseEngine) Port(ctx context.Context, projectDir, composeFile, service string, containerPort int) (string, error) {
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "port", service, strconv.Itoa(containerPort))
 	res, err := e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
-		Args:       []string{"compose", "-f", composeFile, "port", service, strconv.Itoa(containerPort)},
+		Args:       cmdArgs,
 		Dir:        projectDir,
 	})
 	if err != nil {
@@ -494,7 +530,7 @@ func CheckPodmanProviderCompatibility(ctx context.Context, eng Engine) error {
 
 // PS executes compose ps with optional flags.
 func (e *BaseEngine) PS(ctx context.Context, projectDir, composeFile string, args ...string) (*runner.RunResult, error) {
-	cmdArgs := []string{"compose", "-f", composeFile, "ps"}
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "ps")
 	cmdArgs = append(cmdArgs, args...)
 	return e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
@@ -510,7 +546,7 @@ func (e *BaseEngine) Exec(ctx context.Context, projectDir, composeFile, service 
 
 // ExecStream executes a command inside a compose service container with optional streamed stdout and stdin.
 func (e *BaseEngine) ExecStream(ctx context.Context, projectDir, composeFile, service string, stdin io.Reader, stdout io.Writer, command ...string) (*runner.RunResult, error) {
-	cmdArgs := []string{"compose", "-f", composeFile, "exec", "-T", service}
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "exec", "-T", service)
 	cmdArgs = append(cmdArgs, command...)
 	return e.runner.Run(ctx, runner.RunRequest{
 		Executable:   e.binary,
@@ -523,7 +559,7 @@ func (e *BaseEngine) ExecStream(ctx context.Context, projectDir, composeFile, se
 
 // Config runs compose config with optional environment overrides.
 func (e *BaseEngine) Config(ctx context.Context, projectDir, composeFile string, envOverrides map[string]string) (*runner.RunResult, error) {
-	cmdArgs := []string{"compose", "-f", composeFile, "config"}
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "config")
 	var env []string
 	for k, v := range envOverrides {
 		env = append(env, k+"="+v)
@@ -538,7 +574,7 @@ func (e *BaseEngine) Config(ctx context.Context, projectDir, composeFile string,
 
 // Pull runs compose pull with optional environment overrides for specific services.
 func (e *BaseEngine) Pull(ctx context.Context, projectDir, composeFile string, envOverrides map[string]string, services ...string) (*runner.RunResult, error) {
-	cmdArgs := []string{"compose", "-f", composeFile, "pull"}
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "pull")
 	cmdArgs = append(cmdArgs, services...)
 	var env []string
 	for k, v := range envOverrides {
@@ -554,7 +590,7 @@ func (e *BaseEngine) Pull(ctx context.Context, projectDir, composeFile string, e
 
 // UpServices executes compose -f <file> up -d --no-deps <services...> with optional env overrides.
 func (e *BaseEngine) UpServices(ctx context.Context, projectDir, composeFile string, envOverrides map[string]string, services ...string) (*runner.RunResult, error) {
-	cmdArgs := []string{"compose", "-f", composeFile, "up", "-d", "--no-deps"}
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "up", "-d", "--no-deps")
 	cmdArgs = append(cmdArgs, services...)
 	var env []string
 	for k, v := range envOverrides {
@@ -570,7 +606,7 @@ func (e *BaseEngine) UpServices(ctx context.Context, projectDir, composeFile str
 
 // StopServices executes compose -f <file> stop <services...>.
 func (e *BaseEngine) StopServices(ctx context.Context, projectDir, composeFile string, services ...string) (*runner.RunResult, error) {
-	cmdArgs := []string{"compose", "-f", composeFile, "stop"}
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "stop")
 	cmdArgs = append(cmdArgs, services...)
 	return e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
@@ -581,9 +617,10 @@ func (e *BaseEngine) StopServices(ctx context.Context, projectDir, composeFile s
 
 // GetServiceContainerID queries the running container ID for a compose service.
 func (e *BaseEngine) GetServiceContainerID(ctx context.Context, projectDir, composeFile, service string) (string, error) {
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "ps", "-q", service)
 	res, err := e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
-		Args:       []string{"compose", "-f", composeFile, "ps", "-q", service},
+		Args:       cmdArgs,
 		Dir:        projectDir,
 	})
 	if err != nil {
@@ -713,9 +750,10 @@ func isBinaryAvailable(ctx context.Context, r runner.ProcessRunner, name string)
 }
 
 func checkEngineOwnsProject(ctx context.Context, r runner.ProcessRunner, binary, projectDir, composeFile string) bool {
+	cmdArgs := append(ComposeArgs(projectDir, composeFile), "ps", "-q")
 	res, err := r.Run(ctx, runner.RunRequest{
 		Executable: binary,
-		Args:       []string{"compose", "-f", composeFile, "ps", "-q"},
+		Args:       cmdArgs,
 		Dir:        projectDir,
 	})
 	if err != nil || res == nil || res.ExitCode != 0 {

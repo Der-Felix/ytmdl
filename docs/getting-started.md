@@ -38,7 +38,8 @@ Generate secure secrets for PostgreSQL and session tokens:
 ```sh
 # Set strong random secrets and configure your pinned version in .env
 openssl rand -hex 24
-# Set YTMDL_VERSION=0.17.0 in .env for deterministic deployment and managed updates
+# Set YTMDL_VERSION in .env to the current stable release (e.g. 0.26.0) for
+# deterministic deployment and managed updates with ytmdlctl
 ```
 
 ### 2. Launch the Stack

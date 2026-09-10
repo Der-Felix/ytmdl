@@ -43,4 +43,29 @@ describe('NextUpCard', () => {
 
     expect(screen.getByText('2 in Vorschau')).toBeDefined()
   })
+
+  it('renders "Anzahl unbekannt" when open_tracks is missing or invalid', () => {
+    const jobsWithMissingTracks = [
+      {
+        job_id: 'job-unknown-1',
+        artist: 'Pink Floyd',
+        release: 'The Wall',
+        open_tracks: undefined as unknown as number,
+        total_tracks: 26,
+      },
+      {
+        job_id: 'job-unknown-2',
+        artist: 'Led Zeppelin',
+        release: 'Led Zeppelin IV',
+        open_tracks: NaN,
+        total_tracks: 8,
+      },
+    ]
+
+    render(<NextUpCard jobs={jobsWithMissingTracks} />)
+
+    const unknownBadges = screen.getAllByText('Anzahl unbekannt')
+    expect(unknownBadges.length).toBe(2)
+    expect(screen.queryByText('0 Tracks offen')).toBeNull()
+  })
 })

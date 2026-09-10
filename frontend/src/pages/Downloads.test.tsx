@@ -295,4 +295,101 @@ describe('Downloads page tab counts', () => {
     expect(section(historicalCompletedPaused)).toBe('done')
     expect(section(historicalFailedPaused)).toBe('failed')
   })
+
+  it('renders ErrorState with retry when initial queue summary load fails', async () => {
+    stubFetch([], null, 0)
+
+    render(
+      <AuthProvider>
+        <Downloads />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/not available/i),
+      ).toBeDefined()
+    })
+  })
+
+  it('preserves last known queue summary and displays warning banner when background refresh fails', async () => {
+    let summaryResponse: QueueSummary | null = mockSummary
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      const parsed = new URL(url, 'http://localhost')
+
+      if (parsed.pathname === '/api/v1/jobs/summary') {
+        if (!summaryResponse) {
+          return new Response(
+            JSON.stringify({
+              error: { code: 'INTERNAL_ERROR', message: 'connection lost' },
+            }),
+            {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          )
+        }
+        return new Response(JSON.stringify({ data: summaryResponse }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      if (parsed.pathname === '/api/v1/jobs') {
+        return new Response(
+          JSON.stringify({
+            data: [],
+            meta: { total: 0, limit: 20, offset: 0 },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        )
+      }
+
+      if (parsed.pathname === '/api/v1/auth/me') {
+        return new Response(
+          JSON.stringify({ id: 'admin_1', username: 'sysadmin', role: 'admin' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+
+      if (parsed.pathname === '/api/v1/auth/status') {
+        return new Response(
+          JSON.stringify({ setup_required: false, authenticated: true }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+
+      return new Response(JSON.stringify({}), { status: 200 })
+    }) as typeof fetch
+
+    render(
+      <AuthProvider>
+        <Downloads />
+      </AuthProvider>,
+    )
+
+    // Initially, summary is rendered
+    await waitFor(() => {
+      expect(screen.getByLabelText('Warteschlangen-Status und Vorschau')).toBeDefined()
+    })
+
+    // Now summary fails on subsequent reload
+    summaryResponse = null
+
+    // Click "Aktualisieren" button
+    const refreshBtn = screen.getByRole('button', { name: /Aktualisieren/ })
+    refreshBtn.click()
+
+    // Verify: Cards are still mounted (not unmounted into skeleton), and warning banner appears
+    await waitFor(() => {
+      expect(screen.getByLabelText('Warteschlangen-Status und Vorschau')).toBeDefined()
+      expect(
+        screen.getByText(/Hintergrundaktualisierung fehlgeschlagen/i),
+      ).toBeDefined()
+    })
+  })
 })

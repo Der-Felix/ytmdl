@@ -40,6 +40,10 @@ function setState(next: ConnectionState): void {
 
 function open(): void {
   if (source) return
+  if (typeof EventSource === 'undefined') {
+    setState('offline')
+    return
+  }
 
   setState('connecting')
   const stream = new EventSource(apiUrl('/events'))
