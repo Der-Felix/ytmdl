@@ -2,13 +2,23 @@
 
 This document describes how to set up, build, test, and contribute to YTMDL locally.
 
-## Development Model & Upstream Repository
+## GitHub-only Development Model
 
-Canonical day-to-day development, continuous integration, and release preparation for YTMDL take place in an upstream development repository. The public GitHub repository publishes stable releases, tags, and documentation, and welcomes community issues, feature requests, and pull requests.
+Development and integration take place exclusively at
+[Der-Felix/ytmdl on GitHub](https://github.com/Der-Felix/ytmdl). Create a feature
+branch from the latest `dev` and submit a PR to `dev`. Wait for the final commit's
+GitHub CI and follow applicable branch protection before merging. `main` is the
+reviewed stable branch; promotion, release tags and production deployment need
+separate scope and approval. Do not push private history, internal configuration,
+credentials or local overrides. See [CONTRIBUTING](https://github.com/Der-Felix/ytmdl/blob/dev/CONTRIBUTING.md).
+
+The non-publishing `.github/workflows/ci.yml` checks frontend tests/lint/build
+and backend formatting/vet/build/tests/race tests with isolated PostgreSQL 18.
+A development PR does not invoke the release or documentation deployment jobs.
 
 ## Prerequisites
 
-- **Go:** 1.22 or newer (1.26 recommended)
+- **Go:** the version required by `backend/go.mod` (currently 1.26.6)
 - **Node.js / Bun:** Bun 1.1+ (or Node 20+ with npm)
 - **Container Runtime:** Podman or Docker with Compose
 - **PostgreSQL:** 16+ or 18 (for running integration tests)
@@ -39,7 +49,7 @@ Backend tests include both unit tests and PostgreSQL integration tests. If `MUSI
 # Optional: Spin up a local PostgreSQL test container
 podman run -d --rm --name ytmdl-pgtest \
   -e POSTGRES_USER=ytmdl -e POSTGRES_PASSWORD=testpw -e POSTGRES_DB=ytmdl_test \
-  -p 55432:5432 docker.io/library/postgres:18-alpine
+  -p 127.0.0.1:55432:5432 docker.io/library/postgres:18-alpine
 
 # Run tests
 export MUSICDL_TEST_DATABASE_URL='postgres://ytmdl:testpw@127.0.0.1:55432/ytmdl_test?sslmode=disable'
@@ -66,7 +76,7 @@ bun run dev
 bun test
 
 # Type check
-bun run typecheck
+bunx tsc -b
 
 # Lint with Oxlint
 bun run lint

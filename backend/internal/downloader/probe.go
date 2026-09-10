@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -102,6 +104,10 @@ type ffprobeOutput struct {
 
 // Probe inspects the file at path.
 func (p *Prober) Probe(ctx context.Context, path string) (*AudioInfo, error) {
+	stat, statErr := os.Stat(path)
+	if statErr == nil && stat.Size() == 0 {
+		return nil, invalidAudio("empty_file", "The downloaded file is empty.", &AudioInfo{})
+	}
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
@@ -112,22 +118,20 @@ func (p *Prober) Probe(ctx context.Context, path string) (*AudioInfo, error) {
 		"-show_streams",
 		"--", path)
 
-	var stdout, stderr bytes.Buffer
+	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stderr = io.Discard
 
 	if err := cmd.Run(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
-			return nil, apperr.Wrapf(apperr.CodeToolUnavailable, err,
-				"ffprobe was not found at %q.", p.binary)
+			return nil, &verificationFailure{reason: "ffprobe_error", info: probeFileSize(stat, statErr), cause: apperr.New(apperr.CodeToolUnavailable, "ffprobe could not be started.")}
 		}
-		return nil, apperr.Wrapf(apperr.CodeInvalidAudio, err,
-			"The downloaded file could not be inspected: %s", strings.TrimSpace(stderr.String()))
+		return nil, invalidAudio("ffprobe_error", "The downloaded file could not be inspected.", probeFileSize(stat, statErr))
 	}
 
 	var out ffprobeOutput
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
-		return nil, apperr.Wrap(apperr.CodeInvalidAudio, "The ffprobe output could not be decoded.", err)
+		return nil, invalidAudio("ffprobe_error", "The ffprobe output could not be decoded.", probeFileSize(stat, statErr))
 	}
 
 	info := &AudioInfo{Container: primaryFormatName(out.Format.FormatName)}
@@ -149,9 +153,6 @@ func (p *Prober) Probe(ctx context.Context, path string) (*AudioInfo, error) {
 		}
 		break
 	}
-	if !audioFound {
-		return nil, apperr.Newf(apperr.CodeInvalidAudio, "The file %q contains no audio stream.", path)
-	}
 
 	if info.DurationMS == 0 {
 		if d := atofSafe(out.Format.Duration); d > 0 {
@@ -169,6 +170,9 @@ func (p *Prober) Probe(ctx context.Context, path string) (*AudioInfo, error) {
 			info.SizeBytes = stat.Size()
 		}
 	}
+	if !audioFound {
+		return nil, invalidAudio("missing_audio_stream", "The downloaded file contains no audio stream.", info)
+	}
 	return info, nil
 }
 
@@ -177,16 +181,16 @@ func (p *Prober) Probe(ctx context.Context, path string) (*AudioInfo, error) {
 // away as the wanted track.
 func Verify(info *AudioInfo, expectedDurationMS, toleranceMS int) error {
 	if info == nil {
-		return apperr.New(apperr.CodeInvalidAudio, "The downloaded file was not inspected.")
+		return invalidAudio("ffprobe_error", "The downloaded file was not inspected.", nil)
 	}
 	if info.Codec == "" {
-		return apperr.New(apperr.CodeInvalidAudio, "The downloaded file contains no audio stream.")
+		return invalidAudio("missing_audio_stream", "The downloaded file contains no audio stream.", info)
 	}
 	if info.DurationMS <= 0 {
-		return apperr.New(apperr.CodeInvalidAudio, "The downloaded file has no playable duration.")
+		return invalidAudio("invalid_duration", "The downloaded file has no playable duration.", info)
 	}
 	if info.SizeBytes <= 0 {
-		return apperr.New(apperr.CodeInvalidAudio, "The downloaded file is empty.")
+		return invalidAudio("empty_file", "The downloaded file is empty.", info)
 	}
 	if expectedDurationMS > 0 {
 		if toleranceMS <= 0 {
@@ -197,9 +201,9 @@ func Verify(info *AudioInfo, expectedDurationMS, toleranceMS int) error {
 			diff = -diff
 		}
 		if diff > toleranceMS {
-			return apperr.Newf(apperr.CodeInvalidAudio,
+			return invalidAudio("duration_mismatch", fmt.Sprintf(
 				"The downloaded audio is %.1fs long, but %.1fs were expected.",
-				float64(info.DurationMS)/1000, float64(expectedDurationMS)/1000)
+				float64(info.DurationMS)/1000, float64(expectedDurationMS)/1000), info)
 		}
 	}
 	return nil
@@ -229,4 +233,11 @@ func atofSafe(s string) float64 {
 		return 0
 	}
 	return v
+}
+
+func probeFileSize(stat os.FileInfo, err error) *AudioInfo {
+	if err != nil {
+		return nil
+	}
+	return &AudioInfo{SizeBytes: stat.Size()}
 }

@@ -11,10 +11,13 @@
 
 <!-- Describe how these changes were tested -->
 - [ ] Backend tests passing (`go test -count=1 ./...` and `go vet ./...`)
-- [ ] Frontend checks passing (`bun test`, `bun run typecheck`, `bun run lint`)
+- [ ] Frontend checks passing (`bun test`, `bunx tsc -b`, `bun run lint`)
 - [ ] Manual verification in browser / player (if applicable)
 
 ## Checklist
+
+- [ ] This development PR targets `dev` and is based on GitHub history
+- [ ] GitHub CI passes for the final commit; applicable branch rules are satisfied
 
 - [ ] My code follows the project's architectural guidelines and style
 - [ ] No secrets, tokens, or private credentials committed

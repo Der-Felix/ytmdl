@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
+      - name: Install dependencies
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+      - name: Tests, lint and TypeScript/Vite build
+        working-directory: frontend
+        run: |
+          bun test
+          bun run lint
+          bun run build
+
+      - name: Build documentation
+        working-directory: docs
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: ytmdl_test
+          POSTGRES_USER: ytmdl
+          # Disposable CI service only; never deployment credentials.
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ytmdl -d ytmdl_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      MUSICDL_TEST_DATABASE_URL: postgres://ytmdl:ci-only-not-a-secret@127.0.0.1:5432/ytmdl_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install audio and PostgreSQL 18 tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg lsb-release
+          sudo install -d /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends postgresql-client-18 ffmpeg
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+      - name: Formatting, vet and build
+        working-directory: backend
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "$unformatted"
+            exit 1
+          fi
+          go vet ./...
+          go build ./...
+      - name: Tests including PostgreSQL integration
+        working-directory: backend
+        run: go test -count=1 ./...
+      - name: Race tests
+        working-directory: backend
+        run: go test -race -count=1 ./...
