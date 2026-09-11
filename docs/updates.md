@@ -54,8 +54,8 @@ Every installable release has a unique version, its source commit, immutable mul
 ```sh
 ytmdlctl check                                     # newest release of the installation's channel
 ytmdlctl check --channel development               # newest qualified prerelease
-ytmdlctl update --channel development --target 0.27.2-rc.1 --dry-run
-ytmdlctl update --channel development --target 0.27.2-rc.1
+ytmdlctl update --channel development --target 0.27.2-rc.2 --dry-run
+ytmdlctl update --channel development --target 0.27.2-rc.2
 ```
 
 `--target` installs exactly that version. A prerelease target requires the development channel.
@@ -65,7 +65,7 @@ ytmdlctl update --channel development --target 0.27.2-rc.1
 Use the `ytmdlctl` binary of the release candidate itself:
 
 ```sh
-VERSION="0.27.2-rc.1"
+VERSION="0.27.2-rc.2"
 ARCH="linux-amd64"   # or linux-arm64, darwin-amd64, darwin-arm64
 curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/ytmdlctl-${ARCH}"
 curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/SHA256SUMS"

@@ -1,12 +1,20 @@
 # Changelog
 
-## Unreleased (planned for 0.27.2-rc.2)
+## 0.27.2-rc.2 — 2026-09-11
 
-### Bug Fixes
+Second release candidate for the development channel. It is published as a GitHub prerelease, is never offered on the stable channel and does not move the `latest` image tags. It contains everything from 0.27.2-rc.1.
 
-- **Age-restricted candidates:** an age restriction of a single YouTube video (`Sorry, this content is age-restricted`, `Verify your age …`) is a candidate failure: the next acceptable candidate is tried, and neither a family-wide YouTube pause nor a session failure or session recovery follows. Previously each one paused the whole family for a minute and was hit again on every retry of the item. Bot challenges, sign-in and authentication failures and rate limits keep precedence, and age statements that also mention sign-in, cookies or the account keep their previous handling. Restricted sources are skipped, never unlocked. Details: `docs/diagnostics/age-restricted-candidates.md`.
-- **Unavailable videos:** YouTube's `This video is unavailable` is the same candidate failure as `Video unavailable`; it no longer pauses the YouTube family. Other messages that merely contain "unavailable" keep their handling.
-- **Diagnostics:** the hourly `throughput summary` counts `candidate.age_restricted` and `candidate.unavailable` separately for the resolve (`extract`) and the download phase.
+### Highlights
+
+- **Age-restricted videos no longer pause YouTube:** an age restriction of a single YouTube video (`Sorry, this content is age-restricted`, `Verify your age …`) is a candidate failure. The next acceptable candidate is tried; neither a family-wide YouTube pause nor a session failure or session recovery follows. Previously each one paused the whole family for a minute and was hit again on every retry of the item (a quarter of all family pauses in the 0.27.1 logs, eleven of twelve in the first hour of 0.27.2-rc.1). Restricted sources are skipped, never unlocked.
+- **"This video is unavailable" no longer pauses YouTube:** the statement is the same candidate failure as `Video unavailable`, which never matched its wording.
+
+### Changes
+
+- **Classification:** rate limits, bot challenges and sign-in or cookie failures keep precedence over both statements. Wording that also mentions sign-in, cookies or the account, or for unavailability a temporary condition, a rate limit or `Service Unavailable`, keeps its previous handling; other messages that merely contain "unavailable" are untouched. Provider prefix and video id are ignored when matching.
+- **Retry contract:** a failed candidate is not resolved again in the same attempt, the existing 15-minute negative query cache (per session context) answers it between attempts, and an item whose candidates all fail ends with the existing permanent result instead of a retry loop.
+- **Diagnostics:** the hourly `throughput summary` counts `candidate.age_restricted` and `candidate.unavailable` separately for the resolve (`extract`) and the download phase. Details: `docs/diagnostics/age-restricted-candidates.md`.
+- **Database Schema:** Schema remains at 12; no database migration is required.
 
 ### Known Limits
 
@@ -14,7 +22,7 @@
 
 ### Verification Notes
 
-- The effect on live throughput is not measured yet; it needs its own measurement window in normal operation.
+- The effect on live throughput is not measured yet; it needs its own measurement window in normal operation after a separately authorized rollout.
 
 ## 0.27.2-rc.1 — 2026-09-11
 
