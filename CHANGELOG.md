@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (planned for 0.27.2-rc.2)
+
+### Bug Fixes
+
+- **Age-restricted candidates:** an age restriction of a single YouTube video (`Sorry, this content is age-restricted`, `Verify your age …`) is a candidate failure: the next acceptable candidate is tried, and neither a family-wide YouTube pause nor a session failure or session recovery follows. Previously each one paused the whole family for a minute and was hit again on every retry of the item. Bot challenges, sign-in and authentication failures and rate limits keep precedence, and age statements that also mention sign-in, cookies or the account keep their previous handling. Restricted sources are skipped, never unlocked. Details: `docs/diagnostics/age-restricted-candidates.md`.
+- **Unavailable videos:** YouTube's `This video is unavailable` is the same candidate failure as `Video unavailable`; it no longer pauses the YouTube family. Other messages that merely contain "unavailable" keep their handling.
+- **Diagnostics:** the hourly `throughput summary` counts `candidate.age_restricted` and `candidate.unavailable` separately for the resolve (`extract`) and the download phase.
+
+### Known Limits
+
+- A source that resolves but is refused only by the download process (age restriction or unavailability) ends the item with `TRACK_NOT_FOUND` without selecting another candidate. It triggers no pause and no retry loop; the download-phase counters show how often it happens. A download-phase fallback is not part of this release candidate.
+
+### Verification Notes
+
+- The effect on live throughput is not measured yet; it needs its own measurement window in normal operation.
+
 ## 0.27.2-rc.1 — 2026-09-11
 
 Release candidate for the development channel. It is published as a GitHub prerelease, is never offered on the stable channel and does not move the `latest` image tags.
