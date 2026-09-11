@@ -198,6 +198,9 @@ func (c *Client) countError(op string, err error) {
 	if errors.Is(err, ErrAgeRestricted) {
 		c.count(op, "candidate.age_restricted")
 	}
+	if errors.Is(err, ErrItemUnavailable) {
+		c.count(op, "candidate.unavailable")
+	}
 }
 
 // Binary returns the configured executable.
@@ -632,6 +635,12 @@ func ClassifyError(stderr string, cause error) error {
 	case isContentAgeRestriction(stderr):
 		return apperr.Wrap(apperr.CodeTrackNotFound, ageRestrictedMessage, fmt.Errorf("%w: %w", ErrAgeRestricted, cause))
 
+	// "This video is unavailable" names one video, like "Video unavailable"
+	// below, but that rule never matched its wording. Same precedence and
+	// ambiguity rules as the age restriction.
+	case isItemUnavailable(stderr):
+		return apperr.Wrap(apperr.CodeTrackNotFound, itemUnavailableMessage, fmt.Errorf("%w: %w", ErrItemUnavailable, cause))
+
 	case strings.Contains(lower, "video unavailable") ||
 		strings.Contains(lower, "is not available") ||
 		strings.Contains(lower, "private video") ||
@@ -691,15 +700,36 @@ func isContentAgeRestriction(stderr string) bool {
 			restricted = true
 		}
 	}
-	if !restricted {
-		return false
-	}
-	for _, hint := range ageRestrictionAmbiguityHints {
+	return restricted && !hasAmbiguityHint(line, ageRestrictionAmbiguityHints)
+}
+
+// ErrItemUnavailable marks a candidate failure caused by a single video the
+// platform reports as unavailable. Like ErrAgeRestricted it carries no
+// provider output.
+var ErrItemUnavailable = errors.New("unavailable media item")
+
+const itemUnavailableMessage = "The media item is unavailable; it is skipped."
+
+// itemUnavailableAmbiguityHints extend the age-restriction hints by wording
+// that points at a temporary or platform-wide condition.
+var itemUnavailableAmbiguityHints = append(append([]string(nil), ageRestrictionAmbiguityHints...),
+	"try again", "temporar", "later", "rate-limit", "rate limit", "service unavailable")
+
+// isItemUnavailable reports YouTube's "This video is unavailable" statement
+// about the requested video, and nothing else that merely contains the word
+// "unavailable".
+func isItemUnavailable(stderr string) bool {
+	line := strings.ToLower(errorLines(stderr))
+	return strings.Contains(line, "this video is unavailable") && !hasAmbiguityHint(line, itemUnavailableAmbiguityHints)
+}
+
+func hasAmbiguityHint(line string, hints []string) bool {
+	for _, hint := range hints {
 		if strings.Contains(line, hint) {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // errorLinePrefix is yt-dlp's "ERROR: [extractor] id: " lead-in. The id is

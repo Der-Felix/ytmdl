@@ -35,7 +35,7 @@ Evidence: read-only aggregation of the existing backend logs of 0.27.1
 | 0.27.2-rc.1, first 53 min | 12 | 11 | 3 |
 
 The remaining pauses were rate limits (138 in 0.27.1), two DNS failures and
-one `This video is unavailable` (see below).
+one `This video is unavailable` (see [below](#this-video-is-unavailable)).
 
 ## Content restriction versus session failure
 
@@ -73,16 +73,46 @@ extraction do not describe the item.
   `ytdlp.youtube.<op>.candidate.age_restricted` next to
   `ytdlp.youtube.<op>.error.TRACK_NOT_FOUND`.
 
+## "This video is unavailable"
+
+The existing rule for unavailable items matches `Video unavailable`, not
+YouTube's `This video is unavailable`, which therefore also fell to the
+default branch and paused the family (once in the first hour of
+0.27.2-rc.1). The same statement about the requested video is now the same
+candidate failure (`candidate.unavailable`), with the same precedence and
+ambiguity rules: rate limits, bot challenges and sign-in or cookie failures
+win; wording that also mentions the account, sign-in, cookies, "try again",
+"temporarily", "later", a rate limit or `Service Unavailable` keeps its
+previous handling. Any other sentence that merely contains "unavailable"
+is untouched.
+
+## Resolve phase versus download phase
+
+Both classifications apply wherever yt-dlp reports them, but the item reacts
+differently:
+
+| Phase | Counter in the hourly `throughput summary` | Item result |
+|---|---|---|
+| resolve (metadata extraction) | `ytdlp.youtube.extract.candidate.{age_restricted,unavailable}` | next acceptable candidate; when none is left, "Keine der N passenden Quellen konnte aufgelöst werden." |
+| download | `ytdlp.<family>.download.candidate.{age_restricted,unavailable}` | the item fails at once with `TRACK_NOT_FOUND` and keeps the resolved media id; **no other candidate is selected** |
+
+The download-phase row is a known limit of this change: a source that
+resolved but is refused only by the download process ends the item without a
+second candidate selection. It is permanent and triggers no pause, so it
+cannot loop, but a later candidate is not tried. The counters show how often
+it happens in normal operation; a download-phase fallback is a separate
+change. In the job items the two phases are also distinguishable: the
+resolve-phase result starts with "Keine der", the download-phase result is
+the plain category message with the media id set.
+
 ## Expected effect and open questions
 
 - In 0.27.1 age restrictions caused a quarter of all YouTube family pauses, in
-  the first hour of 0.27.2-rc.1 eleven of twelve. Each pause stopped every
-  YouTube item for a minute. How much measured throughput this frees is
-  unknown until a separate, normal-operation measurement of a release that
-  contains the change; it is not claimed here.
-- Items whose only acceptable candidates are restricted now fail permanently
-  instead of after five attempts. They were never going to succeed on this
-  session.
-- `This video is unavailable` still falls to the default branch and pauses the
-  family (seen once in the first hour of 0.27.2-rc.1). It is left for a
-  separate, evidenced change.
+  the first hour of 0.27.2-rc.1 eleven of twelve; `This video is unavailable`
+  caused the twelfth. Each pause stopped every YouTube item for a minute. How
+  much measured throughput this frees is unknown until a separate,
+  normal-operation measurement of a release that contains the change; it is
+  not claimed here.
+- Items whose only acceptable candidates are restricted or unavailable now
+  fail permanently instead of after five attempts. They were never going to
+  succeed on this session.
