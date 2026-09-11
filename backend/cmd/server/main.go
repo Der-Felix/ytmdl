@@ -565,6 +565,11 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Repository:    cfg.Update.Repository,
 		CheckInterval: cfg.Update.CheckInterval,
 	}, version, nil, logger)
+	// The update channel is a runtime setting: the UI changes it, ytmdlctl
+	// reads the same row. A missing row keeps the stable default.
+	if err := updateService.UseSettings(ctx, settingsRepo); err != nil {
+		logger.Warn("stored update channel could not be loaded; using the stable channel", "error", err.Error())
+	}
 
 	playlistsRepo := repository.NewPlaylists(db)
 	playlistService, err := playlist.New(playlist.Options{

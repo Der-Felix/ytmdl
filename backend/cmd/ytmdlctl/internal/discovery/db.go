@@ -62,6 +62,39 @@ func QueryDBSchema(ctx context.Context, eng engine.Engine, projectDir, composeFi
 	return version, nil
 }
 
+// UpdateChannelSettingKey is the settings row the backend stores the update
+// channel in. It mirrors update.SettingsKeyChannel.
+const UpdateChannelSettingKey = "updates.channel"
+
+// QueryUpdateChannel reads the update channel the installation's administrator
+// chose in the UI. It is read-only; an empty result means no channel was ever
+// chosen, which is the stable channel.
+func QueryUpdateChannel(ctx context.Context, eng engine.Engine, projectDir, composeFile, user, database string) (string, error) {
+	if eng == nil || composeFile == "" {
+		return "", errors.New("engine or compose file missing")
+	}
+	if user == "" {
+		user = "ytmdl"
+	}
+	if database == "" {
+		database = "ytmdl"
+	}
+	if !isValidIdentifier(user) {
+		return "", fmt.Errorf("invalid database user %q", user)
+	}
+	if !isValidIdentifier(database) {
+		return "", fmt.Errorf("invalid database name %q", database)
+	}
+
+	query := "SELECT COALESCE((SELECT value FROM settings WHERE key = " + quoteLiteral(UpdateChannelSettingKey) + "), '');"
+	res, err := eng.Exec(ctx, projectDir, composeFile, "db", nil,
+		"psql", "-U", user, "-d", database, "-t", "-A", "-c", query)
+	if err != nil {
+		return "", fmt.Errorf("failed reading the update channel: %w", err)
+	}
+	return strings.TrimSpace(string(res.Stdout)), nil
+}
+
 // QueryQueueStatus retrieves active and pending job counts from the database.
 func QueryQueueStatus(ctx context.Context, eng engine.Engine, projectDir, composeFile, user, database string) (*QueueStatus, error) {
 	if eng == nil || composeFile == "" {

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.27.2-rc.1 — 2026-09-11
+
+Release candidate for the development channel. It is published as a GitHub prerelease, is never offered on the stable channel and does not move the `latest` image tags.
+
+### Highlights
+
+- **Update channels:** Administrators choose **Stable** (regular releases only, the default for existing and new installations) or **Development** (explicitly published, qualified prereleases) in the update settings. Choosing a channel installs nothing and restarts nothing; `ytmdlctl` reads the same setting.
+- **Fewer provider requests per acquisition:** identical yt-dlp metadata queries are reused for a bounded time, a candidate is resolved at most once per attempt, DRM-protected SoundCloud items no longer pause SoundCloud, and consecutive YouTube rate limits escalate the family-wide pause instead of meeting the block again every two minutes.
+- **Correct audio format classification:** HLS audio renditions whose codec yt-dlp leaves unknown are accepted and probed; combined audio/video streams are never filed as audio, while embedded cover art stays allowed.
+
+### Changes
+
+- **Backend:** `PUT /api/v1/system/update/channel` (administrators, CSRF) stores the channel; the update status reports channel, prerelease markers, the exact `ytmdlctl` commands, a newer stable release on the development channel, and whether a check failed for network reasons. An installed version newer than the channel offers is reported as such and never downgraded.
+- **ytmdlctl:** `check` and `update` (including `--dry-run`) accept `--channel stable|development` and `--target <version>`. Precedence: `--channel`, then the installation setting, then stable. SemVer comparison honours prereleases (`0.27.2-rc.1` < `0.27.2-rc.2` < `0.27.2-rc.10` < `0.27.2`), fixing an update from a release candidate to its final release being refused. A prerelease must be installed with the `ytmdlctl` binary of the same release.
+- **Release manifest v4:** adds the source commit and the channel and is required for prereleases. Stable releases keep manifest v3 so that already installed `ytmdlctl` versions can read them.
+- **Release pipeline:** `vX.Y.Z-rc.N` tags from `dev` publish multi-arch images, CLI binaries, `SHA256SUMS` (now including the manifest) and `release-manifest.json` as a GitHub prerelease; stable tags must be on `main`; published assets, image digests and the unchanged `latest` tags are verified after publishing.
+- **Downloads:** the hourly `throughput summary` log line reports acquisitions, provider requests, reuse, rate limits, cooldown time, failure reasons and runnable supply per hour.
+- **Database Schema:** Schema remains at 12; no database migration is required.
+
+### Verification Notes
+
+- Throughput improvements are measured with an offline synthetic fixture (31.2 → 7.5 YouTube requests per success). They are not a measured live throughput; a separately authorized twelve-hour run has to establish that.
+- The production share of HLS renditions versus combined-only streams among earlier rejections is unknown until the new format diagnostics are evaluated.
+
+**Full Changelog:** `v0.27.1...v0.27.2-rc.1`
+
 ## 0.27.1 — 2026-09-10
 
 ### Bug Fixes

@@ -126,7 +126,7 @@ func runCLIWithDeps(ctx context.Context, args []string, stdout, stderr io.Writer
 	case "status":
 		return runStatus(ctx, stdout, stderr, projectDir, explicitFile, targetEngine, baseURL, subArgs, deps)
 	case "check":
-		return runCheck(ctx, stdout, stderr, projectDir, baseURL, subArgs, deps)
+		return runCheck(ctx, stdout, stderr, projectDir, explicitFile, targetEngine, baseURL, subArgs, deps)
 	case "update":
 		return runUpdate(ctx, stdout, stderr, projectDir, explicitFile, targetEngine, baseURL, subArgs, deps)
 	case "backup":
@@ -170,8 +170,8 @@ Usage:
 Commands:
   version            Display ytmdlctl version and runtime platform
   status             Inspect local deployment status and configuration
-  check              Check for available releases (Stage 2)
-  update             Safely update the YTMDL deployment (use --dry-run in Stage 2)
+  check              Check which release the update channel offers (read-only)
+  update             Safely update the YTMDL deployment (--dry-run, --channel, --target)
   backup             Create and validate a database backup (Stage 3)
   rollback           Revert containers to the previous working state (Stage 4)
   recover            Inspect and recover from failed or interrupted schema updates
@@ -491,19 +491,32 @@ func printDBSummary(w io.Writer, services map[string]discovery.ServiceStatus, bh
 	}
 }
 
-func runCheck(ctx context.Context, stdout, stderr io.Writer, projDir, baseURL string, args []string, deps CLIDependencies) int {
+func runCheck(ctx context.Context, stdout, stderr io.Writer, projDir, explicitFile, explicitEngine, baseURL string, args []string, deps CLIDependencies) int {
 	checkFlags := flag.NewFlagSet("check", flag.ContinueOnError)
 	checkFlags.SetOutput(stdout)
+	channelFlag := checkFlags.String("channel", "", "update channel: stable or development (default: installation setting, else stable)")
+	targetFlag := checkFlags.String("target", "", "check one explicit version instead of the channel's newest release")
 	checkFlags.Usage = func() {
 		fmt.Fprintf(stdout, `Usage: ytmdlctl check [flags]
 
-Check for available public releases on GitHub.
+Check which release the update channel offers. Read-only: nothing is installed.
+
+Flags:
+  --channel <name>   stable or development (default: the installation setting
+                     chosen in the UI, otherwise stable)
+  --target <ver>     check one explicit version instead of the newest release
 `)
 	}
 	if err := checkFlags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
+		return 2
+	}
+
+	choice, err := resolveChannel(*channelFlag, installationChannelReader(ctx, deps, projDir, explicitFile, explicitEngine))
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl check: %v\n", err)
 		return 2
 	}
 
@@ -528,17 +541,27 @@ Check for available public releases on GitHub.
 		fmt.Fprintf(stderr, "warning: current version %q is not valid semver\n", currentVersion)
 	}
 
-	// 2. Fetch latest release from GitHub
+	// 2. Resolve the release the channel offers (or the explicit target)
 	relClient := release.NewClient(deps.GitHubURL, deps.Repository, version, deps.HTTPClient)
-	rel, err := relClient.FetchLatest(ctx)
+	var rel *release.ReleaseInfo
+	if strings.TrimSpace(*targetFlag) != "" {
+		rel, err = relClient.FetchTagForChannel(ctx, *targetFlag, choice.Channel)
+	} else {
+		rel, err = relClient.FetchForChannel(ctx, choice.Channel)
+	}
 	if err != nil {
-		fmt.Fprintf(stderr, "error checking releases: %v\n", err)
+		fmt.Fprintf(stdout, "YTMDL UPDATE CHECK\n")
+		fmt.Fprintf(stdout, "==================\n")
+		choice.describe(stdout)
+		fmt.Fprintf(stdout, "Current version:           %s\n", currentVersion)
+		// A failed lookup is never reported as "up to date".
+		fmt.Fprintf(stderr, "error checking releases on the %s channel: %v\n", choice.Channel, err)
 		return 1
 	}
 
 	latestSemVer, err := update.ParseSemVer(rel.Version)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: latest release version %q is invalid semver\n", rel.Version)
+		fmt.Fprintf(stderr, "error: release version %q is invalid semver\n", rel.Version)
 		return 1
 	}
 
@@ -552,28 +575,67 @@ Check for available public releases on GitHub.
 	}
 
 	manifestStatus := "unavailable (no release-manifest.json)"
+	var targetManifest *manifest.Manifest
 	if hasManifest {
-		if _, mErr := relClient.DownloadManifest(ctx, rel); mErr == nil {
-			manifestStatus = "available (manifest v1 verified)"
+		if m, mErr := relClient.DownloadManifest(ctx, rel); mErr == nil {
+			targetManifest = m
+			manifestStatus = fmt.Sprintf("available (manifest v%d verified)", m.ManifestVersion)
 		} else {
 			manifestStatus = fmt.Sprintf("invalid (%v)", mErr)
 		}
 	}
 
-	// 4. Compare versions
+	// 4. Compare versions (SemVer 2.0.0, prereleases included)
 	stateStr := "up to date"
-	if currentSemVer.Compare(latestSemVer) < 0 {
+	updateAvailable := false
+	switch cmp := currentSemVer.Compare(latestSemVer); {
+	case cmp < 0:
 		stateStr = "update available"
+		updateAvailable = true
+	case cmp > 0:
+		stateStr = "installed version is newer than this channel offers; nothing is downgraded (return only via 'ytmdlctl rollback' or 'ytmdlctl recover restore')"
+	}
+
+	releaseLabel := "Latest public release:"
+	if choice.Channel == update.ChannelDevelopment {
+		releaseLabel = "Latest prerelease:"
+	}
+	if strings.TrimSpace(*targetFlag) != "" {
+		releaseLabel = "Requested release:"
+	}
+	targetText := rel.Version
+	if latestSemVer.PreRelease != "" {
+		targetText += " (prerelease)"
 	}
 
 	fmt.Fprintf(stdout, "YTMDL UPDATE CHECK\n")
 	fmt.Fprintf(stdout, "==================\n")
+	choice.describe(stdout)
 	fmt.Fprintf(stdout, "Current version:           %s\n", currentVersion)
-	fmt.Fprintf(stdout, "Latest public release:     %s\n", rel.Version)
+	fmt.Fprintf(stdout, "%-26s %s\n", releaseLabel, targetText)
 	fmt.Fprintf(stdout, "State:                     %s\n", stateStr)
 	fmt.Fprintf(stdout, "Managed update metadata:   %s\n", manifestStatus)
+	if targetManifest != nil && targetManifest.SourceCommit != "" {
+		fmt.Fprintf(stdout, "Source commit:             %s\n", targetManifest.SourceCommit)
+	}
 	if rel.HTMLURL != "" {
 		fmt.Fprintf(stdout, "Release URL:               %s\n", rel.HTMLURL)
+	}
+	if choice.Channel == update.ChannelDevelopment && strings.TrimSpace(*targetFlag) == "" {
+		if stable, sErr := relClient.FetchLatest(ctx); sErr == nil {
+			if sv, pErr := update.ParseSemVer(stable.Version); pErr == nil && sv.Compare(latestSemVer) > 0 && sv.Compare(currentSemVer) > 0 {
+				fmt.Fprintf(stdout, "Newer stable release:      %s (switch to the stable channel to install it)\n", sv.String())
+			}
+		}
+	}
+	if updateAvailable {
+		fmt.Fprintf(stdout, "\nTo update, run on this host:\n")
+		for _, cmd := range update.UpdateCommands(choice.Channel, rel.Version) {
+			fmt.Fprintf(stdout, "  %s\n", cmd)
+		}
+		if latestSemVer.PreRelease != "" {
+			fmt.Fprintf(stdout, "  (use ytmdlctl %s from the same release, verified against SHA256SUMS)\n", rel.Version)
+		}
 	}
 
 	return 0
@@ -585,7 +647,8 @@ func runUpdate(ctx context.Context, stdout, stderr io.Writer, projDir, explicitF
 	dryRun := updateFlags.Bool("dry-run", false, "perform read-only preflight readiness validation without making changes")
 	autoConfirm := updateFlags.Bool("yes", false, "automatically confirm prompt without asking")
 	autoConfirmShort := updateFlags.Bool("y", false, "automatically confirm prompt without asking")
-	targetVersion := updateFlags.String("target", "", "target version to update to (defaults to latest stable release)")
+	targetVersion := updateFlags.String("target", "", "exact target version (default: the newest release of the update channel)")
+	channelFlag := updateFlags.String("channel", "", "update channel: stable or development (default: installation setting, else stable)")
 	backupDir := updateFlags.String("backup-dir", "", "directory to store pre-update backup (defaults to backups/)")
 
 	if err := updateFlags.Parse(args); err != nil {
@@ -594,10 +657,16 @@ func runUpdate(ctx context.Context, stdout, stderr io.Writer, projDir, explicitF
 		}
 		return 2
 	}
+	if strings.TrimSpace(*channelFlag) != "" {
+		if _, err := update.ParseChannel(*channelFlag); err != nil {
+			fmt.Fprintf(stderr, "ytmdlctl update: %v\n", err)
+			return 2
+		}
+	}
 
 	if *dryRun {
 		// Execute STRICT READ-ONLY Dry Run
-		return runUpdateDryRun(ctx, stdout, stderr, projDir, explicitFile, explicitEngine, baseURL, deps)
+		return runUpdateDryRun(ctx, stdout, stderr, projDir, explicitFile, explicitEngine, baseURL, *channelFlag, *targetVersion, deps)
 	}
 
 	// Managed Update execution
@@ -658,14 +727,34 @@ func runUpdate(ctx context.Context, stdout, stderr io.Writer, projDir, explicitF
 		EnvVars:      envVars,
 	})
 
+	choice, err := resolveChannel(*channelFlag, channelReaderFor(ctx, eng, projectDir, composeFile))
+	if err != nil {
+		fmt.Fprintf(stderr, "ytmdlctl update: %v\n", err)
+		return 2
+	}
+	choice.describe(stdout)
+
 	confirm := *autoConfirm || *autoConfirmShort
 	orchDeps := orchestrator.Dependencies{
 		ReleaseResolver: func(ctx context.Context, tag string) (*release.ReleaseInfo, error) {
 			client := release.NewClient(deps.GitHubURL, deps.Repository, version, deps.HTTPClient)
+			var (
+				rel *release.ReleaseInfo
+				err error
+			)
 			if tag != "" {
-				return client.FetchTag(ctx, tag)
+				rel, err = client.FetchTagForChannel(ctx, tag, choice.Channel)
+			} else {
+				rel, err = client.FetchForChannel(ctx, choice.Channel)
 			}
-			return client.FetchLatest(ctx)
+			if err != nil {
+				return nil, err
+			}
+			// Images and CLI of one release belong together.
+			if err := checkCLIMatchesTarget(version, rel.Version, stderr); err != nil {
+				return nil, err
+			}
+			return rel, nil
 		},
 		ManifestFetcher: func(ctx context.Context, rel *release.ReleaseInfo) (*manifest.Manifest, error) {
 			client := release.NewClient(deps.GitHubURL, deps.Repository, version, deps.HTTPClient)
@@ -803,7 +892,7 @@ func runRollback(ctx context.Context, stdout, stderr io.Writer, projDir, explici
 	return 0
 }
 
-func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, explicitFile, explicitEngine, cliBaseURL string, deps CLIDependencies) int {
+func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, explicitFile, explicitEngine, cliBaseURL, channelFlag, targetFlag string, deps CLIDependencies) int {
 	var blockedReasons []string
 	var warningReasons []string
 
@@ -945,11 +1034,23 @@ func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, exp
 		blockedReasons = append(blockedReasons, fmt.Sprintf("running backend version %q is not a valid semver release; managed update requires a release version", currentVersion))
 	}
 
+	choice, chErr := resolveChannel(channelFlag, channelReaderFor(ctx, eng, projDir, selectedFile))
+	if chErr != nil {
+		fmt.Fprintf(stderr, "ytmdlctl update: %v\n", chErr)
+		return 2
+	}
 	relClient := release.NewClient(deps.GitHubURL, deps.Repository, version, deps.HTTPClient)
-	rel, err := relClient.FetchLatest(ctx)
+	var rel *release.ReleaseInfo
+	if strings.TrimSpace(targetFlag) != "" {
+		rel, err = relClient.FetchTagForChannel(ctx, targetFlag, choice.Channel)
+	} else {
+		rel, err = relClient.FetchForChannel(ctx, choice.Channel)
+	}
 	var targetManifest *manifest.Manifest
 	if err != nil {
-		blockedReasons = append(blockedReasons, fmt.Sprintf("failed fetching latest GitHub release: %v", err))
+		blockedReasons = append(blockedReasons, fmt.Sprintf("failed resolving the target release on the %s channel: %v", choice.Channel, err))
+	} else if alignErr := checkCLIMatchesTarget(version, rel.Version, stderr); alignErr != nil {
+		blockedReasons = append(blockedReasons, alignErr.Error())
 	} else {
 		m, mErr := relClient.DownloadManifest(ctx, rel)
 		if mErr != nil {
@@ -963,10 +1064,8 @@ func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, exp
 			// Validate target version is strictly greater than current version (no downgrade)
 			if curErr == nil {
 				targetSemVer, tErr := update.ParseSemVer(m.ReleaseVersion)
-				if tErr == nil {
-					if targetSemVer.Compare(currentSemVer) <= 0 {
-						blockedReasons = append(blockedReasons, fmt.Sprintf("target version %s must be strictly greater than current version %s (downgrade not allowed)", m.ReleaseVersion, currentVersion))
-					}
+				if tErr == nil && targetSemVer.Compare(currentSemVer) <= 0 {
+					blockedReasons = append(blockedReasons, fmt.Sprintf("target version %s must be strictly greater than current version %s (downgrade not allowed; return only via 'ytmdlctl rollback' or 'ytmdlctl recover restore')", m.ReleaseVersion, currentVersion))
 				}
 			}
 
@@ -992,6 +1091,7 @@ func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, exp
 
 	fmt.Fprintf(stdout, "Deployment\n")
 	fmt.Fprintf(stdout, "----------\n")
+	choice.describe(stdout)
 	if selectedFile != "" {
 		fmt.Fprintf(stdout, "Compose: %s\n", selectedFile)
 	} else {
@@ -1048,13 +1148,20 @@ func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, exp
 
 	fmt.Fprintf(stdout, "Target\n")
 	fmt.Fprintf(stdout, "------\n")
-	fmt.Fprintf(stdout, "Version:           %s\n", targetVersion)
+	if tv, tErr := update.ParseSemVer(targetVersion); tErr == nil && tv.PreRelease != "" {
+		fmt.Fprintf(stdout, "Version:           %s (prerelease)\n", targetVersion)
+	} else {
+		fmt.Fprintf(stdout, "Version:           %s\n", targetVersion)
+	}
 	if targetSchema > 0 {
 		fmt.Fprintf(stdout, "Schema:            %d\n", targetSchema)
 	} else {
 		fmt.Fprintf(stdout, "Schema:            unknown\n")
 	}
 	if targetManifest != nil {
+		if targetManifest.SourceCommit != "" {
+			fmt.Fprintf(stdout, "Source commit:     %s\n", targetManifest.SourceCommit)
+		}
 		fmt.Fprintf(stdout, "Managed metadata:  verified\n")
 		fmt.Fprintf(stdout, "Rollback:          %s\n\n", strings.ReplaceAll(rollbackClass, "_", " "))
 	} else {
@@ -1268,7 +1375,7 @@ Generate and validate release-manifest.json for a release.
 Flags:
   --version <ver>                 Release version (e.g. 0.17.0)
   --tag <tag>                     Release git tag (e.g. v0.17.0, optional)
-  --manifest-version <num>        Manifest schema version (1, 2, or 3, default: auto)
+  --manifest-version <num>        Manifest schema version (1-4, default: auto; 4 is required for prereleases)
   --schema <num>                  Target database schema (default: 8)
   --update-classification <cls>   Update classification (schema_neutral or schema_forward)
   --classification <cls>          Rollback classification (schema_neutral or backup_restore_required)
@@ -1279,13 +1386,17 @@ Flags:
   --frontend-digest <d>           sha256 digest of pushed frontend image (or index)
   --frontend-platform <p=d>       Frontend platform digest (e.g. linux/amd64=sha256:..., repeatable)
   --required-env <keys>           Comma-separated list of required environment variables
+  --source-commit <sha>           Full source commit of the release (manifest version 4)
+  --channel <name>                Release channel: stable or development (manifest version 4)
   -o, --output <path>             Output file path (default: release-manifest.json, - for stdout)
 `)
 	}
 
 	version := manifestFlags.String("version", "", "release version without leading 'v'")
 	tag := manifestFlags.String("tag", "", "release git tag (optional)")
-	manifestVer := manifestFlags.Int("manifest-version", 0, "manifest schema version (1, 2, or 3)")
+	manifestVer := manifestFlags.Int("manifest-version", 0, "manifest schema version (1-4)")
+	sourceCommit := manifestFlags.String("source-commit", "", "full source commit (manifest version 4)")
+	releaseChannel := manifestFlags.String("channel", "", "release channel: stable or development (manifest version 4)")
 	schema := manifestFlags.Int("schema", 8, "target database schema")
 	updateClassification := manifestFlags.String("update-classification", "", "update classification (schema_neutral or schema_forward)")
 	classification := manifestFlags.String("classification", "", "rollback classification (schema_neutral or backup_restore_required)")
@@ -1371,6 +1482,8 @@ Flags:
 		FrontendDigest:         *frontendDigest,
 		FrontendPlatforms:      frontendPlatforms,
 		RequiredEnv:            envList,
+		SourceCommit:           *sourceCommit,
+		Channel:                *releaseChannel,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ytmdlctl manifest-gen: %v\n", err)
@@ -1500,7 +1613,7 @@ func runReconcileArtists(ctx context.Context, stdout, stderr io.Writer, stdin io
 	}
 	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
 	if currentVersion == "" {
-		currentVersion = "0.27.1"
+		currentVersion = "0.27.2-rc.1"
 	}
 
 	backupDir := subBackupDir
@@ -1918,7 +2031,7 @@ func runMergeArtists(ctx context.Context, stdout, stderr io.Writer, stdin io.Rea
 	}
 	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
 	if currentVersion == "" {
-		currentVersion = "0.27.1"
+		currentVersion = "0.27.2-rc.1"
 	}
 
 	backupDir := subBackupDir

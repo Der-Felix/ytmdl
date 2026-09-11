@@ -98,7 +98,9 @@ func TestUpdateCheckStates(t *testing.T) {
 					"html_url": "https://github.com/Der-Felix/ytmdl/releases/tag/v0.15.0"
 				}`)
 			},
-			expectedState:  StateUpToDate,
+			// Newer than anything the channel offers is reported as such,
+			// never as "up to date" and never as a downgrade offer.
+			expectedState:  StateAheadOfChannel,
 			expectedLatest: "0.15.0",
 		},
 		{

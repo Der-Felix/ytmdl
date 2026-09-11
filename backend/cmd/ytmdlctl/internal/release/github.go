@@ -212,6 +212,154 @@ func (c *Client) FetchTag(ctx context.Context, tag string) (*ReleaseInfo, error)
 	}
 }
 
+// candidate reduces a release to the fields the channel rules need.
+func (r *ReleaseInfo) candidate() update.ReleaseCandidate {
+	names := make([]string, 0, len(r.Assets))
+	for _, a := range r.Assets {
+		names = append(names, a.Name)
+	}
+	return update.ReleaseCandidate{Tag: r.TagName, Draft: r.Draft, Prerelease: r.Prerelease, AssetNames: names}
+}
+
+// releaseListLimit bounds how many recent releases are inspected for the
+// development channel. It matches the backend's check.
+const releaseListLimit = 30
+
+// FetchReleases lists the most recent releases, drafts and prereleases
+// included; callers apply the channel rules.
+func (c *Client) FetchReleases(ctx context.Context) ([]ReleaseInfo, error) {
+	apiURL := fmt.Sprintf("%s/repos/%s/releases?per_page=%d", c.baseURL, c.repository, releaseListLimit)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create release list request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("User-Agent", c.userAgent)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("release list request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("failed reading release list: %w", err)
+	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var releases []ReleaseInfo
+		if err := json.Unmarshal(body, &releases); err != nil {
+			return nil, fmt.Errorf("invalid release list JSON from GitHub: %w", err)
+		}
+		return releases, nil
+	case http.StatusNotFound:
+		return nil, errors.New("no public releases found on repository")
+	case http.StatusForbidden, http.StatusTooManyRequests:
+		return nil, errors.New("rate limited by GitHub")
+	default:
+		return nil, fmt.Errorf("GitHub release list received non-200 status %d", resp.StatusCode)
+	}
+}
+
+// FetchForChannel returns the newest release the channel offers. The stable
+// channel keeps using GitHub's latest release, exactly as before; the
+// development channel picks the highest qualified prerelease.
+func (c *Client) FetchForChannel(ctx context.Context, channel update.Channel) (*ReleaseInfo, error) {
+	if channel != update.ChannelDevelopment {
+		return c.FetchLatest(ctx)
+	}
+	releases, err := c.FetchReleases(ctx)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]update.ReleaseCandidate, len(releases))
+	for i := range releases {
+		candidates[i] = releases[i].candidate()
+	}
+	idx := update.SelectLatest(candidates, update.ChannelDevelopment)
+	if idx < 0 {
+		return nil, errors.New("the development channel offers no qualified prerelease")
+	}
+	rel := releases[idx]
+	v, _ := update.ParseSemVer(rel.TagName)
+	rel.Version = v.String()
+	return &rel, nil
+}
+
+// FetchTagForChannel fetches one explicitly requested release. Drafts are
+// never installable. A prerelease is only accepted on the development
+// channel and only when it is fully published; a regular release is accepted
+// on either channel.
+func (c *Client) FetchTagForChannel(ctx context.Context, tag string, channel update.Channel) (*ReleaseInfo, error) {
+	rel, err := c.fetchTagAnyKind(ctx, tag)
+	if err != nil {
+		return nil, err
+	}
+	if rel.Draft {
+		return nil, errors.New("requested release is a draft")
+	}
+	cand := rel.candidate()
+	if rel.Prerelease {
+		if channel != update.ChannelDevelopment {
+			return nil, fmt.Errorf("release %s is a prerelease; select it explicitly with --channel %s", rel.TagName, update.ChannelDevelopment)
+		}
+		if _, ok := cand.Eligible(update.ChannelDevelopment); !ok {
+			return nil, fmt.Errorf("prerelease %s is not a qualified development release (version, flag or published assets do not match)", rel.TagName)
+		}
+	} else if _, ok := cand.Eligible(update.ChannelStable); !ok {
+		return nil, fmt.Errorf("release %s is not a regular stable release (version and prerelease flag disagree)", rel.TagName)
+	}
+	v, _ := update.ParseSemVer(rel.TagName)
+	rel.Version = v.String()
+	return rel, nil
+}
+
+// fetchTagAnyKind fetches a release by tag without judging its kind.
+func (c *Client) fetchTagAnyKind(ctx context.Context, tag string) (*ReleaseInfo, error) {
+	tag = strings.TrimSpace(tag)
+	if !strings.HasPrefix(tag, "v") {
+		tag = "v" + tag
+	}
+	if _, err := update.ParseSemVer(tag); err != nil {
+		return nil, fmt.Errorf("release tag %q is not valid semver: %w", tag, err)
+	}
+	apiURL := fmt.Sprintf("%s/repos/%s/releases/tags/%s", c.baseURL, c.repository, url.PathEscape(tag))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create release request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("User-Agent", c.userAgent)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("release request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	if err != nil {
+		return nil, fmt.Errorf("failed reading release response: %w", err)
+	}
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var rel ReleaseInfo
+		if err := json.Unmarshal(body, &rel); err != nil {
+			return nil, fmt.Errorf("invalid release JSON from GitHub: %w", err)
+		}
+		return &rel, nil
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("release %q not found on repository", tag)
+	case http.StatusForbidden, http.StatusTooManyRequests:
+		return nil, errors.New("rate limited by GitHub")
+	default:
+		return nil, fmt.Errorf("GitHub release check received status %d", resp.StatusCode)
+	}
+}
+
 // DownloadManifest locates and downloads release-manifest.json for the given release.
 func (c *Client) DownloadManifest(ctx context.Context, rel *ReleaseInfo) (*manifest.Manifest, error) {
 	var downloadURL string
@@ -279,6 +427,16 @@ func (c *Client) DownloadManifest(ctx context.Context, rel *ReleaseInfo) (*manif
 
 	if err := m.Validate(rel.TagName); err != nil {
 		return nil, fmt.Errorf("manifest validation failed: %w", err)
+	}
+
+	// The manifest's channel and GitHub's prerelease flag must agree, so a
+	// prerelease can never pose as a stable release or the other way round.
+	wantChannel := update.ChannelStable
+	if rel.Prerelease {
+		wantChannel = update.ChannelDevelopment
+	}
+	if got := m.ReleaseChannel(); got != wantChannel {
+		return nil, fmt.Errorf("manifest channel %q does not match the GitHub release (%s expected)", got, wantChannel)
 	}
 
 	return m, nil

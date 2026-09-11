@@ -172,6 +172,15 @@ ytmdlctl update --dry-run
 ytmdlctl update
 ```
 
+**Update channels:** *Stable* (default) offers regular releases only; *Development* offers
+explicitly published, qualified release candidates such as `v0.27.2-rc.1`. An administrator
+chooses the channel in the settings; that never installs anything. `ytmdlctl check` and
+`ytmdlctl update` follow the chosen channel, accept `--channel stable|development` for a
+single run and `--target <version>` for an exact version. Returning to Stable never
+downgrades; an older release is reached only through `ytmdlctl rollback` or
+`ytmdlctl recover restore`. A green CI run qualifies a release — it is not a measurement
+of live download throughput.
+
 Host-specific tweaks to the official stack go in an optional, git-ignored
 `compose.ghcr.override.yaml`; recent `ytmdlctl` versions pick it up automatically.
 See [Local customisations](https://der-felix.github.io/ytmdl/deployment#lokale-anpassungen-mit-compose-ghcr-override-yaml).

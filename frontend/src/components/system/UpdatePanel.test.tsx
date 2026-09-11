@@ -175,4 +175,80 @@ describe('UpdatePanel', () => {
       expect(screen.getByText('YTMDL v0.15.0 Release')).toBeDefined()
     })
   })
+
+  it('marks prereleases and shows the channel commands from the backend', () => {
+    const rc: UpdateStatus = {
+      ...updateAvailableStatus,
+      current_version: '0.27.1',
+      latest_version: '0.27.2-rc.1',
+      latest_prerelease: true,
+      channel: 'development',
+      update_commands: [
+        'ytmdlctl update --channel development --target 0.27.2-rc.1 --dry-run',
+        'ytmdlctl update --channel development --target 0.27.2-rc.1',
+      ],
+    }
+    render(<UpdatePanel initialData={rc} />)
+
+    expect(screen.getByText('Neueste Vorabversion:')).toBeDefined()
+    expect(screen.getAllByText('Vorabversion').length).toBe(1)
+    expect(screen.getByText('ytmdlctl update --channel development --target 0.27.2-rc.1 --dry-run')).toBeDefined()
+    expect(screen.getByText('ytmdlctl update --channel development --target 0.27.2-rc.1')).toBeDefined()
+    expect(screen.getByRole('radio', { name: 'Entwicklung' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByText(/aus den Assets desselben Releases/)).toBeDefined()
+  })
+
+  it('asks for confirmation before switching to the development channel and only stores the choice', async () => {
+    const calls: { url: string; method?: string; body?: string }[] = []
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), method: init?.method, body: init?.body ? String(init.body) : undefined })
+      return new Response(
+        JSON.stringify({ data: { ...upToDateStatus, channel: 'development', state: 'no_channel_release', latest_version: undefined } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+
+    render(<UpdatePanel initialData={{ ...upToDateStatus, channel: 'stable' }} />)
+    fireEvent.click(screen.getByRole('radio', { name: 'Entwicklung' }))
+    expect(calls.length).toBe(0)
+    expect(screen.getByText(/noch nicht als stabil freigegeben/)).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Entwicklungskanal aktivieren' }))
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: 'Entwicklung' }).getAttribute('aria-checked')).toBe('true')
+    })
+    expect(calls.length).toBe(1)
+    expect(calls[0].url).toContain('/api/v1/system/update/channel')
+    expect(calls[0].method).toBe('PUT')
+    expect(JSON.parse(calls[0].body ?? '{}')).toEqual({ channel: 'development' })
+    expect(screen.getByText(/keine qualifizierte Vorabversion/)).toBeDefined()
+  })
+
+  it('offers no downgrade when the installed prerelease is newer than the stable channel', () => {
+    render(
+      <UpdatePanel
+        initialData={{
+          ...upToDateStatus,
+          current_version: '0.27.2-rc.1',
+          current_prerelease: true,
+          latest_version: '0.27.1',
+          state: 'ahead_of_channel',
+          channel: 'stable',
+        }}
+      />,
+    )
+
+    expect(screen.getByText('Neuer als Kanal')).toBeDefined()
+    expect(screen.getByText(/Es wird nichts automatisch zurückgestuft/)).toBeDefined()
+    expect(screen.getByText('ytmdlctl rollback')).toBeDefined()
+    expect(screen.queryByText(/ytmdlctl update/)).toBeNull()
+  })
+
+  it('distinguishes a network failure from "no update available"', () => {
+    render(<UpdatePanel initialData={{ ...unavailableStatus, failure: 'network_error' }} />)
+
+    expect(screen.getByText(/GitHub ist nicht erreichbar \(Netzwerkfehler\)/)).toBeDefined()
+    expect(screen.getByText(/das bedeutet nicht, dass kein Update vorliegt/)).toBeDefined()
+    expect(screen.queryByText('Aktuell')).toBeNull()
+  })
 })

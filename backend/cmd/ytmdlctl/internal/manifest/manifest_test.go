@@ -88,7 +88,7 @@ func TestDecodeInvalidManifests(t *testing.T) {
 		},
 		{
 			name:        "wrong manifest_version",
-			json:        strings.Replace(validManifestJSON, `"manifest_version": 1`, `"manifest_version": 4`, 1),
+			json:        strings.Replace(validManifestJSON, `"manifest_version": 1`, `"manifest_version": 5`, 1),
 			expectedErr: "unsupported manifest version",
 		},
 		{
