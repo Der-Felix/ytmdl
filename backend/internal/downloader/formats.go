@@ -24,12 +24,18 @@ const (
 )
 
 // SelectFormat picks the audio format to download. A native Opus stream always
-// wins; among equal codecs the higher bitrate wins. The second result reports
+// wins; a format with a named codec wins over one whose codec the provider did
+// not name; among equals the higher bitrate wins. The second result reports
 // whether any usable format was found.
+//
+// A format without a codec name is an audio only stream the resolver accepted
+// - for example an HLS audio rendition, which yt-dlp lists without acodec. It
+// stays eligible: the downloaded file is inspected before it is kept, and that
+// inspection, not a guess, decides its codec.
 func SelectFormat(formats []provider.AudioFormat) (provider.AudioFormat, bool) {
 	usable := make([]provider.AudioFormat, 0, len(formats))
 	for _, f := range formats {
-		if strings.TrimSpace(f.Codec) != "" && !strings.EqualFold(f.Codec, "none") {
+		if !strings.EqualFold(strings.TrimSpace(f.Codec), "none") {
 			usable = append(usable, f)
 		}
 	}
@@ -37,9 +43,13 @@ func SelectFormat(formats []provider.AudioFormat) (provider.AudioFormat, bool) {
 		return provider.AudioFormat{}, false
 	}
 
+	named := func(f provider.AudioFormat) bool { return strings.TrimSpace(f.Codec) != "" }
 	sort.SliceStable(usable, func(i, j int) bool {
 		if usable[i].IsOpus() != usable[j].IsOpus() {
 			return usable[i].IsOpus()
+		}
+		if named(usable[i]) != named(usable[j]) {
+			return named(usable[i])
 		}
 		if usable[i].BitrateKbps != usable[j].BitrateKbps {
 			return usable[i].BitrateKbps > usable[j].BitrateKbps
@@ -62,9 +72,13 @@ func FormatSelector(formats []provider.AudioFormat) string {
 	return defaultSelector
 }
 
-// defaultSelector prefers a native Opus stream, then any audio only stream,
-// then whatever the platform offers.
-const defaultSelector = "bestaudio[acodec^=opus]/bestaudio/best"
+// defaultSelector prefers a native Opus stream, then any audio only stream.
+// It deliberately has no "best" fallback: that answers with a combined audio
+// and video stream when no audio only stream is left, and extracting audio
+// from such a stream is a separate, undecided path (see
+// docs/diagnostics/audio-format-classification.md). Without an audio only
+// stream the download fails like the resolution would have.
+const defaultSelector = "bestaudio[acodec^=opus]/bestaudio"
 
 // PlanFor decides how a downloaded file has to be treated.
 //

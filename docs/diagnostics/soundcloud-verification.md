@@ -29,8 +29,10 @@ reproduction is needed to port the reviewed fix.
 
 `media verification failed` contains provider/media ID, raw/final stage, expected
 and measured duration, tolerance, codec, container and file size. Reasons are
-`missing_audio_stream`, `invalid_duration`, `empty_file`, `duration_mismatch` and
-`ffprobe_error`. Unknown probe measurements remain null. Identifiers are bounded
+`missing_audio_stream`, `invalid_duration`, `empty_file`, `duration_mismatch`,
+`ffprobe_error` and `unexpected_video_stream` (see
+[audio format classification](./audio-format-classification.md)). Unknown probe
+measurements remain null. Identifiers are bounded
 and sanitized; URLs, paths, sessions/cookies, source titles and raw tool output
 are excluded. Rejected final files and staging directories retain their existing
 cleanup behavior. Preview-only sources are rejected before download and do not

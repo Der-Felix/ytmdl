@@ -52,14 +52,49 @@ type Format struct {
 	Protocol       string  `json:"protocol"`
 }
 
-// IsAudioOnly reports whether the format carries audio and no video.
-func (f Format) IsAudioOnly() bool {
-	return f.HasAudio() && (f.VCodec == "" || f.VCodec == "none")
+// yt-dlp describes each stream of a format with three states: a codec name
+// when the stream is known to be present, the literal "none" when it is known
+// to be absent, and no value at all when it does not know. A missing codec is
+// therefore unknown, never absent: yt-dlp's own bestaudio accepts any format
+// whose video is "none", whatever it knows about the audio codec. Its HLS
+// parser, for example, emits separate audio renditions with vcodec "none" and
+// no acodec.
+
+// codecAbsent reports a stream yt-dlp knows to be absent.
+func codecAbsent(codec string) bool {
+	return strings.EqualFold(strings.TrimSpace(codec), "none")
 }
 
-// HasAudio reports whether the format carries an audio stream.
+// codecKnown reports a stream yt-dlp knows to be present.
+func codecKnown(codec string) bool {
+	trimmed := strings.TrimSpace(codec)
+	return trimmed != "" && !codecAbsent(trimmed)
+}
+
+// IsAudioOnly reports whether the format is an audio only stream: it carries
+// no known video and its audio is not known to be absent. Either the video is
+// explicitly "none" - the audio codec may then still be unknown - or the audio
+// codec is known while the video is unknown. A format about which neither is
+// known says nothing about carrying audio and does not qualify.
+//
+// An unknown field is not taken on trust: the downloaded file is inspected
+// before it is kept, which settles the audio codec and rejects a stream that
+// turns out to contain video.
+func (f Format) IsAudioOnly() bool {
+	if codecKnown(f.VCodec) || codecAbsent(f.ACodec) {
+		return false
+	}
+	return codecAbsent(f.VCodec) || codecKnown(f.ACodec)
+}
+
+// HasAudio reports whether the format is known to carry an audio stream.
 func (f Format) HasAudio() bool {
-	return f.ACodec != "" && f.ACodec != "none"
+	return codecKnown(f.ACodec)
+}
+
+// AudioCodecKnown reports whether yt-dlp named the audio codec.
+func (f Format) AudioCodecKnown() bool {
+	return codecKnown(f.ACodec)
 }
 
 // IsOpus reports whether the audio stream is native Opus.
