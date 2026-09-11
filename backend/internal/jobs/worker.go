@@ -54,6 +54,7 @@ func (w *worker) process(ctx context.Context, job Job, item Item) {
 	}
 
 	outcome, err := w.attempt(ctx, job, item, logger)
+	m.recordOutcome(outcome, err)
 	switch {
 	case err == nil:
 		w.finishItem(job, item, outcome, nil)
@@ -95,6 +96,10 @@ func (w *worker) process(ctx context.Context, job Job, item Item) {
 		if !ok || delay < 5*time.Second {
 			delay = 15 * time.Minute
 		}
+		// Items that waited for the same cooldown must not all become due at
+		// the same instant; a small positive spread keeps them from resuming
+		// in lock step without ever retrying before the cooldown ends.
+		delay = spreadAfter(delay)
 		nextRetry := m.now().Add(delay)
 		attempts := item.Attempts
 		logger.Warn("item waiting for an eligible media session",
@@ -117,8 +122,8 @@ func (w *worker) process(ctx context.Context, job Job, item Item) {
 		}
 		newAttempts := item.Attempts + 1
 		if newAttempts < maxAttempts {
-			backoff := calculateBackoff(newAttempts)
-			nextRetry := time.Now().Add(backoff)
+			backoff := m.retryDelay(job, newAttempts, err)
+			nextRetry := m.now().Add(backoff)
 			logger.Info("scheduling retry for item",
 				"attempt", newAttempts, "max_attempts", maxAttempts,
 				"retry_in_ms", backoff.Milliseconds(),
@@ -148,6 +153,45 @@ func (w *worker) process(ctx context.Context, job Job, item Item) {
 		w.finishItem(job, item, ItemFailed, err)
 		return
 	}
+}
+
+// retryDelay schedules the next attempt after a retryable failure. It is the
+// jittered exponential backoff, but never earlier than a wait the error itself
+// names or than a cooldown the item's media provider family is known to be in:
+// retrying into an active block only spends an attempt to learn that again.
+func (m *Manager) retryDelay(job Job, attempt int, err error) time.Duration {
+	delay := calculateBackoff(attempt)
+	if hint, ok := apperr.RetryAfter(err); ok && hint > delay {
+		delay = spreadAfter(hint)
+	}
+	if m.cooldown != nil {
+		if remaining, cooling := m.cooldown.Remaining(m.mediaProviderOf(job)); cooling && remaining > delay {
+			delay = spreadAfter(remaining)
+		}
+	}
+	return delay
+}
+
+// mediaProviderOf names the media provider a job resolves with; a job without
+// an explicit choice uses the registry default.
+func (m *Manager) mediaProviderOf(job Job) string {
+	if name := strings.TrimSpace(job.MediaProvider); name != "" {
+		return name
+	}
+	if m.registry != nil {
+		return m.registry.DefaultMediaName()
+	}
+	return ""
+}
+
+// spreadAfter adds up to ten percent, at most thirty seconds, to a wait so
+// that items released by the same event do not all become due together.
+func spreadAfter(wait time.Duration) time.Duration {
+	spread := time.Duration(float64(wait) * 0.1 * rand.Float64())
+	if spread > 30*time.Second {
+		spread = 30 * time.Second
+	}
+	return wait + spread
 }
 
 // calculateBackoff calculates jittered exponential backoff for attempt count.
@@ -795,6 +839,26 @@ func releaseOf(track music.Track) music.Release {
 		CoverURL:    track.CoverURL,
 		Provider:    track.SourceProvider,
 		SourceID:    track.ReleaseID,
+	}
+}
+
+// recordOutcome counts the result of one attempt for the throughput summary.
+// Names are built from fixed states and error codes only.
+func (m *Manager) recordOutcome(outcome ItemStatus, err error) {
+	if m.throughput == nil {
+		return
+	}
+	switch {
+	case err == nil && outcome == ItemCompleted:
+		m.throughput.Inc("items.completed")
+	case err == nil:
+		m.throughput.Inc("items." + string(outcome))
+	case apperr.CodeOf(err) == apperr.CodeAlreadyExists:
+		m.throughput.Inc("items.skipped")
+	case apperr.IsSessionWait(err):
+		m.throughput.Inc("items.session_wait")
+	default:
+		m.throughput.Inc("items.error." + string(apperr.CodeOf(err)))
 	}
 }
 

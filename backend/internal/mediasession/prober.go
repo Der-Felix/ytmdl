@@ -56,6 +56,9 @@ func (p *YTDLPProber) Probe(ctx context.Context, sessionID string, cookiePath st
 	if c == nil {
 		return nil, apperr.New(apperr.CodeToolUnavailable, "yt-dlp is not available")
 	}
+	// A probe tests the credentials as they are now; a reused answer would
+	// report a health state the session never proved.
+	c = c.WithoutQueryCache()
 	if cookiePath != "" {
 		c = c.WithCookieFile(cookiePath)
 	}

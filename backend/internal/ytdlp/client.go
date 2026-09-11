@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"ytdm/backend/internal/apperr"
+	"ytdm/backend/internal/throughput"
 )
 
 // progressMarker prefixes the machine readable progress lines. yt-dlp renders
@@ -64,6 +65,16 @@ type Options struct {
 	// ffmpeg the backend uses.
 	FFmpegLocation string
 	Logger         *slog.Logger
+
+	// QueryCache bounds the reuse of identical metadata queries. Zero values
+	// select the defaults; DisableQueryCache switches reuse off entirely.
+	QueryCache        QueryCacheOptions
+	DisableQueryCache bool
+	// Recorder counts process starts, reused answers and error codes per
+	// Label for the hourly throughput summary. It may be nil.
+	Recorder *throughput.Recorder
+	// Label names the provider family in the throughput counters.
+	Label string
 }
 
 // ExecutionGate is acquired immediately before a yt-dlp process starts and
@@ -71,6 +82,13 @@ type Options struct {
 // implementation; unauthenticated and non-YouTube clients leave it nil.
 type ExecutionGate interface {
 	Acquire(ctx context.Context) (release func(), err error)
+}
+
+// Pacer spaces out the process starts of one provider. It is consulted only
+// when a process is really started, so an answer reused from the query cache
+// neither waits nor consumes the provider's request budget.
+type Pacer interface {
+	Wait(ctx context.Context) error
 }
 
 // Client runs yt-dlp.
@@ -82,6 +100,14 @@ type Client struct {
 	ffmpegLocation string
 	logger         *slog.Logger
 	executionGate  ExecutionGate
+	pacer          Pacer
+
+	// cache is shared by every copy derived from the same client. Its keys
+	// contain the complete argument vector, so copies bound to different
+	// cookie files never see each other's results.
+	cache    *queryCache
+	recorder *throughput.Recorder
+	label    string
 }
 
 // New builds a client. An empty binary name falls back to "yt-dlp".
@@ -108,6 +134,14 @@ func New(opts Options) *Client {
 				"error", err.Error())
 		}
 	}
+	label := strings.TrimSpace(opts.Label)
+	if label == "" {
+		label = "ytdlp"
+	}
+	var cache *queryCache
+	if !opts.DisableQueryCache {
+		cache = newQueryCache(opts.QueryCache)
+	}
 	return &Client{
 		binary:         binary,
 		cookieFile:     opts.CookieFile,
@@ -115,7 +149,52 @@ func New(opts Options) *Client {
 		timeout:        timeout,
 		ffmpegLocation: opts.FFmpegLocation,
 		logger:         logger,
+		cache:          cache,
+		recorder:       opts.Recorder,
+		label:          label,
 	}
+}
+
+// WithLabel returns a shallow copy whose throughput counters are reported
+// under label, for example the provider family it serves.
+func (c *Client) WithLabel(label string) *Client {
+	clone := *c
+	if trimmed := strings.TrimSpace(label); trimmed != "" {
+		clone.label = trimmed
+	}
+	return &clone
+}
+
+// WithPacer returns a shallow copy whose metadata process starts wait for
+// pacer first. Downloads are paced by the media session gate instead.
+func (c *Client) WithPacer(pacer Pacer) *Client {
+	clone := *c
+	clone.pacer = pacer
+	return &clone
+}
+
+// WithoutQueryCache returns a shallow copy that always runs its queries.
+// Credential probes need a fresh answer by definition.
+func (c *Client) WithoutQueryCache() *Client {
+	clone := *c
+	clone.cache = nil
+	return &clone
+}
+
+// count adds one to the throughput counter of this client's label.
+func (c *Client) count(op, what string) {
+	if c.recorder == nil || op == "" {
+		return
+	}
+	c.recorder.Inc("ytdlp." + c.label + "." + op + "." + what)
+}
+
+// countError records the error class a started process ended with.
+func (c *Client) countError(op string, err error) {
+	if err == nil {
+		return
+	}
+	c.count(op, "error."+string(apperr.CodeOf(err)))
 }
 
 // Binary returns the configured executable.
@@ -158,7 +237,7 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	out, err := c.run(ctx, "--version")
+	out, err := c.run(ctx, "", "--version")
 	if err != nil {
 		return "", err
 	}
@@ -199,11 +278,23 @@ func (c *Client) Query(ctx context.Context, target string, extra ...string) ([]I
 	args = append(args, extra...)
 	args = append(args, "--", target)
 
-	out, err := c.run(ctx, args...)
-	if err != nil {
-		return nil, err
+	kind := queryKindOf(extra)
+	query := func() ([]Info, error) {
+		out, err := c.run(ctx, string(kind), args...)
+		if err != nil {
+			return nil, err
+		}
+		return decodeInfoLines(out)
 	}
-	return decodeInfoLines(out)
+	if c.cache == nil {
+		return query()
+	}
+
+	infos, err, outcome := c.cache.do(ctx, queryCacheKey(c.binary, args), kind, query)
+	if outcome != outcomeProcess {
+		c.count(string(kind), string(outcome))
+	}
+	return infos, err
 }
 
 // ChannelID resolves a YouTube channel address to its canonical UC id. It is
@@ -225,7 +316,7 @@ func (c *Client) ChannelID(ctx context.Context, target string) (string, error) {
 		"--", target,
 	)
 
-	out, err := c.run(ctx, args...)
+	out, err := c.run(ctx, "channel", args...)
 	if err != nil {
 		return "", apperr.Wrap(apperr.CodeProviderUnavailable,
 			"The YouTube channel could not be resolved.", err)
@@ -328,6 +419,7 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 	if err := cmd.Start(); err != nil {
 		return "", startError(client.binary, err)
 	}
+	client.count("download", "process")
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -356,7 +448,9 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", apperr.Wrap(apperr.CodeJobCancelled, "The download was cancelled.", ctxErr)
 		}
-		return "", classifyDownloadError(stderr.String(), waitErr)
+		classified := classifyDownloadError(stderr.String(), waitErr)
+		client.countError("download", classified)
+		return "", classified
 	}
 
 	path, err := singleFileIn(req.Dir)
@@ -417,10 +511,17 @@ func (c *Client) command(ctx context.Context, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// run executes yt-dlp and returns its standard output.
-func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
+// run executes yt-dlp and returns its standard output. op names the counter
+// the process start is reported under; an empty op is not counted.
+func (c *Client) run(ctx context.Context, op string, args ...string) ([]byte, error) {
+	if c.pacer != nil && op != "" {
+		if err := c.pacer.Wait(ctx); err != nil {
+			return nil, err
+		}
+	}
 	releaseExecution, err := c.acquireExecution(ctx)
 	if err != nil {
+		c.count(op, "gate_refused")
 		return nil, err
 	}
 	defer releaseExecution()
@@ -433,11 +534,14 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, startError(c.binary, err)
 	}
+	c.count(op, "process")
 	if err := cmd.Wait(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, apperr.Wrap(apperr.CodeProviderUnavailable, "The yt-dlp query timed out.", ctxErr)
 		}
-		return nil, classifyError(stderr.String(), err)
+		classified := classifyError(stderr.String(), err)
+		c.countError(op, classified)
+		return nil, classified
 	}
 	return stdout.Bytes(), nil
 }
@@ -511,7 +615,12 @@ func ClassifyError(stderr string, cause error) error {
 		strings.Contains(lower, "no suitable format"):
 		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "No usable audio format for candidate: %s", message)
 
-	// 5. Candidate-specific permanent unavailable errors
+	// 5. Candidate-specific permanent unavailable errors. DRM protection is a
+	// property of the single item, not a platform outage: it must not stop the
+	// fallback to the next candidate or put the whole provider family on hold.
+	case strings.Contains(lower, "drm protected"):
+		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "The media item is DRM protected: %s", message)
+
 	case strings.Contains(lower, "video unavailable") ||
 		strings.Contains(lower, "is not available") ||
 		strings.Contains(lower, "private video") ||

@@ -167,6 +167,10 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 	}
 
 	client := d.ytdlp
+	if family := provider.FamilyOf(source.Provider); family != "" {
+		// Download counters are reported under the family that serves the source.
+		client = client.WithLabel(string(family))
+	}
 	if cookiePath != "" {
 		client = client.WithCookieFile(cookiePath)
 	}

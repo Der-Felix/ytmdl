@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"ytdm/backend/internal/throughput"
 
 	"ytdm/backend/internal/jobs"
 )
@@ -132,5 +133,22 @@ func TestMediaCooldownManager_SoundCloudIsolation(t *testing.T) {
 	}
 	if _, cool := mgr.Remaining("youtube"); !cool {
 		t.Fatal("youtube should remain cooling")
+	}
+}
+
+func TestCooldownTriggersReportAddedPauseTime(t *testing.T) {
+	rec := throughput.New()
+	m := jobs.NewMediaCooldownManager()
+	m.SetRecorder(rec)
+
+	m.Trigger("soundcloud", time.Minute)
+	// A shorter trigger inside the running pause adds no pause time.
+	m.Trigger("soundcloud", 10*time.Second)
+	counts := rec.Drain().Counts
+	if counts["cooldown.soundcloud.trigger"] != 2 {
+		t.Fatalf("triggers: %v", counts)
+	}
+	if ms := counts["cooldown.soundcloud.ms"]; ms < 59000 || ms > 60000 {
+		t.Fatalf("pause time %d ms, want about one minute", ms)
 	}
 }

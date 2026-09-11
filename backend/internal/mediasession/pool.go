@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"sort"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/provider"
+	"ytdm/backend/internal/throughput"
 	"ytdm/backend/internal/ytdlp"
 )
 
@@ -20,7 +22,24 @@ const (
 	botChallengeRepeatedCooldown = 72 * time.Hour
 	healthPersistTimeout         = 5 * time.Second
 	recoveryNotifyTimeout        = 10 * time.Second
+
+	// platformStrikeReset forgets earlier family-wide rate limits once none
+	// has occurred for this long.
+	platformStrikeReset = 30 * time.Minute
+	// platformCooldownJitter spreads the end of a family-wide pause by up to
+	// this fraction in either direction, so the waiting work does not resume
+	// in lock step.
+	platformCooldownJitter = 0.1
 )
+
+// platformRateLimitSteps is the family-wide pause after consecutive provider
+// rate limits. Observed throttling episodes lasted 12 to 22 minutes, and a
+// fixed two-minute pause met another rate limit right after almost every
+// expiry without a single acquisition in between. Escalating to six minutes
+// halves those futile requests while overshooting the end of an episode by
+// only about a minute on average. Only a verified media acquisition, or a
+// quiet period of platformStrikeReset, returns to the first step.
+var platformRateLimitSteps = []time.Duration{2 * time.Minute, 4 * time.Minute, 6 * time.Minute}
 
 // PoolState represents the operational availability status of the session pool.
 type PoolState string
@@ -99,6 +118,13 @@ type SessionPool struct {
 	now             func() time.Time
 	syncPersist     bool
 	recoveryHandler func(ctx context.Context)
+
+	// platformStrikes counts consecutive family-wide rate limits that arrived
+	// after the previous pause had ended; lastPlatformRateLimit is the latest.
+	platformStrikes       int
+	lastPlatformRateLimit time.Time
+	jitter                func() float64
+	recorder              *throughput.Recorder
 
 	// lifecycleCtx bounds out-of-band work started from pool callbacks to the
 	// application lifetime. The recovery handler performs database work, so it
@@ -180,8 +206,39 @@ func NewSessionPool(cfg PoolConfig, storage *CookieStorage, repo SessionReposito
 		globalLimiter: NewLimiter(cfg.GlobalRequestsPerSec, cfg.GlobalBurst),
 		sessions:      make(map[string]*RuntimeSession),
 		now:           time.Now,
+		jitter:        rand.Float64,
 	}
 	return p
+}
+
+// SetRecorder reports family-wide protection responses, their pause time and
+// session failures to the hourly throughput summary.
+func (p *SessionPool) SetRecorder(r *throughput.Recorder) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.recorder = r
+}
+
+// setJitter overrides the cooldown jitter source for deterministic tests. fn
+// returns values in [0, 1).
+func (p *SessionPool) setJitter(fn func() float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.jitter = fn
+}
+
+// platformCooldownRemaining reports an active family-wide pause.
+func (p *SessionPool) platformCooldownRemaining() (time.Duration, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.now()
+	if p.platformFailure.OccurredAt.IsZero() || !now.Before(p.platformFailure.CooldownUntil) {
+		return 0, false
+	}
+	return p.platformFailure.CooldownUntil.Sub(now), true
 }
 
 // SetNow overrides time.Now for deterministic testing.
@@ -363,15 +420,48 @@ type Lease struct {
 }
 
 // Acquire makes Lease a yt-dlp ExecutionGate bound to its selected session.
+//
+// The lease gates the metadata requests of an attempt. A family-wide
+// protection response can arrive while this caller waits for the session slot
+// or for pacing - typically from another worker's request that was already in
+// flight. Starting the request anyway would only meet the same block, so the
+// gate refuses it with a session wait instead. The refusal is a wait state: it
+// is not attributed to the session, and it triggers no further cooldown.
 func (l *Lease) Acquire(ctx context.Context) (func(), error) {
 	if l == nil || l.session == nil {
 		return func() {}, nil
+	}
+	if err := l.platformPause(); err != nil {
+		return nil, err
 	}
 	var global *Limiter
 	if l.pool != nil {
 		global = l.pool.GlobalLimiter()
 	}
-	return l.session.acquireExecution(ctx, global)
+	release, err := l.session.acquireExecution(ctx, global)
+	if err != nil {
+		return nil, err
+	}
+	if err := l.platformPause(); err != nil {
+		release()
+		return nil, err
+	}
+	return release, nil
+}
+
+func (l *Lease) platformPause() error {
+	if l.pool == nil {
+		return nil
+	}
+	remaining, cooling := l.pool.platformCooldownRemaining()
+	if !cooling {
+		return nil
+	}
+	if remaining < 5*time.Second {
+		remaining = 5 * time.Second
+	}
+	return apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
+		"YouTube acquisition is temporarily paused after a provider protection response.", remaining)
 }
 
 // CookiePath returns the filesystem path to the cookie file for trusted internal use.
@@ -1162,7 +1252,18 @@ func (p *SessionPool) updateSessionHealthLocked(rs *RuntimeSession, err error, n
 	var update HealthUpdate
 	var notifyRecovery func()
 
+	if err != nil && apperr.IsSessionWait(err) {
+		// A wait state means no request was made on this session's behalf -
+		// the gate or a cooldown refused it. There is nothing to attribute.
+		return nil
+	}
+
 	if err == nil {
+		// Only a verified media acquisition ends a run of family-wide rate
+		// limits; the next one starts again at the first pause step.
+		p.platformStrikes = 0
+		p.lastPlatformRateLimit = time.Time{}
+
 		// Confirmed success: transition UNKNOWN -> HEALTHY, clear failures and cooldowns.
 		// LastFailureAt is cleared together with LastFailureReason: repo.UpdateHealth
 		// overwrites every health column, so leaving the timestamp in memory would
@@ -1250,6 +1351,7 @@ func (p *SessionPool) updateSessionHealthLocked(rs *RuntimeSession, err error, n
 				s.HealthStatus = HealthAuthFailed
 				s.CooldownUntil = nil // Excluded until replacement
 			}
+			p.recorder.Inc("session." + string(p.family) + "." + string(code))
 
 			rs.UpdateSession(s)
 			healthUpdated = true
@@ -1610,11 +1712,49 @@ func sanitizeFailureReason(err error) string {
 func (p *SessionPool) recordPlatformFailureLocked(err error, now time.Time) {
 	cooldown := 1 * time.Minute
 	if apperr.CodeOf(err) == apperr.CodeProviderRateLimited {
-		cooldown = 2 * time.Minute
+		cooldown = p.nextRateLimitCooldownLocked(now)
 	}
+	p.setPlatformFailureLocked(err, now, now.Add(cooldown))
+	p.recorder.Inc("platform." + string(p.family) + "." + string(apperr.CodeOf(err)))
+}
+
+// nextRateLimitCooldownLocked returns the pause for a provider rate limit.
+// A rate limit reported while the previous pause is still running came from a
+// request that was already in flight; it proves nothing new and does not
+// escalate. One after the pause ended does.
+func (p *SessionPool) nextRateLimitCooldownLocked(now time.Time) time.Duration {
+	active := !p.platformFailure.OccurredAt.IsZero() && now.Before(p.platformFailure.CooldownUntil)
+	if !p.lastPlatformRateLimit.IsZero() && now.Sub(p.lastPlatformRateLimit) > platformStrikeReset {
+		p.platformStrikes = 0
+	}
+	if !active || p.platformStrikes == 0 {
+		p.platformStrikes++
+	}
+	p.lastPlatformRateLimit = now
+
+	step := platformRateLimitSteps[min(p.platformStrikes, len(platformRateLimitSteps))-1]
+	factor := 1.0
+	if p.jitter != nil {
+		factor = 1 - platformCooldownJitter + 2*platformCooldownJitter*p.jitter()
+	}
+	return time.Duration(float64(step) * factor)
+}
+
+// setPlatformFailureLocked records a family-wide failure. An active pause is
+// never shortened by a later, milder failure, and only the time a failure
+// adds beyond the running pause is reported as cooldown time.
+func (p *SessionPool) setPlatformFailureLocked(err error, now, until time.Time) {
+	from := now
+	if !p.platformFailure.OccurredAt.IsZero() && p.platformFailure.CooldownUntil.After(now) {
+		from = p.platformFailure.CooldownUntil
+		if !until.After(from) {
+			until = from
+		}
+	}
+	p.recorder.AddDuration("platform."+string(p.family)+".cooldown_ms", until.Sub(from))
 	p.platformFailure = PlatformFailure{
 		OccurredAt:    now,
-		CooldownUntil: now.Add(cooldown),
+		CooldownUntil: until,
 		Err:           err,
 	}
 }
@@ -1629,6 +1769,14 @@ func (p *SessionPool) RecordPlatformFailure(err error, cooldown time.Duration) {
 		CooldownUntil: now.Add(cooldown),
 		Err:           err,
 	}
+}
+
+// PlatformStrikes reports how many consecutive family-wide rate limits the
+// current pause step is based on.
+func (p *SessionPool) PlatformStrikes() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.platformStrikes
 }
 
 // LastPlatformFailure returns the last platform-systemic failure if recorded.

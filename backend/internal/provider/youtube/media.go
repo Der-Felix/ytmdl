@@ -5,6 +5,7 @@ package youtube
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -168,15 +169,26 @@ func New(cfg Config) (*MediaProvider, error) {
 	if cfg.EnrichLimit == 0 {
 		enrich = 3
 	}
-	return &MediaProvider{
+	p := &MediaProvider{
 		name:         name,
 		mode:         mode,
-		client:       cfg.Client,
 		limit:        limit,
 		enrichLimit:  enrich,
 		musicService: cfg.MusicService,
 		limiter:      newLimiter(cfg.RequestsPerSecond, cfg.Burst),
-	}, nil
+	}
+	p.client = p.paced(cfg.Client)
+	return p, nil
+}
+
+// paced binds the provider's request pacing to client. Pacing happens at the
+// process start, so a search or extraction answered from the yt-dlp query
+// cache costs neither time nor request budget.
+func (p *MediaProvider) paced(client *ytdlp.Client) *ytdlp.Client {
+	if p.limiter == nil || client == nil {
+		return client
+	}
+	return client.WithPacer(p.limiter)
 }
 
 // Name returns the provider identifier.
@@ -188,7 +200,7 @@ func (p *MediaProvider) Family() provider.Family { return provider.FamilyYouTube
 // WithClient returns an immutable copy of MediaProvider bound to client.
 func (p *MediaProvider) WithClient(client *ytdlp.Client) *MediaProvider {
 	clone := *p
-	clone.client = client
+	clone.client = p.paced(client)
 	return &clone
 }
 
@@ -253,12 +265,6 @@ func (p *MediaProvider) Search(ctx context.Context, track music.Track) ([]provid
 		return nil, apperr.New(apperr.CodeInvalidRequest, "The track has neither an artist nor a title to search for.")
 	}
 
-	if p.limiter != nil {
-		if err := p.limiter.Wait(ctx); err != nil {
-			return nil, err
-		}
-	}
-
 	var (
 		results []ytdlp.Info
 		err     error
@@ -301,12 +307,6 @@ func (p *MediaProvider) probeDirectID(ctx context.Context, track music.Track) (p
 		return provider.MediaCandidate{}, false, nil
 	}
 
-	if p.limiter != nil {
-		if err := p.limiter.Wait(ctx); err != nil {
-			return provider.MediaCandidate{}, false, err
-		}
-	}
-
 	target := watchURL(sourceID)
 	results, err := p.client.Query(ctx, target, "--no-playlist")
 	if err != nil {
@@ -326,6 +326,9 @@ func (p *MediaProvider) probeDirectID(ctx context.Context, track music.Track) (p
 	if !ok {
 		return provider.MediaCandidate{}, false, nil
 	}
+	// Resolve addresses the candidate by exactly the URL that was probed, so
+	// it reuses this extraction instead of starting a second, identical one.
+	candidate.URL = target
 
 	// Validate plausibility: if track duration is known and candidate duration is known,
 	// ensure they don't deviate wildly (e.g. max 15 seconds)
@@ -350,12 +353,6 @@ func (p *MediaProvider) Resolve(ctx context.Context, candidate provider.MediaCan
 	}
 	if err := ValidateMediaURL(target); err != nil {
 		return nil, err
-	}
-
-	if p.limiter != nil {
-		if err := p.limiter.Wait(ctx); err != nil {
-			return nil, err
-		}
 	}
 
 	results, err := p.client.Query(ctx, target, "--no-playlist")
@@ -388,9 +385,34 @@ func (p *MediaProvider) Resolve(ctx context.Context, candidate provider.MediaCan
 	}
 	if len(source.Formats) == 0 {
 		return nil, apperr.Newf(apperr.CodeDownloadFailed,
-			"The media item %q offers no audio only stream.", source.ID)
+			"The media item %q offers no audio only stream (%s).", source.ID, formatShape(info.Formats))
 	}
 	return source, nil
+}
+
+// formatShape summarises what an item offered instead of an audio only
+// stream. It consists of counts only: no format address, no identifier and no
+// raw tool output, so it is safe for logs and stored error messages. It is the
+// evidence needed to tell a missing stream from a stream whose codec yt-dlp
+// could not name.
+func formatShape(formats []ytdlp.Format) string {
+	var muxed, videoOnly, unnamedAudio, other int
+	for _, f := range formats {
+		hasVideo := f.VCodec != "" && f.VCodec != "none"
+		switch {
+		case f.HasAudio() && hasVideo:
+			muxed++
+		case hasVideo:
+			videoOnly++
+		case f.VCodec == "none" && f.ACodec == "":
+			// An audio rendition whose codec the manifest did not declare.
+			unnamedAudio++
+		default:
+			other++
+		}
+	}
+	return fmt.Sprintf("formats: %d total, %d muxed, %d video only, %d audio without codec, %d other",
+		len(formats), muxed, videoOnly, unnamedAudio, other)
 }
 
 // toCandidate maps one yt-dlp result onto a candidate. Entries that cannot
@@ -471,10 +493,8 @@ func (p *MediaProvider) enrichDurations(ctx context.Context, candidates []provid
 	}
 
 	for _, target := range targets {
-		if p.limiter != nil {
-			if err := p.limiter.Wait(ctx); err != nil {
-				return
-			}
+		if ctx.Err() != nil {
+			return
 		}
 		results, err := p.client.Query(ctx, target, "--no-playlist")
 		if err != nil || len(results) == 0 {
