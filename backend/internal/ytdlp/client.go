@@ -195,6 +195,9 @@ func (c *Client) countError(op string, err error) {
 		return
 	}
 	c.count(op, "error."+string(apperr.CodeOf(err)))
+	if errors.Is(err, ErrAgeRestricted) {
+		c.count(op, "candidate.age_restricted")
+	}
 }
 
 // Binary returns the configured executable.
@@ -621,6 +624,14 @@ func ClassifyError(stderr string, cause error) error {
 	case strings.Contains(lower, "drm protected"):
 		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "The media item is DRM protected: %s", message)
 
+	// An age restriction of the requested item: the platform refuses this one
+	// item to this session context and nothing else. It is skipped like an
+	// unavailable item - never unlocked - and neither pauses the family nor
+	// touches the session's health. Explicit rate-limit, bot and sign-in
+	// signals are matched above and keep precedence.
+	case isContentAgeRestriction(stderr):
+		return apperr.Wrap(apperr.CodeTrackNotFound, ageRestrictedMessage, fmt.Errorf("%w: %w", ErrAgeRestricted, cause))
+
 	case strings.Contains(lower, "video unavailable") ||
 		strings.Contains(lower, "is not available") ||
 		strings.Contains(lower, "private video") ||
@@ -640,6 +651,70 @@ func ClassifyError(stderr string, cause error) error {
 
 func classifyError(stderr string, cause error) error {
 	return ClassifyError(stderr, cause)
+}
+
+// ErrAgeRestricted marks a candidate failure caused by an age restriction of
+// the requested item. It carries no provider output, so it is safe to count
+// and to log.
+var ErrAgeRestricted = errors.New("age-restricted media item")
+
+// ageRestrictedMessage replaces the provider's own wording: the category and
+// the media id the caller logs next to it are all a diagnosis needs.
+const ageRestrictedMessage = "The media item is age-restricted and not accessible to this session context; it is skipped."
+
+// contentAgeRestrictionPhrases are the statements YouTube and yt-dlp use for
+// an item that is age restricted, as observed in production logs.
+var contentAgeRestrictionPhrases = []string{
+	"this content is age-restricted", // "Sorry, this content is age-restricted"
+	"this video is age-restricted",
+}
+
+// ageRestrictionAmbiguityHints turn an age statement into an ambiguous one: a
+// request to sign in, a credential or account hint, or a bot check can mean
+// the session itself is not accepted, and such messages keep their previous
+// classification.
+var ageRestrictionAmbiguityHints = []string{
+	"sign in", "sign-in", "log in", "login", "cookie", "authenticat", "account", "not a bot", "captcha",
+}
+
+// isContentAgeRestriction reports an unambiguous age restriction of the
+// requested item. Only yt-dlp's ERROR lines are considered; warnings about
+// the extraction do not describe the item.
+func isContentAgeRestriction(stderr string) bool {
+	line := strings.ToLower(errorLines(stderr))
+	if line == "" {
+		return false
+	}
+	restricted := strings.Contains(line, "verify your age") && strings.Contains(line, "old enough")
+	for _, phrase := range contentAgeRestrictionPhrases {
+		if strings.Contains(line, phrase) {
+			restricted = true
+		}
+	}
+	if !restricted {
+		return false
+	}
+	for _, hint := range ageRestrictionAmbiguityHints {
+		if strings.Contains(line, hint) {
+			return false
+		}
+	}
+	return true
+}
+
+// errorLinePrefix is yt-dlp's "ERROR: [extractor] id: " lead-in. The id is
+// arbitrary text and must not be read as part of the statement.
+var errorLinePrefix = regexp.MustCompile(`^ERROR:\s*(\[[^\]]*\]\s*[^\s:]*:\s*)?`)
+
+// errorLines returns the statements of yt-dlp's ERROR lines, joined.
+func errorLines(stderr string) string {
+	var out []string
+	for _, line := range strings.Split(stderr, "\n") {
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "ERROR:") {
+			out = append(out, errorLinePrefix.ReplaceAllString(trimmed, ""))
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 func firstLine(s string) string {

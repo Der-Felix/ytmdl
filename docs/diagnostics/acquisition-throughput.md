@@ -151,6 +151,12 @@ rate limits, so it shows the request reduction, not the throttling effects.
   [audio format classification](./audio-format-classification.md)). How many
   production rejections it explains is **unknown** until the format shape in
   the error message is evaluated. This is the largest remaining lever.
+- **Age-restricted candidates.** An age restriction of a single video paused
+  the whole YouTube family and was hit again on every retry: a quarter of all
+  family pauses in the 0.27.1 logs, eleven of twelve in the first hour of
+  0.27.2-rc.1. It is now a candidate failure (see
+  [age-restricted candidates](./age-restricted-candidates.md)); its effect on
+  live throughput is not measured yet.
 - **SoundCloud.** Mostly previews and DRM-protected items; it cannot close the
   gap.
 - **No further sessions or accounts.** Adding them would bypass the account
