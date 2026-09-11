@@ -46,6 +46,7 @@ import (
 	"ytdm/backend/internal/settings"
 	"ytdm/backend/internal/storage"
 	"ytdm/backend/internal/subscriptions"
+	"ytdm/backend/internal/throughput"
 	"ytdm/backend/internal/update"
 	"ytdm/backend/internal/ytdlp"
 )
@@ -289,6 +290,10 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Timeout: cfg.Tools.Timeout,
 		Logger:  logger,
 	})
+	// One recorder collects the counters of the hourly throughput summary:
+	// provider process starts and reused answers, protection responses,
+	// cooldown time and item outcomes.
+	throughputRecorder := throughput.New()
 	ytdlpClient := ytdlp.New(ytdlp.Options{
 		Binary:         cfg.Tools.YTDLPPath,
 		CookieFile:     cfg.Tools.CookieFile,
@@ -296,28 +301,9 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Timeout:        cfg.Tools.Timeout,
 		FFmpegLocation: ffmpegLocation(cfg.Tools.FFmpegPath),
 		Logger:         logger,
+		Recorder:       throughputRecorder,
+		Label:          string(provider.FamilyYouTube),
 	})
-
-	registry, err := buildProviders(cfg, ytdlpClient, logger)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	engine := matcher.New(matcher.Options{
-		MinScore:            cfg.Matching.MinScore,
-		DurationToleranceMS: cfg.Matching.DurationToleranceMS,
-	})
-
-	discographyService, err := discography.NewService(discography.Options{
-		Registry:            registry,
-		DurationToleranceMS: cfg.Matching.DurationToleranceMS,
-		Logger:              logger,
-	})
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
 
 	mediaSessionsRepo := repository.NewMediaSessions(db)
 	legacyAdapter := mediasession.NewLegacyAdapter(cfg.Tools.CookieFile)
@@ -341,9 +327,33 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	} else {
 		sessionPool.ReloadSessions(nil)
 	}
+	sessionPool.SetRecorder(throughputRecorder)
 	// The base client can carry only the legacy cookie file. Managed-session
 	// clones replace this gate when the orchestrator binds their cookie path.
+	// It is installed before the media providers derive their paced copies of
+	// the client, so every copy inherits it.
 	ytdlpClient.SetExecutionGate(sessionPool.ExecutionGate(mediasession.LegacySessionID))
+
+	registry, err := buildProviders(cfg, ytdlpClient, logger)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	engine := matcher.New(matcher.Options{
+		MinScore:            cfg.Matching.MinScore,
+		DurationToleranceMS: cfg.Matching.DurationToleranceMS,
+	})
+
+	discographyService, err := discography.NewService(discography.Options{
+		Registry:            registry,
+		DurationToleranceMS: cfg.Matching.DurationToleranceMS,
+		Logger:              logger,
+	})
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	sessionProber := mediasession.NewYTDLPProber(ytdlpClient, "")
 	sessionProber.SetExecutionGateResolver(sessionPool.ExecutionGate)
@@ -357,6 +367,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	})
 
 	cooldownMgr := jobs.NewMediaCooldownManager()
+	cooldownMgr.SetRecorder(throughputRecorder)
 
 	providerOrchestrator := orchestrator.New(orchestrator.Options{
 		Registry:    registry,
@@ -427,6 +438,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Orchestrator:        providerOrchestrator,
 		Broker:              broker,
 		Logger:              logger,
+		Throughput:          throughputRecorder,
 		Concurrency:         cfg.Downloads.Concurrent,
 		MaxRetries:          cfg.Downloads.MaxRetries,
 		RetryBackoff:        cfg.Downloads.RetryBackoff,
@@ -725,7 +737,9 @@ func buildProviders(cfg config.Config, client *ytdlp.Client, logger *slog.Logger
 	}
 
 	if cfg.Providers.SoundCloud.Enabled {
-		soundCloudClient := client.WithCookieFile("")
+		// SoundCloud never uses YouTube credentials or a YouTube session's
+		// execution gate; it is paced by its own limiter.
+		soundCloudClient := client.WithCookieFile("").WithExecutionGate(nil).WithLabel(string(provider.FamilySoundCloud))
 		soundCloudProvider, err := soundcloud.New(soundcloud.Config{
 			Client:            soundCloudClient,
 			Limit:             cfg.Matching.CandidateLimit,

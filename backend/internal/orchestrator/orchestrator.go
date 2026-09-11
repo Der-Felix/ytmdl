@@ -183,13 +183,23 @@ const (
 	sessionOutcomeFailure
 )
 
-// ResolveMedia executes search, candidate matching, and candidate resolution
-// with pre-attempt independent provider planning and strict failure containment.
-func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvider string, track music.Track, maxCandidates int) (*ResolvedMedia, error) {
-	if maxCandidates <= 0 {
-		maxCandidates = DefaultMaxCandidates
-	}
+// attemptPlan is the pre-attempt eligibility of every platform family. It is
+// decided from in-memory cooldown and session state before any network
+// contact.
+type attemptPlan struct {
+	pref              string
+	origin            Origin
+	chain             []string
+	ytEligible        bool
+	ytNoUsableSession bool
+	ytRetryAfter      time.Duration
+	scEligible        bool
+	scRetryAfter      time.Duration
+}
 
+// planAttempt resolves the provider chain and the pre-attempt eligibility. A
+// non-nil error is the answer ResolveMedia gives without contacting anything.
+func (o *ProviderOrchestrator) planAttempt(preferredProvider string, origin Origin) (attemptPlan, error) {
 	pref := strings.TrimSpace(preferredProvider)
 	if pref == "" && o.registry != nil {
 		pref = o.registry.DefaultMediaName()
@@ -197,26 +207,22 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 	if pref == "" {
 		pref = "ytmusic"
 	}
-
-	origin := OriginFromContext(ctx)
+	plan := attemptPlan{pref: pref, origin: origin, ytEligible: true, scEligible: true}
 
 	// 1. Resolve candidate provider chain
-	chain := o.resolveProviderChain(pref)
-	if len(chain) == 0 {
-		return nil, apperr.New(apperr.CodeProviderNotFound, "no media providers available")
+	plan.chain = o.resolveProviderChain(pref)
+	if len(plan.chain) == 0 {
+		return plan, apperr.New(apperr.CodeProviderNotFound, "no media providers available")
 	}
 
 	// 2. Pre-Attempt Eligibility Planning
 	// Determine eligibility for each platform family BEFORE network contact.
-	ytEligible := true
-	ytNoUsableSession := false
-	var ytRetryAfter time.Duration
 
 	// Check YouTube family cooldown
 	if o.cooldown != nil {
 		if remaining, active := o.cooldown.Remaining(string(provider.FamilyYouTube)); active {
-			ytEligible = false
-			ytRetryAfter = remaining
+			plan.ytEligible = false
+			plan.ytRetryAfter = remaining
 		}
 	}
 
@@ -227,69 +233,128 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		case mediasession.PoolStateEligible, mediasession.PoolStateCapacityConstrained:
 			// Session pool is available or capacity constrained
 		case mediasession.PoolStateCooling:
-			ytEligible = false
-			if avail.RetryAfter > ytRetryAfter {
-				ytRetryAfter = avail.RetryAfter
+			plan.ytEligible = false
+			if avail.RetryAfter > plan.ytRetryAfter {
+				plan.ytRetryAfter = avail.RetryAfter
 			}
 		case mediasession.PoolStateNoUsableSession:
-			ytEligible = false
-			ytNoUsableSession = true
+			plan.ytEligible = false
+			plan.ytNoUsableSession = true
 		}
 	}
 
 	// Check SoundCloud family eligibility
-	scEligible := true
-	var scRetryAfter time.Duration
 	if o.cooldown != nil {
 		if remaining, active := o.cooldown.Remaining(string(provider.FamilySoundCloud)); active {
-			scEligible = false
-			scRetryAfter = remaining
+			plan.scEligible = false
+			plan.scRetryAfter = remaining
 		}
 	}
 
 	// Policy check when preferred YouTube family is pre-attempt unavailable:
-	if !ytEligible && provider.FamilyOf(pref) == provider.FamilyYouTube {
-		if ytNoUsableSession {
+	if !plan.ytEligible && provider.FamilyOf(pref) == provider.FamilyYouTube {
+		if plan.ytNoUsableSession {
 			if origin != OriginManual {
 				// Subscriptions must not silently substitute independent providers
 				// and must not retry forever when no usable session exists.
-				return nil, apperr.New(apperr.CodeSessionNotFound, "no eligible media sessions available in pool")
+				return plan, apperr.New(apperr.CodeSessionNotFound, "no eligible media sessions available in pool")
 			}
-			if !scEligible {
-				if scRetryAfter > 0 {
-					retryWait := scRetryAfter
+			if !plan.scEligible {
+				if plan.scRetryAfter > 0 {
+					retryWait := plan.scRetryAfter
 					if retryWait < 5*time.Second {
 						retryWait = 5 * time.Second
 					}
-					return nil, apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
+					return plan, apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
 						"Configured media providers are temporarily unavailable.", retryWait)
 				}
-				return nil, apperr.New(apperr.CodeSessionNotFound, "no eligible media sessions available in pool")
+				return plan, apperr.New(apperr.CodeSessionNotFound, "no eligible media sessions available in pool")
 			}
 			// For OriginManual with scEligible, proceed to candidate evaluation loop to attempt SoundCloud!
 		} else {
 			if origin != OriginManual {
 				// Subscriptions must not silently substitute independent providers
-				if ytRetryAfter < 5*time.Second {
-					ytRetryAfter = 15 * time.Minute
+				retryWait := plan.ytRetryAfter
+				if retryWait < 5*time.Second {
+					retryWait = 15 * time.Minute
 				}
-				return nil, apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
-					"YouTube acquisition is temporarily paused after a provider protection response.", ytRetryAfter)
+				return plan, apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
+					"YouTube acquisition is temporarily paused after a provider protection response.", retryWait)
 			}
-			if !scEligible {
+			if !plan.scEligible {
 				// Both YouTube and SoundCloud are unavailable
-				retryWait := ytRetryAfter
-				if scRetryAfter > 0 && (retryWait == 0 || scRetryAfter < retryWait) {
-					retryWait = scRetryAfter
+				retryWait := plan.ytRetryAfter
+				if plan.scRetryAfter > 0 && (retryWait == 0 || plan.scRetryAfter < retryWait) {
+					retryWait = plan.scRetryAfter
 				}
 				if retryWait < 5*time.Second {
 					retryWait = 15 * time.Minute
 				}
-				return nil, apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
+				return plan, apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
 					"Configured media providers are temporarily unavailable.", retryWait)
 			}
 		}
 	}
+	return plan, nil
+}
+
+// Precheck reports, without any network contact, the answer ResolveMedia
+// would give before its first provider request: nil when an attempt would
+// contact a provider now, otherwise the same wait or configuration error. The
+// dispatcher uses it to leave work alone while its provider is known to be
+// unavailable, instead of cycling it through a worker just to learn that.
+func (o *ProviderOrchestrator) Precheck(ctx context.Context, preferredProvider string) error {
+	if o == nil {
+		return nil
+	}
+	_, err := o.planAttempt(preferredProvider, OriginFromContext(ctx))
+	return err
+}
+
+// midAttemptCooldown reports a family cooldown that began after the attempt
+// was planned, typically because another worker just received a protection
+// response. Checking it before every request keeps concurrent attempts from
+// sending further requests into an active block.
+func (o *ProviderOrchestrator) midAttemptCooldown(fam provider.Family) (time.Duration, bool) {
+	if o.cooldown == nil {
+		return 0, false
+	}
+	remaining, active := o.cooldown.Remaining(string(fam))
+	if !active {
+		return 0, false
+	}
+	if remaining < 5*time.Second {
+		remaining = 5 * time.Second
+	}
+	return remaining, true
+}
+
+// isWaitState reports an error that describes no session's own behaviour: the
+// execution gate or a cooldown refused to start a request. It must neither
+// count as a session failure nor trigger another cooldown.
+func isWaitState(err error) bool {
+	return apperr.IsSessionWait(err)
+}
+
+// ResolveMedia executes search, candidate matching, and candidate resolution
+// with pre-attempt independent provider planning and strict failure containment.
+func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvider string, track music.Track, maxCandidates int) (*ResolvedMedia, error) {
+	if maxCandidates <= 0 {
+		maxCandidates = DefaultMaxCandidates
+	}
+
+	origin := OriginFromContext(ctx)
+	plan, err := o.planAttempt(preferredProvider, origin)
+	if err != nil {
+		return nil, err
+	}
+	pref := plan.pref
+	chain := plan.chain
+	ytEligible := plan.ytEligible
+	ytNoUsableSession := plan.ytNoUsableSession
+	ytRetryAfter := plan.ytRetryAfter
+	scEligible := plan.scEligible
+	scRetryAfter := plan.scRetryAfter
 
 	// 3. Lazy session state for YouTube
 	//
@@ -332,6 +397,16 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		return nil
 	}
 
+	// Candidate ids already resolved in this attempt, per platform family. The
+	// YouTube Music and the YouTube search regularly return the same video, and
+	// a failed direct-id candidate is usually the generic search's first hit
+	// again. Resolving such a candidate a second time within one attempt cannot
+	// change its answer; it only spends session time and provider quota.
+	tried := make(map[string]struct{})
+	triedKey := func(fam provider.Family, id string) string {
+		return string(fam) + "\x00" + strings.TrimSpace(id)
+	}
+
 	// 4. Direct-ID Fast Path
 	// Only runs if YouTube is eligible and track carries a direct video ID.
 	// If YouTube is pre-attempt skipped, fast path is skipped without YouTube contact.
@@ -339,11 +414,14 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		if err := acquireYouTubeSession(); err != nil {
 			return nil, err
 		}
-		res, ok, err := o.tryDirectID(ctx, pref, track, lease, cookiePath, sessionID, provider.FamilyYouTube)
+		res, ok, triedID, err := o.tryDirectID(ctx, pref, track, lease, cookiePath, sessionID, provider.FamilyYouTube)
 		if err != nil {
 			// tryDirectID only surfaces session/provider protection failures, and
-			// they were produced by this YouTube session.
-			outcome, sessionErr = sessionOutcomeFailure, err
+			// they were produced by this YouTube session - unless the execution
+			// gate refused to start the request at all, which proves nothing.
+			if !isWaitState(err) {
+				outcome, sessionErr = sessionOutcomeFailure, err
+			}
 			return nil, err
 		}
 		if ok {
@@ -351,6 +429,9 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 				o.sessionPool.RetainDataPlane(sessionID)
 			}
 			return res, nil
+		}
+		if triedID != "" {
+			tried[triedKey(provider.FamilyYouTube, triedID)] = struct{}{}
 		}
 		o.logger.Info("direct-ID candidate unavailable, falling back to generic search",
 			logging.KeyProvider, pref,
@@ -384,12 +465,29 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		}
 	}
 
-	for _, provName := range chain {
+	lastYouTube := -1
+	for i, provName := range chain {
+		if provider.FamilyOf(provName) == provider.FamilyYouTube {
+			lastYouTube = i
+		}
+	}
+
+	for chainIdx, provName := range chain {
 		if err := ctx.Err(); err != nil {
 			return nil, apperr.Wrap(apperr.CodeJobCancelled, "The job was cancelled.", err)
 		}
 
 		provFam := provider.FamilyOf(provName)
+
+		// The YouTube phase is over once no YouTube-family provider follows. A
+		// session failure would already have returned, so the session proved
+		// nothing either way and its lease goes back neutrally now: an
+		// independent provider's search and resolution must not keep the
+		// YouTube session away from the other workers.
+		if lease != nil && chainIdx > lastYouTube {
+			lease.ReleaseNeutral()
+			lease, cookiePath, sessionID = nil, "", ""
+		}
 
 		// Check pre-attempt skip for this provider:
 		if provFam == provider.FamilyYouTube && !ytEligible {
@@ -419,11 +517,16 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 			continue
 		}
 
-		// Wait on rate-limit pacing if applicable
-		if o.cooldown != nil && provFam != provider.FamilyYouTube {
-			if err := o.cooldown.Wait(ctx, string(provFam)); err != nil {
-				return nil, err
+		// A cooldown that began after planning defers the provider instead of
+		// parking this worker until it ends: the worker slot is freed for other
+		// runnable items and the item is rescheduled for the cooldown's end.
+		if provFam != provider.FamilyYouTube {
+			if remaining, cooling := o.midAttemptCooldown(provFam); cooling {
+				recordDeferred(string(provFam)+" cooldown", remaining)
+				continue
 			}
+		} else if remaining, cooling := o.midAttemptCooldown(provFam); cooling {
+			return nil, youTubePaused(remaining)
 		}
 
 		// Lazily acquire a YouTube session if entering an eligible YouTube-family provider
@@ -442,6 +545,9 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		candidates, err := bp.Search(ctx, genericTrack)
 		if err != nil {
 			if apperr.StopsCandidateFanout(err) {
+				if isWaitState(err) {
+					return nil, err
+				}
 				if provFam == provider.FamilyYouTube {
 					outcome, sessionErr = sessionOutcomeFailure, err
 				}
@@ -459,13 +565,25 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		acceptable := o.matcher.Acceptable(track, candidates, maxCandidates)
 		if len(acceptable) > 0 {
 			allAcceptable = append(allAcceptable, acceptable...)
+		candidateLoop:
 			for rankIdx, candResult := range acceptable {
-				attemptedCount++
 				candidate := candResult.Candidate
+				key := triedKey(provFam, candidate.ID)
+				if _, seen := tried[key]; seen && strings.TrimSpace(candidate.ID) != "" {
+					continue
+				}
 
 				if err := ctx.Err(); err != nil {
 					return nil, apperr.Wrap(apperr.CodeJobCancelled, "The job was cancelled.", err)
 				}
+				if remaining, cooling := o.midAttemptCooldown(provFam); cooling {
+					if provFam == provider.FamilyYouTube {
+						return nil, youTubePaused(remaining)
+					}
+					recordDeferred(string(provFam)+" cooldown", remaining)
+					break candidateLoop
+				}
+				attemptedCount++
 
 				source, err := bp.Resolve(ctx, candidate)
 				if err == nil {
@@ -494,9 +612,13 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 				}
 
 				lastResolveErr = err
+				tried[key] = struct{}{}
 
 				// Systemic failure: stop candidate fanout immediately
 				if apperr.StopsCandidateFanout(err) {
+					if isWaitState(err) {
+						return nil, err
+					}
 					if provFam == provider.FamilyYouTube {
 						outcome, sessionErr = sessionOutcomeFailure, err
 					}
@@ -560,12 +682,15 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 	return nil, apperr.Newf(apperr.CodeTrackNotFound, "No media candidates were found for %q.", track.Label())
 }
 
-func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, track music.Track, lease *mediasession.Lease, cookiePath string, sessionID string, fam provider.Family) (*ResolvedMedia, bool, error) {
+// tryDirectID resolves the video the metadata already names. Besides the
+// result it reports the id of a candidate whose resolution failed for reasons
+// of its own, so the generic search does not resolve it a second time.
+func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, track music.Track, lease *mediasession.Lease, cookiePath string, sessionID string, fam provider.Family) (*ResolvedMedia, bool, string, error) {
 	p, err := o.registry.Media(pref)
 	if err != nil {
 		p, err = o.registry.Media("youtube")
 		if err != nil {
-			return nil, false, nil
+			return nil, false, "", nil
 		}
 	}
 
@@ -573,15 +698,17 @@ func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, tra
 	candidates, err := bp.Search(ctx, track)
 	if err != nil {
 		if apperr.StopsCandidateFanout(err) {
-			o.handleSystemicFailure(err, fam, pref)
-			return nil, false, err
+			if !isWaitState(err) {
+				o.handleSystemicFailure(err, fam, pref)
+			}
+			return nil, false, "", err
 		}
 		// Candidate-specific error
-		return nil, false, nil
+		return nil, false, "", nil
 	}
 
 	if len(candidates) == 0 {
-		return nil, false, nil
+		return nil, false, "", nil
 	}
 
 	directCand := candidates[0]
@@ -597,16 +724,25 @@ func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, tra
 			Source:         source,
 			SessionID:      sessionID,
 			AttemptedCount: 1,
-		}, true, nil
+		}, true, "", nil
 	}
 
 	if apperr.StopsCandidateFanout(err) {
-		o.handleSystemicFailure(err, fam, directCand.Provider)
-		return nil, false, err
+		if !isWaitState(err) {
+			o.handleSystemicFailure(err, fam, directCand.Provider)
+		}
+		return nil, false, "", err
 	}
 
 	// Candidate-specific resolution failure
-	return nil, false, nil
+	return nil, false, directCand.ID, nil
+}
+
+// youTubePaused is the wait answer for a YouTube cooldown that began during
+// the attempt. It ends the attempt without charging the session.
+func youTubePaused(remaining time.Duration) error {
+	return apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
+		"YouTube acquisition is temporarily paused after a provider protection response.", remaining)
 }
 
 func (o *ProviderOrchestrator) resolveProviderChain(preferred string) []string {

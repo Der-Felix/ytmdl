@@ -10,6 +10,7 @@ import (
 	"ytdm/backend/internal/discography"
 	"ytdm/backend/internal/logging"
 	"ytdm/backend/internal/music"
+	"ytdm/backend/internal/orchestrator"
 	"ytdm/backend/internal/storage"
 )
 
@@ -32,7 +33,11 @@ func (m *Manager) Start(ctx context.Context) error {
 			return
 		}
 
-		m.wg.Add(3)
+		m.wg.Add(4)
+		go func() {
+			defer m.wg.Done()
+			m.runThroughputReporter(m.ctx)
+		}()
 		go func() {
 			defer m.wg.Done()
 			m.runResolver(m.ctx)
@@ -209,6 +214,9 @@ func (m *Manager) dispatch(ctx context.Context) {
 
 	candidates := m.collectCandidates(ctx)
 	if len(candidates) == 0 {
+		// A free worker with nothing runnable marks a supply-limited moment,
+		// as opposed to one limited by providers or worker capacity.
+		m.throughput.Inc("dispatch.free_worker_without_ready_item")
 		return
 	}
 
@@ -297,7 +305,14 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 		return jobs[i].ID < jobs[j].ID
 	})
 
-	var candidates []jobCandidate
+	var (
+		candidates []jobCandidate
+		readyTotal int
+		heldTotal  int
+	)
+	// Provider availability is decided once per preferred provider and origin
+	// for this pass. It is in-memory state only; nothing is contacted.
+	gates := make(map[string]bool)
 
 	for _, job := range jobs {
 		if ctx.Err() != nil {
@@ -346,6 +361,14 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 
 			case ItemRetryWait:
 				if insideWindow && (it.NextRetryAt == nil || !it.NextRetryAt.After(now)) {
+					// A retry whose media provider is known to be unavailable
+					// right now would only be cycled through a worker to learn
+					// that again. It stays due and is dispatched as soon as the
+					// provider is available; other jobs are not held up.
+					if m.providerHeld(ctx, job, gates) {
+						heldTotal++
+						continue
+					}
 					readyItems = append(readyItems, it)
 				}
 
@@ -372,6 +395,7 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 		}
 
 		if len(readyItems) > 0 {
+			readyTotal += len(readyItems)
 			candidates = append(candidates, jobCandidate{
 				job:   job,
 				ready: readyItems,
@@ -379,7 +403,83 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 		}
 	}
 
+	m.throughput.Gauge("items.ready", int64(readyTotal))
+	m.throughput.Gauge("items.held_for_provider", int64(heldTotal))
 	return candidates
+}
+
+// providerPrechecker is implemented by an orchestrator that can tell, without
+// any network contact, whether an attempt would currently reach a provider.
+type providerPrechecker interface {
+	Precheck(ctx context.Context, preferredProvider string) error
+}
+
+// providerHeld reports whether the job's media provider is known to be in a
+// cooldown or session wait, which is exactly the answer an attempt would get
+// before its first request. gates caches the decision for one dispatch pass.
+func (m *Manager) providerHeld(ctx context.Context, job Job, gates map[string]bool) bool {
+	checker, ok := m.getOrchestrator().(providerPrechecker)
+	if !ok {
+		return false
+	}
+	origin := resolutionOrigin(job)
+	key := job.MediaProvider + "\x00" + string(origin)
+	held, seen := gates[key]
+	if !seen {
+		err := checker.Precheck(orchestrator.WithOrigin(ctx, origin), job.MediaProvider)
+		held = apperr.IsSessionWait(err)
+		gates[key] = held
+	}
+	return held
+}
+
+// runThroughputReporter logs one summary per interval: new verified
+// acquisitions, provider requests by family and kind, reused answers, rate
+// limits, cooldown time and failure reasons, together with how much runnable
+// work there was. It ends with a partial summary at shutdown so that a restart
+// loses nothing.
+func (m *Manager) runThroughputReporter(ctx context.Context) {
+	if m.throughput == nil {
+		return
+	}
+	interval := m.throughputInterval
+	if interval <= 0 {
+		interval = time.Hour
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			m.logThroughput(true)
+			return
+		case <-ticker.C:
+			m.logThroughput(false)
+		}
+	}
+}
+
+func (m *Manager) logThroughput(partial bool) {
+	window := m.throughput.Drain()
+	attrs := []any{
+		"window_start", window.Start.Format(time.RFC3339),
+		"window_end", window.End.Format(time.RFC3339),
+		"window_seconds", int64(window.End.Sub(window.Start).Seconds()),
+		"partial", partial,
+		"max_workers", m.MaxWorkers(),
+	}
+	for _, name := range window.Names() {
+		attrs = append(attrs, name, window.Counts[name])
+	}
+	gauges := make([]string, 0, len(window.GaugeLast))
+	for name := range window.GaugeLast {
+		gauges = append(gauges, name)
+	}
+	sort.Strings(gauges)
+	for _, name := range gauges {
+		attrs = append(attrs, name+".last", window.GaugeLast[name], name+".max", window.GaugeMax[name])
+	}
+	m.logger.Info("throughput summary", attrs...)
 }
 
 // startWorker processes one item in its own goroutine.

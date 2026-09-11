@@ -118,11 +118,17 @@ func New(cfg Config) (*MediaProvider, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	return &MediaProvider{
+	p := &MediaProvider{
 		client:  cfg.Client,
 		limit:   limit,
 		limiter: newLimiter(cfg.RequestsPerSecond, cfg.Burst),
-	}, nil
+	}
+	if p.limiter != nil {
+		// Pacing applies to real process starts only; a search or resolution
+		// answered from the yt-dlp query cache sends no request.
+		p.client = p.client.WithPacer(p.limiter)
+	}
+	return p, nil
 }
 
 // Name returns the provider identifier.
@@ -143,12 +149,6 @@ func (p *MediaProvider) Search(ctx context.Context, track music.Track) ([]provid
 		return nil, apperr.New(apperr.CodeInvalidRequest, "The track has neither an artist nor a title to search for.")
 	}
 
-	if p.limiter != nil {
-		if err := p.limiter.Wait(ctx); err != nil {
-			return nil, err
-		}
-	}
-
 	target := fmt.Sprintf("scsearch%d:%s", p.limit, query)
 	results, err := p.client.Query(ctx, target, "--flat-playlist")
 	if err != nil {
@@ -166,12 +166,6 @@ func (p *MediaProvider) Search(ctx context.Context, track music.Track) ([]provid
 
 // Resolve turns a candidate into a concrete, downloadable source.
 func (p *MediaProvider) Resolve(ctx context.Context, candidate provider.MediaCandidate) (*provider.MediaSource, error) {
-	if p.limiter != nil {
-		if err := p.limiter.Wait(ctx); err != nil {
-			return nil, err
-		}
-	}
-
 	results, err := p.client.Query(ctx, candidate.URL)
 	if err != nil {
 		return nil, err

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ytdm/backend/internal/throughput"
 )
 
 const (
@@ -31,6 +33,15 @@ func CanonicalCooldownKey(prov string) string {
 type MediaCooldownManager struct {
 	mu        sync.RWMutex
 	cooldowns map[string]time.Time
+	recorder  *throughput.Recorder
+}
+
+// SetRecorder reports cooldown triggers and the pause time they add to the
+// hourly throughput summary.
+func (m *MediaCooldownManager) SetRecorder(r *throughput.Recorder) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recorder = r
 }
 
 // NewMediaCooldownManager creates a MediaCooldownManager.
@@ -56,10 +67,18 @@ func (m *MediaCooldownManager) Trigger(provider string, duration time.Duration) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	expiry := time.Now().Add(duration)
-	if current, exists := m.cooldowns[key]; !exists || expiry.After(current) {
+	now := time.Now()
+	expiry := now.Add(duration)
+	current, exists := m.cooldowns[key]
+	if !exists || expiry.After(current) {
 		m.cooldowns[key] = expiry
+		from := now
+		if exists && current.After(now) {
+			from = current
+		}
+		m.recorder.AddDuration("cooldown."+key+".ms", expiry.Sub(from))
 	}
+	m.recorder.Inc("cooldown." + key + ".trigger")
 
 	return duration
 }

@@ -18,6 +18,7 @@ import (
 	"ytdm/backend/internal/orchestrator"
 	"ytdm/backend/internal/provider"
 	"ytdm/backend/internal/storage"
+	"ytdm/backend/internal/throughput"
 )
 
 // resolveQueueSize bounds how many jobs may wait for catalogue resolution.
@@ -48,6 +49,10 @@ type ManagerOptions struct {
 	Orchestrator MediaOrchestrator
 	Broker       *Broker
 	Logger       *slog.Logger
+	// Throughput receives pipeline counters and is summarised once per
+	// ThroughputInterval (default one hour). It may be nil.
+	Throughput         *throughput.Recorder
+	ThroughputInterval time.Duration
 
 	Concurrency         int
 	MaxRetries          int
@@ -94,6 +99,9 @@ type Manager struct {
 	orchestrator MediaOrchestrator
 	broker       *Broker
 	logger       *slog.Logger
+
+	throughput         *throughput.Recorder
+	throughputInterval time.Duration
 
 	concurrency  int
 	maxRetries   int
@@ -229,6 +237,8 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 		finalizerSem: make(chan struct{}, 1), // single bounded finalization slot for network FS protection
 		workers:      NewWorkerTracker(),
 	}
+	m.throughput = opts.Throughput
+	m.throughputInterval = opts.ThroughputInterval
 	if m.cooldown == nil {
 		m.cooldown = NewMediaCooldownManager()
 	}

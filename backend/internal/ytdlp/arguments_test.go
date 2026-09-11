@@ -170,6 +170,13 @@ func TestClassifyError_Taxonomy(t *testing.T) {
 			wantCode: apperr.CodeProviderRateLimited,
 		},
 
+		// DRM protection is a property of the candidate, never of the provider
+		{
+			name:     "soundcloud drm protected",
+			stderr:   "ERROR: [soundcloud] 123456789: This video is DRM protected",
+			wantCode: apperr.CodeTrackNotFound,
+		},
+
 		// Session bot challenge
 		{
 			name:     "bot challenge sign in",
