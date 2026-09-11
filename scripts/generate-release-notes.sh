@@ -205,8 +205,13 @@ if ! echo "$MIGRATION" | grep -qiE "(no database migration|keine datenbankmigrat
   fi
 fi
 
-# Build final notes
-NOTES="$(printf "%s\n\n%s\n\n## %s\n\nExisting installations can update using:\n\n\`ytmdlctl update\`\n\n%s\n" \
+# Build final notes. A release candidate is installed deliberately on the
+# development channel with the ytmdlctl binary of the same release.
+UPDATE_TEXT="Existing installations can update using:\n\n\`ytmdlctl update\`"
+if [[ "${VERSION}" == *-* ]]; then
+  UPDATE_TEXT="This is a prerelease for the development channel. It is never offered on the stable channel. Install it deliberately with \`ytmdlctl\` ${VERSION} from this release, verified against \`SHA256SUMS\`:\n\n\`ytmdlctl update --channel development --target ${VERSION} --dry-run\`\n\n\`ytmdlctl update --channel development --target ${VERSION}\`"
+fi
+NOTES="$(printf "%s\n\n%s\n\n## %s\n\n${UPDATE_TEXT}\n\n%s\n" \
   "# YTMDL v${VERSION}" \
   "${CLEAN_BODY}" \
   "${UPDATE_HEADING}" \

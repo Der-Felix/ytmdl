@@ -1091,6 +1091,19 @@ export type UpdateState =
   | 'unavailable'
   | 'invalid_release'
   | 'development_version'
+  | 'no_channel_release'
+  | 'ahead_of_channel'
+
+/** Update channel: regular releases only, or qualified prereleases. */
+export type UpdateChannel = 'stable' | 'development'
+
+/** Why an update check could not produce an answer. */
+export type UpdateFailure =
+  | 'network_error'
+  | 'rate_limited'
+  | 'unexpected_status'
+  | 'invalid_response'
+  | 'configuration'
 
 export interface UpdateStatus {
   current_version: string
@@ -1102,6 +1115,15 @@ export interface UpdateStatus {
   release_notes?: string
   checked_at: string
   cached: boolean
+  /** Channel the check was made for (absent on older backends: stable). */
+  channel?: UpdateChannel
+  current_prerelease?: boolean
+  latest_prerelease?: boolean
+  /** Development channel only: a stable release newer than every prerelease. */
+  newer_stable_version?: string
+  /** Host commands: read-only preflight, then the transactional update. */
+  update_commands?: string[]
+  failure?: UpdateFailure
 }
 
 /* ----------------------------------------------------------- media sessions */

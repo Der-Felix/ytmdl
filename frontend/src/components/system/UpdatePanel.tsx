@@ -7,20 +7,23 @@ import {
   ClockIcon,
   CopyIcon,
   ExternalLinkIcon,
+  FlaskConicalIcon,
   HelpCircleIcon,
   MinusCircleIcon,
   RefreshCwIcon,
   AlertCircleIcon,
+  ShieldCheckIcon,
+  UndoIcon,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Panel } from '@/components/ui/panel'
-import { checkUpdate } from '@/lib/api/system'
+import { checkUpdate, setUpdateChannel } from '@/lib/api/system'
 import { formatDateTime, formatRelative } from '@/lib/utils/format'
 import { errorMessage, isAbortError } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
-import type { UpdateState, UpdateStatus } from '@/types/api'
+import type { UpdateChannel, UpdateFailure, UpdateState, UpdateStatus } from '@/types/api'
 import { ReleaseNotesMarkdown } from './ReleaseNotesMarkdown'
 
 interface UpdatePanelProps {
@@ -28,21 +31,71 @@ interface UpdatePanelProps {
   onReload?: () => void
 }
 
-export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
-  const [data, setData] = useState<UpdateStatus | undefined>(initialData)
-  const [isChecking, setIsChecking] = useState(false)
-  const [checkError, setCheckError] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
+const channelLabel: Record<UpdateChannel, string> = {
+  stable: 'Stabil',
+  development: 'Entwicklung',
+}
 
-  const handleCopyCommand = async () => {
+const failureText: Record<UpdateFailure, string> = {
+  network_error: 'GitHub ist nicht erreichbar (Netzwerkfehler).',
+  rate_limited: 'GitHub begrenzt gerade die Anfragen (Rate-Limit).',
+  unexpected_status: 'GitHub hat unerwartet geantwortet.',
+  invalid_response: 'Die Release-Angaben auf GitHub sind ungültig.',
+  configuration: 'Die Update-Konfiguration des Servers ist ungültig.',
+}
+
+function PrereleaseBadge() {
+  return (
+    <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-600 dark:text-amber-400">
+      <FlaskConicalIcon className="h-3 w-3" />
+      Vorabversion
+    </Badge>
+  )
+}
+
+function CommandLine({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
     try {
-      await navigator.clipboard.writeText('ytmdlctl update')
+      await navigator.clipboard.writeText(command)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
       // Ignore clipboard write failures
     }
   }
+  return (
+    <div className="flex items-center justify-between gap-2 rounded bg-muted/40 px-3 py-1.5 font-mono text-xs text-foreground border border-border/40">
+      <code className="break-all">{command}</code>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 shrink-0 px-2 text-xs gap-1 hover:bg-background/80"
+        onClick={copy}
+        title="Befehl in Zwischenablage kopieren"
+      >
+        {copied ? (
+          <>
+            <CheckIcon className="h-3 w-3 text-emerald-500" />
+            <span className="text-emerald-500 text-[11px]">Kopiert!</span>
+          </>
+        ) : (
+          <>
+            <CopyIcon className="h-3 w-3 text-muted-foreground" />
+            <span className="text-muted-foreground text-[11px]">Kopieren</span>
+          </>
+        )}
+      </Button>
+    </div>
+  )
+}
+
+export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
+  const [data, setData] = useState<UpdateStatus | undefined>(initialData)
+  const [isChecking, setIsChecking] = useState(false)
+  const [checkError, setCheckError] = useState<string | null>(null)
+  const [pendingChannel, setPendingChannel] = useState<UpdateChannel | null>(null)
+  const [isSavingChannel, setIsSavingChannel] = useState(false)
 
   const handleManualCheck = async () => {
     setIsChecking(true)
@@ -60,9 +113,40 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
     }
   }
 
+  const applyChannel = async (channel: UpdateChannel) => {
+    setIsSavingChannel(true)
+    setCheckError(null)
+    try {
+      const refreshed = await setUpdateChannel(channel)
+      setData(refreshed)
+      setPendingChannel(null)
+    } catch (err) {
+      if (!isAbortError(err)) {
+        setCheckError(errorMessage(err))
+      }
+    } finally {
+      setIsSavingChannel(false)
+    }
+  }
+
   const current = data || initialData
   if (!current) {
     return null
+  }
+  const channel: UpdateChannel = current.channel ?? 'stable'
+
+  const selectChannel = (next: UpdateChannel) => {
+    if (next === channel) {
+      setPendingChannel(null)
+      return
+    }
+    // Prereleases are opted into deliberately; going back to stable needs no
+    // confirmation because it never installs or downgrades anything.
+    if (next === 'development') {
+      setPendingChannel('development')
+      return
+    }
+    void applyChannel(next)
   }
 
   const stateBadge = (state: UpdateState) => {
@@ -81,11 +165,19 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
             Update verfügbar
           </Badge>
         )
+      case 'ahead_of_channel':
+        return (
+          <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-600 dark:text-amber-400">
+            <ShieldCheckIcon className="h-3 w-3" />
+            Neuer als Kanal
+          </Badge>
+        )
       case 'no_public_release':
+      case 'no_channel_release':
         return (
           <Badge variant="outline" className="gap-1 text-muted-foreground">
             <HelpCircleIcon className="h-3 w-3" />
-            Kein Public Release
+            {state === 'no_channel_release' ? 'Keine Vorabversion' : 'Kein Public Release'}
           </Badge>
         )
       case 'disabled':
@@ -113,6 +205,8 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
     }
   }
 
+  const commands = current.update_commands?.length ? current.update_commands : ['ytmdlctl update']
+
   return (
     <Panel className="space-y-5 p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -122,12 +216,15 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
             {stateBadge(current.state)}
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span>
+            <span className="flex items-center gap-1.5">
               Installiert: <strong className="font-semibold text-foreground">{current.current_version}</strong>
+              {current.current_prerelease && <PrereleaseBadge />}
             </span>
             {current.latest_version && (
-              <span>
-                Neueste Version: <strong className="font-semibold text-foreground">{current.latest_version}</strong>
+              <span className="flex items-center gap-1.5">
+                {channel === 'development' ? 'Neueste Vorabversion:' : 'Neueste Version:'}{' '}
+                <strong className="font-semibold text-foreground">{current.latest_version}</strong>
+                {current.latest_prerelease && <PrereleaseBadge />}
               </span>
             )}
             {current.checked_at && (
@@ -150,6 +247,47 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
           {isChecking ? 'Wird geprüft...' : 'Nach Updates suchen'}
         </Button>
       </div>
+
+      <fieldset className="space-y-2" disabled={isSavingChannel}>
+        <legend className="text-xs font-medium text-foreground">Update-Kanal</legend>
+        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Update-Kanal">
+          {(['stable', 'development'] as UpdateChannel[]).map((option) => (
+            <Button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={channel === option}
+              variant={channel === option ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => selectChannel(option)}
+            >
+              {channelLabel[option]}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {channel === 'development'
+            ? 'Entwicklung: ausdrücklich veröffentlichte, qualifizierte Vorabversionen aus dem Entwicklungszweig.'
+            : 'Stabil: nur reguläre, veröffentlichte Releases. Empfohlen für den laufenden Betrieb.'}{' '}
+          Der Kanal bestimmt nur, welche Version angeboten wird. Er installiert nichts und startet nichts neu.
+        </p>
+        {pendingChannel === 'development' && (
+          <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+            <p className="text-foreground">
+              Vorabversionen sind qualifiziert, aber noch nicht als stabil freigegeben. Aktualisiert wird weiterhin nur
+              über <code>ytmdlctl</code> auf dem Host, mit Backup und Prüfungen.
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void applyChannel('development')} disabled={isSavingChannel}>
+                Entwicklungskanal aktivieren
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setPendingChannel(null)}>
+                Abbrechen
+              </Button>
+            </div>
+          </div>
+        )}
+      </fieldset>
 
       {checkError && (
         <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
@@ -199,28 +337,15 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
             <p className="text-xs text-muted-foreground">
               Auf dem YTMDL-Host ausführen:
             </p>
-            <div className="flex items-center justify-between gap-2 rounded bg-muted/40 px-3 py-1.5 font-mono text-xs text-foreground border border-border/40">
-              <code>ytmdlctl update</code>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs gap-1 hover:bg-background/80"
-                onClick={handleCopyCommand}
-                title="Befehl in Zwischenablage kopieren"
-              >
-                {copied ? (
-                  <>
-                    <CheckIcon className="h-3 w-3 text-emerald-500" />
-                    <span className="text-emerald-500 text-[11px]">Kopiert!</span>
-                  </>
-                ) : (
-                  <>
-                    <CopyIcon className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-muted-foreground text-[11px]">Kopieren</span>
-                  </>
-                )}
-              </Button>
-            </div>
+            {commands.map((command) => (
+              <CommandLine key={command} command={command} />
+            ))}
+            {current.latest_prerelease && (
+              <p className="text-xs text-muted-foreground">
+                Vorabversion: dafür <code>ytmdlctl {current.latest_version}</code> aus den Assets desselben Releases
+                verwenden und vorher mit <code>SHA256SUMS</code> prüfen.
+              </p>
+            )}
           </div>
 
           {current.release_notes && (
@@ -229,15 +354,50 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
         </div>
       )}
 
+      {current.state === 'ahead_of_channel' && (
+        <div className="space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 text-xs">
+          <p className="text-foreground">
+            Die installierte Version {current.current_version} ist neuer als die neueste Version
+            {current.latest_version ? ` ${current.latest_version}` : ''} im Kanal {channelLabel[channel]}. Es wird nichts
+            automatisch zurückgestuft und kein älteres Image gestartet.
+          </p>
+          <p className="flex items-center gap-1 text-muted-foreground">
+            <UndoIcon className="h-3 w-3" />
+            Eine Rückkehr ist nur ausdrücklich über den geprüften Rollback- oder Restore-Ablauf möglich:
+          </p>
+          <CommandLine command="ytmdlctl rollback" />
+          <CommandLine command="ytmdlctl recover status" />
+          <p className="text-muted-foreground">
+            <code>rollback</code> geht direkt nach einem Update auf den vorherigen Stand zurück, solange das
+            Datenbankschema unverändert ist; sonst über ein Backup mit <code>ytmdlctl recover restore</code>.
+          </p>
+        </div>
+      )}
+
+      {current.newer_stable_version && (
+        <p className="text-xs text-muted-foreground">
+          Ein neueres stabiles Release ({current.newer_stable_version}) ist verfügbar. Zum Installieren den Kanal
+          „Stabil“ wählen.
+        </p>
+      )}
+
       {current.state === 'no_public_release' && (
         <p className="text-xs text-muted-foreground">
           Noch keine öffentliche Stable-Version auf GitHub verfügbar. Neue Releases werden automatisch hier angezeigt.
         </p>
       )}
 
-      {current.state === 'unavailable' && (
+      {current.state === 'no_channel_release' && (
         <p className="text-xs text-muted-foreground">
-          Updateprüfung momentan nicht verfügbar. Das Backend versucht es bei Bedarf automatisch erneut.
+          Im Entwicklungskanal ist derzeit keine qualifizierte Vorabversion veröffentlicht.
+        </p>
+      )}
+
+      {(current.state === 'unavailable' || current.state === 'invalid_release') && (
+        <p className="text-xs text-muted-foreground">
+          {current.failure ? `${failureText[current.failure]} ` : ''}
+          Updateprüfung momentan nicht verfügbar – das bedeutet nicht, dass kein Update vorliegt. Das Backend versucht es
+          bei Bedarf automatisch erneut.
         </p>
       )}
 

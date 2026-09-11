@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"ytdm/backend/internal/update"
 
 	"ytdm/backend/cmd/ytmdlctl/internal/backup"
 	"ytdm/backend/cmd/ytmdlctl/internal/discovery"
@@ -236,7 +237,7 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 	}
 	targetVersion := strings.TrimPrefix(targetRel.TagName, "v")
 	if !isSemverGreater(targetVersion, configuredVersion) {
-		return nil, fmt.Errorf("target version %q is not newer than current version %q; downgrades are not supported", targetVersion, configuredVersion)
+		return nil, fmt.Errorf("target version %q is not newer than current version %q; downgrades are not supported. To return to an older release use the verified rollback ('ytmdlctl rollback', directly after an update) or restore a backup ('ytmdlctl recover status', 'ytmdlctl recover restore')", targetVersion, configuredVersion)
 	}
 
 	manifestFetcher := deps.ManifestFetcher
@@ -922,26 +923,13 @@ func generateOperationID() string {
 }
 
 func isSemverGreater(target, current string) bool {
-	tClean := strings.TrimPrefix(strings.TrimSpace(target), "v")
-	cClean := strings.TrimPrefix(strings.TrimSpace(current), "v")
-	if tClean == cClean {
+	// SemVer 2.0.0 precedence including prereleases: 0.27.2-rc.1 < 0.27.2-rc.2
+	// < 0.27.2-rc.10 < 0.27.2. A version that does not parse is never treated
+	// as newer, so an unreadable version cannot unlock an update.
+	t, errT := update.ParseSemVer(target)
+	c, errC := update.ParseSemVer(current)
+	if errT != nil || errC != nil {
 		return false
 	}
-	tParts := strings.Split(strings.Split(tClean, "-")[0], ".")
-	cParts := strings.Split(strings.Split(cClean, "-")[0], ".")
-	if len(tParts) < 3 || len(cParts) < 3 {
-		return tClean > cClean
-	}
-	for i := 0; i < 3; i++ {
-		var tNum, cNum int
-		fmt.Sscanf(tParts[i], "%d", &tNum)
-		fmt.Sscanf(cParts[i], "%d", &cNum)
-		if tNum > cNum {
-			return true
-		}
-		if tNum < cNum {
-			return false
-		}
-	}
-	return false
+	return t.Compare(c) > 0
 }

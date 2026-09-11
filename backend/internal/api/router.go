@@ -281,6 +281,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					systemRouter.Group(func(mutating chi.Router) {
 						mutating.Use(middleware.CSRF)
 						mutating.Post("/update/check", h.CheckUpdate)
+						mutating.Put("/update/channel", h.SetUpdateChannel)
 					})
 				})
 

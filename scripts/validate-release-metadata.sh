@@ -74,8 +74,8 @@ fi
 if [ -z "${CANONICAL_VERSION}" ]; then
   log_error "Unable to determine canonical release version"
 else
-  if [[ ! "${CANONICAL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    log_error "Canonical version '${CANONICAL_VERSION}' is not valid SemVer (MAJOR.MINOR.PATCH)"
+  if [[ ! "${CANONICAL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]]; then
+    log_error "Canonical version '${CANONICAL_VERSION}' is not MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-rc.N"
   else
     log_pass "Canonical release version: ${CANONICAL_VERSION}"
   fi
@@ -85,7 +85,7 @@ fi
 CHANGELOG_FILE="${REPO_ROOT}/CHANGELOG.md"
 if [ -f "${CHANGELOG_FILE}" ] && [ -n "${CANONICAL_VERSION}" ]; then
   # Match top release header e.g. "## 0.19.0 — 2026-09-05" or "## 0.19.0"
-  CHANGELOG_TOP_VER="$(grep -E '^## [0-9]+\.[0-9]+\.[0-9]+' "${CHANGELOG_FILE}" | head -n 1 | sed -E 's/^## ([0-9]+\.[0-9]+\.[0-9]+).*/\1/' || true)"
+  CHANGELOG_TOP_VER="$(grep -E '^## [0-9]+\.[0-9]+\.[0-9]+' "${CHANGELOG_FILE}" | head -n 1 | sed -E 's/^## ([0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?).*/\1/' || true)"
   if [ -z "${CHANGELOG_TOP_VER}" ]; then
     log_error "No valid release heading found in CHANGELOG.md"
   elif [ "${CHANGELOG_TOP_VER}" != "${CANONICAL_VERSION}" ]; then

@@ -26,9 +26,69 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 ## How Update Detection Works
 
-1. **GitHub Releases API:** The YTMDL backend queries the official GitHub API (`GET /repos/Der-Felix/ytmdl/releases/latest`) on a background schedule (default: once per hour).
-2. **SemVer Comparison:** The installed version (e.g. `0.27.0`) is compared against the latest stable release tag using strict Semantic Versioning. Pre-releases and drafts are filtered out.
-3. **WebUI Notifications:** When a newer stable version is available, the WebUI displays an informational banner and details in **Settings → System & Updates**, including release notes, a direct command to execute on the host, and links to the release and documentation.
+1. **GitHub Releases API:** The YTMDL backend queries the official GitHub API on a background schedule (default: once per hour) — `GET /repos/Der-Felix/ytmdl/releases/latest` on the stable channel, the recent release list on the development channel.
+2. **SemVer Comparison:** The installed version is compared with the newest release of the chosen [update channel](#update-channels) using Semantic Versioning 2.0.0, prereleases included: `0.27.2-rc.1` < `0.27.2-rc.2` < `0.27.2-rc.10` < `0.27.2`. Drafts are never offered.
+3. **WebUI Notifications:** **Settings → System & Updates** shows the channel, the installed version, the available target version (prereleases are marked as such), the release notes and the exact host commands. A failed check says so — a network or GitHub problem is never shown as "up to date".
+
+The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
+
+## Update Channels
+
+| Channel | Offers | Source |
+|---|---|---|
+| **Stable** (default) | Regular, published releases only — never drafts or prereleases | `main`; images also tagged `latest` |
+| **Development** | Explicitly published, qualified prereleases (`vX.Y.Z-rc.N`) | `dev`; never tagged `latest` |
+
+Existing and new installations follow **Stable**. An administrator switches the channel deliberately in **Settings → System & Updates**; the choice is stored in the installation's settings and takes effect immediately, without an update or a container restart.
+
+Every installable release has a unique version, its source commit, immutable multi-arch image digests, `SHA256SUMS` and a `release-manifest.json` that pins them. A moving image tag is never the basis of an update. Release candidates use manifest version 4, which adds the source commit and the channel; they can only be installed with the `ytmdlctl` binary of the same release.
+
+### Which channel `ytmdlctl` uses
+
+1. `--channel stable|development` on the command line — for that invocation only;
+2. otherwise the channel chosen in the UI (read from the installation's database);
+3. otherwise **Stable**.
+
+`ytmdlctl` never changes the stored channel, and it prints a note when `--channel` differs from it.
+
+```sh
+ytmdlctl check                                     # newest release of the installation's channel
+ytmdlctl check --channel development               # newest qualified prerelease
+ytmdlctl update --channel development --target 0.27.2-rc.1 --dry-run
+ytmdlctl update --channel development --target 0.27.2-rc.1
+```
+
+`--target` installs exactly that version. A prerelease target requires the development channel.
+
+### Installing a release candidate
+
+Use the `ytmdlctl` binary of the release candidate itself:
+
+```sh
+VERSION="0.27.2-rc.1"
+ARCH="linux-amd64"   # or linux-arm64, darwin-amd64, darwin-arm64
+curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/ytmdlctl-${ARCH}"
+curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/SHA256SUMS"
+sha256sum --ignore-missing -c SHA256SUMS      # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
+chmod +x "ytmdlctl-${ARCH}"
+./ytmdlctl-${ARCH} --project-dir /path/to/ytmdl update --channel development --target "${VERSION}" --dry-run
+./ytmdlctl-${ARCH} --project-dir /path/to/ytmdl update --channel development --target "${VERSION}"
+```
+
+Backup, Storage Guard, manifest and digest verification, the update transaction and the local `compose.ghcr.override.yaml` apply exactly as for stable releases.
+
+### Returning to Stable
+
+Switching from Development back to Stable never downgrades anything. If the installed prerelease is newer than the latest stable release, the UI and `ytmdlctl check` report that and offer no update; the prerelease keeps running until a newer stable release exists (for example `0.27.2` after `0.27.2-rc.1`).
+
+To return to an older release explicitly, use the verified paths only:
+
+- `ytmdlctl rollback` — directly after an update, while the database schema is unchanged and the previous images are still present;
+- `ytmdlctl recover status` and `ytmdlctl recover restore` — restore from the pre-update backup.
+
+### A green CI run is not live throughput
+
+A published release candidate has passed CI, the release qualification and the artifact verification. That shows the code and the artifacts are consistent — it does not show acquisition throughput against real providers. Throughput claims need a separately authorized operating run that counts new verified acquisitions, provider requests, rate limits, cooldown time and failure reasons per hour (see the `throughput summary` log line).
 
 ## Privacy & Network Transparency
 

@@ -24,6 +24,9 @@ type GeneratorOptions struct {
 	FrontendDigest         string
 	FrontendPlatforms      map[string]string // platform (e.g. linux/amd64) -> digest
 	RequiredEnv            []string
+	// SourceCommit and Channel are written from manifest version 4 on.
+	SourceCommit string
+	Channel      string
 }
 
 // Generate produces formatted, validated JSON bytes for release-manifest.json.
@@ -59,7 +62,7 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 	}
 
 	updateClass := opts.UpdateClassification
-	if updateClass == "" && mVer != ManifestVersion3 {
+	if updateClass == "" && mVer < ManifestVersion3 {
 		if opts.TargetSchema > 8 || mVer == ManifestVersion2 {
 			updateClass = UpdateSchemaForward
 		} else {
@@ -68,7 +71,7 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 	}
 
 	class := opts.RollbackClassification
-	if class == "" && mVer != ManifestVersion3 {
+	if class == "" && mVer < ManifestVersion3 {
 		if updateClass == UpdateSchemaForward {
 			class = RollbackBackupRestoreRequired
 		} else {
@@ -90,7 +93,7 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 	}
 
 	upgradePaths := opts.UpgradePaths
-	if len(upgradePaths) == 0 && mVer == ManifestVersion3 && opts.TargetSchema == 9 {
+	if len(upgradePaths) == 0 && mVer >= ManifestVersion3 && opts.TargetSchema == 9 {
 		upgradePaths = []UpgradePath{
 			{
 				SourceSchema:           8,
@@ -106,7 +109,7 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 			},
 		}
 	}
-	if len(upgradePaths) == 0 && mVer == ManifestVersion3 && opts.TargetSchema == 10 {
+	if len(upgradePaths) == 0 && mVer >= ManifestVersion3 && opts.TargetSchema == 10 {
 		upgradePaths = []UpgradePath{
 			{
 				SourceSchema:           8,
@@ -128,7 +131,7 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 			},
 		}
 	}
-	if len(upgradePaths) == 0 && mVer == ManifestVersion3 && opts.TargetSchema == 11 {
+	if len(upgradePaths) == 0 && mVer >= ManifestVersion3 && opts.TargetSchema == 11 {
 		upgradePaths = []UpgradePath{
 			{
 				SourceSchema:           8,
@@ -156,7 +159,7 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 			},
 		}
 	}
-	if len(upgradePaths) == 0 && mVer == ManifestVersion3 && opts.TargetSchema == 12 {
+	if len(upgradePaths) == 0 && mVer >= ManifestVersion3 && opts.TargetSchema == 12 {
 		upgradePaths = []UpgradePath{
 			{
 				SourceSchema:           8,
@@ -220,6 +223,10 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 		UpgradePaths:           upgradePaths,
 		MinUpgradeFrom:         minUp,
 		RequiredEnv:            reqEnv,
+	}
+	if mVer >= ManifestVersion4 {
+		m.SourceCommit = strings.ToLower(strings.TrimSpace(opts.SourceCommit))
+		m.Channel = strings.TrimSpace(opts.Channel)
 	}
 
 	var backendPlats map[string]PlatformSpec

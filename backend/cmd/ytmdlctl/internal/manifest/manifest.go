@@ -13,14 +13,21 @@ import (
 	"ytdm/backend/internal/update"
 )
 
-// CurrentManifestVersion is the supported schema version.
-const CurrentManifestVersion = 3
+// CurrentManifestVersion is the newest supported schema version.
+const CurrentManifestVersion = 4
 
-// Supported manifest versions: 1, 2, and 3.
+// Supported manifest versions: 1, 2, 3 and 4.
+//
+// Version 4 is version 3 plus the source commit and the release channel. It
+// is required for prereleases, which only ytmdlctl releases that know the
+// channels can install. Stable releases may keep version 3, so that already
+// installed ytmdlctl binaries - whose strict decoder rejects unknown fields -
+// can still read them.
 const (
 	ManifestVersion1 = 1
 	ManifestVersion2 = 2
 	ManifestVersion3 = 3
+	ManifestVersion4 = 4
 )
 
 // MaxManifestBytes bounds the size of a release manifest asset.
@@ -51,6 +58,7 @@ const (
 var (
 	digestRegex  = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	envNameRegex = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	commitRegex  = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
 // PlatformSpec defines the digest for a specific target platform.
@@ -90,6 +98,21 @@ type Manifest struct {
 		Frontend ImageSpec `json:"frontend"`
 	} `json:"images"`
 	RequiredEnv []string `json:"required_env"`
+
+	// SourceCommit and Channel exist from manifest version 4 on: the full
+	// commit the release was built from and the channel it is published on.
+	SourceCommit string `json:"source_commit,omitempty"`
+	Channel      string `json:"channel,omitempty"`
+}
+
+// ReleaseChannel returns the channel the manifest was published for. Manifests
+// before version 4 describe regular releases only and therefore the stable
+// channel.
+func (m *Manifest) ReleaseChannel() update.Channel {
+	if m.ManifestVersion >= ManifestVersion4 {
+		return update.Channel(m.Channel)
+	}
+	return update.ChannelStable
 }
 
 // Decode parses and strictly validates the JSON format of a manifest.
@@ -120,8 +143,8 @@ func Decode(data []byte) (*Manifest, error) {
 
 // Validate executes all integrity, schema, tag consistency, and allowlist checks on the manifest.
 func (m *Manifest) Validate(gitHubTag string) error {
-	if m.ManifestVersion < ManifestVersion1 || m.ManifestVersion > ManifestVersion3 {
-		return fmt.Errorf("unsupported manifest version %d (expected 1, 2, or 3)", m.ManifestVersion)
+	if m.ManifestVersion < ManifestVersion1 || m.ManifestVersion > ManifestVersion4 {
+		return fmt.Errorf("unsupported manifest version %d (expected 1, 2, 3 or 4)", m.ManifestVersion)
 	}
 
 	if m.ReleaseVersion == "" || m.ReleaseTag == "" {
@@ -211,7 +234,7 @@ func (m *Manifest) Validate(gitHubTag string) error {
 		default:
 			return fmt.Errorf("unsupported update classification %q for manifest version 2", m.UpdateClassification)
 		}
-	} else if m.ManifestVersion == ManifestVersion3 {
+	} else if m.ManifestVersion >= ManifestVersion3 {
 		if len(m.UpgradePaths) == 0 {
 			return errors.New("manifest v3 requires non-empty upgrade_paths")
 		}
@@ -272,6 +295,10 @@ func (m *Manifest) Validate(gitHubTag string) error {
 		}
 	}
 
+	if err := m.validateChannel(); err != nil {
+		return err
+	}
+
 	if m.MinUpgradeFrom == "" {
 		return errors.New("manifest missing min_upgrade_from")
 	}
@@ -302,6 +329,43 @@ func (m *Manifest) Validate(gitHubTag string) error {
 		seenEnv[envKey] = struct{}{}
 	}
 
+	return nil
+}
+
+// validateChannel ties the release channel to the version: a prerelease
+// version belongs to the development channel and needs a version 4 manifest
+// that names its source commit; a regular version belongs to the stable
+// channel.
+func (m *Manifest) validateChannel() error {
+	rel, err := update.ParseSemVer(m.ReleaseVersion)
+	if err != nil {
+		return fmt.Errorf("invalid release_version %q: %w", m.ReleaseVersion, err)
+	}
+	isPre := rel.PreRelease != ""
+
+	if m.ManifestVersion < ManifestVersion4 {
+		if m.SourceCommit != "" || m.Channel != "" {
+			return fmt.Errorf("source_commit and channel require manifest version 4 (got %d)", m.ManifestVersion)
+		}
+		if isPre {
+			return fmt.Errorf("prerelease %s requires manifest version 4 with source_commit and channel", m.ReleaseVersion)
+		}
+		return nil
+	}
+
+	if !commitRegex.MatchString(m.SourceCommit) {
+		return fmt.Errorf("manifest v4 requires a full 40 character lowercase source_commit, got %q", m.SourceCommit)
+	}
+	channel, err := update.ParseChannel(m.Channel)
+	if err != nil || m.Channel == "" {
+		return fmt.Errorf("manifest v4 requires channel %q or %q, got %q", update.ChannelStable, update.ChannelDevelopment, m.Channel)
+	}
+	if isPre && channel != update.ChannelDevelopment {
+		return fmt.Errorf("prerelease %s must be published on the %s channel, not %s", m.ReleaseVersion, update.ChannelDevelopment, channel)
+	}
+	if !isPre && channel != update.ChannelStable {
+		return fmt.Errorf("regular release %s must be published on the %s channel, not %s", m.ReleaseVersion, update.ChannelStable, channel)
+	}
 	return nil
 }
 
@@ -337,7 +401,7 @@ func (m *Manifest) FindUpgradePath(sourceSchema int) (*UpgradePath, error) {
 		return nil, errors.New("source schema must be positive")
 	}
 
-	if m.ManifestVersion == ManifestVersion3 {
+	if m.ManifestVersion >= ManifestVersion3 {
 		var matched *UpgradePath
 		count := 0
 		for _, p := range m.UpgradePaths {

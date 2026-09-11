@@ -58,19 +58,40 @@ jobs:
               exit 1
             fi
             clean_version="$(tr -d '[:space:]' < .release-version | sed 's/^v//')"
-            echo "Running in workflow_dispatch verify_only mode for version ${clean_version}"
+            if [[ ! "$clean_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]]; then
+              echo "::error::.release-version '${clean_version}' is neither MAJOR.MINOR.PATCH nor MAJOR.MINOR.PATCH-rc.N" >&2
+              exit 1
+            fi
+            prerelease=false
+            channel=stable
+            if [[ "$clean_version" == *-rc.* ]]; then
+              prerelease=true
+              channel=development
+            fi
+            echo "Running in workflow_dispatch verify_only mode for version ${clean_version} (${channel})"
             ./scripts/validate-release-metadata.sh --version "${clean_version}"
             echo "tag=v${clean_version}" >> "$GITHUB_OUTPUT"
             echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+            echo "channel=${channel}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           tag="${GITHUB_REF_NAME}"
-          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "::error::Release tag '$tag' is not a valid SemVer tag (vMAJOR.MINOR.PATCH)" >&2
+          # Stable releases are vMAJOR.MINOR.PATCH; release candidates for the
+          # development channel are vMAJOR.MINOR.PATCH-rc.N. Nothing else is
+          # ever published.
+          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?)$ ]]; then
+            echo "::error::Release tag '$tag' is neither vMAJOR.MINOR.PATCH nor vMAJOR.MINOR.PATCH-rc.N" >&2
             exit 1
           fi
           clean_version="${BASH_REMATCH[1]}"
+          prerelease=false
+          channel=stable
+          if [ -n "${BASH_REMATCH[2]}" ]; then
+            prerelease=true
+            channel=development
+          fi
 
           if [ ! -f .release-version ]; then
             echo "::error::.release-version file is missing" >&2
@@ -87,7 +108,27 @@ jobs:
 
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
-          echo "Validated release tag ${tag} (version ${clean_version})"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "Validated release tag ${tag} (version ${clean_version}, channel ${channel})"
+
+      - name: Verify Release Source Branch
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          # main is the stable source; release candidates are cut from dev.
+          # The tagged commit must already be part of that branch, so no
+          # unreviewed commit can be published through a tag.
+          source_branch=main
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            source_branch=dev
+          fi
+          git fetch --no-tags origin "+refs/heads/${source_branch}:refs/remotes/origin/${source_branch}"
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "origin/${source_branch}"; then
+            echo "::error::Tag ${{ steps.version.outputs.tag }} (${GITHUB_SHA}) is not on origin/${source_branch}; ${{ steps.version.outputs.channel }} releases are published from ${source_branch} only." >&2
+            exit 1
+          fi
+          echo "Verified: ${GITHUB_SHA} is on origin/${source_branch}."
 
       - name: Check for Existing Release Collision
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -97,7 +138,7 @@ jobs:
         run: |
           tag="${{ steps.version.outputs.tag }}"
           if gh release view "${tag}" >/dev/null 2>&1; then
-            echo "::error::Release '${tag}' already exists on GitHub. Refusing to overwrite stable release." >&2
+            echo "::error::Release '${tag}' already exists on GitHub. Refusing to overwrite a published release." >&2
             exit 1
           fi
           echo "No existing GitHub release found for ${tag}."
@@ -279,6 +320,19 @@ jobs:
 
           echo "Confirmed: GHCR version tags for ${version} do not exist. Safe to proceed with build."
 
+      - name: Record Stable latest Digests
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        id: latest-before
+        shell: bash
+        run: |
+          # A release candidate must leave :latest untouched; the digests are
+          # compared again after publishing.
+          for component in backend frontend; do
+            digest="$(docker buildx imagetools inspect "ghcr.io/der-felix/ytmdl-${component}:latest" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest' || true)"
+            echo "${component}=${digest}" >> "$GITHUB_OUTPUT"
+            echo "ghcr.io/der-felix/ytmdl-${component}:latest -> ${digest:-<none>}"
+          done
+
       - name: Extract Backend Metadata
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: meta-backend
@@ -436,10 +490,18 @@ jobs:
             frontend_arm64="${{ steps.digests.outputs.frontend_arm64 }}"
           fi
 
+          # Stable releases keep manifest v3, which every installed ytmdlctl can
+          # read. Release candidates need v4: it names the source commit and the
+          # development channel, and only channel-aware ytmdlctl installs them.
+          channel_args=(--manifest-version 3)
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            channel_args=(--manifest-version 4 --source-commit "${{ github.sha }}" --channel development)
+          fi
+
           go run -C backend ./cmd/ytmdlctl manifest-gen \
             --version "${{ steps.version.outputs.version }}" \
             --tag "${{ steps.version.outputs.tag }}" \
-            --manifest-version 3 \
+            "${channel_args[@]}" \
             --schema 12 \
             --min-upgrade 0.15.0 \
             --backend-digest "${backend_digest}" \
@@ -449,6 +511,16 @@ jobs:
             --frontend-platform "linux/amd64=${frontend_amd64}" \
             --frontend-platform "linux/arm64=${frontend_arm64}" \
             --output "${PWD}/dist/release-manifest.json"
+
+      - name: Checksum All Release Assets
+        shell: bash
+        run: |
+          # SHA256SUMS covers every published file: the CLI binaries and the
+          # release manifest that pins the image digests.
+          cd dist
+          sha256sum ytmdlctl-linux-amd64 ytmdlctl-linux-arm64 ytmdlctl-darwin-amd64 ytmdlctl-darwin-arm64 release-manifest.json > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cat SHA256SUMS
 
       - name: Smoke Test Native ytmdlctl Binary
         shell: bash
@@ -474,16 +546,23 @@ jobs:
           echo "Release notes verified successfully:"
           cat "${PWD}/dist/RELEASE_NOTES.md"
 
-      - name: Publish Stable GitHub Release
+      - name: Publish GitHub Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.version.outputs.tag }}"
-          echo "Creating GitHub Release ${tag} with verified release artifacts and canonical notes..."
+          # A release candidate is published as a GitHub prerelease and never
+          # becomes the repository's latest release.
+          kind_args=()
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            kind_args=(--prerelease --latest=false)
+          fi
+          echo "Creating GitHub Release ${tag} (${{ steps.version.outputs.channel }}) with verified release artifacts and canonical notes..."
 
           gh release create "${tag}" \
+            "${kind_args[@]}" \
             --title "YTMDL ${tag}" \
             --notes-file dist/RELEASE_NOTES.md \
             dist/release-manifest.json \
@@ -496,7 +575,8 @@ jobs:
           echo "GitHub Release ${tag} successfully published!"
 
       - name: Promote Qualified Images to latest
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        # :latest is reserved for stable releases.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && steps.version.outputs.prerelease != 'true'
         shell: bash
         run: |
           echo "Promoting qualified release images to :latest using immutable digests..."
@@ -507,6 +587,63 @@ jobs:
             -t ghcr.io/der-felix/ytmdl-frontend:latest \
             ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend }}
           echo "Successfully promoted images to :latest."
+
+      - name: Verify Published Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          version="${{ steps.version.outputs.version }}"
+          prerelease="${{ steps.version.outputs.prerelease }}"
+          check_dir="$(mktemp -d)"
+
+          # 1. The GitHub release is published with the intended kind.
+          gh release view "${tag}" --json isDraft,isPrerelease,tagName > "${check_dir}/release.json"
+          jq -e --arg tag "${tag}" --argjson pre "${prerelease}" \
+            '.tagName == $tag and .isDraft == false and .isPrerelease == $pre' "${check_dir}/release.json" >/dev/null \
+            || { echo "::error::Published release flags do not match (${prerelease})" >&2; cat "${check_dir}/release.json" >&2; exit 1; }
+
+          # 2. The downloadable assets are exactly the verified ones.
+          gh release download "${tag}" --dir "${check_dir}/assets"
+          (cd "${check_dir}/assets" && sha256sum -c SHA256SUMS)
+          cmp "${check_dir}/assets/release-manifest.json" dist/release-manifest.json
+
+          # 3. The manifest pins the images that are in the registry.
+          m="${check_dir}/assets/release-manifest.json"
+          jq -e --arg v "${version}" --arg t "${tag}" '.release_version == $v and .release_tag == $t' "$m" >/dev/null
+          if [ "${prerelease}" = "true" ]; then
+            jq -e --arg c "${{ github.sha }}" '.manifest_version == 4 and .channel == "development" and .source_commit == $c' "$m" >/dev/null \
+              || { echo "::error::Release candidate manifest lacks v4 channel/commit" >&2; exit 1; }
+          fi
+          for component in backend frontend; do
+            pinned="$(jq -r ".images.${component}.digest" "$m")"
+            actual="$(docker buildx imagetools inspect "ghcr.io/der-felix/ytmdl-${component}:${version}" --format '{{json .Manifest}}' | jq -r '.digest')"
+            if [ "${pinned}" != "${actual}" ]; then
+              echo "::error::${component} digest mismatch: manifest ${pinned}, registry ${actual}" >&2
+              exit 1
+            fi
+            echo "Verified ${component} ${version} -> ${actual}"
+          done
+
+          # 4. The CLI reports the release version.
+          chmod +x "${check_dir}/assets/ytmdlctl-linux-amd64"
+          "${check_dir}/assets/ytmdlctl-linux-amd64" version | grep -q "ytmdlctl version: ${version}$"
+
+          # 5. A release candidate left :latest untouched.
+          if [ "${prerelease}" = "true" ]; then
+            for component in backend frontend; do
+              before="$( [ "${component}" = backend ] && echo "${{ steps.latest-before.outputs.backend }}" || echo "${{ steps.latest-before.outputs.frontend }}" )"
+              after="$(docker buildx imagetools inspect "ghcr.io/der-felix/ytmdl-${component}:latest" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest' || true)"
+              if [ "${before}" != "${after}" ]; then
+                echo "::error::${component}:latest changed during a prerelease (${before} -> ${after})" >&2
+                exit 1
+              fi
+              echo "Verified ${component}:latest unchanged (${after})"
+            done
+          fi
+          echo "Published release ${tag} verified."
 
       - name: Verify-Only Qualification Summary
         if: github.event_name == 'workflow_dispatch'
