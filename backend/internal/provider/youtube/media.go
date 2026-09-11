@@ -391,28 +391,40 @@ func (p *MediaProvider) Resolve(ctx context.Context, candidate provider.MediaCan
 }
 
 // formatShape summarises what an item offered instead of an audio only
-// stream. It consists of counts only: no format address, no identifier and no
-// raw tool output, so it is safe for logs and stored error messages. It is the
-// evidence needed to tell a missing stream from a stream whose codec yt-dlp
-// could not name.
+// stream. It consists of counts and bitrates only: no format address, no
+// identifier and no raw tool output, so it is safe for logs and stored error
+// messages. The muxed bitrates tell what extracting the audio from a combined
+// stream would cost in transfer, should that path ever be considered.
 func formatShape(formats []ytdlp.Format) string {
-	var muxed, videoOnly, unnamedAudio, other int
+	var muxed, videoOnly, videoUnknownAudio, images, unknown, other int
+	var muxedTotalKbps, muxedAudioKbps float64
 	for _, f := range formats {
-		hasVideo := f.VCodec != "" && f.VCodec != "none"
+		video := strings.TrimSpace(f.VCodec)
+		audio := strings.TrimSpace(f.ACodec)
+		videoKnown := video != "" && !strings.EqualFold(video, "none")
 		switch {
-		case f.HasAudio() && hasVideo:
+		case videoKnown && f.HasAudio():
 			muxed++
-		case hasVideo:
+			muxedTotalKbps = max(muxedTotalKbps, f.TBR)
+			muxedAudioKbps = max(muxedAudioKbps, f.ABR)
+		case videoKnown && strings.EqualFold(audio, "none"):
 			videoOnly++
-		case f.VCodec == "none" && f.ACodec == "":
-			// An audio rendition whose codec the manifest did not declare.
-			unnamedAudio++
+		case videoKnown:
+			videoUnknownAudio++
+		case strings.EqualFold(video, "none") && strings.EqualFold(audio, "none"):
+			images++
+		case video == "" && audio == "":
+			unknown++
 		default:
 			other++
 		}
 	}
-	return fmt.Sprintf("formats: %d total, %d muxed, %d video only, %d audio without codec, %d other",
-		len(formats), muxed, videoOnly, unnamedAudio, other)
+	shape := fmt.Sprintf("formats: %d total, %d muxed, %d video only, %d video with unknown audio, %d images, %d unknown, %d other",
+		len(formats), muxed, videoOnly, videoUnknownAudio, images, unknown, other)
+	if muxed > 0 {
+		shape += fmt.Sprintf("; muxed up to %.0f kbps total, %.0f kbps audio", muxedTotalKbps, muxedAudioKbps)
+	}
+	return shape
 }
 
 // toCandidate maps one yt-dlp result onto a candidate. Entries that cannot

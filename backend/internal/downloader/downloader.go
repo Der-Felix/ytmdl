@@ -195,6 +195,17 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 		logVerificationFailure(logger, "raw", nil, source.DurationMS, d.toleranceMS, err)
 		return nil, err
 	}
+	if rawInfo.VideoStreams > 0 {
+		// The source was accepted as audio only, but the bytes carry video -
+		// possible when the provider left the video codec unknown. Keeping
+		// the file would store a video as an audio track, and extracting its
+		// audio is a separate, undecided path. Unknown metadata is settled
+		// here by the file itself, never taken on trust.
+		err := invalidAudio("unexpected_video_stream", "The downloaded stream contains video instead of audio only.", rawInfo)
+		logVerificationFailure(logger, "raw", rawInfo, source.DurationMS, d.toleranceMS, err)
+		_ = os.Remove(rawPath)
+		return nil, err
+	}
 
 	plan, ext := PlanFor(*rawInfo, d.allowTranscode)
 	target := replaceExtension(destination, ext)

@@ -145,7 +145,7 @@ func TestPacingStillSpacesRealProcessStarts(t *testing.T) {
 }
 
 func TestNoAudioStreamErrorCarriesOnlyFormatCounts(t *testing.T) {
-	binary := offlineYTDLP(t, `echo '{"id":"bbbbbbbbbbb","title":"Song","duration":200,"webpage_url":"https://www.youtube.com/watch?v=bbbbbbbbbbb","formats":[{"format_id":"sb0","vcodec":"none","acodec":"none","url":"https://i.invalid/sb"},{"format_id":"18","vcodec":"avc1","acodec":"mp4a.40.2","url":"https://stream.invalid/18"},{"format_id":"137","vcodec":"avc1","acodec":"none"},{"format_id":"233","vcodec":"none","url":"https://stream.invalid/233"}]}'`+"\n")
+	binary := offlineYTDLP(t, `echo '{"id":"bbbbbbbbbbb","title":"Song","duration":200,"webpage_url":"https://www.youtube.com/watch?v=bbbbbbbbbbb","formats":[{"format_id":"sb0","vcodec":"none","acodec":"none","url":"https://i.invalid/sb"},{"format_id":"18","vcodec":"avc1","acodec":"mp4a.40.2","url":"https://stream.invalid/18"},{"format_id":"137","vcodec":"avc1","acodec":"none"},{"format_id":"x1","url":"https://stream.invalid/x1"}]}'`+"\n")
 	p, err := New(Config{Name: ProviderName, Client: ytdlp.New(ytdlp.Options{Binary: binary})})
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestNoAudioStreamErrorCarriesOnlyFormatCounts(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 	msg := apperr.MessageOf(err)
-	if !strings.Contains(msg, "4 total, 1 muxed, 1 video only, 1 audio without codec, 1 other") {
+	if !strings.Contains(msg, "4 total, 1 muxed, 1 video only, 0 video with unknown audio, 1 images, 1 unknown, 0 other") {
 		t.Fatalf("message lacks the format shape: %q", msg)
 	}
 	if strings.Contains(msg, "http") || strings.Contains(msg, "invalid") {

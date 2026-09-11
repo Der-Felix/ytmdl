@@ -30,6 +30,9 @@ type AudioInfo struct {
 	Channels    int     `json:"channels"`
 	DurationMS  int     `json:"duration_ms"`
 	SizeBytes   int64   `json:"size_bytes"`
+	// VideoStreams counts real video streams. An embedded cover is marked as
+	// an attached picture and does not count.
+	VideoStreams int `json:"video_streams,omitempty"`
 }
 
 // IsOpus reports whether the file carries an Opus stream.
@@ -87,12 +90,15 @@ func (p *Prober) Available(ctx context.Context) error {
 // ffprobeOutput mirrors the parts of ffprobe's JSON output that are used.
 type ffprobeOutput struct {
 	Streams []struct {
-		CodecName  string `json:"codec_name"`
-		CodecType  string `json:"codec_type"`
-		SampleRate string `json:"sample_rate"`
-		Channels   int    `json:"channels"`
-		BitRate    string `json:"bit_rate"`
-		Duration   string `json:"duration"`
+		CodecName   string `json:"codec_name"`
+		CodecType   string `json:"codec_type"`
+		SampleRate  string `json:"sample_rate"`
+		Channels    int    `json:"channels"`
+		BitRate     string `json:"bit_rate"`
+		Duration    string `json:"duration"`
+		Disposition struct {
+			AttachedPic int `json:"attached_pic"`
+		} `json:"disposition"`
 	} `json:"streams"`
 	Format struct {
 		FormatName string `json:"format_name"`
@@ -137,6 +143,11 @@ func (p *Prober) Probe(ctx context.Context, path string) (*AudioInfo, error) {
 	info := &AudioInfo{Container: primaryFormatName(out.Format.FormatName)}
 
 	var audioFound bool
+	for _, stream := range out.Streams {
+		if strings.EqualFold(stream.CodecType, "video") && stream.Disposition.AttachedPic == 0 {
+			info.VideoStreams++
+		}
+	}
 	for _, stream := range out.Streams {
 		if !strings.EqualFold(stream.CodecType, "audio") {
 			continue

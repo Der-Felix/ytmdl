@@ -115,7 +115,8 @@ func (p *YTDLPProber) Probe(ctx context.Context, sessionID string, cookiePath st
 
 	hasAudio := false
 	for _, f := range infos[0].Formats {
-		if f.HasAudio() {
+		// An audio rendition whose codec yt-dlp did not name is still audio.
+		if f.HasAudio() || f.IsAudioOnly() {
 			hasAudio = true
 			break
 		}

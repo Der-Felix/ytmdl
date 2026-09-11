@@ -146,10 +146,11 @@ rate limits, so it shows the request reduction, not the throttling effects.
   throttling episodes is unknown. 100 per hour is not supported by the
   evidence so far.
 - **Resolvable candidates.** Only about 9% of distinct YouTube candidates
-  offered an audio only stream. Whether those videos really lack one or yt-dlp
-  reported the audio rendition without a codec is **unknown**; the new format
-  shape in the error message answers it without provider experiments. This is
-  the largest remaining lever.
+  offered an audio only stream. yt-dlp lists HLS audio renditions without a
+  codec, and YTMDL rejected them; that misclassification is corrected (see
+  [audio format classification](./audio-format-classification.md)). How many
+  production rejections it explains is **unknown** until the format shape in
+  the error message is evaluated. This is the largest remaining lever.
 - **SoundCloud.** Mostly previews and DRM-protected items; it cannot close the
   gap.
 - **No further sessions or accounts.** Adding them would bypass the account
