@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Highlights
+
+- **Combined-stream audio fallback (off by default):** when an item offers no audio-only stream, its audio can now be copied out of a combined audio/video stream instead of the item failing. The audio is copied, never re-encoded, the video never reaches the library, and the whole path is switched on with `YTDM_COMBINED_AUDIO_FALLBACK`. Every existing installation keeps the previous behaviour until an operator switches it on for a controlled comparison. The v0.27.2-rc.2 window measured 7,930 such rejections (71% of all candidate rejections) over 5,860 distinct video ids.
+- **Corrected error semantics for unusable format answers:** an item whose candidates all failed because this backend could not use their format answer no longer ends as a permanent `TRACK_NOT_FOUND`. It ends as `UNSUPPORTED_MEDIA_FORMAT` and is retried inside its ordinary attempt budget.
+
+### Changes
+
+- **Selection:** an audio-only stream always wins. A combined stream is only considered when none exists and only when its format record proves a named audio and video codec, no preview marker, no DRM or protected transport, a copyable audio codec, and no *named* audio bitrate below 48 kbps. An unknown field is never read as a promise. Among eligible formats the cheapest transfer wins — not the highest resolution — in a total, deterministic order, and the download addresses the chosen format by its id. The generic selector still never falls back to `best`.
+- **Extraction:** `ffmpeg -vn -map 0:a:0 -c:a copy` in staging only, into the container the codec ffprobe measured can hold (`aac`/`alac` → `.m4a`, `mp3`, `opus` → `.opus`, `vorbis` → `.ogg`, `flac`); any other codec is rejected rather than renamed. The combined file is deleted immediately and never published. The stored file is rejected if it still carries a real video stream; embedded cover art is unaffected, and all existing verification limits apply.
+- **Limits:** one combined transfer may move at most `YTDM_COMBINED_FALLBACK_MAX_BYTES` (default 128 MiB) and run at most `YTDM_COMBINED_FALLBACK_TIMEOUT` (default 10m). The size is enforced before the transfer where the platform announces one, during the transfer from reported progress, and afterwards on the arrived file — the last of these is the binding check, because a segmented stream announces no size. On any error, abort or exceeded limit exactly the files of that attempt are removed; unrelated staging files are never touched.
+- **Error contract:** `UNSUPPORTED_MEDIA_FORMAT` (HTTP 422) is candidate-scoped and retryable within the existing attempt budget; it never stops the candidate fanout and never puts a provider family on hold. When one attempt's candidates fail for mixed reasons, the most retryable class wins; only an attempt whose candidates were all genuinely unavailable still fails permanently with its previous wording. Bot, auth and rate-limit rules keep precedence unchanged.
+- **Diagnostics:** every acquisition logs `format_kind`, the secret-free format id, source audio and video codec, transferred and stored bytes, download and extraction duration, the verification result and the session lease time. Hourly counters are recorded under `download.<family>.<audio_only|combined>.*`. No stream URL, cookie or token is logged. Details: `docs/diagnostics/audio-format-classification.md`.
+- **Database Schema:** Schema remains at 12; no database migration is required. Items that already failed keep their stored result — nothing is retried automatically.
+
+### Known Limits
+
+- The real bandwidth of combined streams and whether their segment requests count differently against the account throttle are not known; a yt-dlp process start is not an HTTP request. The fallback must prove itself in a controlled comparison on *completed downloads*, not on fewer error messages.
+- A combined transfer holds the only media session's execution slot for its whole duration, so each such acquisition may displace several ordinary ones.
+
+### Verification Notes
+
+- Offline only: synthetic ffmpeg media, yt-dlp stubs and fixture format answers. No YouTube or SoundCloud request and no production credentials were used. The audio-packet identity of the stream copy is asserted through an audio-stream checksum.
+
 ## 0.27.2-rc.2 — 2026-09-11
 
 Second release candidate for the development channel. It is published as a GitHub prerelease, is never offered on the stable channel and does not move the `latest` image tags. It contains everything from 0.27.2-rc.1.
