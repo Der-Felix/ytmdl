@@ -151,7 +151,7 @@ func TestNoAudioStreamErrorCarriesOnlyFormatCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = p.Resolve(context.Background(), provider.MediaCandidate{ID: "bbbbbbbbbbb", URL: "https://www.youtube.com/watch?v=bbbbbbbbbbb"})
-	if apperr.CodeOf(err) != apperr.CodeDownloadFailed || apperr.ScopeOf(err) != apperr.ScopeCandidate {
+	if apperr.CodeOf(err) != apperr.CodeUnsupportedMediaFormat || apperr.ScopeOf(err) != apperr.ScopeCandidate {
 		t.Fatalf("error = %v", err)
 	}
 	msg := apperr.MessageOf(err)

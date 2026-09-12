@@ -62,6 +62,11 @@ type Config struct {
 	RequestsPerSecond float64
 	// Burst is the token bucket burst capacity.
 	Burst int
+	// CombinedAudioFallback permits resolving an item that offers no audio
+	// only stream to a combined audio/video stream whose audio the downloader
+	// then copies out. Off by default: it transfers video bytes that are
+	// discarded, and it holds the session for the whole transfer.
+	CombinedAudioFallback bool
 }
 
 // limiter paces requests across concurrent workers.
@@ -138,6 +143,11 @@ type MediaProvider struct {
 	enrichLimit  int
 	musicService bool
 	limiter      *limiter
+
+	// combinedFallback permits offering the audio of a combined audio/video
+	// stream when an item has no audio only stream. It is off unless the
+	// operator switched it on.
+	combinedFallback bool
 }
 
 var (
@@ -170,12 +180,13 @@ func New(cfg Config) (*MediaProvider, error) {
 		enrich = 3
 	}
 	p := &MediaProvider{
-		name:         name,
-		mode:         mode,
-		limit:        limit,
-		enrichLimit:  enrich,
-		musicService: cfg.MusicService,
-		limiter:      newLimiter(cfg.RequestsPerSecond, cfg.Burst),
+		name:             name,
+		mode:             mode,
+		limit:            limit,
+		enrichLimit:      enrich,
+		musicService:     cfg.MusicService,
+		limiter:          newLimiter(cfg.RequestsPerSecond, cfg.Burst),
+		combinedFallback: cfg.CombinedAudioFallback,
 	}
 	p.client = p.paced(cfg.Client)
 	return p, nil
@@ -374,20 +385,52 @@ func (p *MediaProvider) Resolve(ctx context.Context, candidate provider.MediaCan
 	}
 	for _, format := range info.AudioFormats() {
 		source.Formats = append(source.Formats, provider.AudioFormat{
-			ID:          format.FormatID,
-			Codec:       format.ACodec,
-			Container:   containerOf(format),
-			BitrateKbps: format.Bitrate(),
-			SampleRate:  format.ASR,
-			Channels:    format.AudioChannels,
-			Filesize:    format.Size(),
+			ID:                  format.FormatID,
+			Codec:               format.ACodec,
+			Container:           containerOf(format),
+			BitrateKbps:         format.Bitrate(),
+			SampleRate:          format.ASR,
+			Channels:            format.AudioChannels,
+			Filesize:            format.Size(),
+			TransferBitrateKbps: format.Bitrate(),
 		})
 	}
-	if len(source.Formats) == 0 {
-		return nil, apperr.Newf(apperr.CodeDownloadFailed,
-			"The media item %q offers no audio only stream (%s).", source.ID, formatShape(info.Formats))
+	if len(source.Formats) > 0 {
+		// An audio only stream is always preferred; a combined stream is never
+		// offered next to one.
+		return source, nil
 	}
-	return source, nil
+
+	// No audio only stream exists. Offering the audio of a combined stream
+	// means transferring its video as well, so it happens only when the
+	// operator switched the fallback on and only for a stream whose own format
+	// record proves it worth it.
+	if p.combinedFallback {
+		if combined := combinedAudioFormats(info); len(combined) > 0 {
+			best := combined[0]
+			container, _ := provider.ExtractableAudioCodec(best.ACodec)
+			source.Formats = append(source.Formats, provider.AudioFormat{
+				ID:                  best.FormatID,
+				Codec:               best.ACodec,
+				Container:           container,
+				BitrateKbps:         best.AudioBitrate(),
+				SampleRate:          best.ASR,
+				Channels:            best.AudioChannels,
+				Filesize:            best.Size(),
+				Combined:            true,
+				VideoCodec:          best.VCodec,
+				TransferBitrateKbps: best.TransferBitrate(),
+			})
+			return source, nil
+		}
+	}
+
+	// The item exists and the platform answered; this backend simply cannot
+	// turn the formats it offered into a stored audio file. That is a
+	// statement about the format answer, not about the item, so it stays
+	// candidate scoped and keeps the item retryable within its attempt budget.
+	return nil, apperr.Newf(apperr.CodeUnsupportedMediaFormat,
+		"The media item %q offers no audio only stream (%s).", source.ID, formatShape(info.Formats))
 }
 
 // formatShape summarises what an item offered instead of an audio only
