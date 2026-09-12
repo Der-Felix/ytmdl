@@ -103,8 +103,17 @@ func TestMuxedOnlyItemStaysRejectedWithBandwidthShape(t *testing.T) {
 		t.Fatalf("fixture: yt-dlp bestaudio = %v", c.BestAudio)
 	}
 	_, err := resolveWithFormats(t, c)
-	if apperr.CodeOf(err) != apperr.CodeDownloadFailed || apperr.ScopeOf(err) != apperr.ScopeCandidate {
+	// The item exists and answered; only its format shape is unusable here.
+	// That is a bounded-retry candidate failure, never a permanent verdict on
+	// the item and never a reason to stop the family.
+	if apperr.CodeOf(err) != apperr.CodeUnsupportedMediaFormat || apperr.ScopeOf(err) != apperr.ScopeCandidate {
 		t.Fatalf("err = %v", err)
+	}
+	if apperr.StopsCandidateFanout(err) {
+		t.Fatal("a format limitation stopped the candidate fanout")
+	}
+	if !apperr.Retryable(err) {
+		t.Fatal("a format limitation was classified as permanent")
 	}
 	msg := apperr.MessageOf(err)
 	want := "formats: 2 total, 2 muxed, 0 video only, 0 video with unknown audio, 0 images, 0 unknown, 0 other; muxed up to 1149 kbps total, 0 kbps audio"

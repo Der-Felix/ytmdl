@@ -50,6 +50,10 @@ type Format struct {
 	FilesizeApprox int64   `json:"filesize_approx"`
 	Container      string  `json:"container"`
 	Protocol       string  `json:"protocol"`
+	FormatNote     string  `json:"format_note"`
+	HasDRM         bool    `json:"has_drm"`
+	Width          int     `json:"width"`
+	Height         int     `json:"height"`
 }
 
 // yt-dlp describes each stream of a format with three states: a codec name
@@ -174,6 +178,78 @@ func (i Info) AudioFormats() []Format {
 	out := make([]Format, 0, len(i.Formats))
 	for _, f := range i.Formats {
 		if f.IsAudioOnly() {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// HasVideo reports whether the format is known to carry a video stream.
+func (f Format) HasVideo() bool {
+	return codecKnown(f.VCodec)
+}
+
+// IsCombined reports a format that is known to carry both a video and an audio
+// stream. Both codecs must be named: a format whose audio yt-dlp did not name
+// is not known to carry audio, and an unknown field is never read as a
+// promise. This is deliberately stricter than IsAudioOnly, which may accept an
+// unknown audio codec - there the downloaded bytes are audio either way, while
+// here an unknown audio stream would mean transferring a video for nothing.
+func (f Format) IsCombined() bool {
+	return codecKnown(f.VCodec) && codecKnown(f.ACodec)
+}
+
+// previewMarkers name the wordings platforms use for a shortened sample rather
+// than the full item. yt-dlp carries them in the format id or the format note.
+var previewMarkers = []string{"preview", "snippet", "sample", "clip", "teaser", "trailer"}
+
+// IsPreview reports a format the platform itself marks as a shortened sample.
+// A preview is rejected outright: its audio is real but it is not the track.
+func (f Format) IsPreview() bool {
+	haystack := strings.ToLower(f.FormatID + " " + f.FormatNote)
+	for _, marker := range previewMarkers {
+		if strings.Contains(haystack, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// AudioBitrate returns the audio bitrate of a combined format in kbit/s, or
+// zero when yt-dlp did not report one. The total bitrate of a combined format
+// is not an audio bitrate and is never substituted for it.
+func (f Format) AudioBitrate() float64 {
+	if f.ABR > 0 {
+		return f.ABR
+	}
+	return 0
+}
+
+// TransferBitrate returns the bitrate of everything the format transfers,
+// audio and video together. For a combined format this is what the download
+// really costs.
+//
+// Without a total bitrate the cost of a combined format is unknown: its audio
+// bitrate describes one of the two streams it carries and would understate the
+// transfer by whatever the video adds. Zero therefore means unknown, never
+// free - the caller sorts such a format last rather than first.
+func (f Format) TransferBitrate() float64 {
+	if f.TBR > 0 {
+		return f.TBR
+	}
+	if f.IsCombined() {
+		return 0
+	}
+	return f.ABR
+}
+
+// CombinedFormats returns the formats that carry audio alongside video. They
+// are only ever of interest when an item offers no audio only stream at all;
+// the caller decides whether extracting their audio is permitted.
+func (i Info) CombinedFormats() []Format {
+	out := make([]Format, 0, len(i.Formats))
+	for _, f := range i.Formats {
+		if f.IsCombined() {
 			out = append(out, f)
 		}
 	}

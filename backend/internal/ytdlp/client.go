@@ -376,6 +376,11 @@ type DownloadRequest struct {
 	RateLimit string
 	// CookieFile optionally overrides the cookie file for this invocation.
 	CookieFile string
+	// MaxFilesizeBytes lets yt-dlp refuse a stream whose announced size
+	// exceeds the limit before it transfers anything. It is an early exit for
+	// the streams that announce a size; a stream that announces none - a
+	// segmented one, typically - is bounded by the caller instead.
+	MaxFilesizeBytes int64
 }
 
 // Download fetches the audio stream and returns the path of the written file.
@@ -411,7 +416,7 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 	}
 	defer releaseExecution()
 
-	args := append(client.baseArgs(), downloadArgs(selector, retries, req.Dir, req.RateLimit)...)
+	args := append(client.baseArgs(), downloadArgs(selector, retries, req.Dir, req.RateLimit, req.MaxFilesizeBytes)...)
 	args = append(args, "--", req.URL)
 
 	cmd := client.command(ctx, args...)
@@ -486,7 +491,7 @@ func classifyDownloadError(stderr string, cause error) error {
 // downloadArgs are the flags a download adds to the shared base arguments.
 // They are built here rather than inline so that a test can check the exact
 // vector the backend passes to yt-dlp.
-func downloadArgs(selector string, retries int, dir string, rateLimit string) []string {
+func downloadArgs(selector string, retries int, dir string, rateLimit string, maxFilesize int64) []string {
 	args := []string{
 		"--no-playlist",
 		"--no-simulate",
@@ -501,6 +506,9 @@ func downloadArgs(selector string, retries int, dir string, rateLimit string) []
 	}
 	if trimmed := strings.TrimSpace(rateLimit); trimmed != "" {
 		args = append(args, "--limit-rate", trimmed)
+	}
+	if maxFilesize > 0 {
+		args = append(args, "--max-filesize", strconv.FormatInt(maxFilesize, 10))
 	}
 	return args
 }

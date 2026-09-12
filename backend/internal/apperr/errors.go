@@ -58,6 +58,13 @@ const (
 	CodeSessionBotChallenge  Code = "SESSION_BOT_CHALLENGE"
 	CodeSessionRateLimited   Code = "SESSION_RATE_LIMITED"
 	CodeInternal             Code = "INTERNAL_ERROR"
+
+	// CodeUnsupportedMediaFormat marks a source the platform still offers but
+	// whose format answer this backend cannot turn into a stored audio file -
+	// for example an item that lists no usable audio stream at all. It is a
+	// statement about the format answer, not about the item's existence, so it
+	// stays candidate scoped and is retried within the item's attempt budget.
+	CodeUnsupportedMediaFormat Code = "UNSUPPORTED_MEDIA_FORMAT"
 )
 
 // Error is an application error with a stable code and a human readable
@@ -156,6 +163,8 @@ func HTTPStatus(code Code) int {
 		CodeJobNotFound, CodeSubscriptionNotFound, CodeProviderNotFound,
 		CodeFileNotFound, CodeUserNotFound, CodeSessionNotFound, CodePlaylistNotFound:
 		return http.StatusNotFound
+	case CodeUnsupportedMediaFormat:
+		return http.StatusUnprocessableEntity
 
 	case CodeUnauthenticated, CodeInvalidCredentials:
 		return http.StatusUnauthorized
@@ -191,6 +200,7 @@ func HTTPStatus(code Code) int {
 func Retryable(err error) bool {
 	switch CodeOf(err) {
 	case CodeProviderUnavailable, CodeProviderRateLimited, CodeDownloadFailed, CodeMediaVerifyFailed,
+		CodeUnsupportedMediaFormat,
 		CodeSessionRateLimited, CodeSessionBotChallenge, CodeSessionAuthFailed, CodeSessionUnavailable:
 		return true
 	default:
@@ -211,7 +221,8 @@ const (
 // ScopeOf reports the operational scope of an error.
 func ScopeOf(err error) Scope {
 	switch CodeOf(err) {
-	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType, CodePlaylistNotFound:
+	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType,
+		CodeUnsupportedMediaFormat, CodePlaylistNotFound:
 		return ScopeCandidate
 	case CodeSessionAuthFailed, CodeSessionBotChallenge, CodeSessionRateLimited, CodeSessionUnavailable:
 		return ScopeSession
