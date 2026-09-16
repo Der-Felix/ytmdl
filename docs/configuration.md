@@ -93,7 +93,7 @@ and take precedence over the environment for those specific fields.
 | `MUSICDL_MAX_ATTEMPTS` | `5` | Maximum attempts for a job item across protected and unprotected retries. |
 | `YTDM_MAX_RETRIES` | `2` | Ordinary retry budget for transient errors (range 0–10). |
 | `YTDM_RETRY_BACKOFF` | `15s` | Base backoff between ordinary retries. |
-| `YTDM_TRACK_TIMEOUT` | `30m` | Hard timeout for a single track's acquisition. |
+| `YTDM_TRACK_TIMEOUT` | `30m` | Hard timeout for a single track's acquisition, including time spent waiting for a media session. A track that reaches it is retried as `TRACK_TIMEOUT` within `MUSICDL_MAX_ATTEMPTS`; it never pauses a provider. |
 | `YTDM_MATCH_MIN_SCORE` | `70` | Minimum match confidence (0–100) for a candidate to be accepted. Dynamic. |
 | `YTDM_MATCH_CANDIDATE_LIMIT` | `10` | Maximum candidates evaluated per track (1–50). |
 | `YTDM_MATCH_DURATION_TOLERANCE_MS` | `4000` | Allowed duration difference between metadata and audio candidate. |

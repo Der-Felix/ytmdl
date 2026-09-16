@@ -54,6 +54,17 @@ func (w *worker) process(ctx context.Context, job Job, item Item) {
 	}
 
 	outcome, err := w.attempt(ctx, job, item, logger)
+	if err != nil && ctx.Err() != nil {
+		// The item's context ended while it was being processed. Why it ended
+		// decides the outcome, not the shape of the error the interrupted
+		// step happened to return.
+		if m.Stopping() {
+			// A service shutdown: the item stays in its working state and the
+			// next process recovers it. It is neither cancelled nor retried.
+			return
+		}
+		err = interruption(ctx, err)
+	}
 	m.recordOutcome(outcome, err)
 	switch {
 	case err == nil:
@@ -212,6 +223,26 @@ func calculateBackoff(attempt int) time.Duration {
 	// Jitter: +/- 20%
 	factor := 0.8 + 0.4*rand.Float64()
 	return time.Duration(float64(base) * factor)
+}
+
+// errTrackTimeout is the cause of an item context whose track time limit
+// passed. It tells the limit apart from a cancelled job and from a shutdown,
+// which end the same context for reasons of their own.
+var errTrackTimeout = errors.New("track time limit reached")
+
+// interruption turns the error of an attempt whose item context ended into
+// the reason the context ended. A passed track time limit is a local,
+// retryable timeout; anything else - the job was cancelled - is a
+// cancellation, whatever error the interrupted step reported.
+func interruption(ctx context.Context, err error) error {
+	if errors.Is(context.Cause(ctx), errTrackTimeout) {
+		return apperr.Wrap(apperr.CodeTrackTimeout,
+			"The track did not finish within its time limit.", errTrackTimeout)
+	}
+	if apperr.CodeOf(err) == apperr.CodeJobCancelled {
+		return err
+	}
+	return apperr.Wrap(apperr.CodeJobCancelled, "The job was cancelled.", ctx.Err())
 }
 
 // attempt runs one processing attempt for an item.
@@ -873,16 +904,22 @@ func (w *worker) finishItem(job Job, item Item, status ItemStatus, err error) {
 		errorMessage = apperr.MessageOf(err)
 	}
 
-	// Clean up local staging on non-retryable finished/skipped/cancelled outcomes
-	if (status == ItemCompleted || status == ItemSkipped || status == ItemCancelled) && m.staging != nil {
-		_ = m.staging.CleanupItem(item.ID)
-	}
-
-	_ = m.updateItem(ctx, item.ID, ItemUpdate{
+	updateErr := m.updateItem(ctx, item.ID, ItemUpdate{
 		Status:         status,
 		ErrorCode:      errorCode,
 		ErrorMessage:   errorMessage,
 		ClearNextRetry: true,
 	})
+
+	// A final outcome - including a final failure - no longer needs the
+	// item's staging. It is removed only once that outcome is stored: if the
+	// update failed, the stored state is unclear and the files stay for the
+	// next process to judge.
+	if updateErr == nil && status.Terminal() && m.staging != nil {
+		if cleanupErr := m.staging.RemoveItemDir(item.ID); cleanupErr != nil {
+			m.logger.Warn("item staging could not be removed",
+				logging.KeyJobItemID, item.ID, logging.KeyError, cleanupErr.Error())
+		}
+	}
 	m.publishItem(job, item, status, 0, err)
 }

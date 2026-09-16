@@ -475,6 +475,32 @@ func (r *Jobs) ListItems(ctx context.Context, jobID string) ([]jobs.Item, error)
 	return collectItems(rows, "list job items")
 }
 
+// ItemStatuses reports the stored status of the given items. An id without a
+// row is absent from the result; the caller decides what an unknown item
+// means.
+func (r *Jobs) ItemStatuses(ctx context.Context, ids []string) (map[string]jobs.ItemStatus, error) {
+	out := make(map[string]jobs.ItemStatus, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, status FROM job_items WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, wrapDB("read item statuses", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, status string
+		if err := rows.Scan(&id, &status); err != nil {
+			return nil, wrapDB("read item statuses", err)
+		}
+		out[id] = jobs.ItemStatus(status)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapDB("read item statuses", err)
+	}
+	return out, nil
+}
+
 // ListPendingItems returns the items of a job that still have to be processed.
 func (r *Jobs) ListPendingItems(ctx context.Context, jobID string) ([]jobs.Item, error) {
 	rows, err := r.db.QueryContext(ctx,
