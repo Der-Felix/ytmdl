@@ -42,6 +42,33 @@ When a network storage outage occurs during unattended 24/7 operation:
 - Corrupted audio files (detected by duration or ffprobe verification) are automatically cleaned and re-downloaded up to 2 times.
 - Staged artifacts are cleaned up **only after** the database transaction commits.
 
+### Staging lifecycle
+
+An item's staging directory lives exactly as long as the item can still use it:
+
+| Item state | Staging |
+| :--- | :--- |
+| `pending`, `matching`, `downloading`, `tagging`, `finalizing` | kept — the work is running or will resume |
+| `retry_wait`, `waiting_for_storage`, `waiting_for_space` | kept — a retry may continue a partial download |
+| `completed`, `skipped`, `cancelled`, `failed` | removed once that final state is stored |
+
+If the final state cannot be stored, the directory is kept for the next start
+to judge. A final failure that you retry later simply downloads again.
+
+**At start**, after interrupted work has been returned to the queue and before
+any worker runs, YTMDL removes staging directories that are no longer needed.
+A directory is removed only when all of this holds:
+
+- its name is an item id (32 lower-case hex characters);
+- it is a real directory directly below the staging root — symbolic links are
+  never followed or removed, and nothing outside the root is touched;
+- the database reports its item in a final state.
+
+Directories of active, waiting or retryable items are kept, and so is
+everything the database does not know or that is not an item directory. If the
+item states cannot be read, nothing is removed. The backend log reports each
+run as `staging pruned` with the counts of removed and kept entries.
+
 ---
 
 ## 4. Idempotent Finalization (Crash Recovery)

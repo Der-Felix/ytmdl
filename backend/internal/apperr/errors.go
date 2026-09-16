@@ -59,6 +59,12 @@ const (
 	CodeSessionRateLimited   Code = "SESSION_RATE_LIMITED"
 	CodeInternal             Code = "INTERNAL_ERROR"
 
+	// CodeTrackTimeout marks an item whose own processing time limit passed
+	// while the job was still running. It is a local limit, not a statement
+	// about a provider or a session: candidate scoped, and retried within the
+	// item's attempt budget.
+	CodeTrackTimeout Code = "TRACK_TIMEOUT"
+
 	// CodeUnsupportedMediaFormat marks a source the platform still offers but
 	// whose format answer this backend cannot turn into a stored audio file,
 	// with the combined-stream fallback switched on. It is a statement about
@@ -197,6 +203,8 @@ func HTTPStatus(code Code) int {
 		return http.StatusUnprocessableEntity
 	case CodeJobCancelled:
 		return http.StatusConflict
+	case CodeTrackTimeout:
+		return http.StatusGatewayTimeout
 	default:
 		return http.StatusInternalServerError
 	}
@@ -208,6 +216,7 @@ func HTTPStatus(code Code) int {
 func Retryable(err error) bool {
 	switch CodeOf(err) {
 	case CodeProviderUnavailable, CodeProviderRateLimited, CodeDownloadFailed, CodeMediaVerifyFailed,
+		CodeTrackTimeout,
 		CodeSessionRateLimited, CodeSessionBotChallenge, CodeSessionAuthFailed, CodeSessionUnavailable:
 		return true
 	default:
@@ -229,7 +238,7 @@ const (
 func ScopeOf(err error) Scope {
 	switch CodeOf(err) {
 	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType,
-		CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded, CodePlaylistNotFound:
+		CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded, CodeTrackTimeout, CodePlaylistNotFound:
 		return ScopeCandidate
 	case CodeSessionAuthFailed, CodeSessionBotChallenge, CodeSessionRateLimited, CodeSessionUnavailable:
 		return ScopeSession

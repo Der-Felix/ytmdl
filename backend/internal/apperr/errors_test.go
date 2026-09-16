@@ -56,6 +56,17 @@ func TestErrorScopesAndSemantics(t *testing.T) {
 			wantHTTPStatus:       http.StatusInternalServerError,
 		},
 		{
+			name:                 "candidate track timeout",
+			err:                  apperr.New(apperr.CodeTrackTimeout, "track time limit reached"),
+			wantCode:             apperr.CodeTrackTimeout,
+			wantScope:            apperr.ScopeCandidate,
+			wantAllowsFallback:   true,
+			wantStopsFanout:      false,
+			wantConsumesJobRetry: true,
+			wantRetryable:        true,
+			wantHTTPStatus:       http.StatusGatewayTimeout,
+		},
+		{
 			name:                 "candidate unsupported media format",
 			err:                  apperr.New(apperr.CodeUnsupportedMediaFormat, "no usable format answer"),
 			wantCode:             apperr.CodeUnsupportedMediaFormat,

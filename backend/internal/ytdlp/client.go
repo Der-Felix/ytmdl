@@ -276,8 +276,8 @@ func (c *Client) baseArgs() []string {
 //
 // --dump-json implies --simulate, so the query never writes a file and needs
 // no further flags to keep it from doing so.
-func (c *Client) Query(ctx context.Context, target string, extra ...string) ([]Info, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+func (c *Client) Query(parent context.Context, target string, extra ...string) ([]Info, error) {
+	ctx, cancel := context.WithTimeout(parent, c.timeout)
 	defer cancel()
 
 	args := append(c.baseArgs(), "--dump-json")
@@ -293,14 +293,31 @@ func (c *Client) Query(ctx context.Context, target string, extra ...string) ([]I
 		return decodeInfoLines(out)
 	}
 	if c.cache == nil {
-		return query()
+		infos, err := query()
+		return infos, callerEnded(parent, err)
 	}
 
 	infos, err, outcome := c.cache.do(ctx, queryCacheKey(c.binary, args), kind, query)
 	if outcome != outcomeProcess {
 		c.count(string(kind), string(outcome))
 	}
-	return infos, err
+	return infos, callerEnded(parent, err)
+}
+
+// callerEnded reports a query that failed because the caller's own context
+// ended - the job was cancelled or the item's time limit passed - as the
+// cancellation it is, carrying the context error. Only a query that outran
+// its own timeout while the caller was still waiting is a provider condition.
+// Classifying the caller's end as a provider timeout would pause the whole
+// provider family and mark the session pool for a purely local reason.
+func callerEnded(parent context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if parentErr := parent.Err(); parentErr != nil {
+		return apperr.Wrap(apperr.CodeJobCancelled, "The query was cancelled.", parentErr)
+	}
+	return err
 }
 
 // ChannelID resolves a YouTube channel address to its canonical UC id. It is
@@ -311,8 +328,8 @@ func (c *Client) Query(ctx context.Context, target string, extra ...string) ([]I
 // --playlist-items 1 bounds the work further; only the channel object itself
 // is of interest. The answer is a single JSON document rather than the newline
 // delimited stream Query decodes, which is why this does not go through it.
-func (c *Client) ChannelID(ctx context.Context, target string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+func (c *Client) ChannelID(parent context.Context, target string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, c.timeout)
 	defer cancel()
 
 	args := append(c.baseArgs(),
@@ -324,6 +341,9 @@ func (c *Client) ChannelID(ctx context.Context, target string) (string, error) {
 
 	out, err := c.run(ctx, "channel", args...)
 	if err != nil {
+		if parent.Err() != nil {
+			return "", callerEnded(parent, err)
+		}
 		return "", apperr.Wrap(apperr.CodeProviderUnavailable,
 			"The YouTube channel could not be resolved.", err)
 	}
