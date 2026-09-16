@@ -32,6 +32,10 @@ func (m *Manager) Start(ctx context.Context) error {
 			m.stop()
 			return
 		}
+		// Recovery has put interrupted work back into the queue; no worker
+		// runs yet. Only now is the stored state final enough to tell which
+		// staging directories are no longer needed.
+		m.pruneStaging(m.ctx)
 
 		m.wg.Add(4)
 		go func() {
@@ -500,7 +504,7 @@ func (m *Manager) startWorker(job Job, item Item) {
 		}()
 
 		run := m.registerRun(job.ID)
-		itemCtx, cancel := context.WithTimeout(run.ctx, m.trackTimeout)
+		itemCtx, cancel := context.WithTimeoutCause(run.ctx, m.trackTimeout, errTrackTimeout)
 		defer cancel()
 
 		(&worker{manager: m}).process(itemCtx, job, item)

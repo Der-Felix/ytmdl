@@ -58,6 +58,27 @@ const (
 	CodeSessionBotChallenge  Code = "SESSION_BOT_CHALLENGE"
 	CodeSessionRateLimited   Code = "SESSION_RATE_LIMITED"
 	CodeInternal             Code = "INTERNAL_ERROR"
+
+	// CodeTrackTimeout marks an item whose own processing time limit passed
+	// while the job was still running. It is a local limit, not a statement
+	// about a provider or a session: candidate scoped, and retried within the
+	// item's attempt budget.
+	CodeTrackTimeout Code = "TRACK_TIMEOUT"
+
+	// CodeUnsupportedMediaFormat marks a source the platform still offers but
+	// whose format answer this backend cannot turn into a stored audio file,
+	// with the combined-stream fallback switched on. It is a statement about
+	// the format answer, not about the item's existence, so it stays candidate
+	// scoped. It is not retried: the answer is reused from the query cache for
+	// longer than the retry backoff runs, so a retry would only see it again.
+	CodeUnsupportedMediaFormat Code = "UNSUPPORTED_MEDIA_FORMAT"
+
+	// CodeTransferBudgetExceeded marks a combined-stream transfer this backend
+	// stopped itself because it outgrew its local byte or time budget. It says
+	// nothing about the provider or the session, so it is candidate scoped and
+	// never pauses a provider family. It is not retried: the next attempt would
+	// select the same stream and spend the same budget again.
+	CodeTransferBudgetExceeded Code = "TRANSFER_BUDGET_EXCEEDED"
 )
 
 // Error is an application error with a stable code and a human readable
@@ -156,6 +177,8 @@ func HTTPStatus(code Code) int {
 		CodeJobNotFound, CodeSubscriptionNotFound, CodeProviderNotFound,
 		CodeFileNotFound, CodeUserNotFound, CodeSessionNotFound, CodePlaylistNotFound:
 		return http.StatusNotFound
+	case CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded:
+		return http.StatusUnprocessableEntity
 
 	case CodeUnauthenticated, CodeInvalidCredentials:
 		return http.StatusUnauthorized
@@ -180,6 +203,8 @@ func HTTPStatus(code Code) int {
 		return http.StatusUnprocessableEntity
 	case CodeJobCancelled:
 		return http.StatusConflict
+	case CodeTrackTimeout:
+		return http.StatusGatewayTimeout
 	default:
 		return http.StatusInternalServerError
 	}
@@ -191,6 +216,7 @@ func HTTPStatus(code Code) int {
 func Retryable(err error) bool {
 	switch CodeOf(err) {
 	case CodeProviderUnavailable, CodeProviderRateLimited, CodeDownloadFailed, CodeMediaVerifyFailed,
+		CodeTrackTimeout,
 		CodeSessionRateLimited, CodeSessionBotChallenge, CodeSessionAuthFailed, CodeSessionUnavailable:
 		return true
 	default:
@@ -211,7 +237,8 @@ const (
 // ScopeOf reports the operational scope of an error.
 func ScopeOf(err error) Scope {
 	switch CodeOf(err) {
-	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType, CodePlaylistNotFound:
+	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType,
+		CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded, CodeTrackTimeout, CodePlaylistNotFound:
 		return ScopeCandidate
 	case CodeSessionAuthFailed, CodeSessionBotChallenge, CodeSessionRateLimited, CodeSessionUnavailable:
 		return ScopeSession

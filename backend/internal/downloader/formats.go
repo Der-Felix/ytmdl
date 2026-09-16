@@ -21,12 +21,21 @@ const (
 	// PlanTranscode re-encodes to Opus. It is only ever chosen when the
 	// operator explicitly allowed it.
 	PlanTranscode Plan = "transcode"
+	// PlanExtractAudio copies the audio packets out of a combined audio/video
+	// stream. The samples are not touched, the video never reaches the
+	// library, and no second lossy encode happens on this path whatever the
+	// transcode setting says.
+	PlanExtractAudio Plan = "extract_audio"
 )
 
-// SelectFormat picks the audio format to download. A native Opus stream always
-// wins; a format with a named codec wins over one whose codec the provider did
-// not name; among equals the higher bitrate wins. The second result reports
-// whether any usable format was found.
+// SelectFormat picks the audio format to download. An audio only format always
+// wins over a combined one: a combined stream is offered only when the item has
+// no audio only stream at all, and paying for its video is the last resort.
+// Among audio only formats a native Opus stream wins; a format with a named
+// codec wins over one whose codec the provider did not name; among equals the
+// higher bitrate wins. Among combined formats the resolver already ordered the
+// candidates by transfer cost, so the first one offered stays first. The second
+// result reports whether any usable format was found.
 //
 // A format without a codec name is an audio only stream the resolver accepted
 // - for example an HLS audio rendition, which yt-dlp lists without acodec. It
@@ -35,9 +44,15 @@ const (
 func SelectFormat(formats []provider.AudioFormat) (provider.AudioFormat, bool) {
 	usable := make([]provider.AudioFormat, 0, len(formats))
 	for _, f := range formats {
-		if !strings.EqualFold(strings.TrimSpace(f.Codec), "none") {
-			usable = append(usable, f)
+		if strings.EqualFold(strings.TrimSpace(f.Codec), "none") {
+			continue
 		}
+		// A combined format without a named audio codec proves nothing about
+		// carrying audio, and its video would be transferred for nothing.
+		if f.Combined && strings.TrimSpace(f.Codec) == "" {
+			continue
+		}
+		usable = append(usable, f)
 	}
 	if len(usable) == 0 {
 		return provider.AudioFormat{}, false
@@ -45,6 +60,14 @@ func SelectFormat(formats []provider.AudioFormat) (provider.AudioFormat, bool) {
 
 	named := func(f provider.AudioFormat) bool { return strings.TrimSpace(f.Codec) != "" }
 	sort.SliceStable(usable, func(i, j int) bool {
+		if usable[i].Combined != usable[j].Combined {
+			return !usable[i].Combined
+		}
+		if usable[i].Combined && usable[j].Combined {
+			// The resolver ranked combined formats by transfer cost already;
+			// keep that order instead of re-ranking on bitrate here.
+			return false
+		}
 		if usable[i].IsOpus() != usable[j].IsOpus() {
 			return usable[i].IsOpus()
 		}
@@ -73,11 +96,13 @@ func FormatSelector(formats []provider.AudioFormat) string {
 }
 
 // defaultSelector prefers a native Opus stream, then any audio only stream.
-// It deliberately has no "best" fallback: that answers with a combined audio
-// and video stream when no audio only stream is left, and extracting audio
-// from such a stream is a separate, undecided path (see
-// docs/diagnostics/audio-format-classification.md). Without an audio only
-// stream the download fails like the resolution would have.
+// It deliberately has no "best" fallback: that answers with whatever combined
+// stream the platform happens to offer, chosen by picture quality and never
+// judged. A combined stream is only ever fetched when the resolver examined it
+// and put its id in front of this chain (see
+// docs/diagnostics/audio-format-classification.md); without such an id and
+// without an audio only stream the download fails like the resolution would
+// have.
 const defaultSelector = "bestaudio[acodec^=opus]/bestaudio"
 
 // PlanFor decides how a downloaded file has to be treated.

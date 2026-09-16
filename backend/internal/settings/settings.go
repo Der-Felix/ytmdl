@@ -72,6 +72,13 @@ type Settings struct {
 	DurationToleranceMS int    `json:"match_duration_tolerance_ms"`
 	MetadataProvider    string `json:"default_metadata_provider"`
 	MediaProvider       string `json:"default_media_provider"`
+
+	// CombinedAudioFallback reports whether an item without an audio only
+	// stream may be acquired from a combined audio/video stream. Like
+	// AllowTranscode it is deployment configuration, reported here so an
+	// operator can see what the running instance does, and not changeable
+	// through the API.
+	CombinedAudioFallback bool `json:"combined_audio_fallback"`
 }
 
 // Update carries the fields a PUT request wants to change. A nil field is left
@@ -137,7 +144,9 @@ func New(repo Repository, manager *jobs.Manager, engine *matcher.Matcher, cfg co
 			DurationToleranceMS: cfg.Matching.DurationToleranceMS,
 			MetadataProvider:    cfg.Providers.DefaultMetadata,
 			MediaProvider:       cfg.Providers.DefaultMedia,
-			ServerTimezone:      time.Local.String(),
+
+			CombinedAudioFallback: cfg.Downloads.CombinedAudioFallback,
+			ServerTimezone:        time.Local.String(),
 		},
 		geniusTokenConfigured: strings.TrimSpace(cfg.Providers.Genius.AccessToken) != "",
 	}

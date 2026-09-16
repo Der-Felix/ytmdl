@@ -136,12 +136,15 @@ func TestEmbeddedCoverIsNotMistakenForVideo(t *testing.T) {
 	}
 }
 
-// The download never falls back to "whatever the platform offers".
+// The download never falls back to "whatever the platform offers" - not even
+// when a combined stream was deliberately selected. That stream is addressed
+// by its id; the generic tail stays audio only.
 func TestSelectorNeverFallsBackToCombinedStreams(t *testing.T) {
 	for _, formats := range [][]provider.AudioFormat{
 		nil,
 		{{ID: "251", Codec: "opus", BitrateKbps: 130}},
 		{{ID: "234"}},
+		{{ID: "18", Codec: "mp4a.40.2", Combined: true, VideoCodec: "avc1", BitrateKbps: 96}},
 	} {
 		sel := FormatSelector(formats)
 		for _, alt := range strings.Split(sel, "/") {

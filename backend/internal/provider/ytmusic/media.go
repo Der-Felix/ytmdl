@@ -11,6 +11,9 @@ type MediaConfig struct {
 	Limit             int
 	RequestsPerSecond float64
 	Burst             int
+	// CombinedAudioFallback is passed through to the shared YouTube
+	// implementation; see youtube.Config.
+	CombinedAudioFallback bool
 }
 
 // NewMediaProvider builds the YouTube Music media provider.
@@ -21,12 +24,13 @@ type MediaConfig struct {
 // which the matcher uses to prefer them over general video uploads.
 func NewMediaProvider(cfg MediaConfig) (*youtube.MediaProvider, error) {
 	return youtube.New(youtube.Config{
-		Name:              ProviderName,
-		Mode:              youtube.SearchMusic,
-		Client:            cfg.Client,
-		Limit:             cfg.Limit,
-		MusicService:      true,
-		RequestsPerSecond: cfg.RequestsPerSecond,
-		Burst:             cfg.Burst,
+		Name:                  ProviderName,
+		Mode:                  youtube.SearchMusic,
+		Client:                cfg.Client,
+		Limit:                 cfg.Limit,
+		MusicService:          true,
+		RequestsPerSecond:     cfg.RequestsPerSecond,
+		Burst:                 cfg.Burst,
+		CombinedAudioFallback: cfg.CombinedAudioFallback,
 	})
 }
