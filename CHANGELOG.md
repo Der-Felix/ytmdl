@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Highlights
+
+- **Track time limit is a bounded retry, not a cancellation:** a track that reaches `YTDM_TRACK_TIMEOUT` now waits for a retry with the new code `TRACK_TIMEOUT` (retried within `MUSICDL_MAX_ATTEMPTS`, failing on the last attempt). Previously it ended as `cancelled` when the limit passed during a transfer, and as a permanent `INTERNAL_ERROR` failure when it passed while waiting for the media session.
+- **Cancelling no longer pauses YouTube:** when a job was cancelled, or a track's time limit passed, while a search or resolution was running, the interrupted query was reported as a provider timeout. That paused the whole YouTube family for a minute and blocked the session pool. Such a query is now reported as the cancellation it is; only a query that outruns its own timeout remains a provider condition.
+- **Staging no longer grows with failed tracks:** a track's staging directory is removed once any final state — including a final failure — is stored, and at start the directories of already finished tracks are removed.
+
+### Changes
+
+- **Cancellation vs. time limit vs. shutdown:** the per-track context now carries its cause. An explicit cancellation stays `cancelled` and is never retried; a passed track time limit becomes `TRACK_TIMEOUT` (HTTP 504, candidate scoped, retryable); a service shutdown leaves the track in its working state for recovery. This holds whether the context ends during a transfer or while waiting for the media session's execution slot. A local timeout never pauses a provider family, records a platform failure or marks a session.
+- **yt-dlp client:** a query or download whose caller cancelled, or whose caller's deadline passed, is reported as `JOB_CANCELLED` carrying that cause - also while it waits for the session slot. The process group is ended and the slot released on every path. A query shared through the query cache is not handed another caller's cancellation.
+- **Staging lifecycle:** kept while a track is active, waiting or retryable (a retry may continue a partial download); removed once `completed`, `skipped`, `cancelled` or `failed` is stored, and kept if that state could not be stored.
+- **Start-up pruning:** after recovery and before any worker, staging directories are removed only when their name is an item id, they are real directories directly below the staging root (symbolic links are never followed), and the database reports their track in a final state. Unknown entries are kept; if the states cannot be read, nothing is removed. Each run is logged as `staging pruned` with counts.
+- **Database Schema:** Schema remains at 12; no migration is required.
+
 ## 0.27.2-rc.2 — 2026-09-11
 
 Second release candidate for the development channel. It is published as a GitHub prerelease, is never offered on the stable channel and does not move the `latest` image tags. It contains everything from 0.27.2-rc.1.
