@@ -65,7 +65,7 @@ Per phase and per hour, from the database and the hourly `throughput summary`:
 | items ending `UNSUPPORTED_MEDIA_FORMAT` | `job_items.error_code` | phase B only: sources whose format answer offered not even a usable combined stream (permanent) |
 | items ending `TRANSFER_BUDGET_EXCEEDED` | `job_items.error_code`, `download.<family>.combined.rejected_over_budget` | phase B only: combined transfers stopped by the local byte or time budget (permanent) |
 | items ending permanently `TRACK_NOT_FOUND` | `job_items.error_code` | the permanent-loss rate |
-| items ending `cancelled` without a user action | `job_items.status` | a track timeout while waiting for the session slot currently ends this way (known limit, see below) |
+| items waiting or ending with `TRACK_TIMEOUT` | `job_items.error_code` | tracks that outran `YTDM_TRACK_TIMEOUT`, typically while queued behind combined transfers for the only session slot; retried within the attempt limit |
 | family cooldowns by cause | backend log | must not rise because of this change; a budget stop never causes one, so any rise is a real provider signal |
 | rate limits, bot and auth events | summary counters | the protection signal |
 | verification failures by reason | `verification_reason` | whether extracted audio is sound |
@@ -112,16 +112,20 @@ hour, the trigger and the counters at that moment.
 
 ## Known limits of this build
 
-These are known, tracked separately and not changed by the fallback. They have
-to be read into the result rather than mistaken for its effect:
+This build contains the staging cleanup and the track-timeout handling (PR #9).
+They have to be read into the result rather than mistaken for the fallback's
+effect:
 
-- A failed item's staging directory is not removed; staging usage grows with
-  the number of failed items, and the storage guard's quota can be reached
-  independently of the fallback.
-- An item whose overall track timeout (30 min) passes — for example while it
-  waits for the only session's execution slot behind combined transfers — ends
-  as `cancelled` and is not retried. Waiting no longer consumes the combined
-  transfer budget, but it still counts against the track timeout.
+- A track that waits for the only session's execution slot behind combined
+  transfers still counts that wait against its track time limit. When the
+  limit passes it waits for a bounded retry as `TRACK_TIMEOUT`; a rising
+  `TRACK_TIMEOUT` count in phase B is a cost of the fallback.
+- The first start of this build removes the staging directories of tracks
+  that already ended, so staging usage drops once at the beginning of the
+  window. Take the baseline snapshot after that start.
+- An interrupted transfer is not resumed: partial files do not survive their
+  attempt or a restart, so a restart during phase B repeats the transfers that
+  were running.
 
 ## What the result cannot say
 

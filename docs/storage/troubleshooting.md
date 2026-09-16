@@ -38,7 +38,11 @@ When a network storage outage occurs during unattended 24/7 operation:
 ## 3. Persistent Staging & Resume
 
 - Local staging is stored under `/data/staging/<item-id>/`.
-- yt-dlp partial files (`source.*.part`) are preserved across backend restarts.
+- Each download attempt works in its own `.ytdm-attempt-*` directory inside
+  the item's staging directory. It is removed when the attempt ends, and one
+  left by an interrupted process is removed by the item's next attempt, so a
+  partial download is not resumed; the attempt starts again. The staging
+  status still counts partial files inside running attempts.
 - Corrupted audio files (detected by duration or ffprobe verification) are automatically cleaned and re-downloaded up to 2 times.
 - Staged artifacts are cleaned up **only after** the database transaction commits.
 
@@ -49,7 +53,7 @@ An item's staging directory lives exactly as long as the item can still use it:
 | Item state | Staging |
 | :--- | :--- |
 | `pending`, `matching`, `downloading`, `tagging`, `finalizing` | kept — the work is running or will resume |
-| `retry_wait`, `waiting_for_storage`, `waiting_for_space` | kept — a retry may continue a partial download |
+| `retry_wait`, `waiting_for_storage`, `waiting_for_space` | kept — the item is not finished; a verified file staged before the wait stays in place |
 | `completed`, `skipped`, `cancelled`, `failed` | removed once that final state is stored |
 
 If the final state cannot be stored, the directory is kept for the next start

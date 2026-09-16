@@ -175,7 +175,16 @@ total size, and its progress reports are not a guarantee either. Waiting for
 the session slot is bounded only by the item's own context: a caller who
 cancels, or whose deadline passes, while the download waits gets that
 cancellation or deadline back (`JOB_CANCELLED`), never a budget stop, and
-yt-dlp is not started. The slot is given back exactly once on every outcome.
+yt-dlp is not started. The worker then decides by the cause: a cancelled job
+ends the item as `cancelled`, a passed track time limit (`YTDM_TRACK_TIMEOUT`)
+lets it wait for a bounded retry as `TRACK_TIMEOUT`, and a service shutdown
+leaves it for recovery. The slot is given back exactly once on every outcome.
+
+The two limits are independent. The combined transfer budget counts from the
+granted slot and ends only the transfer (`TRANSFER_BUDGET_EXCEEDED`, final);
+the track time limit counts from the start of the attempt, includes every wait
+for the session, and ends the attempt (`TRACK_TIMEOUT`, retried within the
+attempt limit). Whichever passes first decides.
 
 ### Error contract
 
