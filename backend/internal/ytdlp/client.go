@@ -489,8 +489,13 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 		}
 	}()
 
-	waitErr := cmd.Wait()
+	// Standard output has to be read to its end before Wait: Wait closes the
+	// pipe once the process has exited, and lines a quickly exiting process
+	// wrote last - the size refusal among them - would otherwise be lost. On
+	// cancellation the process group is ended independently of Wait, so the
+	// pipe still reaches its end.
 	wg.Wait()
+	waitErr := cmd.Wait()
 
 	if waitErr != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {

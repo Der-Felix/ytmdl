@@ -24,9 +24,10 @@ import (
 type slotGate struct {
 	sem chan struct{}
 
-	mu       sync.Mutex
-	granted  int
-	released int
+	mu        sync.Mutex
+	granted   int
+	released  int
+	lastGrant time.Time
 }
 
 func newSlotGate() *slotGate {
@@ -43,6 +44,7 @@ func (g *slotGate) Acquire(ctx context.Context) (func(), error) {
 	}
 	g.mu.Lock()
 	g.granted++
+	g.lastGrant = time.Now()
 	g.mu.Unlock()
 	var once sync.Once
 	return func() {
@@ -101,6 +103,7 @@ type attemptOutcome struct {
 	err     error
 	workDir string
 	started bool
+	began   time.Time
 	elapsed time.Duration
 }
 
@@ -158,7 +161,7 @@ done
 		DurationMS: 3000, Formats: tc.formats, SessionID: "sess-1",
 	}, filepath.Join(work, "track.opus"), nil)
 	_, statErr := os.Stat(marker)
-	return attemptOutcome{result: res, err: err, workDir: work, started: statErr == nil, elapsed: time.Since(began)}
+	return attemptOutcome{result: res, err: err, workDir: work, started: statErr == nil, began: began, elapsed: time.Since(began)}
 }
 
 func audioOnlyFormat() []provider.AudioFormat {
@@ -188,18 +191,23 @@ func requireOnly(t *testing.T, dir string, want ...string) {
 // caller's context only; the transfer budget starts once the slot is granted.
 func TestWaitingForTheSessionSlotDoesNotConsumeTheTransferBudget(t *testing.T) {
 	requireMediaTools(t)
+	const budget = 400 * time.Millisecond
+	script := copyTo(muxedAAC(t), "mp4")
 	gate := newSlotGate()
-	gate.occupy(t, 900*time.Millisecond)
+	gate.occupy(t, 1500*time.Millisecond)
 	out := runAttempt(t, attemptCase{
-		script:   copyTo(muxedAAC(t), "mp4"),
+		script:   script,
 		formats:  []provider.AudioFormat{combinedFormat("18", "mp4a.40.2", 0)},
-		fallback: true, timeout: 400 * time.Millisecond, gate: gate,
+		fallback: true, timeout: budget, gate: gate,
 	})
 	if out.err != nil {
 		t.Fatalf("a download that waited longer than its budget for the slot was stopped: %v", out.err)
 	}
-	if out.elapsed < 900*time.Millisecond {
-		t.Fatalf("elapsed %v: the download did not wait for the slot", out.elapsed)
+	gate.mu.Lock()
+	waited := gate.lastGrant.Sub(out.began)
+	gate.mu.Unlock()
+	if waited <= budget {
+		t.Fatalf("waited %v for the slot: the case does not wait longer than the %v budget", waited, budget)
 	}
 	if out.result.FormatKind != "combined" || out.result.Plan != PlanExtractAudio {
 		t.Fatalf("result = %+v", out.result)
