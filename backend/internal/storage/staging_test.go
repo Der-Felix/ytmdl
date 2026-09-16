@@ -150,4 +150,22 @@ func TestStagingManager_CountPartials(t *testing.T) {
 	if partials != 1 {
 		t.Fatalf("got %d partials, want 1", partials)
 	}
+
+	// A running download keeps its unfinished file in its attempt directory.
+	dir3, _ := mgr.EnsureItemDir("item-3")
+	attempt := filepath.Join(dir3, DownloadAttemptPrefix+"123")
+	_ = os.MkdirAll(attempt, 0o755)
+	_ = os.WriteFile(filepath.Join(attempt, "source.webm.part"), []byte("partial"), 0o644)
+	// Other subdirectories are not attempts and are not searched.
+	other := filepath.Join(dir2, "nested")
+	_ = os.MkdirAll(other, 0o755)
+	_ = os.WriteFile(filepath.Join(other, "x.part"), []byte("partial"), 0o644)
+
+	partials, err = mgr.CountPartials()
+	if err != nil {
+		t.Fatalf("CountPartials: %v", err)
+	}
+	if partials != 2 {
+		t.Fatalf("got %d partials, want 2", partials)
+	}
 }

@@ -151,36 +151,58 @@ the extracted audio. Duration tolerance and every other existing verification
 limit apply unchanged, and a session is still only ever certified by a download
 that passed verification.
 
+Every download attempt — audio-only or combined — works in a private
+directory of its own inside the item's staging directory
+(`.ytdm-attempt-*`). yt-dlp writes only there, conversion and extraction write
+only there, and only the verified audio is moved next to the staging
+destination at the very end, replacing any older file of the same name. A
+successful exit of yt-dlp without new output is a failure; a file an earlier
+attempt left in the staging directory is never taken as the result of the
+current candidate. The attempt directory is removed when the attempt returns,
+whatever the outcome, and a directory an interrupted process left behind is
+removed by the next attempt of the same item.
+
 ### Limits
 
 | Limit | Default | Enforcement |
 |---|---|---|
-| transfer size | 128 MiB | `--max-filesize` refuses an announced size before the transfer; the running transfer is stopped as soon as its reported progress passes the limit; the arrived file is measured afterwards, which is the binding check |
-| transfer time | 10 min | deadline on the download context |
+| transfer size | 128 MiB | an announced size above the limit is refused before the transfer; yt-dlp's `--max-filesize` refusal (it exits successfully and prints "File is larger than max-filesize") is recognised as a budget stop; the running transfer is stopped as soon as its reported progress passes the limit; the arrived file is measured afterwards, which is the binding check |
+| transfer time | 10 min | process timeout that **starts once the media session's execution slot is granted**; waiting for a busy session never consumes it |
 | staging | existing quota and free-space checks | unchanged |
 
 A metadata estimate is never the hard bound: a segmented stream announces no
-total size, and its progress reports are not a guarantee either. On any error,
-abort or exceeded limit, exactly the files this attempt created are removed —
-files that were already in the staging directory are never touched.
+total size, and its progress reports are not a guarantee either. Waiting for
+the session slot is bounded only by the item's own context: a caller who
+cancels, or whose deadline passes, while the download waits gets that
+cancellation or deadline back (`JOB_CANCELLED`), never a budget stop, and
+yt-dlp is not started. The slot is given back exactly once on every outcome.
 
 ### Error contract
 
-| Situation | Code | Scope | Retryable |
+| Situation | Code | Scope | Retried |
 |---|---|---|---|
 | no source exists, is accessible, or matches | `TRACK_NOT_FOUND` | candidate | no |
 | single candidate unusable | its own code, fanout continues | candidate | — |
-| format answer technically unsupported | `UNSUPPORTED_MEDIA_FORMAT` | candidate | yes, within the item's attempt budget |
-| provider, transport or transfer-budget failure | `PROVIDER_UNAVAILABLE` / `PROVIDER_RATE_LIMITED` | provider | yes |
+| fallback **off**: item offers no audio-only stream | `DOWNLOAD_FAILED` for the candidate, unchanged from v0.27.2-rc.2 | candidate | the attempt ends as `TRACK_NOT_FOUND`, as before |
+| fallback **on**: not even a combined stream is usable, or its codec cannot be copied | `UNSUPPORTED_MEDIA_FORMAT` (HTTP 422) | candidate | no |
+| combined transfer stopped by the local byte or time budget | `TRANSFER_BUDGET_EXCEEDED` (HTTP 422) | candidate | no |
+| provider or transport failure | `PROVIDER_UNAVAILABLE` / `PROVIDER_RATE_LIMITED` | provider | yes |
 | verification failure | `MEDIA_VERIFY_FAILED` / `INVALID_AUDIO` | candidate | as before |
 
-When the candidates of one attempt fail for **mixed** reasons, the most
-retryable class wins: if any candidate failed for a reason that may pass, the
-item keeps a bounded chance instead of being written off because another
-candidate was hopeless. Only when every candidate was genuinely unavailable
-does the item fail permanently, with the wording it always had. Retries stay
-bounded by `MUSICDL_MAX_ATTEMPTS` and the existing backoff; nothing becomes
-unboundedly retryable.
+An exhausted candidate fanout ends permanently, exactly as in v0.27.2-rc.2:
+every candidate failure is summarised as `TRACK_NOT_FOUND` with the same
+wording, whatever its own code was. The only refinement applies when the
+fallback is switched on and at least one candidate failed with
+`UNSUPPORTED_MEDIA_FORMAT`: the attempt then ends with that code, still
+permanently. No retry is derived from a format answer, because search and
+extraction answers are reused from the query cache for 10 minutes — longer
+than the whole retry backoff (5 s, 15 s, 45 s, 2 min) — so a retry would only
+replay the same answer.
+
+A budget stop is this backend's own decision. It is candidate scoped: it never
+puts a provider family on hold, never records a platform failure on the session
+pool and never marks the session. It is not retried, because the next attempt
+would select the same stream and spend the same budget again.
 
 Bot, auth and rate-limit failures keep their precedence unchanged — they stop
 the candidate fanout before any of this is reached. **The absence of an
@@ -193,7 +215,9 @@ Every acquisition logs `format_kind` (`audio_only` or `combined`), the
 provider, the secret-free media and format id, the source audio and video
 codec, `transferred_bytes`, `stored_bytes`, `download_ms`, `extract_ms`, the
 verification result and `session_lease_ms`. Hourly counters are recorded under
-`download.<family>.<audio_only|combined>.{attempted,stored,transferred_bytes,rejected_over_budget}`.
+`download.<family>.<audio_only|combined>.{attempted,stored,transferred_bytes,rejected_over_budget}`;
+`rejected_over_budget` counts every budget stop, before, during or after the
+transfer.
 No stream URL, cookie, token or raw tool output is logged.
 
 **A yt-dlp process start is not an HTTP request.** A combined HLS or DASH

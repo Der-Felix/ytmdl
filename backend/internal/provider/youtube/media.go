@@ -401,34 +401,39 @@ func (p *MediaProvider) Resolve(ctx context.Context, candidate provider.MediaCan
 		return source, nil
 	}
 
-	// No audio only stream exists. Offering the audio of a combined stream
-	// means transferring its video as well, so it happens only when the
-	// operator switched the fallback on and only for a stream whose own format
-	// record proves it worth it.
-	if p.combinedFallback {
-		if combined := combinedAudioFormats(info); len(combined) > 0 {
-			best := combined[0]
-			container, _ := provider.ExtractableAudioCodec(best.ACodec)
-			source.Formats = append(source.Formats, provider.AudioFormat{
-				ID:                  best.FormatID,
-				Codec:               best.ACodec,
-				Container:           container,
-				BitrateKbps:         best.AudioBitrate(),
-				SampleRate:          best.ASR,
-				Channels:            best.AudioChannels,
-				Filesize:            best.Size(),
-				Combined:            true,
-				VideoCodec:          best.VCodec,
-				TransferBitrateKbps: best.TransferBitrate(),
-			})
-			return source, nil
-		}
+	// No audio only stream exists. With the fallback switched off this is the
+	// rejection the item always had, with the same code and wording, so the
+	// orchestrator ends the attempt exactly as before.
+	if !p.combinedFallback {
+		return nil, apperr.Newf(apperr.CodeDownloadFailed,
+			"The media item %q offers no audio only stream (%s).", source.ID, formatShape(info.Formats))
 	}
 
-	// The item exists and the platform answered; this backend simply cannot
-	// turn the formats it offered into a stored audio file. That is a
-	// statement about the format answer, not about the item, so it stays
-	// candidate scoped and keeps the item retryable within its attempt budget.
+	// Offering the audio of a combined stream means transferring its video as
+	// well, so it happens only for a stream whose own format record proves it
+	// worth it.
+	if combined := combinedAudioFormats(info); len(combined) > 0 {
+		best := combined[0]
+		container, _ := provider.ExtractableAudioCodec(best.ACodec)
+		source.Formats = append(source.Formats, provider.AudioFormat{
+			ID:                  best.FormatID,
+			Codec:               best.ACodec,
+			Container:           container,
+			BitrateKbps:         best.AudioBitrate(),
+			SampleRate:          best.ASR,
+			Channels:            best.AudioChannels,
+			Filesize:            best.Size(),
+			Combined:            true,
+			VideoCodec:          best.VCodec,
+			TransferBitrateKbps: best.TransferBitrate(),
+		})
+		return source, nil
+	}
+
+	// The item exists and the platform answered, but not even a combined
+	// stream is usable. That is a statement about the format answer, not about
+	// the item, so it stays candidate scoped. It is not retried: the answer is
+	// reused from the query cache for longer than the retry backoff runs.
 	return nil, apperr.Newf(apperr.CodeUnsupportedMediaFormat,
 		"The media item %q offers no audio only stream (%s).", source.ID, formatShape(info.Formats))
 }

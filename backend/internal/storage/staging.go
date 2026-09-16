@@ -157,13 +157,26 @@ func (s *StagingManager) CountPartials() (int, error) {
 	return count, nil
 }
 
+// DownloadAttemptPrefix names the private directory one download attempt works
+// in inside an item's staging directory. The leading dot keeps it out of every
+// listing that looks for media files; its unfinished files are the item's
+// partials.
+const DownloadAttemptPrefix = ".ytdm-attempt-"
+
 func hasPartials(dir string) bool {
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
 	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".part") || strings.HasSuffix(f.Name(), ".ytdl") {
+		name := f.Name()
+		if f.IsDir() {
+			if strings.HasPrefix(name, DownloadAttemptPrefix) && hasPartials(filepath.Join(dir, name)) {
+				return true
+			}
+			continue
+		}
+		if strings.HasSuffix(name, ".part") || strings.HasSuffix(name, ".ytdl") {
 			return true
 		}
 	}

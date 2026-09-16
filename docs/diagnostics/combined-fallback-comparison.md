@@ -19,6 +19,21 @@ and data cost**. Fewer error messages is not the goal and is not a result.
    jobs, and the storage guard. None of them is a variable of this experiment.
 4. A baseline snapshot is taken the way the RC-1 and RC-2 windows took theirs:
    settings, protected jobs, storage guard, queue and session state.
+5. **Runtime diagnosis first, in the same supervised window, before phase A.**
+   The deployed image contains a matching JavaScript runtime for yt-dlp
+   (`deno` via `yt-dlp-ejs-rt-deno`, `yt-dlp-ejs` matching yt-dlp's expected
+   script version), but whether YouTube's challenges are actually solved in the
+   running container is neither confirmed nor ruled out. A debug header that
+   lists the runtime does not prove it. Confirm it with one verbose extraction
+   of one known item, with no other diagnosis or download run using the same
+   session at that time: the log has to show the challenge solver running with
+   the runtime and succeeding, and the item's format list has to be recorded
+   (audio-only formats present or not). If challenge solving fails, stop: the
+   fallback would only work around that failure, and the comparison would
+   measure the wrong thing.
+6. With the switch **off**, this build ends an item without an audio-only
+   stream exactly as v0.27.2-rc.2 did (`TRACK_NOT_FOUND`, no retry). Phase A
+   therefore measures the release-candidate behaviour, not a changed one.
 
 ## Design
 
@@ -47,9 +62,11 @@ Per phase and per hour, from the database and the hourly `throughput summary`:
 | provider requests per success | `ytdlp.*.process` | the request cost |
 | **transferred bytes per success** | `download.<family>.*.transferred_bytes` | the data cost; process counts do not show it |
 | download and extraction duration | `download_ms`, `extract_ms` | how long a session slot is held |
-| items ending `UNSUPPORTED_MEDIA_FORMAT` | `job_items.error_code` | whether the item is kept instead of burned |
+| items ending `UNSUPPORTED_MEDIA_FORMAT` | `job_items.error_code` | phase B only: sources whose format answer offered not even a usable combined stream (permanent) |
+| items ending `TRANSFER_BUDGET_EXCEEDED` | `job_items.error_code`, `download.<family>.combined.rejected_over_budget` | phase B only: combined transfers stopped by the local byte or time budget (permanent) |
 | items ending permanently `TRACK_NOT_FOUND` | `job_items.error_code` | the permanent-loss rate |
-| family cooldowns by cause | backend log | must not rise because of this change |
+| items ending `cancelled` without a user action | `job_items.status` | a track timeout while waiting for the session slot currently ends this way (known limit, see below) |
+| family cooldowns by cause | backend log | must not rise because of this change; a budget stop never causes one, so any rise is a real provider signal |
 | rate limits, bot and auth events | summary counters | the protection signal |
 | verification failures by reason | `verification_reason` | whether extracted audio is sound |
 | staging peak usage | staging quota check | the disk cost |
@@ -92,6 +109,19 @@ these occurs:
 
 Aborting is not a failure of the measurement: it is the measurement. Record the
 hour, the trigger and the counters at that moment.
+
+## Known limits of this build
+
+These are known, tracked separately and not changed by the fallback. They have
+to be read into the result rather than mistaken for its effect:
+
+- A failed item's staging directory is not removed; staging usage grows with
+  the number of failed items, and the storage guard's quota can be reached
+  independently of the fallback.
+- An item whose overall track timeout (30 min) passes — for example while it
+  waits for the only session's execution slot behind combined transfers — ends
+  as `cancelled` and is not retried. Waiting no longer consumes the combined
+  transfer budget, but it still counts against the track timeout.
 
 ## What the result cannot say
 

@@ -107,14 +107,16 @@ be switched on deliberately for a controlled comparison first — see
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `YTDM_COMBINED_AUDIO_FALLBACK` | `false` | Allow acquiring a track from a combined audio/video stream when the item offers no audio-only stream. The audio is copied out without re-encoding; the video never reaches the library. Requires a restart. |
-| `YTDM_COMBINED_FALLBACK_MAX_BYTES` | `134217728` (128 MiB) | Hard limit on what one combined transfer may move. Enforced twice: `yt-dlp` refuses an announced size above it before the transfer, and the arrived file is measured afterwards. |
-| `YTDM_COMBINED_FALLBACK_TIMEOUT` | `10m` | Hard limit on how long one combined transfer may run, because it occupies the media session for its whole duration. |
+| `YTDM_COMBINED_FALLBACK_MAX_BYTES` | `134217728` (128 MiB) | Hard limit on what one combined transfer may move. An announced size above it is refused before the transfer, a running transfer is stopped once its progress passes it, and the arrived file is measured afterwards. A stop ends the item as `TRANSFER_BUDGET_EXCEEDED` without a retry. |
+| `YTDM_COMBINED_FALLBACK_TIMEOUT` | `10m` | Hard limit on how long one combined transfer may run, because it occupies the media session for its whole duration. It starts once the session's execution slot is granted; waiting for a busy session does not count. A stop ends the item as `TRANSFER_BUDGET_EXCEEDED` without a retry. |
 
 What the switch does **not** change: an audio-only stream always wins when one
 exists; matching, verification and duration tolerance are untouched; nothing is
 re-encoded; preview, DRM-protected and insufficiently described formats stay
-rejected; and the absence of an audio-only stream never puts a provider family
-on hold.
+rejected; the absence of an audio-only stream never puts a provider family
+on hold; and with the switch off, an item without an audio-only stream ends
+exactly as before (`TRACK_NOT_FOUND`, no retry). A budget stop never pauses a
+provider family either.
 
 ---
 

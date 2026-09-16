@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -333,7 +334,7 @@ func TestAnnouncedSizeAboveBudgetIsRefusedBeforeTransfer(t *testing.T) {
 		file: muxedAAC(t), ext: "mp4", fallback: true, maxBytes: 1 << 20,
 		formats: []provider.AudioFormat{combinedFormat("22", "mp4a.40.2", 64<<20)},
 	})
-	if apperr.CodeOf(out.err) != apperr.CodeUnsupportedMediaFormat {
+	if apperr.CodeOf(out.err) != apperr.CodeTransferBudgetExceeded {
 		t.Fatalf("err = %v", out.err)
 	}
 	if out.selector != "" {
@@ -352,7 +353,7 @@ func TestTransferredSizeAboveBudgetIsRejectedAfterTheFact(t *testing.T) {
 		file: muxedAAC(t), ext: "mp4", fallback: true, maxBytes: 1024,
 		formats: []provider.AudioFormat{combinedFormat("18", "mp4a.40.2", 0)},
 	})
-	if apperr.CodeOf(out.err) != apperr.CodeUnsupportedMediaFormat {
+	if apperr.CodeOf(out.err) != apperr.CodeTransferBudgetExceeded {
 		t.Fatalf("err = %v", out.err)
 	}
 	if !strings.Contains(apperr.MessageOf(out.err), "transfer budget") {
@@ -363,8 +364,8 @@ func TestTransferredSizeAboveBudgetIsRejectedAfterTheFact(t *testing.T) {
 	}
 }
 
-// A transfer that outruns its time budget is stopped and reported as a
-// provider condition, not as a cancelled job.
+// A transfer that outruns its time budget is stopped and reported as the local
+// budget stop it is - neither a provider condition nor a cancelled job.
 func TestTransferAboveTimeBudgetIsStopped(t *testing.T) {
 	requireMediaTools(t)
 	out := runCombined(t, combinedCase{
@@ -373,9 +374,7 @@ func TestTransferAboveTimeBudgetIsStopped(t *testing.T) {
 		stubPrelude: "sleep 5",
 		formats:     []provider.AudioFormat{combinedFormat("18", "mp4a.40.2", 0)},
 	})
-	if apperr.CodeOf(out.err) != apperr.CodeProviderUnavailable {
-		t.Fatalf("err = %v", out.err)
-	}
+	requireLocalBudgetStop(t, out.err)
 	if names := remaining(t, out.workDir); len(names) != 0 {
 		t.Fatalf("stopped attempt left %v behind", names)
 	}
@@ -393,11 +392,28 @@ func TestRunningTransferIsStoppedWhenItReportsPassingTheBudget(t *testing.T) {
 		maxBytes: 1024, timeout: 10 * time.Second, stubPrelude: prelude,
 		formats: []provider.AudioFormat{combinedFormat("18", "mp4a.40.2", 0)},
 	})
-	if apperr.CodeOf(out.err) != apperr.CodeUnsupportedMediaFormat {
-		t.Fatalf("err = %v", out.err)
-	}
+	requireLocalBudgetStop(t, out.err)
 	if !strings.Contains(apperr.MessageOf(out.err), "transfer budget") {
 		t.Fatalf("message = %q", apperr.MessageOf(out.err))
+	}
+}
+
+// requireLocalBudgetStop checks that err is a stop by this backend's own
+// transfer budget: candidate scoped, so it pauses no provider family and
+// records no platform failure; not retried; and never a cancelled job.
+func requireLocalBudgetStop(t *testing.T, err error) {
+	t.Helper()
+	if apperr.CodeOf(err) != apperr.CodeTransferBudgetExceeded {
+		t.Fatalf("err = %v, want %s", err, apperr.CodeTransferBudgetExceeded)
+	}
+	if apperr.ScopeOf(err) != apperr.ScopeCandidate || apperr.StopsCandidateFanout(err) {
+		t.Fatalf("scope = %s, want a candidate scoped error", apperr.ScopeOf(err))
+	}
+	if apperr.Retryable(err) {
+		t.Fatal("a budget stop was made retryable; the next attempt would spend the same budget again")
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a budget stop carries a context error and would read as a cancelled job: %v", err)
 	}
 }
 

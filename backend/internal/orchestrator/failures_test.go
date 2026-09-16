@@ -1,6 +1,8 @@
 package orchestrator_test
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -55,16 +57,17 @@ func TestAllCandidatesAbsentStaysPermanent(t *testing.T) {
 	}
 }
 
-// A single candidate this backend could not use for technical reasons is
-// enough to keep the item retryable: the format answer may look different next
-// time, and the attempt budget bounds how often that is tried.
-func TestOneFormatLimitationMakesTheAttemptRetryable(t *testing.T) {
+// With the fallback switched on, a candidate whose format answer offered no
+// usable stream ends the attempt as UNSUPPORTED_MEDIA_FORMAT. It is permanent:
+// the answer is reused from the query cache for longer than the retry backoff
+// runs, so a retry would only replay it.
+func TestFormatLimitationEndsTheAttemptPermanently(t *testing.T) {
 	err := exhaustCandidates(t, absent(), formatLimitation(), absent())
 	if apperr.CodeOf(err) != apperr.CodeUnsupportedMediaFormat {
 		t.Fatalf("err = %v", err)
 	}
-	if !apperr.Retryable(err) {
-		t.Fatal("a technical format limitation was written off as permanent")
+	if apperr.Retryable(err) {
+		t.Fatal("a format limitation became retryable against an unchanged cached answer")
 	}
 	if apperr.ScopeOf(err) != apperr.ScopeCandidate {
 		t.Fatalf("scope = %v, want candidate", apperr.ScopeOf(err))
@@ -74,15 +77,46 @@ func TestOneFormatLimitationMakesTheAttemptRetryable(t *testing.T) {
 	}
 }
 
-// A transient failure outranks a format limitation: it is the class with the
-// best chance of passing, and it keeps its own code and retry timing.
-func TestTransientFailureOutranksTheOtherClasses(t *testing.T) {
-	err := exhaustCandidates(t, absent(), formatLimitation(), transient())
-	if apperr.CodeOf(err) != apperr.CodeProviderUnavailable {
-		t.Fatalf("err = %v", err)
-	}
-	if !apperr.Retryable(err) {
-		t.Fatal("a transient failure was written off as permanent")
+// rc2NoAudioOnlyStream is the rejection the YouTube resolver reports with the
+// fallback switched off - the same code and wording as in v0.27.2-rc.2.
+func rc2NoAudioOnlyStream(id string) error {
+	return apperr.Newf(apperr.CodeDownloadFailed,
+		"The media item %q offers no audio only stream (formats: 5 total, 1 muxed, 0 video only, "+
+			"0 video with unknown audio, 4 images, 0 unknown, 0 other; muxed up to 182 kbps total, 0 kbps audio).", id)
+}
+
+// With the fallback switched off, an exhausted fanout ends exactly as in
+// v0.27.2-rc.2: permanently, as TRACK_NOT_FOUND with the same wording, whatever
+// the candidates' own codes were - including download and verification codes
+// that are retryable on their own.
+func TestFallbackOffKeepsTheRc2Summary(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		errs []error
+	}{
+		{"no audio only stream", []error{rc2NoAudioOnlyStream("a"), rc2NoAudioOnlyStream("b")}},
+		{"mixed with absent", []error{absent(), rc2NoAudioOnlyStream("b"), absent()}},
+		{"mixed with verification", []error{
+			rc2NoAudioOnlyStream("a"),
+			apperr.New(apperr.CodeMediaVerifyFailed, "downloaded audio failed verification"),
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := exhaustCandidates(t, tc.errs...)
+			if apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+				t.Fatalf("err = %v, want TRACK_NOT_FOUND", err)
+			}
+			if apperr.Retryable(err) {
+				t.Fatal("the rc.2 summary became retryable")
+			}
+			want := fmt.Sprintf("Keine der %d passenden Quellen konnte aufgelöst werden.", len(tc.errs))
+			if apperr.MessageOf(err) != want {
+				t.Fatalf("message = %q, want %q", apperr.MessageOf(err), want)
+			}
+			if !errors.Is(err, tc.errs[len(tc.errs)-1]) {
+				t.Fatalf("the summary lost the last candidate failure as its cause: %v", err)
+			}
+		})
 	}
 }
 

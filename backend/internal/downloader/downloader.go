@@ -75,8 +75,9 @@ type Options struct {
 	// CombinedMaxBytes bounds what one combined transfer may move. Zero
 	// selects DefaultCombinedMaxBytes.
 	CombinedMaxBytes int64
-	// CombinedTimeout bounds how long one combined transfer may run. Zero
-	// selects DefaultCombinedTimeout.
+	// CombinedTimeout bounds how long one combined transfer may run, counted
+	// from the moment the session's execution slot is granted. Zero selects
+	// DefaultCombinedTimeout.
 	CombinedTimeout time.Duration
 
 	// DurationToleranceMS bounds how far the downloaded audio may deviate from
@@ -192,6 +193,15 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return nil, apperr.Wrap(apperr.CodeInternal, "The working directory could not be created.", err)
 	}
+	// Every attempt works in a directory of its own. Only what this attempt
+	// produced can become its result, and whatever it leaves behind goes with
+	// the directory - an older file next to destination is never adopted.
+	removeStaleAttempts(workDir)
+	attemptDir, err := os.MkdirTemp(workDir, attemptDirPrefix)
+	if err != nil {
+		return nil, apperr.Wrap(apperr.CodeInternal, "The attempt directory could not be created.", err)
+	}
+	defer os.RemoveAll(attemptDir)
 
 	logger := d.logger.With(
 		logging.KeyProvider, diagnosticToken(source.Provider),
@@ -221,7 +231,7 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 
 	request := ytdlp.DownloadRequest{
 		URL:            source.URL,
-		Dir:            workDir,
+		Dir:            attemptDir,
 		FormatSelector: FormatSelector(source.Formats),
 		Retries:        d.retries,
 		RateLimit:      d.RateLimit(),
@@ -240,26 +250,21 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 	d.count(family, formatKind, "attempted", 1)
 
 	dlCtx := ctx
-	var (
-		budget   *transferBudget
-		attempt  *attemptFiles
-		deadline time.Time
-	)
+	var budget *transferBudget
 	if combined {
 		// An announced size that already exceeds the budget is refused before
 		// a single byte moves.
 		if d.combinedMaxBytes > 0 && chosen.Filesize > d.combinedMaxBytes {
 			d.count(family, formatKind, "rejected_over_budget", 1)
-			return nil, apperr.Newf(apperr.CodeUnsupportedMediaFormat,
+			return nil, apperr.Newf(apperr.CodeTransferBudgetExceeded,
 				"The combined stream announces %d bytes, more than the transfer budget of %d bytes.",
 				chosen.Filesize, d.combinedMaxBytes)
 		}
-		attempt = newAttemptFiles(workDir)
 		var cancel context.CancelFunc
-		dlCtx, cancel, deadline = d.combinedContext(ctx)
+		dlCtx, cancel = context.WithCancel(ctx)
 		defer cancel()
-		budget = newTransferBudget(d.combinedMaxBytes, deadline, cancel)
-		request = combinedRequest(request, d.combinedMaxBytes)
+		budget = newTransferBudget(d.combinedMaxBytes, cancel)
+		request = combinedRequest(request, d.combinedMaxBytes, d.combinedTimeout)
 	}
 
 	downloadStarted := time.Now()
@@ -269,9 +274,9 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 	if err != nil {
 		if combined {
 			err = budget.classify(ctx, err)
-			// Nothing this attempt wrote may survive it; files that were
-			// already in the directory are left untouched.
-			attempt.removeNew()
+			if apperr.CodeOf(err) == apperr.CodeTransferBudgetExceeded {
+				d.count(family, formatKind, "rejected_over_budget", 1)
+			}
 			logger.Warn("combined stream transfer failed",
 				logging.KeyErrorCode, string(apperr.CodeOf(err)),
 				"transferred_bytes", budget.transferred(),
@@ -286,18 +291,14 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 	rawInfo, err := d.prober.Probe(ctx, rawPath)
 	if err != nil {
 		logVerificationFailure(logger, "raw", nil, source.DurationMS, d.toleranceMS, err)
-		if combined {
-			attempt.removeNew()
-		}
 		return nil, err
 	}
 
 	// The size on disk is the binding byte limit: a segmented stream announces
 	// no total size, and its progress reports are not a guarantee either.
 	if combined && d.combinedMaxBytes > 0 && rawInfo.SizeBytes > d.combinedMaxBytes {
-		attempt.removeNew()
 		d.count(family, formatKind, "rejected_over_budget", 1)
-		return nil, apperr.Newf(apperr.CodeUnsupportedMediaFormat,
+		return nil, apperr.Newf(apperr.CodeTransferBudgetExceeded,
 			"The combined stream transferred %d bytes, more than the transfer budget of %d bytes.",
 			rawInfo.SizeBytes, d.combinedMaxBytes)
 	}
@@ -311,30 +312,25 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 		// settled here by the file itself, never taken on trust.
 		err := invalidAudio("unexpected_video_stream", "The downloaded stream contains video instead of audio only.", rawInfo)
 		logVerificationFailure(logger, "raw", rawInfo, source.DurationMS, d.toleranceMS, err)
-		_ = os.Remove(rawPath)
 		return nil, err
 	}
 
+	// Every file up to the verified result stays inside the attempt
+	// directory; only the verified audio is moved next to destination.
 	var (
 		plan      Plan
 		ext       string
-		target    string
+		staged    string
 		extractMS int64
 	)
 	if extract {
-		target, ext, err = combinedTarget(destination, *rawInfo)
+		ext, err = combinedExtension(*rawInfo)
 		if err != nil {
-			attempt.removeNew()
 			return nil, err
 		}
-		if target == rawPath {
-			// The container the audio goes into must be a file of its own, so
-			// that the combined stream is never the file that survives.
-			target = replaceExtension(destination, ".audio"+ext)
-		}
+		staged = filepath.Join(attemptDir, stagedAudioName+ext)
 		extractStarted := time.Now()
-		if err := d.extractAudio(ctx, rawPath, target); err != nil {
-			attempt.removeNew()
+		if err := d.extractAudio(ctx, rawPath, staged); err != nil {
 			return nil, err
 		}
 		extractMS = time.Since(extractStarted).Milliseconds()
@@ -344,41 +340,31 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 		plan = PlanExtractAudio
 	} else {
 		plan, ext = PlanFor(*rawInfo, d.allowTranscode)
-		target = replaceExtension(destination, ext)
+		staged = filepath.Join(attemptDir, stagedAudioName+ext)
 
 		switch plan {
 		case PlanKeep:
-			if rawPath != target {
-				if err := os.Rename(rawPath, target); err != nil {
-					return nil, apperr.Wrap(apperr.CodeInternal, "The downloaded file could not be moved.", err)
-				}
+			if err := os.Rename(rawPath, staged); err != nil {
+				return nil, apperr.Wrap(apperr.CodeInternal, "The downloaded file could not be moved.", err)
 			}
 		case PlanRemux:
-			if err := d.remux(ctx, rawPath, target); err != nil {
+			if err := d.remux(ctx, rawPath, staged); err != nil {
 				return nil, err
 			}
-			if rawPath != target {
-				_ = os.Remove(rawPath)
-			}
+			_ = os.Remove(rawPath)
 		case PlanTranscode:
-			if err := d.transcode(ctx, rawPath, target, rawInfo.BitrateKbps); err != nil {
+			if err := d.transcode(ctx, rawPath, staged, rawInfo.BitrateKbps); err != nil {
 				return nil, err
 			}
-			if rawPath != target {
-				_ = os.Remove(rawPath)
-			}
+			_ = os.Remove(rawPath)
 		default:
 			return nil, apperr.Newf(apperr.CodeInternal, "Unknown download plan %q.", plan)
 		}
 	}
 
-	finalInfo, err := d.prober.Probe(ctx, target)
+	finalInfo, err := d.prober.Probe(ctx, staged)
 	if err != nil {
 		logVerificationFailure(logger, "final", nil, source.DurationMS, d.toleranceMS, err)
-		_ = os.Remove(target)
-		if combined {
-			attempt.removeNew()
-		}
 		return nil, err
 	}
 	// Whatever the path, a real video stream must never reach the library. An
@@ -386,19 +372,18 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 	if finalInfo.VideoStreams > 0 {
 		err := invalidAudio("unexpected_video_stream", "The stored file still contains a video stream.", finalInfo)
 		logVerificationFailure(logger, "final", finalInfo, source.DurationMS, d.toleranceMS, err)
-		_ = os.Remove(target)
-		if combined {
-			attempt.removeNew()
-		}
 		return nil, err
 	}
 	if err := Verify(finalInfo, source.DurationMS, d.toleranceMS); err != nil {
 		logVerificationFailure(logger, "final", finalInfo, source.DurationMS, d.toleranceMS, err)
-		_ = os.Remove(target)
-		if combined {
-			attempt.removeNew()
-		}
 		return nil, apperr.Wrap(apperr.CodeMediaVerifyFailed, "Downloaded audio failed duration/stream verification.", err)
+	}
+
+	// Only now does the result leave the attempt directory. A file of an
+	// earlier attempt under the same name is replaced, never kept.
+	target := replaceExtension(destination, ext)
+	if err := os.Rename(staged, target); err != nil {
+		return nil, apperr.Wrap(apperr.CodeInternal, "The downloaded file could not be moved.", err)
 	}
 
 	transferred := rawInfo.SizeBytes
@@ -416,11 +401,6 @@ func (d *YTDLPDownloader) Download(ctx context.Context, source provider.MediaSou
 		TransferredBytes: transferred,
 	}
 
-	if combined {
-		// Everything this attempt created besides the finished audio goes,
-		// including the combined stream if anything still refers to it.
-		attempt.removeNew(target)
-	}
 	d.count(family, formatKind, "stored", 1)
 	if transferred > 0 {
 		d.count(family, formatKind, "transferred_bytes", uint64(transferred))

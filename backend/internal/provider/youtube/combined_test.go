@@ -83,8 +83,15 @@ func TestCombinedFallbackResolvesTheMuxedStream(t *testing.T) {
 // rejection stays a bounded-retry candidate failure.
 func TestCombinedFallbackDisabledKeepsTheRejection(t *testing.T) {
 	_, err := resolveFormats(t, false, []map[string]any{storyboard("sb0"), muxed("18", 500, 96, nil)})
-	if apperr.CodeOf(err) != apperr.CodeUnsupportedMediaFormat {
-		t.Fatalf("err = %v", err)
+	// Exactly the v0.27.2-rc.2 rejection: same code, same wording, candidate
+	// scoped. The orchestrator turns it into the permanent end it always had.
+	if apperr.CodeOf(err) != apperr.CodeDownloadFailed || apperr.ScopeOf(err) != apperr.ScopeCandidate {
+		t.Fatalf("err = %v, want the unchanged DOWNLOAD_FAILED rejection", err)
+	}
+	want := `The media item "combinedVid" offers no audio only stream (formats: 2 total, 1 muxed, 0 video only, ` +
+		`0 video with unknown audio, 1 images, 0 unknown, 0 other; muxed up to 500 kbps total, 96 kbps audio).`
+	if got := apperr.MessageOf(err); got != want {
+		t.Fatalf("message = %q, want %q", got, want)
 	}
 	if apperr.StopsCandidateFanout(err) {
 		t.Fatal("the rejection stopped the candidate fanout")

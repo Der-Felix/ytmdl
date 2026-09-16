@@ -55,6 +55,28 @@ func TestErrorScopesAndSemantics(t *testing.T) {
 			wantRetryable:        false,
 			wantHTTPStatus:       http.StatusInternalServerError,
 		},
+		{
+			name:                 "candidate unsupported media format",
+			err:                  apperr.New(apperr.CodeUnsupportedMediaFormat, "no usable format answer"),
+			wantCode:             apperr.CodeUnsupportedMediaFormat,
+			wantScope:            apperr.ScopeCandidate,
+			wantAllowsFallback:   true,
+			wantStopsFanout:      false,
+			wantConsumesJobRetry: true,
+			wantRetryable:        false,
+			wantHTTPStatus:       http.StatusUnprocessableEntity,
+		},
+		{
+			name:                 "candidate transfer budget exceeded",
+			err:                  apperr.New(apperr.CodeTransferBudgetExceeded, "combined transfer stopped"),
+			wantCode:             apperr.CodeTransferBudgetExceeded,
+			wantScope:            apperr.ScopeCandidate,
+			wantAllowsFallback:   true,
+			wantStopsFanout:      false,
+			wantConsumesJobRetry: true,
+			wantRetryable:        false,
+			wantHTTPStatus:       http.StatusUnprocessableEntity,
+		},
 
 		// Session-specific
 		{

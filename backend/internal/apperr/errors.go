@@ -60,11 +60,19 @@ const (
 	CodeInternal             Code = "INTERNAL_ERROR"
 
 	// CodeUnsupportedMediaFormat marks a source the platform still offers but
-	// whose format answer this backend cannot turn into a stored audio file -
-	// for example an item that lists no usable audio stream at all. It is a
-	// statement about the format answer, not about the item's existence, so it
-	// stays candidate scoped and is retried within the item's attempt budget.
+	// whose format answer this backend cannot turn into a stored audio file,
+	// with the combined-stream fallback switched on. It is a statement about
+	// the format answer, not about the item's existence, so it stays candidate
+	// scoped. It is not retried: the answer is reused from the query cache for
+	// longer than the retry backoff runs, so a retry would only see it again.
 	CodeUnsupportedMediaFormat Code = "UNSUPPORTED_MEDIA_FORMAT"
+
+	// CodeTransferBudgetExceeded marks a combined-stream transfer this backend
+	// stopped itself because it outgrew its local byte or time budget. It says
+	// nothing about the provider or the session, so it is candidate scoped and
+	// never pauses a provider family. It is not retried: the next attempt would
+	// select the same stream and spend the same budget again.
+	CodeTransferBudgetExceeded Code = "TRANSFER_BUDGET_EXCEEDED"
 )
 
 // Error is an application error with a stable code and a human readable
@@ -163,7 +171,7 @@ func HTTPStatus(code Code) int {
 		CodeJobNotFound, CodeSubscriptionNotFound, CodeProviderNotFound,
 		CodeFileNotFound, CodeUserNotFound, CodeSessionNotFound, CodePlaylistNotFound:
 		return http.StatusNotFound
-	case CodeUnsupportedMediaFormat:
+	case CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded:
 		return http.StatusUnprocessableEntity
 
 	case CodeUnauthenticated, CodeInvalidCredentials:
@@ -200,7 +208,6 @@ func HTTPStatus(code Code) int {
 func Retryable(err error) bool {
 	switch CodeOf(err) {
 	case CodeProviderUnavailable, CodeProviderRateLimited, CodeDownloadFailed, CodeMediaVerifyFailed,
-		CodeUnsupportedMediaFormat,
 		CodeSessionRateLimited, CodeSessionBotChallenge, CodeSessionAuthFailed, CodeSessionUnavailable:
 		return true
 	default:
@@ -222,7 +229,7 @@ const (
 func ScopeOf(err error) Scope {
 	switch CodeOf(err) {
 	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType,
-		CodeUnsupportedMediaFormat, CodePlaylistNotFound:
+		CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded, CodePlaylistNotFound:
 		return ScopeCandidate
 	case CodeSessionAuthFailed, CodeSessionBotChallenge, CodeSessionRateLimited, CodeSessionUnavailable:
 		return ScopeSession
