@@ -593,9 +593,7 @@ func ClassifyError(stderr string, cause error) error {
 			"The media provider rate limited the request: %s", message)
 
 	// 2. Authentication and bot challenges (session-specific)
-	case strings.Contains(lower, "not a bot") ||
-		strings.Contains(lower, "bot verification") ||
-		strings.Contains(lower, "bot challenge"):
+	case containsAny(lower, botChallengePhrases):
 		return apperr.Wrapf(apperr.CodeSessionBotChallenge, cause,
 			"The media session encountered a bot challenge: %s", message)
 
@@ -617,11 +615,7 @@ func ClassifyError(stderr string, cause error) error {
 			"The media session requires authentication: %s", message)
 
 	// 3. Transient network failures
-	case strings.Contains(lower, "timed out") ||
-		strings.Contains(lower, "connection reset") ||
-		strings.Contains(lower, "temporary failure in name resolution") ||
-		strings.Contains(lower, "network is unreachable") ||
-		strings.Contains(lower, "connection refused"):
+	case containsAny(lower, transientNetworkPhrases):
 		return apperr.Wrapf(apperr.CodeProviderUnavailable, cause,
 			"Network error contacting media provider: %s", message)
 
@@ -637,8 +631,10 @@ func ClassifyError(stderr string, cause error) error {
 		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "The media item is DRM protected: %s", message)
 
 	// "This video is unavailable" names one video, like "Video unavailable"
-	// below, but that rule never matched its wording. Same precedence and
-	// ambiguity rules as the age restriction.
+	// below, but that rule never matched its wording. Unlike the age
+	// restriction it is answered after the sign-in rule and still yields to
+	// every ambiguity hint, so a credential prompt next to it keeps its
+	// session-scoped classification.
 	case isItemUnavailable(stderr):
 		return apperr.Wrap(apperr.CodeTrackNotFound, itemUnavailableMessage, fmt.Errorf("%w: %w", ErrItemUnavailable, cause))
 
@@ -672,6 +668,36 @@ var ErrAgeRestricted = errors.New("age-restricted media item")
 // the media id the caller logs next to it are all a diagnosis needs.
 const ageRestrictedMessage = "The media item is age-restricted and not accessible to this session context; it is skipped."
 
+// botChallengePhrases name a challenge the platform puts in front of the
+// session itself. They are matched before the age rule and keep precedence.
+var botChallengePhrases = []string{
+	"not a bot",
+	"bot verification",
+	"bot challenge",
+}
+
+// transientNetworkPhrases name a failure of the connection to the provider
+// rather than anything about the item.
+var transientNetworkPhrases = []string{
+	"timed out",
+	"connection reset",
+	"temporary failure in name resolution",
+	"network is unreachable",
+	"connection refused",
+}
+
+// ageRestrictionVetoPhrases keep a statement out of the age rule when it also
+// carries evidence that the failure is not about the item at all. The age rule
+// is answered before the network case, so without this a transient outage
+// alongside an age gate would be recorded as a permanent, non-retryable
+// candidate failure and cached as one. "captcha" is vetoed here because it has
+// no wording of its own among the bot phrases, so nothing else would catch it.
+//
+// Credential wording is deliberately absent: naming an age gate decides the
+// item even when the platform words that gate as a sign-in prompt.
+var ageRestrictionVetoPhrases = append(append(append([]string(nil),
+	transientNetworkPhrases...), botChallengePhrases...), "captcha")
+
 // definiteAgeRestrictionPhrases name an age gate outright. They are
 // dispositive: a sign-in, cookie or account hint alongside them is the gate's
 // own wording, not evidence that the session is no longer accepted, so
@@ -699,7 +725,14 @@ var ageRestrictionAmbiguityHints = []string{
 // A phrase that names the age gate outright decides on its own. The weaker
 // "verify your age … old enough" wording only decides when nothing in the
 // same statement points at the session instead.
+//
+// Either way the whole output is checked for systemic evidence first, over the
+// same text the network and bot cases read, so that answering the age rule
+// early can never mask an outage or a challenge.
 func isContentAgeRestriction(stderr string) bool {
+	if containsAny(strings.ToLower(stderr), ageRestrictionVetoPhrases) {
+		return false
+	}
 	line := strings.ToLower(errorLines(stderr))
 	if line == "" {
 		return false
@@ -734,8 +767,14 @@ func isItemUnavailable(stderr string) bool {
 }
 
 func hasAmbiguityHint(line string, hints []string) bool {
-	for _, hint := range hints {
-		if strings.Contains(line, hint) {
+	return containsAny(line, hints)
+}
+
+// containsAny reports whether line contains any of phrases. Both must already
+// be lower case.
+func containsAny(line string, phrases []string) bool {
+	for _, phrase := range phrases {
+		if strings.Contains(line, phrase) {
 			return true
 		}
 	}

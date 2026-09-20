@@ -162,3 +162,89 @@ func TestAgeRestrictionUsesBoundedPerSessionReuse(t *testing.T) {
 		t.Fatalf("cache hits = %d, want 1", counts["ytdlp.youtube.extract.cache_hit"])
 	}
 }
+
+// An age statement is about the item; a timeout, a reset connection or a
+// challenge is about everything. When both are in the same output the systemic
+// answer wins, because the age rule is answered before the network case and
+// would otherwise turn a passing outage into a permanent candidate failure -
+// one that is never retried and that queryCache.ttlFor would keep for its
+// whole negative TTL.
+func TestAgeStatementNeverMasksSystemicEvidence(t *testing.T) {
+	cause := errors.New("exit status 1")
+	for _, tc := range []struct {
+		name   string
+		stderr string
+		want   apperr.Code
+	}{
+		{"timed out", "ERROR: [youtube] x: This video is age-restricted. The read operation timed out", apperr.CodeProviderUnavailable},
+		{"connection refused", "ERROR: [youtube] x: Sorry, this content is age-restricted. connection refused", apperr.CodeProviderUnavailable},
+		// Vetoed, this falls through to the sign-in rule exactly as it did
+		// before the age rule existed: still systemic, still session scoped.
+		{"connection reset on a sign-in prompt", "ERROR: [youtube] x: Sign in to confirm your age. connection reset by peer", apperr.CodeSessionAuthFailed},
+		{"network unreachable", "ERROR: [youtube] x: This video is age-restricted: network is unreachable", apperr.CodeProviderUnavailable},
+		{"name resolution", "ERROR: [youtube] x: age-restricted: temporary failure in name resolution", apperr.CodeProviderUnavailable},
+		// The evidence counts wherever yt-dlp put it, as it does for the
+		// network case itself.
+		{"network on a warning line", "WARNING: [youtube] x: The read operation timed out\nERROR: [youtube] x: Sorry, this content is age-restricted", apperr.CodeProviderUnavailable},
+		// A captcha names no bot, so the age rule is the only thing that could
+		// answer it.
+		{"captcha", "ERROR: [youtube] x: Sorry, this content is age-restricted. Please solve the captcha to continue", apperr.CodeProviderUnavailable},
+		{"captcha on a sign-in prompt", "ERROR: [youtube] x: Sign in to confirm your age. Complete the captcha first", apperr.CodeSessionAuthFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ClassifyError(tc.stderr, cause)
+			if apperr.CodeOf(err) != tc.want {
+				t.Fatalf("code = %s, want %s (%v)", apperr.CodeOf(err), tc.want, err)
+			}
+			if apperr.CodeOf(err) == apperr.CodeTrackNotFound {
+				t.Fatal("a systemic failure must not become a candidate failure")
+			}
+			if errors.Is(err, ErrAgeRestricted) {
+				t.Fatalf("classified as an age restriction: %v", err)
+			}
+			// Never a candidate failure means never stored by the negative
+			// cache, which keeps TrackNotFound extraction failures only.
+			if (&queryCache{opts: QueryCacheOptions{NegativeTTL: time.Minute}}).ttlFor(queryExtract, nil, err) != 0 {
+				t.Fatal("a systemic failure must not enter the negative cache")
+			}
+			if apperr.ScopeOf(err) == apperr.ScopeCandidate {
+				t.Fatalf("scope = %s, want a systemic scope", apperr.ScopeOf(err))
+			}
+		})
+	}
+}
+
+// The veto is narrow: it must not reach the wording the v0.28 policy
+// deliberately answers as a candidate failure, and it must not disturb the
+// signals that already had precedence.
+func TestSystemicVetoLeavesTheAgeGatePolicyIntact(t *testing.T) {
+	cause := errors.New("exit status 1")
+	for _, tc := range []struct {
+		name   string
+		stderr string
+		want   apperr.Code
+		age    bool
+	}{
+		{"plain age gate", "ERROR: [youtube] x: Sign in to confirm your age", apperr.CodeTrackNotFound, true},
+		{"age gate with expired cookies", "ERROR: [youtube] x: This video is age-restricted. Your cookies are expired.", apperr.CodeTrackNotFound, true},
+		{"age gate with a login prompt", "ERROR: [youtube] x: This video is age-restricted. Please log in to continue", apperr.CodeTrackNotFound, true},
+		{"auth without an age gate", "ERROR: [youtube] x: Sign in to confirm your identity", apperr.CodeSessionAuthFailed, false},
+		{"expired cookies without an age gate", "ERROR: [youtube] x: Your cookies are expired", apperr.CodeSessionAuthFailed, false},
+		{"bot challenge beside an age gate", "ERROR: [youtube] x: Sorry, this content is age-restricted. Sign in to confirm you're not a bot", apperr.CodeSessionBotChallenge, false},
+		{"provider rate limit beside an age gate", "ERROR: [youtube] x: Sorry, this content is age-restricted: HTTP Error 429: Too Many Requests", apperr.CodeProviderRateLimited, false},
+		{"session rate limit beside an age gate", "ERROR: [youtube] x: This video is age-restricted. The current session has been rate-limited by YouTube", apperr.CodeSessionRateLimited, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ClassifyError(tc.stderr, cause)
+			if apperr.CodeOf(err) != tc.want {
+				t.Fatalf("code = %s, want %s (%v)", apperr.CodeOf(err), tc.want, err)
+			}
+			if errors.Is(err, ErrAgeRestricted) != tc.age {
+				t.Fatalf("ErrAgeRestricted = %v, want %v", !tc.age, tc.age)
+			}
+			if tc.age && apperr.ScopeOf(err) != apperr.ScopeCandidate {
+				t.Fatalf("scope = %s, want %s", apperr.ScopeOf(err), apperr.ScopeCandidate)
+			}
+		})
+	}
+}
