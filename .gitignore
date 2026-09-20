@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 compose.ghcr.override.yaml
+.claude/settings.local.json
 
 # Runtime data, database dumps and library content
 /data/
