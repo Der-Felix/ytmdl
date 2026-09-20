@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.28.0 — 2026-09-20
+
+### Highlights
+
+- **Update Channels:** Administrators can choose between **Stable** (regular releases only, default for existing and new installations) and **Development** (explicitly published prereleases) in the update settings and web interface. `ytmdlctl` supports channel selection and SemVer 2.0.0 comparison with prerelease precedence.
+- **Provider & Download Reliability:** Reduced provider request volume through bounded metadata caching, candidate resolution deduplication, escalated YouTube rate-limit backoffs, and non-blocking DRM handling for SoundCloud items.
+- **Audio Stream Classification:** HLS audio renditions whose codec is reported as unknown are accepted and probed; combined audio/video streams are never filed as audio, while embedded cover art remains supported.
+- **Age-Gate & Session Protection:** YouTube age restrictions ("Sign in to confirm your age", "Verify your age") and unavailable videos are treated as candidate failures rather than session authorization failures. Healthy media sessions remain active without transitioning to `AUTH_FAILED`, while genuine auth failures and bot challenges preserve systemic protections.
+- **Failed Job Error Visibility:** Failure reasons from failed download items are propagated directly to parent jobs in the API and displayed in the Downloads UI (`JobCard`), replacing generic failure labels with actionable error details.
+- **Discovered Release Deduplication:** Equivalent provider catalog entries for the same release are deduplicated during artist scanning and discovery, preventing redundant download jobs that collide on canonical library storage paths.
+
+### Changes
+
+- **Update System:** `PUT /api/v1/system/update/channel` stores the preferred channel; update status reports channel, prerelease badges, and recommended `ytmdlctl` commands. An installed version newer than the channel offers is never downgraded.
+- **ytmdlctl:** `check` and `update` accept `--channel stable|development` and `--target <version>`. Manifest v3 is maintained for stable releases to preserve backward compatibility with installed CLI tooling.
+- **Downloads & Diagnostics:** The hourly `throughput summary` log line reports acquisitions, provider requests, reuse, rate limits, cooldown time, and failure reasons.
+- **Web UI:** Downloads view displays root item error messages on failed job cards with graceful fallback for historical jobs without parent error metadata.
+- **Database Schema:** Schema remains at 12; no database migration is required.
+
 ## 0.27.2-rc.2 — 2026-09-11
 
 Second release candidate for the development channel. It is published as a GitHub prerelease, is never offered on the stable channel and does not move the `latest` image tags. It contains everything from 0.27.2-rc.1.
