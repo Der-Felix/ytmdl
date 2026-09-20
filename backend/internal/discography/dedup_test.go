@@ -255,3 +255,171 @@ func groupTitles(groups []Group) []string {
 	}
 	return out
 }
+
+func TestEquivalentReleases_ConfirmedProductionPattern_TestA(t *testing.T) {
+	// TEST A – confirmed duplicate catalog pattern
+	// Two distinct provider release IDs with metadata/track structure equivalent enough
+	// that they resolve to the same effective canonical release.
+	// Expected: EquivalentReleases reports true.
+	relA := music.Release{
+		ID: "rel_1", SourceID: "MPREb_b2lpllKyWwY", Provider: "ytmusic",
+		Title:       "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+		AlbumArtist: "Antonio Vivaldi", Artists: []string{"Antonio Vivaldi"},
+		Year: 2025, ReleaseType: music.ReleaseSingle,
+	}
+	tracksA := []music.Track{
+		{
+			ID: "hbvxKF3RO20", SourceID: "hbvxKF3RO20", Title: "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+			Artists: []string{"Antonio Vivaldi"}, AlbumArtist: "Antonio Vivaldi",
+			TrackNumber: 1, DiscNumber: 1, DurationMS: 135000,
+		},
+	}
+
+	relB := music.Release{
+		ID: "rel_2", SourceID: "MPREb_abOSjhra9KT", Provider: "ytmusic",
+		Title:       "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+		AlbumArtist: "Antonio Vivaldi", Artists: []string{"Antonio Vivaldi"},
+		Year: 2025, ReleaseType: music.ReleaseSingle,
+	}
+	tracksB := []music.Track{
+		{
+			ID: "9Is4gK2iBxY", SourceID: "9Is4gK2iBxY", Title: "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+			Artists: []string{"Antonio Vivaldi"}, AlbumArtist: "Antonio Vivaldi",
+			TrackNumber: 1, DiscNumber: 1, DurationMS: 75000, // materially different runtime on provider
+		},
+	}
+
+	if !EquivalentReleases(relA, tracksA, relB, tracksB) {
+		t.Fatalf("expected confirmed duplicate catalog entries to be equivalent")
+	}
+
+	dedupedReleases, dedupedTracks := DeduplicateReleases(
+		[]music.Release{relA, relB},
+		[][]music.Track{tracksA, tracksB},
+	)
+	if len(dedupedReleases) != 1 {
+		t.Fatalf("expected exactly 1 release after dedup, got %d", len(dedupedReleases))
+	}
+	if dedupedReleases[0].SourceID != "MPREb_b2lpllKyWwY" {
+		t.Fatalf("expected first representative kept, got %q", dedupedReleases[0].SourceID)
+	}
+	if len(dedupedTracks) != 1 || len(dedupedTracks[0]) != 1 {
+		t.Fatalf("expected 1 track list kept, got %+v", dedupedTracks)
+	}
+}
+
+func TestEquivalentReleases_DifferentYear_TestB(t *testing.T) {
+	// TEST B – different provider IDs, same title, different year
+	// Expected: NOT deduplicated.
+	relA := music.Release{
+		ID: "rel_1", SourceID: "src_1", Title: "Greatest Hits",
+		AlbumArtist: "Queen", Artists: []string{"Queen"},
+		Year: 1981, ReleaseType: music.ReleaseAlbum,
+	}
+	tracksA := []music.Track{
+		{Title: "Bohemian Rhapsody", TrackNumber: 1, DiscNumber: 1},
+	}
+
+	relB := music.Release{
+		ID: "rel_2", SourceID: "src_2", Title: "Greatest Hits",
+		AlbumArtist: "Queen", Artists: []string{"Queen"},
+		Year: 2011, ReleaseType: music.ReleaseAlbum, // reissue year
+	}
+	tracksB := []music.Track{
+		{Title: "Bohemian Rhapsody", TrackNumber: 1, DiscNumber: 1},
+	}
+
+	if EquivalentReleases(relA, tracksA, relB, tracksB) {
+		t.Fatalf("releases with different years must not be deduplicated")
+	}
+}
+
+func TestEquivalentReleases_MateriallyDifferentTrackList_TestC(t *testing.T) {
+	// TEST C – same artist/title/year but materially different track list
+	// Example: standard vs deluxe / additional tracks
+	// Expected: NOT incorrectly collapsed.
+	relA := music.Release{
+		ID: "rel_std", SourceID: "src_std", Title: "Meteora",
+		AlbumArtist: "Linkin Park", Artists: []string{"Linkin Park"},
+		Year: 2003, ReleaseType: music.ReleaseAlbum,
+	}
+	tracksA := []music.Track{
+		{Title: "Foreword", TrackNumber: 1, DiscNumber: 1},
+		{Title: "Don't Stay", TrackNumber: 2, DiscNumber: 1},
+	}
+
+	relB := music.Release{
+		ID: "rel_dlx", SourceID: "src_dlx", Title: "Meteora",
+		AlbumArtist: "Linkin Park", Artists: []string{"Linkin Park"},
+		Year: 2003, ReleaseType: music.ReleaseAlbum,
+	}
+	tracksB := []music.Track{
+		{Title: "Foreword", TrackNumber: 1, DiscNumber: 1},
+		{Title: "Don't Stay", TrackNumber: 2, DiscNumber: 1},
+		{Title: "Bonus Track", TrackNumber: 3, DiscNumber: 1}, // extra track
+	}
+
+	if EquivalentReleases(relA, tracksA, relB, tracksB) {
+		t.Fatalf("standard vs deluxe with different track count must not be deduplicated")
+	}
+
+	// Also verify same track count but different track title
+	tracksBVariant := []music.Track{
+		{Title: "Foreword", TrackNumber: 1, DiscNumber: 1},
+		{Title: "Don't Stay (Live)", TrackNumber: 2, DiscNumber: 1}, // variant title
+	}
+	if EquivalentReleases(relA, tracksA, relB, tracksBVariant) {
+		t.Fatalf("releases with differing track titles must not be deduplicated")
+	}
+}
+
+func TestEquivalentReleases_ReleaseTypeDiffers_TestD(t *testing.T) {
+	// TEST D – release type differs
+	// Album vs EP or Single with otherwise similar metadata.
+	// Expected: NOT deduplicated.
+	relAlbum := music.Release{
+		ID: "rel_alb", SourceID: "src_alb", Title: "Numb",
+		AlbumArtist: "Linkin Park", Artists: []string{"Linkin Park"},
+		Year: 2003, ReleaseType: music.ReleaseAlbum,
+	}
+	relSingle := music.Release{
+		ID: "rel_sng", SourceID: "src_sng", Title: "Numb",
+		AlbumArtist: "Linkin Park", Artists: []string{"Linkin Park"},
+		Year: 2003, ReleaseType: music.ReleaseSingle,
+	}
+	tracks := []music.Track{
+		{Title: "Numb", TrackNumber: 1, DiscNumber: 1},
+	}
+
+	if EquivalentReleases(relAlbum, tracks, relSingle, tracks) {
+		t.Fatalf("Album vs Single must not be deduplicated")
+	}
+}
+
+func TestEquivalentReleases_ExactDuplicateRepeated_TestE(t *testing.T) {
+	// TEST E – exact duplicate repeated in same scan
+	// Expected: deterministic one-result scheduling.
+	rel := music.Release{
+		ID: "rel_1", SourceID: "src_1", Title: "In The End",
+		AlbumArtist: "Linkin Park", Artists: []string{"Linkin Park"},
+		Year: 2000, ReleaseType: music.ReleaseSingle,
+	}
+	tracks := []music.Track{
+		{Title: "In The End", TrackNumber: 1, DiscNumber: 1},
+	}
+
+	if !EquivalentReleases(rel, tracks, rel, tracks) {
+		t.Fatalf("identical release must be equivalent to itself")
+	}
+
+	dedupedReleases, dedupedTracks := DeduplicateReleases(
+		[]music.Release{rel, rel},
+		[][]music.Track{tracks, tracks},
+	)
+	if len(dedupedReleases) != 1 {
+		t.Fatalf("expected 1 release after dedup, got %d", len(dedupedReleases))
+	}
+	if len(dedupedTracks) != 1 {
+		t.Fatalf("expected 1 track list after dedup, got %d", len(dedupedTracks))
+	}
+}

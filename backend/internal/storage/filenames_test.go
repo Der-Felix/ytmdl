@@ -252,3 +252,28 @@ func TestCoverFileNameFor(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseDirRel(t *testing.T) {
+	cases := []struct {
+		release music.Release
+		want    string
+	}{
+		{
+			release: music.Release{AlbumArtist: "Pink Floyd", Title: "The Wall", Year: 1979, ReleaseType: music.ReleaseAlbum},
+			want:    filepath.Join("Pink Floyd", "1979 - The Wall"),
+		},
+		{
+			release: music.Release{AlbumArtist: "Antonio Vivaldi", Title: "Summer", Year: 2025, ReleaseType: music.ReleaseSingle},
+			want:    filepath.Join("Antonio Vivaldi", "2025 - Summer [Single]"),
+		},
+		{
+			release: music.Release{AlbumArtist: "Artist", Title: "EP Title", Year: 2020, ReleaseType: music.ReleaseEP},
+			want:    filepath.Join("Artist", "2020 - EP Title [EP]"),
+		},
+	}
+	for _, tc := range cases {
+		if got := ReleaseDirRel(tc.release); got != tc.want {
+			t.Errorf("ReleaseDirRel(%+v) = %q, want %q", tc.release, got, tc.want)
+		}
+	}
+}
