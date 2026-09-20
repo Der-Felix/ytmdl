@@ -29,6 +29,16 @@ func TestAgeRestrictionIsACandidateFailure(t *testing.T) {
 		"ERROR: [youtube] xLoginCooki: Sorry, this content is age-restricted",
 		// Warnings about the extraction do not describe the item.
 		"WARNING: [youtube] CCCCCCCCCCC: Skipping client since it does not support cookies\n" + stderrSorryAgeRestricted,
+		// A statement that names the age gate decides on its own, even when it
+		// asks for a sign-in, names cookies or mentions an account: that is how
+		// the platform words the gate. Reading it as a session failure is what
+		// cooled down and unhealthed working sessions in 0.27.x.
+		"ERROR: [youtube] x: Sign in to confirm your age. This video may be inappropriate for some users.",
+		"ERROR: [youtube] x: This video is age-restricted. Your cookies are expired.",
+		"ERROR: [youtube] x: Sorry, this content is age-restricted. Use --cookies-from-browser or --cookies for the authentication",
+		"ERROR: [youtube] x: This video is age-restricted. Please log in to continue",
+		"ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm your age or subscription: login required",
+		"ERROR: [youtube] x: This video is unavailable. Sign in to confirm your age",
 	} {
 		err := ClassifyError(stderr, cause)
 		if apperr.CodeOf(err) != apperr.CodeTrackNotFound {
@@ -58,9 +68,12 @@ func TestAgeRestrictionReportedByDownloadIsACandidateFailure(t *testing.T) {
 	}
 }
 
-// Explicit protection signals win over an age statement in the same output,
-// and statements that ask for a sign-in, name credentials or an account keep
-// their previous classification: they can mean the session is not accepted.
+// Rate-limit and bot signals win over an age statement in the same output,
+// and wording that never names the age gate outright keeps its previous
+// classification: it can mean the session is not accepted.
+//
+// A sign-in or credential hint no longer does so once the statement names the
+// age gate itself - see TestAgeRestrictionIsACandidateFailure.
 func TestAgeRestrictionNeverMasksProtectionOrAmbiguity(t *testing.T) {
 	cause := errors.New("exit status 1")
 	for _, tc := range []struct {
@@ -69,14 +82,10 @@ func TestAgeRestrictionNeverMasksProtectionOrAmbiguity(t *testing.T) {
 		want   apperr.Code
 	}{
 		{"bot challenge", "ERROR: [youtube] x: Sorry, this content is age-restricted. Sign in to confirm you're not a bot", apperr.CodeSessionBotChallenge},
-		{"sign in to confirm your age", "ERROR: [youtube] x: Sign in to confirm your age. This video may be inappropriate for some users.", apperr.CodeSessionAuthFailed},
-		{"expired cookies", "ERROR: [youtube] x: This video is age-restricted. Your cookies are expired.", apperr.CodeSessionAuthFailed},
 		{"http 429", "ERROR: [youtube] x: Sorry, this content is age-restricted: HTTP Error 429: Too Many Requests", apperr.CodeProviderRateLimited},
 		{"account rate limit", "ERROR: [youtube] x: Video unavailable. This content isn't available, try again later. Your account has been rate-limited", apperr.CodeProviderRateLimited},
 		{"session rate limit", "ERROR: [youtube] x: This video is age-restricted. The current session has been rate-limited by YouTube", apperr.CodeSessionRateLimited},
 		{"network error with age warning", "WARNING: [youtube] x: this video is age-restricted\nERROR: [youtube] x: Unable to download API page: [Errno -2] Name does not resolve", apperr.CodeProviderUnavailable},
-		{"ambiguous: cookies hint", "ERROR: [youtube] x: Sorry, this content is age-restricted. Use --cookies-from-browser or --cookies for the authentication", apperr.CodeProviderUnavailable},
-		{"ambiguous: log in", "ERROR: [youtube] x: This video is age-restricted. Please log in to continue", apperr.CodeProviderUnavailable},
 		{"ambiguous: account", "ERROR: [youtube] x: Verify your age. Your account must show you're old enough to play this content", apperr.CodeProviderUnavailable},
 		{"ambiguous: inappropriate only", "ERROR: [youtube] x: This video may be inappropriate for some users.", apperr.CodeProviderUnavailable},
 		{"no error line", "WARNING: [youtube] x: Sorry, this content is age-restricted", apperr.CodeProviderUnavailable},

@@ -599,6 +599,15 @@ func ClassifyError(stderr string, cause error) error {
 		return apperr.Wrapf(apperr.CodeSessionBotChallenge, cause,
 			"The media session encountered a bot challenge: %s", message)
 
+	// An age restriction of the requested item: the platform refuses this one
+	// item to this session context and nothing else. It is skipped like an
+	// unavailable item - never unlocked - and neither pauses the family nor
+	// touches the session's health. Rate-limit and bot signals are matched
+	// above and keep precedence; a sign-in prompt does not, because naming an
+	// age gate is how the platform words that gate.
+	case isContentAgeRestriction(stderr):
+		return apperr.Wrap(apperr.CodeTrackNotFound, ageRestrictedMessage, fmt.Errorf("%w: %w", ErrAgeRestricted, cause))
+
 	case strings.Contains(lower, "sign in to confirm") ||
 		strings.Contains(lower, "login required") ||
 		strings.Contains(lower, "cookies are expired") ||
@@ -626,14 +635,6 @@ func ClassifyError(stderr string, cause error) error {
 	// fallback to the next candidate or put the whole provider family on hold.
 	case strings.Contains(lower, "drm protected"):
 		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "The media item is DRM protected: %s", message)
-
-	// An age restriction of the requested item: the platform refuses this one
-	// item to this session context and nothing else. It is skipped like an
-	// unavailable item - never unlocked - and neither pauses the family nor
-	// touches the session's health. Explicit rate-limit, bot and sign-in
-	// signals are matched above and keep precedence.
-	case isContentAgeRestriction(stderr):
-		return apperr.Wrap(apperr.CodeTrackNotFound, ageRestrictedMessage, fmt.Errorf("%w: %w", ErrAgeRestricted, cause))
 
 	// "This video is unavailable" names one video, like "Video unavailable"
 	// below, but that rule never matched its wording. Same precedence and
@@ -671,11 +672,16 @@ var ErrAgeRestricted = errors.New("age-restricted media item")
 // the media id the caller logs next to it are all a diagnosis needs.
 const ageRestrictedMessage = "The media item is age-restricted and not accessible to this session context; it is skipped."
 
-// contentAgeRestrictionPhrases are the statements YouTube and yt-dlp use for
-// an item that is age restricted, as observed in production logs.
-var contentAgeRestrictionPhrases = []string{
-	"this content is age-restricted", // "Sorry, this content is age-restricted"
-	"this video is age-restricted",
+// definiteAgeRestrictionPhrases name an age gate outright. They are
+// dispositive: a sign-in, cookie or account hint alongside them is the gate's
+// own wording, not evidence that the session is no longer accepted, so
+// answering with SESSION_AUTH_FAILED there would cool down and eventually
+// unhealth a session that is working. Rate-limit and bot signals are still
+// matched before this and keep precedence.
+var definiteAgeRestrictionPhrases = []string{
+	"confirm your age",
+	"age-restricted", // "Sorry, this content is age-restricted"
+	"age restriction",
 }
 
 // ageRestrictionAmbiguityHints turn an age statement into an ambiguous one: a
@@ -686,20 +692,24 @@ var ageRestrictionAmbiguityHints = []string{
 	"sign in", "sign-in", "log in", "login", "cookie", "authenticat", "account", "not a bot", "captcha",
 }
 
-// isContentAgeRestriction reports an unambiguous age restriction of the
-// requested item. Only yt-dlp's ERROR lines are considered; warnings about
-// the extraction do not describe the item.
+// isContentAgeRestriction reports an age restriction of the requested item.
+// Only yt-dlp's ERROR lines are considered; warnings about the extraction do
+// not describe the item.
+//
+// A phrase that names the age gate outright decides on its own. The weaker
+// "verify your age … old enough" wording only decides when nothing in the
+// same statement points at the session instead.
 func isContentAgeRestriction(stderr string) bool {
 	line := strings.ToLower(errorLines(stderr))
 	if line == "" {
 		return false
 	}
-	restricted := strings.Contains(line, "verify your age") && strings.Contains(line, "old enough")
-	for _, phrase := range contentAgeRestrictionPhrases {
+	for _, phrase := range definiteAgeRestrictionPhrases {
 		if strings.Contains(line, phrase) {
-			restricted = true
+			return true
 		}
 	}
+	restricted := strings.Contains(line, "verify your age") && strings.Contains(line, "old enough")
 	return restricted && !hasAmbiguityHint(line, ageRestrictionAmbiguityHints)
 }
 

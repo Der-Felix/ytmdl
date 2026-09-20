@@ -9,6 +9,7 @@ import (
 
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/provider"
+	"ytdm/backend/internal/ytdlp"
 )
 
 // mockRepo provides an in-memory implementation of SessionRepository for pool testing.
@@ -382,6 +383,44 @@ func TestSessionPool_FailureContainment_CandidateVsSessionVsProvider(t *testing.
 		}
 		if s1.ConsecutiveFailures != 0 {
 			t.Errorf("candidate error set consecutive_failures to %d, want 0", s1.ConsecutiveFailures)
+		}
+	})
+
+	t.Run("AgeRestrictedCandidate_DoesNotPenalizeSession", func(t *testing.T) {
+		now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+		s := Session{
+			ID:             "session-age-test",
+			ProviderFamily: provider.FamilyYouTube,
+			Name:           "Age Test Session",
+			CookieRef:      CookieRefPrefix + "session-age-test",
+			Enabled:        true,
+			HealthStatus:   HealthHealthy,
+		}
+		storage := createTestStorage(t, "session-age-test")
+		repo := newMockRepo([]Session{s})
+		cfg := DefaultPoolConfig(provider.FamilyYouTube)
+		pool := NewSessionPool(cfg, storage, repo, nil)
+		pool.SetNow(func() time.Time { return now })
+		pool.SetSyncPersist(true)
+		pool.ReloadSessions([]Session{s})
+
+		lease, err := pool.Acquire(context.Background())
+		if err != nil {
+			t.Fatalf("Acquire failed: %v", err)
+		}
+		// Real observed phrase: "Sign in to confirm your age"
+		ageErr := ytdlp.ClassifyError("ERROR: [youtube] c023U4oQGr4: Sign in to confirm your age.", nil)
+		lease.Release(ageErr)
+
+		s1, _ := repo.GetSession(context.Background(), "session-age-test")
+		if s1.HealthStatus != HealthHealthy {
+			t.Errorf("age-restricted candidate error changed health_status to %q, want healthy", s1.HealthStatus)
+		}
+		if s1.ConsecutiveFailures != 0 {
+			t.Errorf("age-restricted candidate error set consecutive_failures to %d, want 0", s1.ConsecutiveFailures)
+		}
+		if s1.CooldownUntil != nil {
+			t.Errorf("expected CooldownUntil to be nil, got %v", s1.CooldownUntil)
 		}
 	})
 

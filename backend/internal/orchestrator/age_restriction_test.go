@@ -183,7 +183,6 @@ func TestProtectionSignalsWithAgeStatementKeepProtection(t *testing.T) {
 		wantPause  bool
 	}{
 		{"bot challenge", "ERROR: [youtube] vid-1: Sorry, this content is age-restricted. Sign in to confirm you're not a bot", apperr.CodeSessionBotChallenge, mediasession.HealthBotChallenge, false},
-		{"sign in to confirm your age", "ERROR: [youtube] vid-1: Sign in to confirm your age. This video may be inappropriate for some users.", apperr.CodeSessionAuthFailed, mediasession.HealthAuthFailed, false},
 		{"http 429", "ERROR: [youtube] vid-1: Sorry, this content is age-restricted: HTTP Error 429: Too Many Requests", apperr.CodeProviderRateLimited, mediasession.HealthHealthy, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -208,22 +207,31 @@ func TestProtectionSignalsWithAgeStatementKeepProtection(t *testing.T) {
 	}
 }
 
-// An age statement that also asks for credentials is ambiguous: it keeps the
-// previous, systemic handling instead of being weakened to a candidate failure.
-func TestAmbiguousAgeStatementKeepsSystemicHandling(t *testing.T) {
-	orch, _, ytm, _, cooldown := setupTestEnvironment(t, healthyAuditSession())
-	ytm.SetCandidates(abbaCandidates("ytmusic"))
-	ytm.SetResolveErr("vid-1", classified("ERROR: [youtube] vid-1: Sorry, this content is age-restricted. Use --cookies-from-browser or --cookies for the authentication"))
+// A statement that names the age gate is a candidate failure even when it also
+// asks for a sign-in or names cookies: the platform words the gate that way,
+// and reading it as a session failure is what cooled down and unhealthed
+// working sessions in 0.27.x. The session keeps its health, the family stays
+// available, and the next candidate is resolved.
+func TestAgeGateWithCredentialHintStaysACandidateFailure(t *testing.T) {
+	for _, stderr := range []string{
+		"ERROR: [youtube] vid-1: Sorry, this content is age-restricted. Use --cookies-from-browser or --cookies for the authentication",
+		"ERROR: [youtube] vid-1: Sign in to confirm your age. This video may be inappropriate for some users.",
+		"ERROR: [youtube] vid-1: This video is age-restricted. Please log in to continue",
+	} {
+		before := healthyAuditSession()
+		orch, pool, ytm, _, cooldown := setupTestEnvironment(t, before)
+		ytm.SetCandidates(abbaCandidates("ytmusic"))
+		ytm.SetResolveErr("vid-1", classified(stderr))
 
-	_, err := orch.ResolveMedia(context.Background(), "ytmusic", auditTrackABBA(), 5)
-	if apperr.CodeOf(err) != apperr.CodeProviderUnavailable {
-		t.Fatalf("code = %s, want %s", apperr.CodeOf(err), apperr.CodeProviderUnavailable)
-	}
-	if ytm.ResolveCalls() != 1 {
-		t.Fatalf("resolve calls = %d, want the fan-out stopped (1)", ytm.ResolveCalls())
-	}
-	if _, cooling := cooldown.Remaining("youtube"); !cooling {
-		t.Fatal("the ambiguous message no longer pauses the family")
+		res, err := orch.ResolveMedia(context.Background(), "ytmusic", auditTrackABBA(), 5)
+		if err != nil {
+			t.Fatalf("%q: ResolveMedia: %v", stderr, err)
+		}
+		if res.Candidate.ID != "vid-2" {
+			t.Fatalf("%q: resolved %s, want the next candidate vid-2", stderr, res.Candidate.ID)
+		}
+		assertNoFamilyPause(t, pool, cooldown)
+		assertSessionHealthUnchanged(t, pool.Sessions()[0], before)
 	}
 }
 
