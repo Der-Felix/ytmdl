@@ -450,12 +450,6 @@ type ItemUpdate struct {
 	ErrorMessage   string
 }
 
-// DeriveParentStatus calculates the aggregate job status from its items.
-func DeriveParentStatus(items []Item) Status {
-	status, _, _ := DeriveParentStatusDetails(items)
-	return status
-}
-
 // DeriveParentStatusDetails calculates the aggregate job status and any inherited
 // error details from its items.
 func DeriveParentStatusDetails(items []Item) (Status, string, string) {
@@ -508,7 +502,15 @@ func DeriveParentStatusDetails(items []Item) (Status, string, string) {
 		if cancelledCount == len(items) {
 			return StatusCancelled, "", ""
 		}
-		return StatusFailed, "", ""
+		var failedCode, failedMsg string
+		for _, it := range items {
+			if it.Status == ItemFailed {
+				failedCode = it.ErrorCode
+				failedMsg = it.ErrorMessage
+				break
+			}
+		}
+		return StatusFailed, failedCode, failedMsg
 	}
 
 	// Active processing states precedence

@@ -672,14 +672,22 @@ func (m *Manager) finalize(ctx context.Context, jobID string) {
 		return
 	}
 
-	finalStatus := DeriveParentStatus(items)
+	finalStatus, finalErrCode, finalErrMsg := DeriveParentStatusDetails(items)
 	if finalStatus.Terminal() {
 		if finalStatus == StatusCompleted {
 			m.complete(ctx, jobID)
 		} else if finalStatus == StatusCancelled {
 			m.markCancelled(ctx, job)
 		} else {
-			m.fail(ctx, job, apperr.New(apperr.CodeDownloadFailed, "All tracks in this job failed."))
+			code := apperr.CodeDownloadFailed
+			msg := "All tracks in this job failed."
+			if finalErrCode != "" {
+				code = apperr.Code(finalErrCode)
+			}
+			if finalErrMsg != "" {
+				msg = finalErrMsg
+			}
+			m.fail(ctx, job, apperr.New(code, msg))
 		}
 	}
 }
