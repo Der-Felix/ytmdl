@@ -65,7 +65,15 @@ Job and item badges use plain-language German labels. The most common ones:
 | `waiting_for_space` | Wartet auf Speicherplatz | Free space below the configured reserve |
 | `completed` | Abgeschlossen | Finished — individual track failures do not fail the whole job |
 | `failed` | Fehlgeschlagen | The job itself could not proceed |
-| `cancelled` | Abgebrochen | Cancelled by a user |
+| `cancelled` | Abgebrochen | Cancelled by a user — never retried |
+
+A track that does not finish within `YTDM_TRACK_TIMEOUT` goes to
+**Wartet auf Wiederholung** with the error code `TRACK_TIMEOUT` and is retried
+like any other transient error, within the item's attempt limit
+(`MUSICDL_MAX_ATTEMPTS`); on its last attempt it fails. The time limit is local:
+it never pauses a provider or marks a media session. Only an explicit
+cancellation ends a track as **Abgebrochen**. Stopping or restarting the
+service is neither: interrupted tracks are picked up again after the restart.
 
 > [!NOTE]
 > A job that finishes with some failed tracks still reports **Abgeschlossen**.

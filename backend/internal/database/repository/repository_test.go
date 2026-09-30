@@ -2222,3 +2222,40 @@ func TestWakeSessionWaitersOnlyResetsSessionUnavailableItems(t *testing.T) {
 		t.Errorf("status = %v, want %v", failItem.Status, jobs.ItemFailed)
 	}
 }
+
+// TestJobsItemStatuses reads the stored status of known items and leaves
+// unknown ids out, so the caller can keep what it cannot account for.
+func TestJobsItemStatuses(t *testing.T) {
+	ctx := context.Background()
+	repo := NewJobs(openTestDB(t))
+
+	job := &jobs.Job{Type: jobs.TypeArtist, Status: jobs.StatusQueued, Options: jobs.DefaultOptions()}
+	if err := repo.Create(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if err := repo.AddItems(ctx, job.ID, []jobs.Item{
+		{Position: 0, Track: music.Track{Title: "One"}},
+		{Position: 1, Track: music.Track{Title: "Two"}},
+	}); err != nil {
+		t.Fatalf("add items: %v", err)
+	}
+	items, _ := repo.ListItems(ctx, job.ID)
+	if err := repo.UpdateItem(ctx, items[0].ID, jobs.ItemUpdate{Status: jobs.ItemFailed}); err != nil {
+		t.Fatalf("update item: %v", err)
+	}
+
+	unknown := music.NewID()
+	got, err := repo.ItemStatuses(ctx, []string{items[0].ID, items[1].ID, unknown})
+	if err != nil {
+		t.Fatalf("item statuses: %v", err)
+	}
+	if len(got) != 2 || got[items[0].ID] != jobs.ItemFailed || got[items[1].ID] != jobs.ItemPending {
+		t.Fatalf("statuses = %v", got)
+	}
+	if _, ok := got[unknown]; ok {
+		t.Fatal("an unknown id was reported")
+	}
+	if empty, err := repo.ItemStatuses(ctx, nil); err != nil || len(empty) != 0 {
+		t.Fatalf("empty query = %v, %v", empty, err)
+	}
+}
