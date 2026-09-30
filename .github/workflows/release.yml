@@ -150,15 +150,19 @@ jobs:
           check-latest: true
 
       - name: Install PostgreSQL 18 Client Tools
+        timeout-minutes: 8
         shell: bash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends ca-certificates curl gnupg lsb-release
+          apt_bounded() {
+            sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=2 "$@"
+          }
+          apt_bounded update -qq
+          apt_bounded install -y -qq --no-install-recommends ca-certificates curl gnupg lsb-release
           sudo install -d /etc/apt/keyrings
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
-          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends postgresql-client-18 ffmpeg
+          curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          apt_bounded update -qq
+          apt_bounded install -y -qq --no-install-recommends postgresql-client-18 ffmpeg
 
           # Prepend PostgreSQL 18 tools directory to PATH for all subsequent steps
           echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
