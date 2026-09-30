@@ -150,4 +150,83 @@ func TestStagingManager_CountPartials(t *testing.T) {
 	if partials != 1 {
 		t.Fatalf("got %d partials, want 1", partials)
 	}
+
+	// A running download keeps its unfinished file in its attempt directory.
+	dir3, _ := mgr.EnsureItemDir("item-3")
+	attempt := filepath.Join(dir3, DownloadAttemptPrefix+"123")
+	_ = os.MkdirAll(attempt, 0o755)
+	_ = os.WriteFile(filepath.Join(attempt, "source.webm.part"), []byte("partial"), 0o644)
+	// Other subdirectories are not attempts and are not searched.
+	other := filepath.Join(dir2, "nested")
+	_ = os.MkdirAll(other, 0o755)
+	_ = os.WriteFile(filepath.Join(other, "x.part"), []byte("partial"), 0o644)
+
+	partials, err = mgr.CountPartials()
+	if err != nil {
+		t.Fatalf("CountPartials: %v", err)
+	}
+	if partials != 2 {
+		t.Fatalf("got %d partials, want 2", partials)
+	}
+}
+
+// Only real directories directly below the root are item staging; a link or a
+// file is not, and removing an item directory never follows a link or leaves
+// the root.
+func TestStagingManager_ItemDirsAreRemovedSafely(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	precious := filepath.Join(outside, "precious.opus")
+	if err := os.WriteFile(precious, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := NewStagingManager(root, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	real, _ := mgr.EnsureItemDir("aaaa")
+	// A link inside a real item directory is removed as a link.
+	if err := os.Symlink(outside, filepath.Join(real, "link")); err != nil {
+		t.Fatal(err)
+	}
+	// A link in place of an item directory is never treated as one.
+	if err := os.Symlink(outside, filepath.Join(root, "bbbb")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cccc"), []byte("file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	names, err := mgr.ItemDirNames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != "aaaa" {
+		t.Fatalf("item dirs = %v, want only the real directory", names)
+	}
+
+	if err := mgr.RemoveItemDir("bbbb"); err == nil {
+		t.Fatal("a symbolic link was accepted as an item directory")
+	}
+	for _, bad := range []string{"", "..", "../x", "a/b", `a\b`} {
+		if err := mgr.RemoveItemDir(bad); err == nil {
+			t.Fatalf("id %q was accepted", bad)
+		}
+	}
+	if err := mgr.RemoveItemDir("aaaa"); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, err := os.Lstat(real); !os.IsNotExist(err) {
+		t.Fatalf("the item directory still exists: %v", err)
+	}
+	if err := mgr.RemoveItemDir("aaaa"); err != nil {
+		t.Fatalf("removing a missing directory: %v", err)
+	}
+	if data, err := os.ReadFile(precious); err != nil || string(data) != "keep" {
+		t.Fatalf("a file outside the staging root was touched: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "bbbb")); err != nil {
+		t.Fatalf("the link in the staging root was removed: %v", err)
+	}
 }

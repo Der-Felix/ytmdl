@@ -100,6 +100,55 @@ func (s *StagingManager) EnsureItemDir(itemID string) (string, error) {
 	return dir, nil
 }
 
+// ItemDirNames lists the names of the real directories directly below the
+// staging root. Symbolic links, files and anything else are left out: they
+// were not created by EnsureItemDir and are never treated as item staging.
+func (s *StagingManager) ItemDirNames() ([]string, error) {
+	entries, err := os.ReadDir(s.root)
+	if err != nil {
+		return nil, apperr.Wrap(apperr.CodeInternal, "The staging root could not be listed.", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		// DirEntry.Type comes from Lstat semantics: a symbolic link to a
+		// directory is reported as a link, not as a directory.
+		if entry.Type()&fs.ModeType == fs.ModeDir {
+			names = append(names, entry.Name())
+		}
+	}
+	return names, nil
+}
+
+// RemoveItemDir removes the staging directory of one item. It refuses
+// anything that is not a real directory directly below the staging root, so a
+// symbolic link is never followed and nothing outside the root is touched.
+// A directory that no longer exists is not an error.
+func (s *StagingManager) RemoveItemDir(itemID string) error {
+	dir, err := s.ItemDir(itemID)
+	if err != nil {
+		return err
+	}
+	if filepath.Dir(dir) != s.root {
+		return apperr.New(apperr.CodeInvalidRequest, "Staging directory is not directly below the staging root.")
+	}
+	info, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return apperr.Wrap(apperr.CodeInternal, "The staging directory could not be inspected.", err)
+	}
+	if info.Mode()&fs.ModeType != fs.ModeDir {
+		return apperr.New(apperr.CodeInvalidRequest, "The staging entry is not a real directory and is left alone.")
+	}
+	// RemoveAll removes symbolic links inside the directory as links; it never
+	// descends into their targets.
+	if err := os.RemoveAll(dir); err != nil {
+		return apperr.Wrap(apperr.CodeInternal, "The staging directory could not be removed.", err)
+	}
+	return nil
+}
+
 // CheckSpace verifies that staging free disk space and quota limits are maintained.
 func (s *StagingManager) CheckSpace() error {
 	// Query filesystem space
@@ -157,13 +206,26 @@ func (s *StagingManager) CountPartials() (int, error) {
 	return count, nil
 }
 
+// DownloadAttemptPrefix names the private directory one download attempt works
+// in inside an item's staging directory. The leading dot keeps it out of every
+// listing that looks for media files; its unfinished files are the item's
+// partials.
+const DownloadAttemptPrefix = ".ytdm-attempt-"
+
 func hasPartials(dir string) bool {
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
 	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".part") || strings.HasSuffix(f.Name(), ".ytdl") {
+		name := f.Name()
+		if f.IsDir() {
+			if strings.HasPrefix(name, DownloadAttemptPrefix) && hasPartials(filepath.Join(dir, name)) {
+				return true
+			}
+			continue
+		}
+		if strings.HasSuffix(name, ".part") || strings.HasSuffix(name, ".ytdl") {
 			return true
 		}
 	}
