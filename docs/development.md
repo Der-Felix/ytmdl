@@ -109,12 +109,14 @@ python3 scripts/smoke-release-containers.py \
   --version 0.28.1
 ```
 
-The test creates a uniquely named internal network, disposable PostgreSQL 18,
-volumes and containers. It checks first-run setup, the default-disabled combined
+The test creates uniquely named networks, disposable PostgreSQL 18,
+volumes and containers. Backend and database use an internal network without
+internet access; the frontend also joins an ingress network to publish its test
+port on host loopback under both Docker and Podman. It checks first-run setup, the default-disabled combined
 fallback, exact 25 MiB multipart uploads through both route aliases, oversized
 file/request rejection, and cookie content, permissions and authentication after
 backend restart and recreation. It uses synthetic cookies, sends no provider
-requests, and removes its own containers, volumes and network when finished.
+requests, and removes its own containers, volumes and networks when finished.
 
 The release workflow runs this test before publishing. Its manual verify-only
 mode also builds both container architectures, compiles the host CLI binaries,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise built release images in a disposable, internet-isolated stack."""
+"""Exercise release images with a disposable database and isolated backend."""
 
 import argparse
 import hashlib
@@ -26,6 +26,7 @@ def check(condition, message):
 def smoke(args):
     prefix = "ytmdl-smoke-" + secrets.token_hex(6)
     network = prefix + "-net"
+    ingress = prefix + "-ingress"
     volumes = [prefix + suffix for suffix in ("-db", "-data", "-music")]
     containers = [prefix + suffix for suffix in ("-db", "-backend", "-frontend")]
     database, backend, frontend = containers
@@ -93,6 +94,9 @@ def smoke(args):
 
     try:
         engine("network", "create", "--internal", network)
+        # Docker suppresses published ports on internal networks. Only the
+        # frontend joins this second network; the backend and DB stay isolated.
+        engine("network", "create", ingress)
         for volume in volumes:
             engine("volume", "create", volume)
         # Synthetic credentials exist only for the lifetime of this stack.
@@ -118,9 +122,10 @@ def smoke(args):
         )
         engine(*backend_command)
         engine(
-            "run", "-d", "--name", frontend, "--network", network,
+            "run", "-d", "--name", frontend, "--network", ingress,
             "-p", "127.0.0.1::8080", args.frontend,
         )
+        engine("network", "connect", network, frontend)
         port = engine("port", frontend, "8080/tcp").splitlines()[0].rsplit(":", 1)[1]
         check(port.isdigit(), "Frontend port could not be determined.")
         base = "http://127.0.0.1:" + port
@@ -195,6 +200,7 @@ def smoke(args):
             engine("rm", "-f", container, required=False)
         for volume in volumes:
             engine("volume", "rm", volume, required=False)
+        engine("network", "rm", ingress, required=False)
         engine("network", "rm", network, required=False)
 
 
