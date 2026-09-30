@@ -48,6 +48,21 @@ type AudioFormat struct {
 	SampleRate  int     `json:"sample_rate"`
 	Channels    int     `json:"channels"`
 	Filesize    int64   `json:"filesize"`
+
+	// Combined marks a format that carries the audio inside a stream that also
+	// carries video. Such a format is only ever offered when the item has no
+	// audio only stream at all, and the downloader must strip the video before
+	// the file may be stored. Codec then names the audio codec, never the
+	// video one.
+	Combined bool `json:"combined,omitempty"`
+	// VideoCodec names the video stream of a combined format. It is empty for
+	// an audio only format.
+	VideoCodec string `json:"video_codec,omitempty"`
+	// TransferBitrateKbps is what the whole format costs to transfer, audio
+	// and video together. For an audio only format it equals the audio
+	// bitrate; for a combined format it is the figure that decides whether the
+	// transfer is worth it.
+	TransferBitrateKbps float64 `json:"transfer_bitrate_kbps,omitempty"`
 }
 
 // IsOpus reports whether the format carries a native Opus stream.
@@ -98,4 +113,53 @@ func SearchQuery(track music.Track) string {
 		parts = append(parts, title)
 	}
 	return strings.Join(parts, " ")
+}
+
+// canonicalAudioCodec reduces a codec name to the family it belongs to.
+// Platforms and ffprobe spell the same codec differently: yt-dlp reports
+// "mp4a.40.2" where ffprobe reports "aac", and both spellings must reach the
+// same decision.
+func canonicalAudioCodec(codec string) string {
+	name := strings.ToLower(strings.TrimSpace(codec))
+	if idx := strings.IndexByte(name, '.'); idx > 0 {
+		name = name[:idx]
+	}
+	switch {
+	case name == "aac" || name == "mp4a":
+		return "aac"
+	case name == "alac":
+		return "alac"
+	case name == "mp3" || name == "mp4a-mp3":
+		return "mp3"
+	case strings.HasPrefix(name, "opus"):
+		return "opus"
+	case name == "vorbis":
+		return "vorbis"
+	case name == "flac":
+		return "flac"
+	}
+	return name
+}
+
+// extractableContainers maps an audio codec onto the container its packets can
+// be copied into without re-encoding. It is an allow list on purpose: a codec
+// that is not listed is rejected rather than guessed into a container that
+// cannot hold it, which is what renaming a file extension would amount to.
+var extractableContainers = map[string]string{
+	"aac":    "m4a",
+	"alac":   "m4a",
+	"mp3":    "mp3",
+	"opus":   "opus",
+	"vorbis": "ogg",
+	"flac":   "flac",
+}
+
+// ExtractableAudioCodec reports the container an audio codec can be copied
+// into without a second lossy encode, and whether this backend supports it at
+// all. It is the single authority for that question: the resolver uses it to
+// decide whether a combined format is worth transferring, and the downloader
+// uses it again on the codec ffprobe actually measured.
+func ExtractableAudioCodec(codec string) (container string, ok bool) {
+	container, ok = extractableContainers[canonicalAudioCodec(codec)]
+	return container, ok
 }

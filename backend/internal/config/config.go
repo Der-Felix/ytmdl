@@ -134,6 +134,21 @@ type DownloadsConfig struct {
 	StagingMaxBytes     int64         `yaml:"staging_max_bytes"`
 	AllowOfflineStaging bool          `yaml:"allow_offline_staging"`
 	SkipExisting        bool          `yaml:"skip_existing"`
+
+	// CombinedAudioFallback permits acquiring a track from a combined
+	// audio/video stream when the platform offers no audio only stream. The
+	// audio is copied out without re-encoding and the video never reaches the
+	// library, but the video bytes are transferred and discarded and the
+	// transfer occupies the media session for its whole duration. It is off
+	// for every existing installation and is meant to be switched on for a
+	// controlled comparison first.
+	CombinedAudioFallback bool `yaml:"combined_audio_fallback"`
+	// CombinedFallbackMaxBytes bounds what one combined transfer may move.
+	// Zero selects the downloader's default.
+	CombinedFallbackMaxBytes int64 `yaml:"combined_fallback_max_bytes"`
+	// CombinedFallbackTimeout bounds how long one combined transfer may run.
+	// Zero selects the downloader's default.
+	CombinedFallbackTimeout time.Duration `yaml:"combined_fallback_timeout"`
 }
 
 // SubscriptionsConfig controls the periodic discography sync.
@@ -307,6 +322,12 @@ func Default() Config {
 			StagingMaxBytes:     0,
 			AllowOfflineStaging: false,
 			SkipExisting:        true,
+
+			// Off, and bounded by the downloader's own defaults, until an
+			// operator switches it on deliberately.
+			CombinedAudioFallback:    false,
+			CombinedFallbackMaxBytes: 0,
+			CombinedFallbackTimeout:  0,
 		},
 		Matching: MatchingConfig{
 			MinScore:            70,
@@ -535,6 +556,9 @@ func (c *Config) applyEnv() error {
 	num("MUSICDL_MAX_ATTEMPTS", &c.Downloads.MaxAttempts)
 	dur("YTDM_RETRY_BACKOFF", &c.Downloads.RetryBackoff)
 	boolean("YTDM_ALLOW_TRANSCODE", &c.Downloads.AllowTranscode)
+	boolean("YTDM_COMBINED_AUDIO_FALLBACK", &c.Downloads.CombinedAudioFallback)
+	num64("YTDM_COMBINED_FALLBACK_MAX_BYTES", &c.Downloads.CombinedFallbackMaxBytes)
+	dur("YTDM_COMBINED_FALLBACK_TIMEOUT", &c.Downloads.CombinedFallbackTimeout)
 	str("YTDM_TEMP_DIR", &c.Downloads.TempDir)
 	str("MUSICDL_STAGING_DIR", &c.Downloads.StagingDir)
 	str("YTDM_STAGING_DIR", &c.Downloads.StagingDir)

@@ -396,7 +396,30 @@ type DownloadRequest struct {
 	RateLimit string
 	// CookieFile optionally overrides the cookie file for this invocation.
 	CookieFile string
+	// MaxFilesizeBytes lets yt-dlp refuse a stream whose announced size
+	// exceeds the limit before it transfers anything. It is an early exit for
+	// the streams that announce a size; a stream that announces none - a
+	// segmented one, typically - is bounded by the caller instead.
+	MaxFilesizeBytes int64
+	// ProcessTimeout bounds how long the yt-dlp process may run. The limit
+	// starts only once the execution slot has been granted: waiting for a
+	// busy session is bounded by ctx alone and never consumes this budget.
+	// Zero means no limit beyond ctx.
+	ProcessTimeout time.Duration
 }
+
+// ErrProcessTimeout marks a download whose process outran
+// DownloadRequest.ProcessTimeout while the caller's context was still live.
+var ErrProcessTimeout = errors.New("download process exceeded its time limit")
+
+// ErrMaxFilesize marks a download yt-dlp refused because the stream is larger
+// than DownloadRequest.MaxFilesizeBytes. yt-dlp reports that refusal on
+// standard output and still exits successfully, so it has to be recognised.
+var ErrMaxFilesize = errors.New("download refused by the file size limit")
+
+// maxFilesizeMarker is the wording yt-dlp prints when it aborts a transfer
+// because of --max-filesize ("File is larger than max-filesize (...). Aborting.").
+const maxFilesizeMarker = "larger than max-filesize"
 
 // Download fetches the audio stream and returns the path of the written file.
 // The process is bound to ctx: cancelling it terminates yt-dlp, which is how
@@ -436,10 +459,18 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 	}
 	defer releaseExecution()
 
-	args := append(client.baseArgs(), downloadArgs(selector, retries, req.Dir, req.RateLimit)...)
+	// The process budget starts now that the slot is held.
+	procCtx := ctx
+	if req.ProcessTimeout > 0 {
+		var cancel context.CancelFunc
+		procCtx, cancel = context.WithTimeout(ctx, req.ProcessTimeout)
+		defer cancel()
+	}
+
+	args := append(client.baseArgs(), downloadArgs(selector, retries, req.Dir, req.RateLimit, req.MaxFilesizeBytes)...)
 	args = append(args, "--", req.URL)
 
-	cmd := client.command(ctx, args...)
+	cmd := client.command(procCtx, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", apperr.Wrap(apperr.CodeInternal, "The yt-dlp output could not be captured.", err)
@@ -452,7 +483,10 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 	}
 	client.count("download", "process")
 
-	var wg sync.WaitGroup
+	var (
+		wg              sync.WaitGroup
+		refusedOversize bool
+	)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -461,6 +495,9 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 		for scanner.Scan() {
 			line := scanner.Text()
 			if !strings.HasPrefix(line, progressMarker) {
+				if strings.Contains(strings.ToLower(line), maxFilesizeMarker) {
+					refusedOversize = true
+				}
 				continue
 			}
 			if onProgress == nil {
@@ -472,18 +509,35 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 		}
 	}()
 
-	waitErr := cmd.Wait()
+	// Standard output has to be read to its end before Wait: Wait closes the
+	// pipe once the process has exited, and lines a quickly exiting process
+	// wrote last - the size refusal among them - would otherwise be lost. On
+	// cancellation the process group is ended independently of Wait, so the
+	// pipe still reaches its end.
 	wg.Wait()
+	waitErr := cmd.Wait()
 
 	if waitErr != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", apperr.Wrap(apperr.CodeJobCancelled, "The download was cancelled.", ctxErr)
+		}
+		if procCtx.Err() != nil {
+			client.count("download", "process_timeout")
+			return "", apperr.Wrap(apperr.CodeTransferBudgetExceeded,
+				"The download did not finish within its time limit and was stopped.", ErrProcessTimeout)
 		}
 		classified := classifyDownloadError(stderr.String(), waitErr)
 		client.countError("download", classified)
 		return "", classified
 	}
 
+	// A successful exit is only a success when it produced the stream. A
+	// refusal by the size limit exits successfully but writes nothing.
+	if refusedOversize {
+		client.count("download", "refused_max_filesize")
+		return "", apperr.Wrap(apperr.CodeTransferBudgetExceeded,
+			"The stream is larger than the transfer size limit and was not downloaded.", ErrMaxFilesize)
+	}
 	path, err := singleFileIn(req.Dir)
 	if err != nil {
 		return "", err
@@ -511,7 +565,7 @@ func classifyDownloadError(stderr string, cause error) error {
 // downloadArgs are the flags a download adds to the shared base arguments.
 // They are built here rather than inline so that a test can check the exact
 // vector the backend passes to yt-dlp.
-func downloadArgs(selector string, retries int, dir string, rateLimit string) []string {
+func downloadArgs(selector string, retries int, dir string, rateLimit string, maxFilesize int64) []string {
 	args := []string{
 		"--no-playlist",
 		"--no-simulate",
@@ -526,6 +580,9 @@ func downloadArgs(selector string, retries int, dir string, rateLimit string) []
 	}
 	if trimmed := strings.TrimSpace(rateLimit); trimmed != "" {
 		args = append(args, "--limit-rate", trimmed)
+	}
+	if maxFilesize > 0 {
+		args = append(args, "--max-filesize", strconv.FormatInt(maxFilesize, 10))
 	}
 	return args
 }

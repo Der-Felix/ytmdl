@@ -147,7 +147,7 @@ exit 1`)
 				t.Fatal(err)
 			}
 			allowed := map[string]bool{}
-			for _, key := range []string{"time", "level", "msg", "provider", "operation", "media_id", "verification_stage", "verification_reason", "expected_duration_ms", "measured_duration_ms", "duration_tolerance_ms", "codec", "container", "size_bytes"} {
+			for _, key := range []string{"time", "level", "msg", "provider", "operation", "media_id", "format_kind", "format_id", "verification_stage", "verification_reason", "expected_duration_ms", "measured_duration_ms", "duration_tolerance_ms", "codec", "container", "size_bytes"} {
 				allowed[key] = true
 			}
 			for key := range event {
@@ -155,7 +155,7 @@ exit 1`)
 					t.Errorf("unreviewed diagnostic field: %s", key)
 				}
 			}
-			for key, want := range map[string]any{"provider": "soundcloud", "media_id": "254407911", "verification_reason": tc.reason, "verification_stage": "final", "expected_duration_ms": float64(30000), "duration_tolerance_ms": float64(15000)} {
+			for key, want := range map[string]any{"provider": "soundcloud", "media_id": "254407911", "format_kind": "audio_only", "format_id": "", "verification_reason": tc.reason, "verification_stage": "final", "expected_duration_ms": float64(30000), "duration_tolerance_ms": float64(15000)} {
 				if event[key] != want {
 					t.Errorf("%s=%v, want %v", key, event[key], want)
 				}

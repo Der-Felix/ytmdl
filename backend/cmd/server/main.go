@@ -382,10 +382,14 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		FFmpeg:                ffmpegRunner,
 		Prober:                prober,
 		AllowTranscode:        cfg.Downloads.AllowTranscode,
+		CombinedAudioFallback: cfg.Downloads.CombinedAudioFallback,
+		CombinedMaxBytes:      cfg.Downloads.CombinedFallbackMaxBytes,
+		CombinedTimeout:       cfg.Downloads.CombinedFallbackTimeout,
 		DurationToleranceMS:   durationVerifyTolerance(cfg.Matching.DurationToleranceMS),
 		Retries:               cfg.Downloads.MaxRetries,
 		CookieResolver:        providerOrchestrator.ResolveCookiePath,
 		ExecutionGateResolver: sessionPool.ExecutionGate,
+		Recorder:              throughputRecorder,
 		Logger:                logger,
 	})
 	if err != nil {
@@ -713,10 +717,11 @@ func buildProviders(cfg config.Config, client *ytdlp.Client, logger *slog.Logger
 		logger.Info("provider registered", logging.KeyProvider, metadataProvider.Name(), "kind", "metadata")
 
 		mediaProvider, err := ytmusic.NewMediaProvider(ytmusic.MediaConfig{
-			Client:            client,
-			Limit:             cfg.Matching.CandidateLimit,
-			RequestsPerSecond: cfg.Providers.YTMusic.RequestsPerSecond,
-			Burst:             cfg.Providers.YTMusic.Burst,
+			Client:                client,
+			Limit:                 cfg.Matching.CandidateLimit,
+			RequestsPerSecond:     cfg.Providers.YTMusic.RequestsPerSecond,
+			Burst:                 cfg.Providers.YTMusic.Burst,
+			CombinedAudioFallback: cfg.Downloads.CombinedAudioFallback,
 		})
 		if err != nil {
 			return nil, err
@@ -727,12 +732,13 @@ func buildProviders(cfg config.Config, client *ytdlp.Client, logger *slog.Logger
 
 	if cfg.Providers.YouTube.Enabled {
 		mediaProvider, err := youtube.New(youtube.Config{
-			Name:              youtube.ProviderName,
-			Mode:              youtube.SearchVideos,
-			Client:            client,
-			Limit:             cfg.Matching.CandidateLimit,
-			RequestsPerSecond: cfg.Providers.YouTube.RequestsPerSecond,
-			Burst:             cfg.Providers.YouTube.Burst,
+			Name:                  youtube.ProviderName,
+			Mode:                  youtube.SearchVideos,
+			Client:                client,
+			Limit:                 cfg.Matching.CandidateLimit,
+			RequestsPerSecond:     cfg.Providers.YouTube.RequestsPerSecond,
+			Burst:                 cfg.Providers.YouTube.Burst,
+			CombinedAudioFallback: cfg.Downloads.CombinedAudioFallback,
 		})
 		if err != nil {
 			return nil, err

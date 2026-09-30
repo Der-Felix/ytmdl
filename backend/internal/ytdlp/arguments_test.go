@@ -30,9 +30,9 @@ func TestArgumentVectorsAreAcceptedByYTDLP(t *testing.T) {
 		"music search": append(client.baseArgs(),
 			"--dump-json", "--flat-playlist", "--playlist-items", "1:10"),
 		"download": append(client.baseArgs(),
-			downloadArgs(DefaultFormatSelector, 3, t.TempDir(), "")...),
+			downloadArgs(DefaultFormatSelector, 3, t.TempDir(), "", 0)...),
 		"download rate limit": append(client.baseArgs(),
-			downloadArgs(DefaultFormatSelector, 3, t.TempDir(), "5M")...),
+			downloadArgs(DefaultFormatSelector, 3, t.TempDir(), "5M", 0)...),
 		"version": append(client.baseArgs(), "--version"),
 	}
 
@@ -54,14 +54,14 @@ func TestArgumentVectorsAreAcceptedByYTDLP(t *testing.T) {
 }
 
 func TestDownloadArgsRateLimit(t *testing.T) {
-	argsNoLimit := downloadArgs(DefaultFormatSelector, 3, "/tmp", "")
+	argsNoLimit := downloadArgs(DefaultFormatSelector, 3, "/tmp", "", 0)
 	for i, arg := range argsNoLimit {
 		if arg == "--limit-rate" {
 			t.Fatalf("expected no --limit-rate, found at index %d", i)
 		}
 	}
 
-	argsWithLimit := downloadArgs(DefaultFormatSelector, 3, "/tmp", "10M")
+	argsWithLimit := downloadArgs(DefaultFormatSelector, 3, "/tmp", "10M", 0)
 	var found bool
 	for i, arg := range argsWithLimit {
 		if arg == "--limit-rate" {
