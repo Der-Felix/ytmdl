@@ -50,7 +50,11 @@ func TestUnavailableWordingNeverMasksProtectionOrOutages(t *testing.T) {
 		{"account rate limit", "ERROR: [youtube] x: Video unavailable. This content isn't available, try again later. Your account has been rate-limited", apperr.CodeProviderRateLimited},
 		{"bot challenge", "ERROR: [youtube] x: This video is unavailable. Sign in to confirm you're not a bot", apperr.CodeSessionBotChallenge},
 		{"expired cookies", "ERROR: [youtube] x: This video is unavailable. Your cookies are expired", apperr.CodeSessionAuthFailed},
-		{"sign in to confirm", "ERROR: [youtube] x: This video is unavailable. Sign in to confirm your age", apperr.CodeSessionAuthFailed},
+		// Naming the age gate decides the item, so this one is covered by
+		// TestAgeRestrictionIsACandidateFailure and only asserted here to stay
+		// out of the unavailable-item category.
+		{"sign in to confirm an age gate", "ERROR: [youtube] x: This video is unavailable. Sign in to confirm your age", apperr.CodeTrackNotFound},
+		{"sign in to confirm an identity", "ERROR: [youtube] x: This video is unavailable. Sign in to confirm your identity", apperr.CodeSessionAuthFailed},
 		{"network", "WARNING: [youtube] x: This video is unavailable\nERROR: [youtube] x: Unable to download API page: [Errno -2] Name does not resolve", apperr.CodeProviderUnavailable},
 		{"service unavailable", "ERROR: [youtube] x: HTTP Error 503: Service Unavailable", apperr.CodeProviderUnavailable},
 		{"ambiguous: account", "ERROR: [youtube] x: This video is unavailable for this account", apperr.CodeProviderUnavailable},

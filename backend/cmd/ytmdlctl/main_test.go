@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"ytdm/backend/cmd/ytmdlctl/internal/discovery"
 	"ytdm/backend/cmd/ytmdlctl/internal/manifest"
 	"ytdm/backend/cmd/ytmdlctl/internal/runner"
 	"ytdm/backend/cmd/ytmdlctl/internal/state"
@@ -500,6 +501,39 @@ func TestUpdateDryRunBlockedScenarios(t *testing.T) {
 			},
 			expectedBlock: "missing required configuration: POSTGRES_PASSWORD",
 		},
+		{
+			name: "storage guard missing",
+			setup: func(t *testing.T, tmpDir string, fake *runner.FakeProcessRunner, ghServer, backendServer *httptest.Server) {
+				_ = os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("YTMDL_VERSION=0.15.0\nPOSTGRES_PASSWORD=secret\nYTMDL_STORAGE_GUARD_ID=test-guard\n"), 0600)
+				fake.Register("docker", []string{
+					"compose", "-f", "compose.yaml", "exec", "-T", "backend",
+					"sh", "-c", discovery.StaticStorageGuardScript,
+				}, &runner.RunResult{ExitCode: 2}, nil)
+			},
+			expectedBlock: "storage guard verification failed: missing",
+		},
+		{
+			name: "storage guard mismatch",
+			setup: func(t *testing.T, tmpDir string, fake *runner.FakeProcessRunner, ghServer, backendServer *httptest.Server) {
+				_ = os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("YTMDL_VERSION=0.15.0\nPOSTGRES_PASSWORD=secret\nYTMDL_STORAGE_GUARD_ID=test-guard\n"), 0600)
+				fake.Register("docker", []string{
+					"compose", "-f", "compose.yaml", "exec", "-T", "backend",
+					"sh", "-c", discovery.StaticStorageGuardScript,
+				}, &runner.RunResult{ExitCode: 3}, nil)
+			},
+			expectedBlock: "storage guard verification failed: mismatch",
+		},
+		{
+			name: "storage guard unavailable",
+			setup: func(t *testing.T, tmpDir string, fake *runner.FakeProcessRunner, ghServer, backendServer *httptest.Server) {
+				_ = os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("YTMDL_VERSION=0.15.0\nPOSTGRES_PASSWORD=secret\nYTMDL_STORAGE_GUARD_ID=test-guard\n"), 0600)
+				fake.Register("docker", []string{
+					"compose", "-f", "compose.yaml", "exec", "-T", "backend",
+					"sh", "-c", discovery.StaticStorageGuardScript,
+				}, &runner.RunResult{ExitCode: 1, Stderr: []byte("backend container not found")}, nil)
+			},
+			expectedBlock: "storage guard verification failed: unavailable",
+		},
 	}
 
 	for _, tc := range tests {
@@ -554,6 +588,32 @@ func TestUpdateDryRunBlockedScenarios(t *testing.T) {
 			}
 			if !strings.Contains(out, tc.expectedBlock) {
 				t.Errorf("expected block reason %q in output, got:\n%s", tc.expectedBlock, out)
+			}
+		})
+	}
+}
+
+func TestStorageGuardPolicyConsistency(t *testing.T) {
+	// For every real GuardStatus enum value, dry-run and orchestrator must make the exact same allow/block decision.
+	allStatuses := []discovery.GuardStatus{
+		discovery.GuardStatusDisabled,
+		discovery.GuardStatusVerified,
+		discovery.GuardStatusMissing,
+		discovery.GuardStatusMismatch,
+		discovery.GuardStatusUnavailable,
+	}
+
+	for _, s := range allStatuses {
+		t.Run(string(s), func(t *testing.T) {
+			allowPolicy := s.AllowsUpdate()
+			if s == discovery.GuardStatusDisabled || s == discovery.GuardStatusVerified {
+				if !allowPolicy {
+					t.Errorf("status %q should allow update, got false", s)
+				}
+			} else {
+				if allowPolicy {
+					t.Errorf("status %q should block update, got true", s)
+				}
 			}
 		})
 	}

@@ -453,3 +453,69 @@ func TestResolveArtistFilesAFeatureUnderThePrimaryArtist(t *testing.T) {
 		t.Errorf("album = %q, want CCN", track.Album)
 	}
 }
+
+func TestResolveArtistSuppressesDuplicateReleases(t *testing.T) {
+	mockMeta := &mockMetadataProvider{
+		name: "ytmusic",
+		getArtist: func(ctx context.Context, id string) (*music.Artist, error) {
+			return &music.Artist{ID: id, Name: "Antonio Vivaldi", Provider: "ytmusic"}, nil
+		},
+		getDisco: func(ctx context.Context, artistID string) ([]music.Release, error) {
+			return []music.Release{
+				{
+					ID: "rel_1", SourceID: "MPREb_b2lpllKyWwY", Title: "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+					AlbumArtist: "Antonio Vivaldi", Artists: []string{"Antonio Vivaldi"},
+					Year: 2025, ReleaseType: music.ReleaseSingle, Provider: "ytmusic",
+				},
+				{
+					ID: "rel_2", SourceID: "MPREb_abOSjhra9KT", Title: "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+					AlbumArtist: "Antonio Vivaldi", Artists: []string{"Antonio Vivaldi"},
+					Year: 2025, ReleaseType: music.ReleaseSingle, Provider: "ytmusic",
+				},
+			}, nil
+		},
+		getTracks: func(ctx context.Context, releaseID string) ([]music.Track, error) {
+			dur := 135000
+			srcID := "hbvxKF3RO20"
+			if releaseID == "MPREb_abOSjhra9KT" {
+				dur = 75000
+				srcID = "9Is4gK2iBxY"
+			}
+			return []music.Track{
+				{
+					ID: srcID, SourceID: srcID, SourceProvider: "ytmusic",
+					Title:   "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+					Artists: []string{"Antonio Vivaldi"}, AlbumArtist: "Antonio Vivaldi",
+					TrackNumber: 1, DiscNumber: 1, DurationMS: dur,
+				},
+			}, nil
+		},
+	}
+
+	reg := provider.NewRegistry()
+	reg.RegisterMetadata(mockMeta)
+	service, err := NewService(Options{Registry: reg})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	res, err := service.ResolveArtist(context.Background(), ArtistRequest{
+		Provider: "ytmusic", ArtistID: "a1", Filter: music.DefaultReleaseFilter(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("ResolveArtist: %v", err)
+	}
+
+	if len(res.Releases) != 1 {
+		t.Fatalf("expected 1 release after duplicate suppression, got %d", len(res.Releases))
+	}
+	if res.Releases[0].SourceID != "MPREb_b2lpllKyWwY" {
+		t.Fatalf("expected first representative kept, got %q", res.Releases[0].SourceID)
+	}
+	if len(res.Groups) != 1 {
+		t.Fatalf("expected 1 distinct recording group, got %d", len(res.Groups))
+	}
+	if res.TotalTracks != 1 {
+		t.Fatalf("expected TotalTracks=1, got %d", res.TotalTracks)
+	}
+}

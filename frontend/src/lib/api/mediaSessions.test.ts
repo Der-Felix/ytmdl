@@ -61,10 +61,10 @@ describe('mediaSessions api client', () => {
 
     const oversizedErr = new ApiError({
       code: 'INVALID_REQUEST',
-      message: 'Cookie file exceeds 1 MiB limit.',
+      message: 'Cookie file exceeds 25 MiB limit.',
       status: 400,
     })
-    expect(mapMediaSessionError(oversizedErr)).toContain('1 MB')
+    expect(mapMediaSessionError(oversizedErr)).toContain('25 MB')
 
     const malformedErr = new ApiError({
       code: 'INVALID_REQUEST',

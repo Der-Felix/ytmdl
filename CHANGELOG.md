@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.28.1 — 2026-09-20
 
 ### Highlights
 
@@ -12,20 +12,27 @@
 
 ### Changes
 
+- **Storage Guard Updater Fix:** Fixed `ytmdlctl update` incorrectly refusing updates during preflight when Storage Identity Guard is intentionally disabled (`YTMDL_STORAGE_GUARD_ID` unset). Both dry-run and live updates now use the shared `AllowsUpdate` verification policy, permitting updates when the guard is disabled or verified while strictly blocking unsafe states (missing, mismatch, unavailable, or probe errors).
+- **Outbound Proxy:** Fixed provider HTTP clients rejecting an explicitly configured private-network proxy. Public origin checks, private-address rejection, redirect protection and `NO_PROXY` routing are preserved.
+- **Cookie Uploads:** Managed session cookie exports now support up to 25 MiB, with 26 MiB allowed for multipart framing through the API router and bundled Nginx proxy. The interface reports the updated limit.
+- **Premium-only Candidates:** Music Premium and YouTube Premium item restrictions are classified as candidate failures, preserving session health and allowing the next candidate during resolution.
+- **Repository Maintenance:** Corrected deployment links and outdated repository workflow documentation; excluded local build outputs and environment files from container build contexts.
+- **Persistent Cookie Directory:** Container deployments now default managed media-session cookie storage to the persistent writable `/data/cookies` path (`MUSICDL_COOKIE_DIR=/data/cookies`), preventing permission warnings on startup and ensuring uploaded session cookies persist across container recreations.
+- **Database Schema:** Schema remains at 12; no database migration is required.
+- **Configuration Compatibility:** Existing explicit custom `MUSICDL_COOKIE_DIR` settings are preserved and continue to take precedence.
+
 - **Selection:** an audio-only stream always wins. A combined stream is only considered when none exists and only when its format record proves a named audio and video codec, no preview marker, no DRM or protected transport, a copyable audio codec, and no *named* audio bitrate below 48 kbps. An unknown field is never read as a promise. Among eligible formats the cheapest transfer wins — not the highest resolution — in a total, deterministic order, and the download addresses the chosen format by its id. The generic selector still never falls back to `best`.
 - **Extraction:** `ffmpeg -vn -map 0:a:0 -c:a copy` in staging only, into the container the codec ffprobe measured can hold (`aac`/`alac` → `.m4a`, `mp3`, `opus` → `.opus`, `vorbis` → `.ogg`, `flac`); any other codec is rejected rather than renamed. The combined file is deleted immediately and never published. The stored file is rejected if it still carries a real video stream; embedded cover art is unaffected, and all existing verification limits apply.
 - **Limits:** one combined transfer may move at most `YTDM_COMBINED_FALLBACK_MAX_BYTES` (default 128 MiB) and run at most `YTDM_COMBINED_FALLBACK_TIMEOUT` (default 10m). The size is enforced before the transfer where the platform announces one, when yt-dlp refuses the stream under `--max-filesize` (it exits successfully, which is recognised), during the transfer from reported progress, and afterwards on the arrived file — the last of these is the binding check, because a segmented stream announces no size. The time limit starts only once the media session's execution slot is granted; waiting for a busy session is bounded by the item's own context and never consumes it.
 - **Attempt isolation:** every download attempt, audio-only or combined, works in a private `.ytdm-attempt-*` directory inside the item's staging directory, so a partial download is no longer resumed by a later attempt. Only the verified audio leaves it; a successful yt-dlp exit without new output is a failure, and a file an earlier attempt left behind is never taken as the current candidate's result. The directory is removed on every outcome, and one left by an interrupted process is removed by the item's next attempt.
 - **Error contract:** with the switch on, a candidate whose format answer offers not even a usable combined stream fails with `UNSUPPORTED_MEDIA_FORMAT`, and a combined transfer stopped by the local byte or time budget fails with `TRANSFER_BUDGET_EXCEEDED` (both HTTP 422, candidate scoped). Neither is retried — format answers are reused from the query cache for longer than the retry backoff runs, and a repeated transfer would spend the same budget again — and neither pauses a provider family, records a platform failure on the session pool or marks the session. An exhausted fanout still ends permanently as `TRACK_NOT_FOUND`; only when the switch is on and a candidate failed with `UNSUPPORTED_MEDIA_FORMAT` does it end with that code instead. A caller who cancels, or whose deadline passes, while a download waits for the session slot gets `JOB_CANCELLED` carrying that cause. Bot, auth and rate-limit rules keep precedence unchanged.
 - **Diagnostics:** every acquisition logs `format_kind`, the secret-free format id, source audio and video codec, transferred and stored bytes, download and extraction duration, the verification result and the session lease time. Hourly counters are recorded under `download.<family>.<audio_only|combined>.*`. No stream URL, cookie or token is logged. Details: `docs/diagnostics/audio-format-classification.md`.
-- **Database Schema:** Schema remains at 12; no database migration is required. Items that already failed keep their stored result — nothing is retried automatically.
 - **Cancellation vs. time limit vs. shutdown:** the per-track context now carries its cause. An explicit cancellation stays `cancelled` and is never retried; a passed track time limit becomes `TRACK_TIMEOUT` (HTTP 504, candidate scoped, retryable); a service shutdown leaves the track in its working state for recovery. This holds whether the context ends during a transfer or while waiting for the media session's execution slot. A local timeout never pauses a provider family, records a platform failure or marks a session.
 - **yt-dlp client:** a query or download whose caller cancelled, or whose caller's deadline passed, is reported as `JOB_CANCELLED` carrying that cause - also while it waits for the session slot. The process group is ended and the slot released on every path. A query shared through the query cache is not handed another caller's cancellation.
 - **Staging lifecycle:** kept while a track is active, waiting or retryable; removed once `completed`, `skipped`, `cancelled` or `failed` is stored, and kept if that state could not be stored.
 - **Start-up pruning:** after recovery and before any worker, staging directories are removed only when their name is an item id, they are real directories directly below the staging root (symbolic links are never followed), and the database reports their track in a final state. Unknown entries are kept; if the states cannot be read, nothing is removed. Each run is logged as `staging pruned` with counts.
 
 ### Known Limits
-
 - The real bandwidth of combined streams and whether their segment requests count differently against the account throttle are not known; a yt-dlp process start is not an HTTP request. The fallback must prove itself in a controlled comparison on *completed downloads*, not on fewer error messages.
 - A combined transfer holds the only media session's execution slot for its whole duration, so each such acquisition may displace several ordinary ones.
 - A track waiting for the session slot behind combined transfers still counts that wait against `YTDM_TRACK_TIMEOUT`; when it passes, the track waits for a bounded retry as `TRACK_TIMEOUT`.
@@ -35,6 +42,45 @@
 ### Verification Notes
 
 - Offline only: synthetic ffmpeg media, yt-dlp stubs and fixture format answers. No YouTube or SoundCloud request and no production credentials were used. The audio-packet identity of the stream copy is asserted through an audio-stream checksum.
+
+### One-Time Bootstrap for v0.28.0 Users
+
+Installations running v0.28.0 with Storage Guard disabled (the default setup) cannot update using the old v0.28.0 `ytmdlctl` binary, as the old CLI binary aborts in preflight before downloading updates.
+
+To update from v0.28.0 to v0.28.1, download and run the fixed v0.28.1 CLI binary directly:
+
+1. Download the v0.28.1 `ytmdlctl` binary for your platform and `SHA256SUMS` from GitHub Releases (`https://github.com/Der-Felix/ytmdl/releases/tag/v0.28.1`).
+2. Verify the SHA256 checksum: `sha256sum -c SHA256SUMS --ignore-missing` (or `shasum -a 256`).
+3. Make executable: `chmod +x ytmdlctl-<os>-<arch>`.
+4. Replace your local `ytmdlctl` binary or invoke it directly:
+   ```bash
+   ./ytmdlctl-<os>-<arch> update --target 0.28.1 -y
+   ```
+5. Confirm successful update:
+   ```bash
+   ytmdlctl version
+   ```
+
+*(Note: Installations where Storage Identity Guard was explicitly configured and verified are unaffected and can update normally).*
+
+## 0.28.0 — 2026-09-20
+
+### Highlights
+
+- **Update Channels:** Administrators can choose between **Stable** (regular releases only, default for existing and new installations) and **Development** (explicitly published prereleases) in the update settings and web interface. `ytmdlctl` supports channel selection and SemVer 2.0.0 comparison with prerelease precedence.
+- **Provider & Download Reliability:** Reduced provider request volume through bounded metadata caching, candidate resolution deduplication, escalated YouTube rate-limit backoffs, and non-blocking DRM handling for SoundCloud items.
+- **Audio Stream Classification:** HLS audio renditions whose codec is reported as unknown are accepted and probed; combined audio/video streams are never filed as audio, while embedded cover art remains supported.
+- **Age-Gate & Session Protection:** YouTube age restrictions ("Sign in to confirm your age", "Verify your age") and unavailable videos are treated as candidate failures rather than session authorization failures. Healthy media sessions remain active without transitioning to `AUTH_FAILED`, while genuine auth failures and bot challenges preserve systemic protections.
+- **Failed Job Error Visibility:** Failure reasons from failed download items are propagated directly to parent jobs in the API and displayed in the Downloads UI (`JobCard`), replacing generic failure labels with actionable error details.
+- **Discovered Release Deduplication:** Equivalent provider catalog entries for the same release are deduplicated during artist scanning and discovery, preventing redundant download jobs that collide on canonical library storage paths.
+
+### Changes
+
+- **Update System:** `PUT /api/v1/system/update/channel` stores the preferred channel; update status reports channel, prerelease badges, and recommended `ytmdlctl` commands. An installed version newer than the channel offers is never downgraded.
+- **ytmdlctl:** `check` and `update` accept `--channel stable|development` and `--target <version>`. Manifest v3 is maintained for stable releases to preserve backward compatibility with installed CLI tooling.
+- **Downloads & Diagnostics:** The hourly `throughput summary` log line reports acquisitions, provider requests, reuse, rate limits, cooldown time, and failure reasons.
+- **Web UI:** Downloads view displays root item error messages on failed job cards with graceful fallback for historical jobs without parent error metadata.
+- **Database Schema:** Schema remains at 12; no database migration is required.
 
 ## 0.27.2-rc.2 — 2026-09-11
 

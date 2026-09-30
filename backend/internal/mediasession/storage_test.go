@@ -223,3 +223,44 @@ func TestCookieStorage_Security_NoSecretInErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestCookieStorage_DirectoryPermissions(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Writable directory (like /data mounted in container)
+	writableDir := filepath.Join(tempDir, "writable_data")
+	if err := os.Mkdir(writableDir, 0755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	cookieDir := filepath.Join(writableDir, "cookies")
+	storage, err := NewCookieStorage(cookieDir, nil)
+	if err != nil {
+		t.Fatalf("NewCookieStorage in writable dir failed: %v", err)
+	}
+
+	fi, err := os.Stat(storage.BaseDir())
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		if perm := fi.Mode().Perm(); perm != 0700 {
+			t.Errorf("cookieDir perm = %04o, want 0700", perm)
+		}
+	}
+
+	// Read-only directory (simulating unconfigured ./data/cookies inside /app)
+	if runtime.GOOS != "windows" {
+		roDir := filepath.Join(tempDir, "readonly_app")
+		if err := os.Mkdir(roDir, 0555); err != nil {
+			t.Fatalf("Mkdir: %v", err)
+		}
+		defer func() { _ = os.Chmod(roDir, 0755) }()
+
+		unwritableCookieDir := filepath.Join(roDir, "data", "cookies")
+		_, roErr := NewCookieStorage(unwritableCookieDir, nil)
+		if roErr == nil {
+			t.Error("expected NewCookieStorage to fail in read-only parent directory, got nil")
+		}
+	}
+}

@@ -59,7 +59,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer(logger))
 	router.Use(middleware.Logger(logger))
-	router.Use(middleware.BodyLimit(maxBytes))
+	router.Use(requestBodyLimit(maxBytes))
 	router.Use(middleware.Timeout(timeout, eventsPath))
 
 	router.NotFound(response.NotFound)

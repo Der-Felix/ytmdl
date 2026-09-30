@@ -201,6 +201,9 @@ func (c *Client) countError(op string, err error) {
 	if errors.Is(err, ErrItemUnavailable) {
 		c.count(op, "candidate.unavailable")
 	}
+	if errors.Is(err, ErrPremiumRequired) {
+		c.count(op, "candidate.premium_required")
+	}
 }
 
 // Binary returns the configured executable.
@@ -675,11 +678,25 @@ func ClassifyError(stderr string, cause error) error {
 			"The media provider rate limited the request: %s", message)
 
 	// 2. Authentication and bot challenges (session-specific)
-	case strings.Contains(lower, "not a bot") ||
-		strings.Contains(lower, "bot verification") ||
-		strings.Contains(lower, "bot challenge"):
+	case containsAny(lower, botChallengePhrases):
 		return apperr.Wrapf(apperr.CodeSessionBotChallenge, cause,
 			"The media session encountered a bot challenge: %s", message)
+
+	// An age restriction of the requested item: the platform refuses this one
+	// item to this session context and nothing else. It is skipped like an
+	// unavailable item - never unlocked - and neither pauses the family nor
+	// touches the session's health. Rate-limit and bot signals are matched
+	// above and keep precedence; a sign-in prompt does not, because naming an
+	// age gate is how the platform words that gate.
+	case isContentAgeRestriction(stderr):
+		return apperr.Wrap(apperr.CodeTrackNotFound, ageRestrictedMessage, fmt.Errorf("%w: %w", ErrAgeRestricted, cause))
+
+	// A paid-tier gate on the requested item: the platform refuses this one
+	// item to any non-subscriber session, never the provider or the session
+	// itself. It is skipped like an unavailable item - it does not pause the
+	// family and does not touch the session's health.
+	case isPremiumRequired(stderr):
+		return apperr.Wrap(apperr.CodeTrackNotFound, premiumRequiredMessage, fmt.Errorf("%w: %w", ErrPremiumRequired, cause))
 
 	case strings.Contains(lower, "sign in to confirm") ||
 		strings.Contains(lower, "login required") ||
@@ -690,11 +707,7 @@ func ClassifyError(stderr string, cause error) error {
 			"The media session requires authentication: %s", message)
 
 	// 3. Transient network failures
-	case strings.Contains(lower, "timed out") ||
-		strings.Contains(lower, "connection reset") ||
-		strings.Contains(lower, "temporary failure in name resolution") ||
-		strings.Contains(lower, "network is unreachable") ||
-		strings.Contains(lower, "connection refused"):
+	case containsAny(lower, transientNetworkPhrases):
 		return apperr.Wrapf(apperr.CodeProviderUnavailable, cause,
 			"Network error contacting media provider: %s", message)
 
@@ -709,17 +722,11 @@ func ClassifyError(stderr string, cause error) error {
 	case strings.Contains(lower, "drm protected"):
 		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "The media item is DRM protected: %s", message)
 
-	// An age restriction of the requested item: the platform refuses this one
-	// item to this session context and nothing else. It is skipped like an
-	// unavailable item - never unlocked - and neither pauses the family nor
-	// touches the session's health. Explicit rate-limit, bot and sign-in
-	// signals are matched above and keep precedence.
-	case isContentAgeRestriction(stderr):
-		return apperr.Wrap(apperr.CodeTrackNotFound, ageRestrictedMessage, fmt.Errorf("%w: %w", ErrAgeRestricted, cause))
-
 	// "This video is unavailable" names one video, like "Video unavailable"
-	// below, but that rule never matched its wording. Same precedence and
-	// ambiguity rules as the age restriction.
+	// below, but that rule never matched its wording. Unlike the age
+	// restriction it is answered after the sign-in rule and still yields to
+	// every ambiguity hint, so a credential prompt next to it keeps its
+	// session-scoped classification.
 	case isItemUnavailable(stderr):
 		return apperr.Wrap(apperr.CodeTrackNotFound, itemUnavailableMessage, fmt.Errorf("%w: %w", ErrItemUnavailable, cause))
 
@@ -753,11 +760,46 @@ var ErrAgeRestricted = errors.New("age-restricted media item")
 // the media id the caller logs next to it are all a diagnosis needs.
 const ageRestrictedMessage = "The media item is age-restricted and not accessible to this session context; it is skipped."
 
-// contentAgeRestrictionPhrases are the statements YouTube and yt-dlp use for
-// an item that is age restricted, as observed in production logs.
-var contentAgeRestrictionPhrases = []string{
-	"this content is age-restricted", // "Sorry, this content is age-restricted"
-	"this video is age-restricted",
+// botChallengePhrases name a challenge the platform puts in front of the
+// session itself. They are matched before the age rule and keep precedence.
+var botChallengePhrases = []string{
+	"not a bot",
+	"bot verification",
+	"bot challenge",
+}
+
+// transientNetworkPhrases name a failure of the connection to the provider
+// rather than anything about the item.
+var transientNetworkPhrases = []string{
+	"timed out",
+	"connection reset",
+	"temporary failure in name resolution",
+	"network is unreachable",
+	"connection refused",
+}
+
+// ageRestrictionVetoPhrases keep a statement out of the age rule when it also
+// carries evidence that the failure is not about the item at all. The age rule
+// is answered before the network case, so without this a transient outage
+// alongside an age gate would be recorded as a permanent, non-retryable
+// candidate failure and cached as one. "captcha" is vetoed here because it has
+// no wording of its own among the bot phrases, so nothing else would catch it.
+//
+// Credential wording is deliberately absent: naming an age gate decides the
+// item even when the platform words that gate as a sign-in prompt.
+var ageRestrictionVetoPhrases = append(append(append([]string(nil),
+	transientNetworkPhrases...), botChallengePhrases...), "captcha")
+
+// definiteAgeRestrictionPhrases name an age gate outright. They are
+// dispositive: a sign-in, cookie or account hint alongside them is the gate's
+// own wording, not evidence that the session is no longer accepted, so
+// answering with SESSION_AUTH_FAILED there would cool down and eventually
+// unhealth a session that is working. Rate-limit and bot signals are still
+// matched before this and keep precedence.
+var definiteAgeRestrictionPhrases = []string{
+	"confirm your age",
+	"age-restricted", // "Sorry, this content is age-restricted"
+	"age restriction",
 }
 
 // ageRestrictionAmbiguityHints turn an age statement into an ambiguous one: a
@@ -768,21 +810,48 @@ var ageRestrictionAmbiguityHints = []string{
 	"sign in", "sign-in", "log in", "login", "cookie", "authenticat", "account", "not a bot", "captcha",
 }
 
-// isContentAgeRestriction reports an unambiguous age restriction of the
-// requested item. Only yt-dlp's ERROR lines are considered; warnings about
-// the extraction do not describe the item.
+// isContentAgeRestriction reports an age restriction of the requested item.
+// Only yt-dlp's ERROR lines are considered; warnings about the extraction do
+// not describe the item.
+//
+// A phrase that names the age gate outright decides on its own. The weaker
+// "verify your age … old enough" wording only decides when nothing in the
+// same statement points at the session instead.
+//
+// Either way the whole output is checked for systemic evidence first, over the
+// same text the network and bot cases read, so that answering the age rule
+// early can never mask an outage or a challenge.
 func isContentAgeRestriction(stderr string) bool {
+	if containsAny(strings.ToLower(stderr), ageRestrictionVetoPhrases) {
+		return false
+	}
 	line := strings.ToLower(errorLines(stderr))
 	if line == "" {
 		return false
 	}
-	restricted := strings.Contains(line, "verify your age") && strings.Contains(line, "old enough")
-	for _, phrase := range contentAgeRestrictionPhrases {
+	for _, phrase := range definiteAgeRestrictionPhrases {
 		if strings.Contains(line, phrase) {
-			restricted = true
+			return true
 		}
 	}
+	restricted := strings.Contains(line, "verify your age") && strings.Contains(line, "old enough")
 	return restricted && !hasAmbiguityHint(line, ageRestrictionAmbiguityHints)
+}
+
+// ErrPremiumRequired marks a candidate failure caused by an item that the
+// platform restricts to paying subscribers. It carries no provider output.
+var ErrPremiumRequired = errors.New("premium-only media item")
+
+const premiumRequiredMessage = "The media item requires a paid subscription and is not accessible to this session context; it is skipped."
+
+// isPremiumRequired reports YouTube's statement that an item is restricted to
+// Premium/Music Premium subscribers, and nothing else that merely contains
+// the word "premium".
+func isPremiumRequired(stderr string) bool {
+	line := strings.ToLower(errorLines(stderr))
+	return strings.Contains(line, "available to music premium members") ||
+		strings.Contains(line, "available to youtube premium members") ||
+		strings.Contains(line, "only available to premium")
 }
 
 // ErrItemUnavailable marks a candidate failure caused by a single video the
@@ -806,8 +875,14 @@ func isItemUnavailable(stderr string) bool {
 }
 
 func hasAmbiguityHint(line string, hints []string) bool {
-	for _, hint := range hints {
-		if strings.Contains(line, hint) {
+	return containsAny(line, hints)
+}
+
+// containsAny reports whether line contains any of phrases. Both must already
+// be lower case.
+func containsAny(line string, phrases []string) bool {
+	for _, phrase := range phrases {
+		if strings.Contains(line, phrase) {
 			return true
 		}
 	}

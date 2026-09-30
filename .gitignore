@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 compose.ghcr.override.yaml
+.claude/settings.local.json
 
 # Runtime data, database dumps and library content
 /data/
@@ -30,6 +31,8 @@ compose.ghcr.override.yaml
 # Build artefacts
 /bin/
 /out/
+/dist/
+*.tsbuildinfo
 /backend/musicdl
 /backend/server
 *.test

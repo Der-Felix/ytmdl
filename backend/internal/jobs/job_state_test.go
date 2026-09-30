@@ -124,9 +124,9 @@ func TestDeriveParentStatus(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := jobs.DeriveParentStatus(tc.items)
+			got, _, _ := jobs.DeriveParentStatusDetails(tc.items)
 			if got != tc.want {
-				t.Errorf("DeriveParentStatus() = %v, want %v", got, tc.want)
+				t.Errorf("DeriveParentStatusDetails() = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -138,6 +138,7 @@ func TestDeriveParentStatusDetails(t *testing.T) {
 		items        []jobs.Item
 		wantStatus   jobs.Status
 		wantCode     string
+		wantMsg      string
 		wantMsgEmpty bool
 	}{
 		{
@@ -186,6 +187,41 @@ func TestDeriveParentStatusDetails(t *testing.T) {
 			wantCode:     "",
 			wantMsgEmpty: true,
 		},
+		// TEST A: single failed item
+		{
+			name: "single failed item propagates error",
+			items: []jobs.Item{
+				{Status: jobs.ItemFailed, ErrorCode: "TRACK_NOT_FOUND", ErrorMessage: "Video unavailable"},
+			},
+			wantStatus:   jobs.StatusFailed,
+			wantCode:     "TRACK_NOT_FOUND",
+			wantMsg:      "Video unavailable",
+			wantMsgEmpty: false,
+		},
+		// TEST B: mixed multi-track job (skipped + failed)
+		{
+			name: "mixed skipped and failed propagates first failed error",
+			items: []jobs.Item{
+				{Status: jobs.ItemSkipped},
+				{Status: jobs.ItemFailed, ErrorCode: "PATH_CONFLICT", ErrorMessage: "File already exists"},
+			},
+			wantStatus:   jobs.StatusFailed,
+			wantCode:     "PATH_CONFLICT",
+			wantMsg:      "File already exists",
+			wantMsgEmpty: false,
+		},
+		// TEST C: multiple failed items (deterministic selection of first failed item)
+		{
+			name: "multiple failed items selects first failed item deterministically",
+			items: []jobs.Item{
+				{Status: jobs.ItemFailed, ErrorCode: "FIRST_ERROR", ErrorMessage: "First error message"},
+				{Status: jobs.ItemFailed, ErrorCode: "SECOND_ERROR", ErrorMessage: "Second error message"},
+			},
+			wantStatus:   jobs.StatusFailed,
+			wantCode:     "FIRST_ERROR",
+			wantMsg:      "First error message",
+			wantMsgEmpty: false,
+		},
 	}
 
 	for _, tc := range cases {
@@ -197,12 +233,51 @@ func TestDeriveParentStatusDetails(t *testing.T) {
 			if gotCode != tc.wantCode {
 				t.Errorf("errorCode = %v, want %v", gotCode, tc.wantCode)
 			}
+			if tc.wantMsg != "" && gotMsg != tc.wantMsg {
+				t.Errorf("errorMessage = %q, want %q", gotMsg, tc.wantMsg)
+			}
 			if tc.wantMsgEmpty && gotMsg != "" {
 				t.Errorf("expected empty error message, got %q", gotMsg)
 			}
-			if !tc.wantMsgEmpty && gotMsg == "" {
+			if !tc.wantMsgEmpty && tc.wantMsg == "" && gotMsg == "" {
 				t.Errorf("expected non-empty error message")
 			}
 		})
+	}
+}
+
+func TestDeriveParentStatusDetails_RetryClearing(t *testing.T) {
+	// Start with a failed parent carrying an error
+	items := []jobs.Item{
+		{Status: jobs.ItemFailed, ErrorCode: "TRACK_NOT_FOUND", ErrorMessage: "Video unavailable"},
+	}
+	status, code, msg := jobs.DeriveParentStatusDetails(items)
+	if status != jobs.StatusFailed || code != "TRACK_NOT_FOUND" || msg != "Video unavailable" {
+		t.Fatalf("expected StatusFailed with error details, got status=%v code=%v msg=%v", status, code, msg)
+	}
+
+	// Retry item: resets to ItemPending with cleared error
+	items[0].Status = jobs.ItemPending
+	items[0].ErrorCode = ""
+	items[0].ErrorMessage = ""
+
+	// Parent status must now be Queued and error details cleared
+	status, code, msg = jobs.DeriveParentStatusDetails(items)
+	if status != jobs.StatusQueued || code != "" || msg != "" {
+		t.Fatalf("expected StatusQueued with empty error details, got status=%v code=%v msg=%v", status, code, msg)
+	}
+
+	// Processing begins: item becomes ItemDownloading
+	items[0].Status = jobs.ItemDownloading
+	status, code, msg = jobs.DeriveParentStatusDetails(items)
+	if status != jobs.StatusDownloading || code != "" || msg != "" {
+		t.Fatalf("expected StatusDownloading with empty error details, got status=%v code=%v msg=%v", status, code, msg)
+	}
+
+	// Later completes successfully: item becomes ItemCompleted
+	items[0].Status = jobs.ItemCompleted
+	status, code, msg = jobs.DeriveParentStatusDetails(items)
+	if status != jobs.StatusCompleted || code != "" || msg != "" {
+		t.Fatalf("expected StatusCompleted with empty error details, got status=%v code=%v msg=%v", status, code, msg)
 	}
 }

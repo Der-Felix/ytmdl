@@ -1009,8 +1009,8 @@ func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, exp
 	if guardID == "" {
 		guardID = envVars["MUSICDL_STORAGE_GUARD_ID"]
 	}
-	guardStatus, _ := discovery.VerifyStorageGuard(ctx, eng, projDir, selectedFile, musicPath, guardID)
-	if guardStatus == discovery.GuardStatusMissing || guardStatus == discovery.GuardStatusMismatch {
+	guardStatus, guardErr := discovery.VerifyStorageGuard(ctx, eng, projDir, selectedFile, musicPath, guardID)
+	if guardErr != nil || !guardStatus.AllowsUpdate() {
 		blockedReasons = append(blockedReasons, fmt.Sprintf("storage guard verification failed: %s", guardStatus))
 	}
 
@@ -1613,7 +1613,7 @@ func runReconcileArtists(ctx context.Context, stdout, stderr io.Writer, stdin io
 	}
 	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
 	if currentVersion == "" {
-		currentVersion = "0.27.2-rc.2"
+		currentVersion = "0.28.1"
 	}
 
 	backupDir := subBackupDir
@@ -2031,7 +2031,7 @@ func runMergeArtists(ctx context.Context, stdout, stderr io.Writer, stdin io.Rea
 	}
 	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
 	if currentVersion == "" {
-		currentVersion = "0.27.2-rc.2"
+		currentVersion = "0.28.1"
 	}
 
 	backupDir := subBackupDir

@@ -8,6 +8,7 @@ import (
 
 	"ytdm/backend/internal/matcher"
 	"ytdm/backend/internal/music"
+	"ytdm/backend/internal/storage"
 )
 
 // DefaultDurationToleranceMS is the maximum difference in runtime at which two
@@ -402,4 +403,102 @@ func (u *unionFind) union(a, b int) {
 	if u.rank[ra] == u.rank[rb] {
 		u.rank[ra]++
 	}
+}
+
+// EquivalentReleases reports whether two releases represent the same effective
+// release and will produce the same canonical library layout.
+//
+// Equivalence requires:
+//  1. Same canonical release directory (identical album artist, release title, year, and release type suffix).
+//  2. Same release type.
+//  3. Same non-zero track count.
+//  4. In order by (disc, track number), every track has the same disc number, track number,
+//     same canonical track filename, and non-conflicting ISRCs.
+func EquivalentReleases(r1 music.Release, tracks1 []music.Track, r2 music.Release, tracks2 []music.Track) bool {
+	if storage.ReleaseDirRel(r1) != storage.ReleaseDirRel(r2) {
+		return false
+	}
+	if r1.ReleaseType != r2.ReleaseType {
+		return false
+	}
+	if len(tracks1) != len(tracks2) || len(tracks1) == 0 {
+		return false
+	}
+
+	t1 := sortTracksByPosition(tracks1)
+	t2 := sortTracksByPosition(tracks2)
+
+	for i := range t1 {
+		d1, d2 := t1[i].DiscNumber, t2[i].DiscNumber
+		if d1 <= 0 {
+			d1 = 1
+		}
+		if d2 <= 0 {
+			d2 = 1
+		}
+		if d1 != d2 {
+			return false
+		}
+		if t1[i].TrackNumber != t2[i].TrackNumber {
+			return false
+		}
+		if storage.TrackFileName(t1[i], "") != storage.TrackFileName(t2[i], "") {
+			return false
+		}
+		isrc1 := NormalizeISRC(t1[i].ISRC)
+		isrc2 := NormalizeISRC(t2[i].ISRC)
+		if isrc1 != "" && isrc2 != "" && isrc1 != isrc2 {
+			return false
+		}
+	}
+	return true
+}
+
+func sortTracksByPosition(tracks []music.Track) []music.Track {
+	out := append([]music.Track(nil), tracks...)
+	sort.SliceStable(out, func(i, j int) bool {
+		d1, d2 := out[i].DiscNumber, out[j].DiscNumber
+		if d1 <= 0 {
+			d1 = 1
+		}
+		if d2 <= 0 {
+			d2 = 1
+		}
+		if d1 != d2 {
+			return d1 < d2
+		}
+		if out[i].TrackNumber != out[j].TrackNumber {
+			return out[i].TrackNumber < out[j].TrackNumber
+		}
+		return out[i].Title < out[j].Title
+	})
+	return out
+}
+
+// DeduplicateReleases filters out equivalent releases that would target the same
+// canonical library paths with equivalent track listings, preserving the first seen representative.
+func DeduplicateReleases(releases []music.Release, releaseTracks [][]music.Track) ([]music.Release, [][]music.Track) {
+	if len(releases) == 0 {
+		return nil, nil
+	}
+	outReleases := make([]music.Release, 0, len(releases))
+	outTracks := make([][]music.Track, 0, len(releases))
+	for i, r := range releases {
+		var ts []music.Track
+		if i < len(releaseTracks) {
+			ts = releaseTracks[i]
+		}
+		dup := false
+		for j, prev := range outReleases {
+			if EquivalentReleases(prev, outTracks[j], r, ts) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			outReleases = append(outReleases, r)
+			outTracks = append(outTracks, ts)
+		}
+	}
+	return outReleases, outTracks
 }

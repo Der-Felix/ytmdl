@@ -282,7 +282,7 @@ describe('MediaSessionsPanel - Add Flow & Secret Safety', () => {
           JSON.stringify({
             error: {
               code: 'INVALID_REQUEST',
-              message: 'Cookie file exceeds 1 MiB limit.',
+              message: 'Cookie file exceeds 25 MiB limit.',
             },
           }),
           { status: 400, headers: { 'Content-Type': 'application/json' } },
@@ -316,7 +316,7 @@ describe('MediaSessionsPanel - Add Flow & Secret Safety', () => {
 
     // Shows informative error that metadata was created and cookies can be replaced
     expect(await screen.findByText(/wurde erstellt, aber der Cookie-Upload ist fehlgeschlagen/i)).toBeDefined()
-    expect(screen.getByText(/1 MB/i)).toBeDefined()
+    expect(screen.getByText(/25 MB/i)).toBeDefined()
   })
 })
 

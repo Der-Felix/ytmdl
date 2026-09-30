@@ -195,20 +195,19 @@ function JobCard({
 
       <Outcome job={job} />
 
-      {job.error_message && (
-        <p
-          className={cn(
-            'rounded-xl border px-3 py-2 text-xs leading-relaxed',
-            isWaitingForProvider(job)
-              ? 'border-amber-500/20 bg-amber-500/8 text-amber-600 dark:text-amber-400'
-              : 'border-destructive/20 bg-destructive/8 text-destructive',
-          )}
-        >
-          {isWaitingForProvider(job)
-            ? (job.error_message || 'Provider vorübergehend nicht verfügbar')
-            : job.error_message}
+      {isWaitingForProvider(job) ? (
+        <p className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
+          {job.error_message || 'Provider vorübergehend nicht verfügbar'}
         </p>
-      )}
+      ) : job.status === 'failed' ? (
+        <p className="rounded-xl border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs leading-relaxed text-destructive">
+          {job.error_message || 'Mindestens ein Track ist fehlgeschlagen. Details aufklappen.'}
+        </p>
+      ) : job.error_message ? (
+        <p className="rounded-xl border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs leading-relaxed text-destructive">
+          {job.error_message}
+        </p>
+      ) : null}
 
       {actionError && (
         <p role="alert" className="text-xs text-destructive">

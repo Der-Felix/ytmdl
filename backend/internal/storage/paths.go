@@ -71,10 +71,16 @@ func releaseTypeSuffix(t music.ReleaseType) string {
 	}
 }
 
+// ReleaseDirRel returns the relative directory a release is stored in within the library:
+// "<Artist>/<ReleaseDirName>".
+func ReleaseDirRel(release music.Release) string {
+	artist := SanitizeComponent(fallback(release.DisplayAlbumArtist(), music.UnknownArtist))
+	return filepath.Join(artist, ReleaseDirName(release))
+}
+
 // ReleaseDir returns the directory a release is stored in.
 func (l *Layout) ReleaseDir(release music.Release) (string, error) {
-	artist := SanitizeComponent(fallback(release.DisplayAlbumArtist(), music.UnknownArtist))
-	return l.join(artist, ReleaseDirName(release))
+	return l.join(ReleaseDirRel(release))
 }
 
 // TrackFileName renders the file name of a track including its extension.

@@ -1611,6 +1611,7 @@ func TestResetFailedItems(t *testing.T) {
 	job := &jobs.Job{
 		Type: jobs.TypeArtist, Status: jobs.StatusFailed, Label: "Failed Job",
 		TargetID: "fail_1", Options: jobs.DefaultOptions(), Total: 2, Failed: 2,
+		ErrorCode: "DOWNLOAD_FAILED", ErrorMessage: "HTTP 404",
 	}
 	if err := repo.Create(ctx, job); err != nil {
 		t.Fatalf("create job: %v", err)
@@ -1639,6 +1640,14 @@ func TestResetFailedItems(t *testing.T) {
 	}
 	if it1.Status != jobs.ItemPending || it1.Attempts != 0 || it1.ErrorCode != "" {
 		t.Fatalf("item 1 not reset properly: %+v", it1)
+	}
+	parentJob, err := repo.Get(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get parent job: %v", err)
+	}
+	if parentJob.Status != jobs.StatusQueued || parentJob.ErrorCode != "" || parentJob.ErrorMessage != "" {
+		t.Fatalf("parent job error details not cleared on reset: status=%v code=%q msg=%q",
+			parentJob.Status, parentJob.ErrorCode, parentJob.ErrorMessage)
 	}
 
 	// 2. Reset all failed items in job (item 2 remains failed)

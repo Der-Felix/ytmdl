@@ -378,8 +378,10 @@ func TestSessionSlotIsReleasedOnEveryOutcome(t *testing.T) {
 		{name: "byte budget while running", script: "printf '@YTDM-PROGRESS@4096|8192|NA|1000|1\\n'\nsleep 5",
 			formats: combined, fallback: true, maxBytes: 1024, wantErr: true},
 		{name: "byte budget after arrival", script: copyTo(muxed, "mp4"), formats: combined, fallback: true, maxBytes: 1024, wantErr: true},
-		{name: "time budget", script: "sleep 5", formats: combined, fallback: true, timeout: 200 * time.Millisecond, wantErr: true},
-		{name: "caller cancels while running", script: "sleep 5", formats: combined, fallback: true, cancelIn: 200 * time.Millisecond, wantErr: true},
+		// Leave room for shell startup under race instrumentation. Both
+		// deadlines still interrupt the five-second transfer while it runs.
+		{name: "time budget", script: "sleep 5", formats: combined, fallback: true, timeout: time.Second, wantErr: true},
+		{name: "caller cancels while running", script: "sleep 5", formats: combined, fallback: true, cancelIn: time.Second, wantErr: true},
 		{name: "verification failure", script: copyTo(muxed, "mp4"), formats: audioOnlyFormat(), wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -381,3 +381,50 @@ describe('JobCard – Step 4 Honest "Waiting for Provider" UX', () => {
     expect(screen.getAllByText('Wird heruntergeladen').length).toBeGreaterThanOrEqual(1)
   })
 })
+
+describe('JobCard – Failed Job Error Presentation', () => {
+  it('TEST E: failed job with error_message renders error message directly on card', () => {
+    const job = mockJob({
+      status: 'failed',
+      failed: 1,
+      error_code: 'DOWNLOAD_FAILED',
+      error_message: 'Video unavailable',
+    })
+
+    render(<JobCard job={job} />)
+
+    expect(screen.getByText('Video unavailable')).toBeTruthy()
+    expect(
+      screen.queryByText('Mindestens ein Track ist fehlgeschlagen. Details aufklappen.'),
+    ).toBeNull()
+  })
+
+  it('TEST F: historical failed job without error_message renders safe fallback', () => {
+    const job = mockJob({
+      status: 'failed',
+      failed: 1,
+      error_code: '',
+      error_message: '',
+    })
+
+    render(<JobCard job={job} />)
+
+    expect(
+      screen.getByText('Mindestens ein Track ist fehlgeschlagen. Details aufklappen.'),
+    ).toBeTruthy()
+  })
+
+  it('TEST G: non-failed job does not render failure banner or fallback', () => {
+    const job = mockJob({
+      status: 'downloading',
+      completed: 0,
+      failed: 0,
+    })
+
+    render(<JobCard job={job} />)
+
+    expect(
+      screen.queryByText('Mindestens ein Track ist fehlgeschlagen. Details aufklappen.'),
+    ).toBeNull()
+  })
+})

@@ -204,7 +204,7 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 		musicPath = "/music"
 	}
 	guardStatus, err := guardChecker(ctx, eng, opts.ProjectDir, opts.ComposeFile, musicPath, guardID)
-	if err != nil || guardStatus != discovery.GuardStatusVerified {
+	if err != nil || !guardStatus.AllowsUpdate() {
 		return nil, fmt.Errorf("preflight Storage Guard verification failed: status=%s (err: %v)", guardStatus, err)
 	}
 
@@ -274,7 +274,11 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 	fmt.Fprintf(stdout, "Current version: %s\n", configuredVersion)
 	fmt.Fprintf(stdout, "Target version:  %s\n", targetVersion)
 	fmt.Fprintf(stdout, "Database schema: %d -> %d (%s)\n", schemaBefore, targetManifest.TargetSchema, effectiveRollbackClass)
-	fmt.Fprintf(stdout, "Storage Guard:   VERIFIED\n")
+	if guardStatus == discovery.GuardStatusDisabled {
+		fmt.Fprintf(stdout, "Storage Guard:   disabled\n")
+	} else {
+		fmt.Fprintf(stdout, "Storage Guard:   VERIFIED\n")
+	}
 	fmt.Fprintf(stdout, "Active jobs:     %d\n", activeJobs)
 	fmt.Fprintf(stdout, "Database backup: enabled\n")
 	if isSchemaForward {
@@ -500,8 +504,8 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 
 	// 19. Final checks: Storage Guard & Queue readability
 	guardStatus, err = guardChecker(ctx, eng, opts.ProjectDir, opts.ComposeFile, musicPath, guardID)
-	if err != nil || guardStatus != discovery.GuardStatusVerified {
-		return nil, handleMutationFailure(eng, deps, opts, st, fmt.Errorf("final Storage Guard check failed: %v", err))
+	if err != nil || !guardStatus.AllowsUpdate() {
+		return nil, handleMutationFailure(eng, deps, opts, st, fmt.Errorf("final Storage Guard check failed: status=%s (err: %v)", guardStatus, err))
 	}
 	if _, err := queueChecker(ctx, eng, opts.ProjectDir, opts.ComposeFile); err != nil {
 		return nil, handleMutationFailure(eng, deps, opts, st, fmt.Errorf("final queue readability check failed: %w", err))
@@ -599,7 +603,7 @@ func verifyBackendAcceptance(ctx context.Context, eng engine.Engine, deps Depend
 		guardChecker = discovery.VerifyStorageGuard
 	}
 	guardStatus, err := guardChecker(ctx, eng, opts.ProjectDir, opts.ComposeFile, musicPath, guardID)
-	if err != nil || guardStatus != discovery.GuardStatusVerified {
+	if err != nil || !guardStatus.AllowsUpdate() {
 		return fmt.Errorf("Storage Guard verification failed: status=%s (err: %v)", guardStatus, err)
 	}
 

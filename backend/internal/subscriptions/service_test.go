@@ -1941,3 +1941,125 @@ func TestCancellationWhileWaitingForAdmission(t *testing.T) {
 		t.Fatalf("expected StatusSuccess, got %v", res.Status)
 	}
 }
+
+func TestSyncDeduplicatesEquivalentCatalogReleases_TestF(t *testing.T) {
+	provider := &fakeProvider{
+		artist: &music.Artist{Name: "Antonio Vivaldi", Provider: "fake", SourceID: "vivaldi"},
+		releases: []music.Release{
+			{
+				Title:       "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+				ReleaseType: music.ReleaseSingle,
+				Year:        2025,
+				Provider:    "fake",
+				SourceID:    "MPREb_b2lpllKyWwY",
+			},
+			{
+				Title:       "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+				ReleaseType: music.ReleaseSingle,
+				Year:        2025,
+				Provider:    "fake",
+				SourceID:    "MPREb_abOSjhra9KT",
+			},
+		},
+		tracks: map[string][]music.Track{
+			"MPREb_b2lpllKyWwY": {
+				{
+					Title:          "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+					Artists:        []string{"Antonio Vivaldi"},
+					AlbumArtist:    "Antonio Vivaldi",
+					TrackNumber:    1,
+					DiscNumber:     1,
+					DurationMS:     135000,
+					SourceProvider: "fake",
+					SourceID:       "hbvxKF3RO20",
+				},
+			},
+			"MPREb_abOSjhra9KT": {
+				{
+					Title:          "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)",
+					Artists:        []string{"Antonio Vivaldi"},
+					AlbumArtist:    "Antonio Vivaldi",
+					TrackNumber:    1,
+					DiscNumber:     1,
+					DurationMS:     75000,
+					SourceProvider: "fake",
+					SourceID:       "9Is4gK2iBxY",
+				},
+			},
+		},
+	}
+
+	h := newHarness(t, provider)
+	sub := subscribe(t, h, true)
+
+	// First sync on empty library:
+	result, err := h.service.Sync(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+
+	if result.Status != StatusSuccess {
+		t.Fatalf("expected success, got %v", result.Status)
+	}
+	if result.ReleasesSeen != 1 {
+		t.Fatalf("expected ReleasesSeen=1, got %d", result.ReleasesSeen)
+	}
+	if result.NewReleases != 1 {
+		t.Fatalf("expected NewReleases=1, got %d", result.NewReleases)
+	}
+	if result.TracksSeen != 1 {
+		t.Fatalf("expected TracksSeen=1, got %d", result.TracksSeen)
+	}
+	if result.NewTracks != 1 {
+		t.Fatalf("expected NewTracks=1, got %d", result.NewTracks)
+	}
+	if result.QueuedTracks != 1 {
+		t.Fatalf("expected QueuedTracks=1, got %d", result.QueuedTracks)
+	}
+
+	queuedReleases := h.downloader.queued()
+	if len(queuedReleases) != 1 {
+		t.Fatalf("expected exactly 1 release queued, got %v", queuedReleases)
+	}
+	if queuedReleases[0] != "MPREb_b2lpllKyWwY" {
+		t.Fatalf("expected first representative queued MPREb_b2lpllKyWwY, got %q", queuedReleases[0])
+	}
+
+	// Simulate that the track has been downloaded and added to the library
+	h.catalog.addRelease("fake", "MPREb_b2lpllKyWwY")
+	tr := provider.tracks["MPREb_b2lpllKyWwY"][0]
+	tr.Album = "Vivaldi: L'Estro armonico No. 2 - Allegro (Excerpt)"
+	tr.ReleaseType = music.ReleaseSingle
+	tr.Year = 2025
+	stored := h.catalog.addTrack("vivaldi_track_1", tr)
+	h.files.markDownloaded(stored.ID)
+	h.downloader.finish("MPREb_b2lpllKyWwY")
+
+	// Subsequent sync:
+	result2, err := h.service.Sync(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatalf("subsequent sync failed: %v", err)
+	}
+
+	if result2.Status != StatusSuccess {
+		t.Fatalf("expected success on second sync, got %v", result2.Status)
+	}
+	if result2.ReleasesSeen != 1 {
+		t.Fatalf("expected ReleasesSeen=1, got %d", result2.ReleasesSeen)
+	}
+	if result2.NewReleases != 0 {
+		t.Fatalf("expected NewReleases=0, got %d", result2.NewReleases)
+	}
+	if result2.SkippedTracks != 1 {
+		t.Fatalf("expected SkippedTracks=1, got %d", result2.SkippedTracks)
+	}
+	if result2.NewTracks != 0 {
+		t.Fatalf("expected NewTracks=0, got %d", result2.NewTracks)
+	}
+	if result2.QueuedTracks != 0 {
+		t.Fatalf("expected QueuedTracks=0, got %d", result2.QueuedTracks)
+	}
+	if len(h.downloader.queued()) != 1 {
+		t.Fatalf("no additional release should be queued, got %v", h.downloader.queued())
+	}
+}

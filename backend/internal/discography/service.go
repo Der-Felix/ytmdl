@@ -135,9 +135,11 @@ func (s *Service) ResolveArtist(ctx context.Context, req ArtistRequest, progress
 	logger.Info("discography resolved",
 		"releases_total", len(discography), "releases_selected", len(releases))
 
-	result := &Result{Artist: *artist, Releases: releases}
+	result := &Result{Artist: *artist}
 
-	tracks := make([]music.Track, 0, len(releases)*10)
+	readReleases := make([]music.Release, 0, len(releases))
+	readTracks := make([][]music.Track, 0, len(releases))
+
 	for i, release := range releases {
 		if err := ctx.Err(); err != nil {
 			return nil, apperr.Wrap(apperr.CodeJobCancelled, "The resolution was cancelled.", err)
@@ -161,13 +163,25 @@ func (s *Service) ResolveArtist(ctx context.Context, req ArtistRequest, progress
 		// later and who its album artist is, so the whole context is applied
 		// here, in the one place every download path goes through.
 		music.ApplyReleaseContext(&releases[i], releaseTracks, artist.DisplayName())
-		tracks = append(tracks, releaseTracks...)
+		readReleases = append(readReleases, releases[i])
+		readTracks = append(readTracks, releaseTracks)
 	}
 	report(progress, StageTracks, len(releases), len(releases))
 
-	if len(releases) > 0 && len(tracks) == 0 && len(result.Warnings) == len(releases) {
+	if len(releases) > 0 && len(readReleases) == 0 && len(result.Warnings) == len(releases) {
 		return nil, apperr.Newf(apperr.CodeProviderUnavailable,
 			"None of the %d releases of %q could be read.", len(releases), artist.DisplayName())
+	}
+
+	acceptedReleases, acceptedTracks := DeduplicateReleases(readReleases, readTracks)
+	if suppressed := len(readReleases) - len(acceptedReleases); suppressed > 0 {
+		logger.Info("duplicate releases suppressed", "suppressed_count", suppressed)
+	}
+	result.Releases = acceptedReleases
+
+	tracks := make([]music.Track, 0, len(acceptedReleases)*10)
+	for _, ts := range acceptedTracks {
+		tracks = append(tracks, ts...)
 	}
 
 	report(progress, StageDedup, 0, 0)

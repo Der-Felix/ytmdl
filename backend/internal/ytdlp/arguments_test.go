@@ -191,8 +191,11 @@ func TestClassifyError_Taxonomy(t *testing.T) {
 
 		// Session auth failed / expired
 		{
-			name:     "session expired cookies",
-			stderr:   "ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm your age or subscription: login required",
+			// Naming the age gate decides the item even next to "subscription"
+			// and "login required"; the pure subscription prompt below is what
+			// still reports a session that is no longer accepted.
+			name:     "session subscription login required",
+			stderr:   "ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm your subscription: login required",
 			wantCode: apperr.CodeSessionAuthFailed,
 		},
 		{
