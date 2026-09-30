@@ -25,6 +25,11 @@ The default acquisition chain evaluates providers in registration order:
 2. **Protection Failure Isolation**: Systemic or platform-level protection failures (such as `SESSION_BOT_CHALLENGE` or rate limits) immediately halt same-attempt fanout. The item transitions to `retry_wait` rather than hopping providers to bypass platform controls.
 3. **Platform Family Isolation**: SoundCloud operates under its own platform family (`soundcloud`), isolated from the YouTube family (`youtube`). Quota limits, family cooldowns, and session health on one family never affect or poison the other. YouTube credentials and session cookies are never sent to SoundCloud.
 
+When resolving a candidate, an item restricted to Music Premium or YouTube
+Premium members is skipped for the current session. The next acceptable
+candidate can be tried without changing session health or pausing the provider
+family. Rate limits and bot challenges keep their protective handling.
+
 ## Conservative Track Matching
 
 When matching metadata against audio streams:
@@ -57,8 +62,13 @@ Configure them as an administrator under **Server Settings → Media Sources**.
    file in isolation and only promotes it if a health probe succeeds, so a bad
    file never overwrites a working one.
 3. Uploaded cookie files are stored under the cookie directory
-   (`MUSICDL_COOKIE_DIR`, default `./data/cookies`) and must be writable by the
-   container user (UID/GID `10001`). Include `./data` in your backups.
+   (`MUSICDL_COOKIE_DIR`, default `/data/cookies` in containers, `./data/cookies`
+   in local execution) and must be writable by the container user (UID/GID `10001`).
+   Include `./data` in your backups.
+
+Cookie exports can be up to **25 MiB** (shown as 25 MB in the interface). Both
+the upload API and bundled frontend proxy allow room for multipart framing.
+If you use an additional reverse proxy, allow request bodies of at least 26 MiB.
 
 Legacy single-file configuration (`YTDM_COOKIEFILE` / `MUSICDL_COOKIE_FILE`)
 continues to work and coexists with managed sessions in the runtime pool.

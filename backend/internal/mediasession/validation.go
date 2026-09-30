@@ -9,8 +9,11 @@ import (
 )
 
 const (
-	// MaxCookieFileSize bounds uploaded cookie files to 1 MiB.
-	MaxCookieFileSize = 1024 * 1024
+	// MaxCookieFileSize bounds uploaded cookie files to 25 MiB.
+	MaxCookieFileSize = 25 * 1024 * 1024
+
+	// MaxCookieUploadBodySize allows 1 MiB of multipart framing in addition to the file.
+	MaxCookieUploadBodySize = MaxCookieFileSize + 1024*1024
 
 	// MaxCookieLineLength bounds individual lines to 4096 bytes to avoid regex/parser DOS.
 	MaxCookieLineLength = 4096

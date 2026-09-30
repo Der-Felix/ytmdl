@@ -9,7 +9,7 @@
 #   ytmdl-db         PostgreSQL 18
 #
 # All containers share the dedicated bridge network ytmdl-net and address each
-# other by service name, never by IP address. See docs/DEPLOYMENT.md.
+# other by service name, never by IP address. See docs/deployment.md.
 name: ytmdl
 
 services:

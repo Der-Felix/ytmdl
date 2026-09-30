@@ -9,3 +9,22 @@ music
 docs
 *.md
 *.log
+
+# Local tooling, environment overrides and generated output
+.codex
+.env.*
+compose.ghcr.override.yaml
+.ytmdl
+backups
+tmp
+bin
+out
+dist
+**/node_modules
+**/*.tsbuildinfo
+backend/server
+backend/musicdl
+*.test
+
+# The frontend uses its own build context.
+frontend

@@ -11,6 +11,23 @@ import (
 
 const secretSentinel = "SUPER_SECRET_COOKIE_TOKEN_ABC123XYZ"
 
+func TestValidateNetscapeCookies_FileSizeBoundary(t *testing.T) {
+	const limit = 25 * 1024 * 1024
+	data := []byte(".youtube.com\tTRUE\t/\tTRUE\t1750000000\tSID\tfixture\n")
+	comment := []byte("#" + strings.Repeat("x", 4094) + "\n")
+	remaining := limit - len(data)
+	data = append(data, bytes.Repeat(comment, remaining/len(comment))...)
+	if remainder := remaining % len(comment); remainder > 0 {
+		data = append(data, []byte("#"+strings.Repeat("x", remainder-1))...)
+	}
+	if err := mediasession.ValidateNetscapeCookies(data); err != nil {
+		t.Fatalf("25 MiB cookie file rejected: %v", err)
+	}
+	if err := mediasession.ValidateNetscapeCookies(append(data, '\n')); apperr.CodeOf(err) != apperr.CodeInvalidRequest {
+		t.Fatalf("file above 25 MiB must be rejected")
+	}
+}
+
 func TestValidateNetscapeCookies_ValidFormats(t *testing.T) {
 	tests := []struct {
 		name string

@@ -201,6 +201,9 @@ func (c *Client) countError(op string, err error) {
 	if errors.Is(err, ErrItemUnavailable) {
 		c.count(op, "candidate.unavailable")
 	}
+	if errors.Is(err, ErrPremiumRequired) {
+		c.count(op, "candidate.premium_required")
+	}
 }
 
 // Binary returns the configured executable.
@@ -606,6 +609,13 @@ func ClassifyError(stderr string, cause error) error {
 	case isContentAgeRestriction(stderr):
 		return apperr.Wrap(apperr.CodeTrackNotFound, ageRestrictedMessage, fmt.Errorf("%w: %w", ErrAgeRestricted, cause))
 
+	// A paid-tier gate on the requested item: the platform refuses this one
+	// item to any non-subscriber session, never the provider or the session
+	// itself. It is skipped like an unavailable item - it does not pause the
+	// family and does not touch the session's health.
+	case isPremiumRequired(stderr):
+		return apperr.Wrap(apperr.CodeTrackNotFound, premiumRequiredMessage, fmt.Errorf("%w: %w", ErrPremiumRequired, cause))
+
 	case strings.Contains(lower, "sign in to confirm") ||
 		strings.Contains(lower, "login required") ||
 		strings.Contains(lower, "cookies are expired") ||
@@ -744,6 +754,22 @@ func isContentAgeRestriction(stderr string) bool {
 	}
 	restricted := strings.Contains(line, "verify your age") && strings.Contains(line, "old enough")
 	return restricted && !hasAmbiguityHint(line, ageRestrictionAmbiguityHints)
+}
+
+// ErrPremiumRequired marks a candidate failure caused by an item that the
+// platform restricts to paying subscribers. It carries no provider output.
+var ErrPremiumRequired = errors.New("premium-only media item")
+
+const premiumRequiredMessage = "The media item requires a paid subscription and is not accessible to this session context; it is skipped."
+
+// isPremiumRequired reports YouTube's statement that an item is restricted to
+// Premium/Music Premium subscribers, and nothing else that merely contains
+// the word "premium".
+func isPremiumRequired(stderr string) bool {
+	line := strings.ToLower(errorLines(stderr))
+	return strings.Contains(line, "available to music premium members") ||
+		strings.Contains(line, "available to youtube premium members") ||
+		strings.Contains(line, "only available to premium")
 }
 
 // ErrItemUnavailable marks a candidate failure caused by a single video the

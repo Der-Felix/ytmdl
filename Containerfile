@@ -36,6 +36,7 @@ COPY --from=builder /out/musicdl /app/musicdl
 # at a PostgreSQL server explicitly and refuses to start without one.
 ENV MUSICDL_LISTEN_ADDR=0.0.0.0:8080 \
     MUSICDL_LIBRARY=/music \
+    MUSICDL_COOKIE_DIR=/data/cookies \
     MUSICDL_CONCURRENT_DOWNLOADS=2 \
     MUSICDL_YTDLP=/usr/bin/yt-dlp \
     MUSICDL_FFMPEG=/usr/bin/ffmpeg \

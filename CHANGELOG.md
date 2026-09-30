@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.28.1 — 2026-09-20
+
+### Changes
+
+- **Storage Guard Updater Fix:** Fixed `ytmdlctl update` incorrectly refusing updates during preflight when Storage Identity Guard is intentionally disabled (`YTMDL_STORAGE_GUARD_ID` unset). Both dry-run and live updates now use the shared `AllowsUpdate` verification policy, permitting updates when the guard is disabled or verified while strictly blocking unsafe states (missing, mismatch, unavailable, or probe errors).
+- **Cookie Uploads:** Managed session cookie exports now support up to 25 MiB, with 26 MiB allowed for multipart framing through the API router and bundled Nginx proxy. The interface reports the updated limit.
+- **Premium-only Candidates:** Music Premium and YouTube Premium item restrictions are classified as candidate failures, preserving session health and allowing the next candidate during resolution.
+- **Repository Maintenance:** Corrected deployment links and outdated repository workflow documentation; excluded local build outputs and environment files from container build contexts.
+- **Persistent Cookie Directory:** Container deployments now default managed media-session cookie storage to the persistent writable `/data/cookies` path (`MUSICDL_COOKIE_DIR=/data/cookies`), preventing permission warnings on startup and ensuring uploaded session cookies persist across container recreations.
+- **Database Schema:** Schema remains at 12; no database migration is required.
+- **Configuration Compatibility:** Existing explicit custom `MUSICDL_COOKIE_DIR` settings are preserved and continue to take precedence.
+
+### One-Time Bootstrap for v0.28.0 Users
+
+Installations running v0.28.0 with Storage Guard disabled (the default setup) cannot update using the old v0.28.0 `ytmdlctl` binary, as the old CLI binary aborts in preflight before downloading updates.
+
+To update from v0.28.0 to v0.28.1, download and run the fixed v0.28.1 CLI binary directly:
+
+1. Download the v0.28.1 `ytmdlctl` binary for your platform and `SHA256SUMS` from GitHub Releases (`https://github.com/Der-Felix/ytmdl/releases/tag/v0.28.1`).
+2. Verify the SHA256 checksum: `sha256sum -c SHA256SUMS --ignore-missing` (or `shasum -a 256`).
+3. Make executable: `chmod +x ytmdlctl-<os>-<arch>`.
+4. Replace your local `ytmdlctl` binary or invoke it directly:
+   ```bash
+   ./ytmdlctl-<os>-<arch> update --target 0.28.1 -y
+   ```
+5. Confirm successful update:
+   ```bash
+   ytmdlctl version
+   ```
+
+*(Note: Installations where Storage Identity Guard was explicitly configured and verified are unaffected and can update normally).*
+
 ## 0.28.0 — 2026-09-20
 
 ### Highlights

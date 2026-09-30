@@ -162,7 +162,7 @@ and take precedence over the environment for those specific fields.
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `MUSICDL_COOKIE_DIR` / `YTDM_COOKIE_DIR` | `./data/cookies` | Directory where uploaded session cookie files are stored (writable by UID 10001). |
+| `MUSICDL_COOKIE_DIR` / `YTDM_COOKIE_DIR` | `/data/cookies` *(container)* | Directory where uploaded session cookie files are stored (writable by UID 10001; defaults to `./data/cookies` for non-container runs). |
 | `MUSICDL_SESSION_MAX_LEASES` | `1` | Concurrent `yt-dlp` processes allowed per managed session. |
 | `MUSICDL_SESSION_REQUESTS_PER_SECOND` | `0.5` | Per-session process-start rate. |
 | `MUSICDL_SESSION_BURST` | `1` | Per-session burst. |

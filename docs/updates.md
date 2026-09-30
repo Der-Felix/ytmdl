@@ -6,9 +6,11 @@ Starting with **v0.15**, YTMDL provides native update detection within the WebUI
 
 ## Stable Release Distribution
 
-YTMDL uses a two-tier repository architecture:
-- **Canonical Development Repository:** Internal builds, feature branches, and full development history.
-- **Public GitHub ([Der-Felix/ytmdl](https://github.com/Der-Felix/ytmdl)):** Public stable releases, issue tracking, official documentation, and container distribution.
+Development, pull requests, issues, documentation, and releases are maintained
+in [Der-Felix/ytmdl on GitHub](https://github.com/Der-Felix/ytmdl). Feature branches
+start from `dev` and integrate through a reviewed PR. `main` holds the reviewed
+stable state; release tags and container publishing are separate steps. See the
+[development guide](/development).
 
 Public container images are published to the GitHub Container Registry (GHCR):
 - `ghcr.io/der-felix/ytmdl-backend:<version>`

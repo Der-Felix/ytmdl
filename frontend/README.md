@@ -65,7 +65,7 @@ in einzelne Komponenten.
 Zwei Stufen: Bun baut, `nginx:alpine` liefert aus. Der Webserver übernimmt den
 SPA-Fallback und proxyt `/api/*` an `backend:8080` — Details zum Proxy, zur
 DNS-Auflösung und zu den Cache-Headern stehen in
-[../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
+[../docs/deployment.md](../docs/deployment.md).
 
 ```sh
 podman compose build frontend

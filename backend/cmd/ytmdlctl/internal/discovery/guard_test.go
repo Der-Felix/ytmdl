@@ -160,3 +160,26 @@ func TestHostileGuardValuesSafety(t *testing.T) {
 		}
 	}
 }
+
+func TestGuardStatusAllowsUpdate(t *testing.T) {
+	cases := []struct {
+		status discovery.GuardStatus
+		allow  bool
+	}{
+		{discovery.GuardStatusVerified, true},
+		{discovery.GuardStatusDisabled, true},
+		{discovery.GuardStatusMissing, false},
+		{discovery.GuardStatusMismatch, false},
+		{discovery.GuardStatusUnavailable, false},
+		{discovery.GuardStatus("unknown_status"), false},
+		{discovery.GuardStatus(""), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.status), func(t *testing.T) {
+			if got := tc.status.AllowsUpdate(); got != tc.allow {
+				t.Errorf("status %q.AllowsUpdate() = %v, want %v", tc.status, got, tc.allow)
+			}
+		})
+	}
+}

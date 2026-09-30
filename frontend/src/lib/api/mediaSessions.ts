@@ -133,8 +133,8 @@ export function mapMediaSessionError(err: unknown, fallback?: string): string {
       case 'CSRF_INVALID':
         return 'Die Sitzung ist abgelaufen oder das Sicherheits-Token ist ungültig. Bitte lade die Seite neu.'
       case 'INVALID_REQUEST':
-        if (/1\s*MiB|1\s*MB|limit|too large|exceeds/i.test(err.message)) {
-          return 'Die Cookie-Datei überschreitet das Limit von 1 MB.'
+        if (/\d+\s*MiB|\d+\s*MB|limit|too large|exceeds/i.test(err.message)) {
+          return 'Die Cookie-Datei überschreitet das Limit von 25 MB.'
         }
         if (/Netscape|malformed|format|cookie/i.test(err.message)) {
           return 'Die Cookie-Datei ist ungültig oder entspricht nicht dem Netscape-Format.'
