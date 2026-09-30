@@ -5,6 +5,7 @@
 ### Changes
 
 - **Storage Guard Updater Fix:** Fixed `ytmdlctl update` incorrectly refusing updates during preflight when Storage Identity Guard is intentionally disabled (`YTMDL_STORAGE_GUARD_ID` unset). Both dry-run and live updates now use the shared `AllowsUpdate` verification policy, permitting updates when the guard is disabled or verified while strictly blocking unsafe states (missing, mismatch, unavailable, or probe errors).
+- **Outbound Proxy:** Fixed provider HTTP clients rejecting an explicitly configured private-network proxy. Public origin checks, private-address rejection, redirect protection and `NO_PROXY` routing are preserved.
 - **Cookie Uploads:** Managed session cookie exports now support up to 25 MiB, with 26 MiB allowed for multipart framing through the API router and bundled Nginx proxy. The interface reports the updated limit.
 - **Premium-only Candidates:** Music Premium and YouTube Premium item restrictions are classified as candidate failures, preserving session health and allowing the next candidate during resolution.
 - **Repository Maintenance:** Corrected deployment links and outdated repository workflow documentation; excluded local build outputs and environment files from container build contexts.

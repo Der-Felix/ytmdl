@@ -52,6 +52,21 @@ and take precedence over the environment for those specific fields.
 | `MUSICDL_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | Comma-separated CIDRs/IPs trusted for `X-Forwarded-For`. The bundled compose files pass `127.0.0.1/32,::1/128,172.31.250.0/28` so the frontend proxy is trusted out of the box. |
 | `MUSICDL_COOKIE_SECURE` | `false` | Force the `Secure` flag on session cookies (enable when serving over HTTPS). |
 
+### Outbound proxy
+
+Set `HTTP_PROXY` and `HTTPS_PROXY` in the deployment `.env` when providers must
+be reached through a proxy. Both Compose files pass that file to the backend.
+Set the lowercase `http_proxy` and `https_proxy` aliases to the same values for
+command-line tools, and use `NO_PROXY` / `no_proxy` for local services such as
+`localhost,127.0.0.1,::1,backend,frontend,db`. Recreate the backend after changing
+its environment; a container restart alone does not reload `.env`.
+
+The proxy endpoint must be reachable from the container. A proxy on a private
+network is supported when explicitly configured, while private origin addresses
+and redirects remain blocked by the HTTP client. Origin DNS answers are checked
+locally; the trusted proxy must also enforce its own destination policy. The
+frontend and database do not need provider proxy settings.
+
 ### Database pool
 
 | Variable | Default | Description |
