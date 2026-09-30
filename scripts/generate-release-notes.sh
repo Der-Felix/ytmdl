@@ -208,6 +208,9 @@ fi
 # Build final notes. A release candidate is installed deliberately on the
 # development channel with the ytmdlctl binary of the same release.
 UPDATE_TEXT="Existing installations can update using:\n\n\`ytmdlctl update\`"
+if [ "${VERSION}" = "0.28.1" ]; then
+  UPDATE_TEXT="For v0.28.0 installations with Storage Identity Guard disabled, first download the v0.28.1 \`ytmdlctl\` binary for your platform and verify it against \`SHA256SUMS\`. The old v0.28.0 CLI refuses this update during preflight. Follow **Upgrade from v0.28.0** above, then use the verified v0.28.1 binary for \`update --target 0.28.1 --dry-run\` and \`update --target 0.28.1\`."
+fi
 if [[ "${VERSION}" == *-* ]]; then
   UPDATE_TEXT="This is a prerelease for the development channel. It is never offered on the stable channel. Install it deliberately with \`ytmdlctl\` ${VERSION} from this release, verified against \`SHA256SUMS\`:\n\n\`ytmdlctl update --channel development --target ${VERSION} --dry-run\`\n\n\`ytmdlctl update --channel development --target ${VERSION}\`"
 fi

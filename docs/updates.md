@@ -34,6 +34,27 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Updating v0.28.0 to v0.28.1
+
+When Storage Identity Guard is disabled, the v0.28.0 CLI refuses an update in
+preflight. Download the **v0.28.1** `ytmdlctl` binary for your platform together
+with `SHA256SUMS` from the [v0.28.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v0.28.1),
+verify its checksum, and invoke the new binary directly:
+
+```sh
+# Replace linux-amd64 and the installation directory as appropriate.
+sha256sum --ignore-missing -c SHA256SUMS
+# macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
+chmod +x ./ytmdlctl-linux-amd64
+./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl update --target 0.28.1 --dry-run
+./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl update --target 0.28.1
+```
+
+A configured and verified Storage Identity Guard permits the normal update.
+Missing, mismatched, unavailable or unverifiable storage remains blocked.
+Schema stays at 12; no database migration is required. The combined-stream
+fallback stays disabled unless explicitly enabled by the operator.
+
 ## Update Channels
 
 | Channel | Offers | Source |
