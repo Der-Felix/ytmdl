@@ -1,0 +1,6 @@
+{
+  "name": "ytmdl-release-browser-qualification",
+  "private": true,
+  "type": "module",
+  "dependencies": { "playwright": "1.63.0" }
+}

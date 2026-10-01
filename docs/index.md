@@ -37,7 +37,7 @@ features:
     details: Strict directory structure (Artist/YYYY - Album/NN - Title.opus) optimized for Jellyfin, Navidrome, Plex, and Emby with cover art sidecars.
   - icon: 🛡️
     title: Reliable Storage & Audits
-    details: Two-phase atomic staging to local disks or host-mounted SMB/NFS shares, protected by a Storage Identity Guard and non-destructive repair previews.
+    details: Two-phase atomic staging to local disks or host-mounted SMB/CIFS shares, protected by a Storage Identity Guard and non-destructive repair previews.
 ---
 
 <div class="hero-showcase">
@@ -48,17 +48,17 @@ features:
 
 <div class="home-quickstart">
   <div class="home-quickstart-title">⚡ Quick Start with Official Images</div>
-  <div class="home-quickstart-desc">Deploy the full stack in under 60 seconds with Docker Compose or Podman:</div>
+  <div class="home-quickstart-desc">Install the versioned package with Docker Compose or rootless Podman:</div>
 
 ```sh
-# 1. Download official compose stack and environment template
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/main/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/main/.env.example
-cp .env.example .env
-
-# 2. Launch production stack
-podman compose -f compose.ghcr.yaml up -d
-# or: docker compose -f compose.ghcr.yaml up -d
+curl -fLO https://github.com/Der-Felix/ytmdl/releases/download/v1.0.0/ytmdl-1.0.0.tar.gz
+curl -fLO https://github.com/Der-Felix/ytmdl/releases/download/v1.0.0/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+# macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
+tar -xzf ytmdl-1.0.0.tar.gz
+cd ytmdl-1.0.0
+python3 scripts/install.py --engine docker
+# Or: python3 scripts/install.py --engine podman
 ```
 
   <div style="margin-top: 14px; font-size: 0.9rem; color: var(--vp-c-text-2);">

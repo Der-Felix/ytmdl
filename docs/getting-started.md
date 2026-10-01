@@ -21,42 +21,37 @@ YTMDL operates as a three-tier service stack orchestrated via Docker or Podman:
 2. **Backend (Go API & Queue):** Concurrency-controlled workers managing metadata searches, `yt-dlp` extraction processes, tag embedding, lyrics resolution, and storage operations.
 3. **Database (PostgreSQL 18):** Relational schema tracking users, artist discographies, albums, tracks, job queue tasks, and audit logs.
 
-## Quick Start in 3 Steps
+## Install the Official Package
 
-### 1. Configure Your Environment
-
-Download the standard Compose definition and template environment:
-
-```sh
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/main/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/main/.env.example
-cp .env.example .env
-```
-
-Generate secure secrets for PostgreSQL and session tokens:
+Download the versioned installation archive and checksums from the
+[v1.0.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.0.0).
+Use a fresh directory with Python 3 and Docker Compose v2 or newer, or rootless
+Podman with Docker Compose v2 or newer as its provider:
 
 ```sh
-# Set strong random secrets and configure your pinned version in .env
-openssl rand -hex 24
-# Set YTMDL_VERSION in .env to the current stable release (e.g. 0.26.0) for
-# deterministic deployment and managed updates with ytmdlctl
+curl -fLO https://github.com/Der-Felix/ytmdl/releases/download/v1.0.0/ytmdl-1.0.0.tar.gz
+curl -fLO https://github.com/Der-Felix/ytmdl/releases/download/v1.0.0/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+# macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
+tar -xzf ytmdl-1.0.0.tar.gz
+cd ytmdl-1.0.0
+python3 scripts/install.py --engine docker
+# Or: python3 scripts/install.py --engine podman
 ```
 
-### 2. Launch the Stack
+The installer creates random database credentials, a private `.env`, new writable
+`data` and `music` directories, and the storage identity marker. It refuses
+existing configuration or data. Use `--prepare-only` to inspect or adjust the
+configuration before startup. The package includes `INSTALL.md` and the correct
+Compose files for each engine. Existing installations use the [upgrade guide](/updates),
+not the fresh installer.
 
-Start the containers using Podman Compose or Docker Compose:
+## Create the Administrator
 
-```sh
-# For Podman (using native Compose V2 provider)
-podman compose -f compose.ghcr.yaml up -d
-
-# Or for Docker Compose
-docker compose -f compose.ghcr.yaml up -d
-```
-
-### 3. Complete First-Run Setup
-
-Open your browser at `http://localhost:8080`. The first-run setup wizard will prompt you to create the initial Administrator account. Once created, you are ready to search for artists, subscribe to releases, or import your existing library.
+Wait for all three containers to become healthy, then open `http://localhost:8080`
+and create the first administrator. Configure HTTPS at your reverse proxy before
+exposing the installation publicly. Provider access requires outbound connectivity;
+see [proxy configuration](/configuration) if your network uses a proxy.
 
 ## Next Steps
 

@@ -54,15 +54,17 @@ for target in "${TARGETS[@]}"; do
     ./cmd/ytmdlctl
 done
 
+python3 "${SCRIPT_DIR}/package-installation.py" --output "${OUTPUT_DIR}"
+
 echo ""
 echo "==> Generating SHA256SUMS..."
 (
   cd "${OUTPUT_DIR}"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum ytmdlctl-* > SHA256SUMS
+    sha256sum ytmdlctl-* ytmdl-*.tar.gz > SHA256SUMS
     sha256sum -c SHA256SUMS
   elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 ytmdlctl-* > SHA256SUMS
+    shasum -a 256 ytmdlctl-* ytmdl-*.tar.gz > SHA256SUMS
     shasum -a 256 -c SHA256SUMS
   else
     echo "Error: neither sha256sum nor shasum found" >&2

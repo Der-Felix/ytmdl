@@ -267,6 +267,21 @@ jobs:
           go test -count=1 ./...
           go test -count=1 -race ./...
 
+      - name: Verify Installation Package Boundary
+        run: python3 scripts/test-installation.py
+
+      - name: Install Checksum-Pinned Image Scanner
+        shell: bash
+        run: |
+          scan_dir="${RUNNER_TEMP}/ytmdl-trivy"
+          mkdir -p "${scan_dir}"
+          curl -fsSL --connect-timeout 15 --max-time 120 --retry 2 \
+            https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz \
+            -o "${scan_dir}/trivy.tar.gz"
+          echo 'c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f  '"${scan_dir}/trivy.tar.gz" | sha256sum -c -
+          tar -xzf "${scan_dir}/trivy.tar.gz" -C "${scan_dir}" trivy
+          echo "${scan_dir}" >> "$GITHUB_PATH"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
         with:
@@ -362,6 +377,8 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
           platforms: linux/amd64,linux/arm64
+          sbom: true
+          provenance: mode=max
           push: false
 
       - name: Verify Multi-Arch Frontend Container Build (Verify-Only Mode)
@@ -370,7 +387,11 @@ jobs:
         with:
           context: ./frontend
           file: ./frontend/Containerfile
+          build-args: |
+            BUILDKIT_SBOM_SCAN_CONTEXT=true
           platforms: linux/amd64,linux/arm64
+          sbom: true
+          provenance: mode=max
           push: false
 
       - name: Load Native Backend Image for Isolated Smoke Test
@@ -390,6 +411,8 @@ jobs:
         with:
           context: ./frontend
           file: ./frontend/Containerfile
+          build-args: |
+            BUILDKIT_SBOM_SCAN_CONTEXT=true
           platforms: linux/amd64
           tags: ytmdl-frontend:release-smoke
           load: true
@@ -402,6 +425,48 @@ jobs:
             --frontend ytmdl-frontend:release-smoke \
             --version "${{ steps.version.outputs.version }}"
 
+      - name: Qualify Official Docker Compose Package
+        run: |
+          python3 scripts/qualify-compose.py \
+            --backend ytmdl-backend:release-smoke \
+            --frontend ytmdl-frontend:release-smoke
+
+      - name: Qualify Rootless Podman Compose Package
+        shell: bash
+        run: |
+          sudo apt-get install -y -qq podman uidmap slirp4netns
+          provider=""
+          for path in /usr/libexec/docker/cli-plugins/docker-compose /usr/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose; do
+            if [ -x "${path}" ]; then provider="${path}"; break; fi
+          done
+          if [ -z "${provider}" ]; then provider="$(command -v docker-compose)"; fi
+          export PODMAN_COMPOSE_PROVIDER="${provider}"
+          echo "PODMAN_COMPOSE_PROVIDER=${provider}" >> "$GITHUB_ENV"
+          podman info --format '{{.Host.Security.Rootless}}' | grep -qx true
+          podman system service --time=0 > "${RUNNER_TEMP}/podman-service.log" 2>&1 &
+          docker save -o "${RUNNER_TEMP}/ytmdl-candidates.tar" ytmdl-backend:release-smoke ytmdl-frontend:release-smoke
+          podman load -i "${RUNNER_TEMP}/ytmdl-candidates.tar"
+          python3 scripts/qualify-compose.py --engine podman \
+            --backend localhost/ytmdl-backend:release-smoke \
+            --frontend localhost/ytmdl-frontend:release-smoke
+
+      - name: Qualify Real Browser Flow
+        shell: bash
+        run: |
+          (cd scripts/browser && bun install --frozen-lockfile && bunx playwright install --with-deps chromium firefox)
+          python3 scripts/qualify-compose.py \
+            --backend ytmdl-backend:release-smoke \
+            --frontend ytmdl-frontend:release-smoke \
+            --browser "${RUNNER_TEMP}/ytmdl-browser.json"
+          node scripts/browser/qualify.mjs "${RUNNER_TEMP}/ytmdl-browser.json"
+
+      - name: Scan and Inventory Native Candidate Images
+        run: |
+          python3 scripts/scan-release-images.py \
+            --backend ytmdl-backend:release-smoke \
+            --frontend ytmdl-frontend:release-smoke \
+            --platform linux/amd64
+
       - name: Build and Push Backend Image
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: build-backend
@@ -412,6 +477,8 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
           platforms: linux/amd64,linux/arm64
+          sbom: true
+          provenance: mode=max
           push: true
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}
@@ -439,7 +506,11 @@ jobs:
         with:
           context: ./frontend
           file: ./frontend/Containerfile
+          build-args: |
+            BUILDKIT_SBOM_SCAN_CONTEXT=true
           platforms: linux/amd64,linux/arm64
+          sbom: true
+          provenance: mode=max
           push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
@@ -495,6 +566,27 @@ jobs:
           echo "frontend_amd64=${frontend_amd64}" >> "$GITHUB_OUTPUT"
           echo "frontend_arm64=${frontend_arm64}" >> "$GITHUB_OUTPUT"
 
+      - name: Scan and Inventory Published Immutable Images
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          for platform in linux/amd64 linux/arm64; do
+            python3 scripts/scan-release-images.py \
+              --backend "ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend }}" \
+              --frontend "ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend }}" \
+              --platform "${platform}"
+          done
+
+      - name: Qualify ARM64 Runtime under QEMU
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          backend="ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend_arm64 }}"
+          frontend="ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend_arm64 }}"
+          docker pull --platform linux/arm64 "${backend}"
+          docker pull --platform linux/arm64 "${frontend}"
+          python3 scripts/smoke-release-containers.py \
+            --backend "${backend}" --frontend "${frontend}" \
+            --version "${{ steps.version.outputs.version }}"
+
       - name: Compile Release Binaries & Compute SHA256SUMS
         shell: bash
         run: |
@@ -545,13 +637,78 @@ jobs:
             --frontend-platform "linux/arm64=${frontend_arm64}" \
             --output "${PWD}/dist/release-manifest.json"
 
+      - name: Qualify Real Upgrade from v0.28.1
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          old_cli_dir="${RUNNER_TEMP}/ytmdl-old-cli"
+          mkdir -p "${old_cli_dir}"
+          curl -fsSL --connect-timeout 15 --max-time 120 --retry 2 \
+            https://github.com/Der-Felix/ytmdl/releases/download/v0.28.0/ytmdlctl-linux-amd64 -o "${old_cli_dir}/ytmdlctl-linux-amd64"
+          curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 \
+            https://github.com/Der-Felix/ytmdl/releases/download/v0.28.0/SHA256SUMS -o "${old_cli_dir}/SHA256SUMS"
+          (cd "${old_cli_dir}" && sha256sum --ignore-missing -c SHA256SUMS)
+          chmod +x "${old_cli_dir}/ytmdlctl-linux-amd64"
+          python3 scripts/qualify-upgrade.py --engine docker \
+            --cli "${PWD}/dist/ytmdlctl-linux-amd64" \
+            --target "${{ steps.version.outputs.version }}" \
+            --manifest "${PWD}/dist/release-manifest.json" \
+            --old-cli "${old_cli_dir}/ytmdlctl-linux-amd64"
+          python3 scripts/qualify-upgrade.py --engine podman \
+            --cli "${PWD}/dist/ytmdlctl-linux-amd64" \
+            --target "${{ steps.version.outputs.version }}" \
+            --manifest "${PWD}/dist/release-manifest.json" \
+            --old-cli "${old_cli_dir}/ytmdlctl-linux-amd64"
+
+      - name: Record Runtime Tools and Qualification Evidence
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          ARM64_RUNTIME_QUALIFIED: ${{ github.event_name == 'push' }}
+          MANAGED_UPGRADE_QUALIFIED: ${{ github.event_name == 'push' }}
+        run: |
+          backend="ytmdl-backend:release-smoke"
+          frontend="ytmdl-frontend:release-smoke"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            backend="ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend_amd64 }}"
+            frontend="ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend_amd64 }}"
+          fi
+          python3 scripts/record-runtime-tools.py \
+            --backend "${backend}" --frontend "${frontend}"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          evidence = {
+              "version": os.environ["RELEASE_VERSION"],
+              "source_commit": os.environ["GITHUB_SHA"],
+              "workflow_run": os.environ["GITHUB_RUN_ID"],
+              "checks": {
+                  "postgres_integration_and_unit_tests": True,
+                  "race_tests": True,
+                  "frontend_tests_and_build": True,
+                  "installation_package_safety": True,
+                  "docker_compose_install_acquisition_restore": True,
+                  "rootless_podman_compose_install_acquisition_restore": True,
+                  "chromium_and_firefox_browser_flow": True,
+                  "upload_limits_and_cookie_persistence": True,
+                  "critical_image_vulnerability_gate": True,
+                  "arm64_runtime_under_qemu": os.environ["ARM64_RUNTIME_QUALIFIED"] == "true",
+                  "managed_upgrade_both_engines_and_guard_modes": os.environ["MANAGED_UPGRADE_QUALIFIED"] == "true",
+              },
+              "database_schema": 12,
+              "combined_stream_fallback": "disabled_by_default",
+              "not_claimed": ["multiday_production_soak", "independent_security_audit", "full_safari_ios_support"],
+          }
+          Path("dist/qualification.json").write_text(json.dumps(evidence, indent=2) + "\n")
+          PY
+
       - name: Checksum All Release Assets
         shell: bash
         run: |
           # SHA256SUMS covers every published file: the CLI binaries and the
           # release manifest that pins the image digests.
           cd dist
-          sha256sum ytmdlctl-linux-amd64 ytmdlctl-linux-arm64 ytmdlctl-darwin-amd64 ytmdlctl-darwin-arm64 release-manifest.json > SHA256SUMS
+          sha256sum ytmdlctl-* ytmdl-*.tar.gz release-manifest.json sbom-*.spdx.json scan-*.json runtime-tools.json qualification.json > SHA256SUMS
           sha256sum -c SHA256SUMS
           cat SHA256SUMS
 
@@ -579,7 +736,7 @@ jobs:
           echo "Release notes verified successfully:"
           cat "${PWD}/dist/RELEASE_NOTES.md"
 
-      - name: Publish GitHub Release
+      - name: Create Draft Release with Qualified Assets
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
@@ -596,6 +753,7 @@ jobs:
 
           gh release create "${tag}" \
             "${kind_args[@]}" \
+            --draft \
             --title "YTMDL ${tag}" \
             --notes-file dist/RELEASE_NOTES.md \
             dist/release-manifest.json \
@@ -603,25 +761,16 @@ jobs:
             dist/ytmdlctl-linux-amd64 \
             dist/ytmdlctl-linux-arm64 \
             dist/ytmdlctl-darwin-amd64 \
-            dist/ytmdlctl-darwin-arm64
+            dist/ytmdlctl-darwin-arm64 \
+            dist/ytmdl-*.tar.gz \
+            dist/sbom-*.spdx.json \
+            dist/scan-*.json \
+            dist/runtime-tools.json \
+            dist/qualification.json
 
           echo "GitHub Release ${tag} successfully published!"
 
-      - name: Promote Qualified Images to latest
-        # :latest is reserved for stable releases.
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && steps.version.outputs.prerelease != 'true'
-        shell: bash
-        run: |
-          echo "Promoting qualified release images to :latest using immutable digests..."
-          docker buildx imagetools create \
-            -t ghcr.io/der-felix/ytmdl-backend:latest \
-            ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend }}
-          docker buildx imagetools create \
-            -t ghcr.io/der-felix/ytmdl-frontend:latest \
-            ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend }}
-          echo "Successfully promoted images to :latest."
-
-      - name: Verify Published Release
+      - name: Verify Downloadable Draft Assets and Registry
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
@@ -635,7 +784,7 @@ jobs:
           # 1. The GitHub release is published with the intended kind.
           gh release view "${tag}" --json isDraft,isPrerelease,tagName > "${check_dir}/release.json"
           jq -e --arg tag "${tag}" --argjson pre "${prerelease}" \
-            '.tagName == $tag and .isDraft == false and .isPrerelease == $pre' "${check_dir}/release.json" >/dev/null \
+            '.tagName == $tag and .isDraft == true and .isPrerelease == $pre' "${check_dir}/release.json" >/dev/null \
             || { echo "::error::Published release flags do not match (${prerelease})" >&2; cat "${check_dir}/release.json" >&2; exit 1; }
 
           # 2. The downloadable assets are exactly the verified ones.
@@ -677,6 +826,48 @@ jobs:
             done
           fi
           echo "Published release ${tag} verified."
+
+      - name: Publish Qualified Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest=true
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then latest=false; fi
+          gh release edit "${{ steps.version.outputs.tag }}" --draft=false --latest="${latest}"
+
+      - name: Promote Qualified Images to latest
+        # :latest is reserved for stable releases.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && steps.version.outputs.prerelease != 'true'
+        shell: bash
+        run: |
+          echo "Promoting qualified release images to :latest using immutable digests..."
+          docker buildx imagetools create \
+            -t ghcr.io/der-felix/ytmdl-backend:latest \
+            ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend }}
+          docker buildx imagetools create \
+            -t ghcr.io/der-felix/ytmdl-frontend:latest \
+            ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend }}
+          echo "Successfully promoted images to :latest."
+
+      - name: Verify Public Release and Stable Promotion
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          check_dir="$(mktemp -d)"
+          gh release view "${tag}" --json isDraft,isPrerelease,tagName | \
+            jq -e --argjson pre '${{ steps.version.outputs.prerelease }}' '.isDraft == false and .isPrerelease == $pre'
+          gh release download "${tag}" --dir "${check_dir}"
+          (cd "${check_dir}" && sha256sum -c SHA256SUMS)
+          if [ "${{ steps.version.outputs.prerelease }}" != "true" ]; then
+            for component in backend frontend; do
+              pinned="$(jq -r ".images.${component}.digest" dist/release-manifest.json)"
+              actual="$(docker buildx imagetools inspect "ghcr.io/der-felix/ytmdl-${component}:latest" --format '{{json .Manifest}}' | jq -r '.digest')"
+              test "${actual}" = "${pinned}"
+            done
+          fi
 
       - name: Verify-Only Qualification Summary
         if: github.event_name == 'workflow_dispatch'

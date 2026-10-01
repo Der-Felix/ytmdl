@@ -11,6 +11,23 @@ import (
 // GuardStatus describes the verification outcome.
 type GuardStatus string
 
+// ResolveStorageGuardID keeps status, dry runs and real updates consistent with
+// the backend environment aliases. Conflicting identities fail closed.
+func ResolveStorageGuardID(env map[string]string) (string, error) {
+	identity := ""
+	for _, key := range []string{"YTMDL_STORAGE_GUARD_ID", "MUSICDL_STORAGE_GUARD_ID", "YTDM_STORAGE_GUARD_ID"} {
+		value := strings.TrimPrefix(strings.TrimSpace(env[key]), "ytmdl-storage:")
+		if value == "" {
+			continue
+		}
+		if identity != "" && identity != value {
+			return "", errors.New("conflicting configured storage guard identities")
+		}
+		identity = value
+	}
+	return identity, nil
+}
+
 const (
 	GuardStatusVerified    GuardStatus = "verified"
 	GuardStatusMissing     GuardStatus = "missing"
