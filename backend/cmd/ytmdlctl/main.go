@@ -1083,6 +1083,13 @@ func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, exp
 					blockedReasons = append(blockedReasons, fmt.Sprintf("missing required configuration: %s", envKey))
 				}
 			}
+			if eng != nil && filepath.Base(selectedFile) == engine.ComposeFileGHCR {
+				if imageErr := staging.VerifyTargetImageResolution(ctx, eng, staging.StageOptions{
+					ProjectDir: projDir, ComposeFile: selectedFile, Manifest: m,
+				}); imageErr != nil {
+					blockedReasons = append(blockedReasons, imageErr.Error())
+				}
+			}
 		}
 	}
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The update panel now shows the conditional v0.28.0 CLI bootstrap notice before host update commands.
+- Numbered release-note instructions render as separate steps, preserving wrapped text and code blocks.
+- Managed-update dry runs check target image resolution with host overrides, rejecting pinned hotfix or stale images before reporting readiness. The real update uses the same read-only check; private configuration and subprocess output are omitted from its diagnostics.
+
 ## 0.28.1 — 2026-10-01
 
 ### Highlights

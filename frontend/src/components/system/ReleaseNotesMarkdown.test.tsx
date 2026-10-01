@@ -54,6 +54,38 @@ describe('ReleaseNotesMarkdown', () => {
     expect(strong?.textContent).toBe('strong highlighted text')
   })
 
+  it('keeps the v0.28.0 upgrade instructions as three numbered steps with wrapped lines and code', () => {
+    const markdown = `## Upgrade from v0.28.0
+
+1. Download the CLI and checksums from the
+   [v0.28.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v0.28.1).
+2. Verify the downloaded binary's checksum
+   with \`sha256sum --ignore-missing -c SHA256SUMS\`.
+3. Make it executable and use that binary directly:
+
+   \`\`\`sh
+   chmod +x ./ytmdlctl-linux-amd64
+   ./ytmdlctl-linux-amd64 update --target 0.28.1 --dry-run
+   \`\`\`
+
+Installations with a verified guard can update normally.`
+
+    const { container } = render(<ReleaseNotesMarkdown content={markdown} defaultExpanded />)
+    const list = container.querySelector('ol')
+    expect(list?.children.length).toBe(3)
+    expect(list?.children[0]?.textContent).toContain('Download the CLI and checksums from the v0.28.1 release.')
+    expect(list?.children[1]?.querySelector('code')?.textContent).toBe('sha256sum --ignore-missing -c SHA256SUMS')
+    expect(container.querySelector('pre code')?.textContent).toContain('update --target 0.28.1 --dry-run')
+    expect(screen.getByText('Installations with a verified guard can update normally.').tagName).toBe('P')
+  })
+
+  it('separates numbered and bullet lists and preserves a numbered list starting value', () => {
+    const { container } = render(<ReleaseNotesMarkdown content={'3. Resume at this step\n4. Continue\n- A separate bullet'} />)
+    expect(container.querySelector('ol')?.getAttribute('start')).toBe('3')
+    expect(container.querySelectorAll('ol li').length).toBe(2)
+    expect(container.querySelectorAll('ul li').length).toBe(1)
+  })
+
   it('renders inline code with monospace styling', () => {
     const markdown = 'Run `ytmdlctl update --dry-run` to test first.'
 
