@@ -183,6 +183,17 @@ The dry-run verifies:
 - Active download queue state
 - Release manifest schema and cryptographic image digest availability
 
+Development builds additionally check that the effective backend and frontend
+image references resolve to the target release, including
+`compose.ghcr.override.yaml`. The published v0.28.0 and v0.28.1 dry runs do not
+perform this check; their actual update still rejects mismatched images before
+pulling or restarting containers.
+
+A temporary local hotfix may pin an `image:` in the host override. Once its fix
+is included in the target release, remove only that temporary image pin before
+updating. Keep proxy settings, mounts, cookie configuration and other host
+settings. Changing `YTMDL_VERSION` alone cannot override a fixed image reference.
+
 ### 3. Apply Update
 When ready, execute the update:
 ```sh

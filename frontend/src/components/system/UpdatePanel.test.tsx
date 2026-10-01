@@ -111,6 +111,30 @@ describe('UpdatePanel', () => {
     })
   })
 
+  it('puts the conditional v0.28.0 CLI upgrade warning before host commands', () => {
+    const { container } = render(<UpdatePanel initialData={{
+      ...updateAvailableStatus,
+      current_version: '0.28.0',
+      latest_version: '0.28.1',
+      release_notes: undefined,
+      update_commands: [
+        'ytmdlctl update --channel stable --target 0.28.1 --dry-run',
+        'ytmdlctl update --channel stable --target 0.28.1',
+      ],
+    }} />)
+    const notice = screen.getByRole('note')
+    expect(notice.textContent).toContain('Bei deaktiviertem Storage Identity Guard')
+    expect(notice.textContent).toContain('SHA256SUMS')
+    const hostCommand = screen.getByText('ytmdlctl update --channel stable --target 0.28.1 --dry-run')
+    expect(notice.compareDocumentPosition(hostCommand) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(container.textContent).toContain('welche CLI auf dem Host vorhanden ist')
+  })
+
+  it('does not show the v0.28.0 CLI warning for another installed version', () => {
+    render(<UpdatePanel initialData={{ ...updateAvailableStatus, current_version: '0.28.1', latest_version: '0.28.2' }} />)
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
   it('renders release notes safely as plain text without HTML execution', () => {
     const xssStatus: UpdateStatus = {
       ...updateAvailableStatus,

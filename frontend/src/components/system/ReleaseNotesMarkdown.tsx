@@ -105,6 +105,8 @@ interface BlockItem {
   content?: string
   lines?: string[]
   listItems?: { indent: number; text: string }[]
+  ordered?: boolean
+  start?: number
 }
 
 function parseBlocks(markdown: string): BlockItem[] {
@@ -115,11 +117,13 @@ function parseBlocks(markdown: string): BlockItem[] {
   let codeLines: string[] = []
 
   let currentList: { indent: number; text: string }[] = []
+  let listOrdered = false
+  let listStart = 1
   let currentParagraph: string[] = []
 
   function flushList() {
     if (currentList.length > 0) {
-      blocks.push({ type: 'list', listItems: currentList })
+      blocks.push({ type: 'list', listItems: currentList, ordered: listOrdered, start: listStart })
       currentList = []
     }
   }
@@ -179,12 +183,20 @@ function parseBlocks(markdown: string): BlockItem[] {
       continue
     }
 
-    // Bullet list items
-    const listMatch = line.match(/^(\s*)[-*]\s+(.*)$/)
+    // Bullet and numbered steps, including wrapped continuation lines.
+    const listMatch = line.match(/^(\s*)(?:[-*]|(\d+)[.)])\s+(.*)$/)
     if (listMatch) {
       flushParagraph()
+      const ordered = listMatch[2] !== undefined
+      if (currentList.length > 0 && ordered !== listOrdered) {
+        flushList()
+      }
+      if (currentList.length === 0) {
+        listOrdered = ordered
+        listStart = ordered ? Number(listMatch[2]) : 1
+      }
       const indent = listMatch[1]?.length ?? 0
-      const text = listMatch[2] ?? ''
+      const text = listMatch[3] ?? ''
       currentList.push({ indent, text })
       continue
     }
@@ -282,9 +294,10 @@ export function ReleaseNotesMarkdown({
                       <code>{(block.lines || []).join('\n')}</code>
                     </pre>
                   )
-                case 'list':
+                case 'list': {
+                  const List = block.ordered ? 'ol' : 'ul'
                   return (
-                    <ul key={key} className="my-1 space-y-1 pl-4 text-xs text-foreground/90">
+                    <List key={key} start={block.ordered ? block.start : undefined} className="my-1 space-y-1 pl-4 text-xs text-foreground/90">
                       {(block.listItems || []).map((item, itemIdx) => {
                         const itemKey = `${key}-item-${itemIdx}`
                         const isSubItem = item.indent > 0
@@ -294,15 +307,16 @@ export function ReleaseNotesMarkdown({
                             className={
                               isSubItem
                                 ? 'list-circle ml-3 text-muted-foreground'
-                                : 'list-disc marker:text-muted-foreground/60'
+                                : `${block.ordered ? 'list-decimal' : 'list-disc'} marker:text-muted-foreground/60`
                             }
                           >
                             {renderInline(parseInlineTokens(item.text), itemKey)}
                           </li>
                         )
                       })}
-                    </ul>
+                    </List>
                   )
+                }
                 default:
                   return null
               }
