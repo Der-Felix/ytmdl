@@ -5,13 +5,7 @@ import { AppContent } from './App'
 import { AuthContext } from '@/contexts/auth-context'
 import { navigate } from '@/lib/router'
 
-// Mock hooks and sub-page APIs
-mock.module('@/hooks/useJobs', () => ({
-  useJobs: () => ({ state: { status: 'success', data: [] }, meta: { total: 0 }, reload: async () => {} }),
-  useConnectionState: () => 'open',
-  useCurrentTracks: () => ({ activeTracks: [] }),
-}))
-
+// Mock sub-page APIs. Keep the job hooks real so other tests can verify requests.
 mock.module('@/hooks/usePlayer', () => ({
   usePlayer: () => ({
     currentTrack: null,
@@ -134,13 +128,26 @@ describe('App Layout Consolidation and Route Permissions', () => {
   }
 
   let originalFetch: typeof fetch
+  let originalEventSource: typeof EventSource
 
   beforeEach(() => {
     ;(window as any).happyDOM.setURL('http://localhost/')
     originalFetch = globalThis.fetch
+    originalEventSource = globalThis.EventSource
+    globalThis.EventSource = class {
+      close() {}
+      addEventListener() {}
+      static readonly CLOSED = 2
+    } as unknown as typeof EventSource
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString()
       const parsed = new URL(url, 'http://localhost')
+      if (parsed.pathname === '/api/v1/jobs') {
+        return new Response(JSON.stringify({ data: [], meta: { count: 0, total: 0 } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
       if (parsed.pathname === '/api/v1/jobs/summary') {
         return new Response(JSON.stringify({ data: { active_jobs: 0, queued_jobs: 0 } }), {
           status: 200,
@@ -153,6 +160,7 @@ describe('App Layout Consolidation and Route Permissions', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
+    globalThis.EventSource = originalEventSource
   })
 
   it('renders Users within AppShell (with sidebar and header) for admin on /users', async () => {

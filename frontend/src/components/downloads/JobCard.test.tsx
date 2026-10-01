@@ -184,17 +184,17 @@ describe('JobCard – Step 4 Honest "Waiting for Provider" UX', () => {
     const { container } = render(<JobCard job={job} />)
 
     // The job-level error message does not use text-destructive
-    const errorBox = container.querySelector('p.border-amber-500\\/20')
+    const errorBox = container.querySelector('div.border-amber-500\\/20')
     expect(errorBox).toBeTruthy()
     expect(errorBox?.classList.contains('text-destructive')).toBe(false)
-    expect(errorBox?.classList.contains('text-amber-600')).toBe(true)
+    expect(errorBox?.classList.contains('bg-amber-500/5')).toBe(true)
 
     // Expand details
     fireEvent.click(screen.getByRole('button', { name: /Details/i }))
 
     await waitFor(() => {
       // The item drawer status or message does not have text-destructive
-      const itemMsgs = screen.getAllByText('Provider vorübergehend nicht verfügbar', { selector: 'p' })
+      const itemMsgs = screen.getAllByText('Wartet auf eine verfügbare Musikquelle', { selector: 'p' })
       expect(itemMsgs.length).toBeGreaterThanOrEqual(2)
       for (const itemMsg of itemMsgs) {
         expect(itemMsg.classList.contains('text-destructive')).toBe(false)
@@ -355,7 +355,7 @@ describe('JobCard – Step 4 Honest "Waiting for Provider" UX', () => {
 
     // Verify initial waiting state is shown correctly
     expect(screen.getAllByText('Wartet auf Provider').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('Provider vorübergehend nicht verfügbar')).toBeTruthy()
+    expect(screen.getByText('Wartet auf eine verfügbare Musikquelle')).toBeTruthy()
 
     // Receive recovery SSE event
     const recoveryEvent: JobEvent = {
@@ -377,13 +377,53 @@ describe('JobCard – Step 4 Honest "Waiting for Provider" UX', () => {
 
     // Verify waiting label and amber banner disappeared without refresh
     expect(screen.queryByText('Wartet auf Provider')).toBeNull()
-    expect(screen.queryByText('Provider vorübergehend nicht verfügbar')).toBeNull()
+    expect(screen.queryByText('Wartet auf eine verfügbare Musikquelle')).toBeNull()
     expect(screen.getAllByText('Wird heruntergeladen').length).toBeGreaterThanOrEqual(1)
   })
 })
 
 describe('JobCard – Failed Job Error Presentation', () => {
-  it('TEST E: failed job with error_message renders error message directly on card', () => {
+  it('marks partial completion and opens only failed tracks without starting a retry', async () => {
+    const job = mockJob({ status: 'completed', total: 2, completed: 1, failed: 1 })
+    const calls: { url: string; method: string }[] = []
+    globalThis.fetch = (async (input, init) => {
+      calls.push({ url: String(input), method: init?.method || 'GET' })
+      return new Response(JSON.stringify({ data: {
+        job,
+        items: [mockItem({ id: 'good', status: 'completed', label: 'Successful recording', track: undefined }), mockItem({ id: 'bad', status: 'failed', error_code: 'MATCH_FAILED', error_message: 'raw tool output', label: 'Missing recording', track: undefined })],
+        summary: { total: 2, completed: 1, failed: 1, skipped: 0 },
+      } }), { status: 200 })
+    }) as typeof fetch
+    render(<JobCard job={job} />)
+    expect(screen.getByText('Abgeschlossen mit Problemen')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: /1 Track braucht Prüfung/ }))
+    expect(await screen.findByText('Missing recording')).toBeDefined()
+    expect(screen.queryByText('Successful recording')).toBeNull()
+    expect(screen.getByText('Aufnahme passt nicht sicher zum Titel')).toBeDefined()
+    expect(document.body.textContent).not.toContain('raw tool output')
+    expect(calls).toEqual([{ url: '/api/v1/jobs/job-1', method: 'GET' }])
+    fireEvent.click(screen.getByRole('button', { name: 'Alle Tracks' }))
+    expect(screen.getByText('Successful recording')).toBeDefined()
+  })
+
+  it('allows a failed detail request to be loaded again without changing the job', async () => {
+    let calls = 0
+    const job = mockJob()
+    globalThis.fetch = (async () => {
+      calls++
+      if (calls === 1) return new Response(JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'private diagnostic' } }), { status: 500 })
+      return new Response(JSON.stringify({ data: { job, items: [mockItem()], summary: { total: 1, completed: 0, failed: 0, skipped: 0 } } }), { status: 200 })
+    }) as typeof fetch
+    render(<JobCard job={job} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
+    expect(await screen.findByText('Unerwarteter Fehler')).toBeDefined()
+    expect(document.body.textContent).not.toContain('private diagnostic')
+    fireEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }))
+    expect(await screen.findByText('In The End')).toBeDefined()
+    expect(calls).toBe(2)
+  })
+
+  it('explains a failed download without exposing raw provider output', () => {
     const job = mockJob({
       status: 'failed',
       failed: 1,
@@ -393,7 +433,8 @@ describe('JobCard – Failed Job Error Presentation', () => {
 
     render(<JobCard job={job} />)
 
-    expect(screen.getByText('Video unavailable')).toBeTruthy()
+    expect(screen.getByText('Download konnte nicht abgeschlossen werden')).toBeTruthy()
+    expect(screen.queryByText('Video unavailable')).toBeNull()
     expect(
       screen.queryByText('Mindestens ein Track ist fehlgeschlagen. Details aufklappen.'),
     ).toBeNull()
@@ -410,7 +451,7 @@ describe('JobCard – Failed Job Error Presentation', () => {
     render(<JobCard job={job} />)
 
     expect(
-      screen.getByText('Mindestens ein Track ist fehlgeschlagen. Details aufklappen.'),
+      screen.getByText('Aktion konnte nicht abgeschlossen werden'),
     ).toBeTruthy()
   })
 

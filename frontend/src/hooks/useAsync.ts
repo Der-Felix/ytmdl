@@ -31,9 +31,11 @@ export interface AsyncResult<T> {
 export function useAsync<T>(
   loader: (signal: AbortSignal) => Promise<T>,
   deps: readonly unknown[],
+  options: { keepDataOnReload?: boolean } = {},
 ): AsyncResult<T> {
   const [state, setState] = useState<AsyncState<T>>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
+  const previousDeps = useRef<readonly unknown[] | null>(null)
 
   // The loader is usually an inline arrow function and would otherwise
   // re-trigger the effect on every render; deps decide when to reload.
@@ -46,7 +48,9 @@ export function useAsync<T>(
     const controller = new AbortController()
     let active = true
 
-    setState({ status: 'loading' })
+    const sameQuery = previousDeps.current !== null && deps.length === previousDeps.current.length && deps.every((dep, index) => Object.is(dep, previousDeps.current![index]))
+    previousDeps.current = deps
+    setState((current) => options.keepDataOnReload && sameQuery && current.status === 'success' ? current : { status: 'loading' })
 
     loaderRef
       .current(controller.signal)

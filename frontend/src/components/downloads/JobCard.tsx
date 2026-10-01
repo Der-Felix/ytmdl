@@ -7,11 +7,14 @@ import {
   PlayIcon,
   RotateCcwIcon,
   XIcon,
+  AlertCircleIcon,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { ProblemNotice } from '@/components/ui/problem-notice'
+import { ErrorState } from '@/components/ui/state-view'
 import {
   ITEM_STATUS_LABELS,
   JOB_PRIORITY_LABELS,
@@ -29,7 +32,7 @@ import {
   retryJobItem,
   updateJob,
 } from '@/lib/api/jobs'
-import { errorMessage, isAbortError } from '@/lib/api/client'
+import { isAbortError } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 import { formatContinuationTime, formatNumber, formatRelative } from '@/lib/utils/format'
 import type { Job, JobItem, JobPriority, JobStatus } from '@/types/api'
@@ -63,22 +66,31 @@ function JobCard({
   const [expanded, setExpanded] = useState(false)
   const [items, setItems] = useState<JobItem[] | null>(null)
   const [loadingItems, setLoadingItems] = useState(false)
+  const [itemFilter, setItemFilter] = useState<'all' | 'failed'>('all')
+  const [detailError, setDetailError] = useState<unknown>(null)
   const [actionPending, setActionPending] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<unknown>(null)
 
-  async function toggleExpand() {
-    if (!expanded && items === null) {
+  async function showDetails(filter: 'all' | 'failed' = 'all') {
+    setItemFilter(filter)
+    setExpanded(true)
+    if (!expanded || items === null) {
       setLoadingItems(true)
+      setDetailError(null)
       try {
         const detail = await getJob(job.id)
         setItems(detail.items)
       } catch (e) {
-        if (!isAbortError(e)) setActionError(errorMessage(e))
+        if (!isAbortError(e)) setDetailError(e)
       } finally {
         setLoadingItems(false)
       }
     }
-    setExpanded(!expanded)
+  }
+
+  function toggleExpand() {
+    if (expanded) setExpanded(false)
+    else void showDetails()
   }
 
   async function handleTogglePause() {
@@ -88,7 +100,7 @@ function JobCard({
       const updated = job.paused ? await resumeJob(job.id) : await pauseJob(job.id)
       onUpdated?.(updated)
     } catch (e) {
-      if (!isAbortError(e)) setActionError(errorMessage(e))
+      if (!isAbortError(e)) setActionError(e)
     } finally {
       setActionPending(false)
     }
@@ -102,7 +114,7 @@ function JobCard({
       const updated = await updateJob(job.id, { priority })
       onUpdated?.(updated)
     } catch (e) {
-      if (!isAbortError(e)) setActionError(errorMessage(e))
+      if (!isAbortError(e)) setActionError(e)
     } finally {
       setActionPending(false)
     }
@@ -119,7 +131,7 @@ function JobCard({
         setItems(detail.items)
       }
     } catch (e) {
-      if (!isAbortError(e)) setActionError(errorMessage(e))
+      if (!isAbortError(e)) setActionError(e)
     } finally {
       setActionPending(false)
     }
@@ -134,7 +146,7 @@ function JobCard({
       setItems(detail.items)
       onUpdated?.(detail.job)
     } catch (e) {
-      if (!isAbortError(e)) setActionError(errorMessage(e))
+      if (!isAbortError(e)) setActionError(e)
     } finally {
       setActionPending(false)
     }
@@ -142,10 +154,10 @@ function JobCard({
 
   return (
     <article className={cn('panel space-y-3.5 p-4 sm:p-5', className)}>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2">
-            <h3 className="truncate font-heading text-[0.9375rem] font-semibold text-foreground">
+            <h3 className="min-w-0 break-words font-heading text-[0.9375rem] font-semibold text-foreground">
               {job.label || 'Unbenannter Job'}
             </h3>
             {job.paused && (
@@ -159,9 +171,9 @@ function JobCard({
             {job.created_at && ` · ${formatRelative(job.created_at)}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <PriorityBadge priority={job.priority} />
-          <StatusBadge status={job.status} errorCode={job.error_code} />
+          <StatusBadge status={job.status} errorCode={job.error_code} failed={job.failed} />
         </div>
       </div>
 
@@ -195,25 +207,26 @@ function JobCard({
 
       <Outcome job={job} />
 
-      {isWaitingForProvider(job) ? (
-        <p className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
-          {job.error_message || 'Provider vorübergehend nicht verfügbar'}
-        </p>
-      ) : job.status === 'failed' ? (
-        <p className="rounded-xl border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs leading-relaxed text-destructive">
-          {job.error_message || 'Mindestens ein Track ist fehlgeschlagen. Details aufklappen.'}
-        </p>
-      ) : job.error_message ? (
-        <p className="rounded-xl border border-destructive/20 bg-destructive/8 px-3 py-2 text-xs leading-relaxed text-destructive">
-          {job.error_message}
-        </p>
-      ) : null}
-
-      {actionError && (
-        <p role="alert" className="text-xs text-destructive">
-          {actionError}
-        </p>
+      {(job.error_code || job.error_message || job.status === 'failed') && (
+        <ProblemNotice
+          code={job.error_code}
+          waiting={!done && (job.status === 'retry_wait' || job.status === 'waiting_for_storage' || job.status === 'waiting_for_space')}
+          continuation={job.status === 'retry_wait' ? 'Dieser Auftrag wird automatisch fortgesetzt, sobald er wieder an der Reihe ist und die Musikquelle bereit ist.' : undefined}
+        />
       )}
+
+      {job.failed > 0 && (
+        <button
+          type="button"
+          onClick={() => void showDetails('failed')}
+          className="flex w-full items-center justify-between gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-left text-xs text-foreground transition-colors hover:bg-amber-500/10 focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <span className="flex items-center gap-2"><AlertCircleIcon aria-hidden className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />{formatNumber(job.failed)} {job.failed === 1 ? 'Track braucht' : 'Tracks brauchen'} Prüfung</span>
+          <span className="shrink-0 text-muted-foreground">Ansehen</span>
+        </button>
+      )}
+
+      {actionError !== null && <ErrorState error={actionError} />}
 
       {/* Job Actions Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/40">
@@ -279,6 +292,7 @@ function JobCard({
               variant="ghost"
               size="sm"
               onClick={toggleExpand}
+              aria-expanded={expanded}
               className="h-7 text-xs text-muted-foreground"
             >
               {loadingItems ? (
@@ -297,54 +311,64 @@ function JobCard({
       </div>
 
       {/* Expanded Items Drawer */}
+      {expanded && loadingItems && <p role="status" className="text-xs text-muted-foreground">Tracks werden geladen …</p>}
+      {expanded && detailError !== null && <ErrorState error={detailError} onRetry={() => void showDetails(itemFilter)} />}
       {expanded && items && (
         <div className="mt-3 space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Tracks ({items.length})
-          </h4>
-          <div className="max-h-60 overflow-y-auto space-y-1.5 divide-y divide-border/20">
-            {items.map((item) => (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-xs font-semibold text-foreground">Tracks ({formatNumber(items.length)})</h4>
+            <div role="group" aria-label="Tracks filtern" className="flex gap-1">
+              {(['all', 'failed'] as const).map((filter) => (
+                <button key={filter} type="button" aria-pressed={itemFilter === filter} onClick={() => setItemFilter(filter)} className={cn('rounded-md px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-ring', itemFilter === filter ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                  {filter === 'all' ? 'Alle Tracks' : `Fehlgeschlagene (${items.filter((item) => item.status === 'failed').length})`}
+                </button>
+              ))}
+            </div>
+          </div>
+          {itemFilter === 'failed' && !items.some((item) => item.status === 'failed') && <p className="py-3 text-xs text-muted-foreground">Keine fehlgeschlagenen Tracks in diesen Details.</p>}
+          <div className="max-h-96 space-y-3 overflow-y-auto">
+            {items.filter((item) => itemFilter === 'all' || item.status === 'failed').map((item) => (
               <div
                 key={item.id}
-                className="flex items-center justify-between gap-2 pt-1.5 text-xs first:pt-0"
+                className="space-y-2 rounded-lg bg-background/40 p-3 text-xs"
               >
-                <div className="min-w-0 flex-1 truncate">
-                  <span className="font-medium text-foreground">
-                    {item.track?.title || item.label || 'Track'}
-                  </span>
-                  {item.track?.artists?.length ? (
-                    <span className="text-muted-foreground">
-                      {' '}
-                      · {item.track.artists.join(', ')}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                  <div className="min-w-0 flex-1 break-words">
+                    <span className="font-medium text-foreground">
+                      {item.track?.title || item.label || 'Track'}
                     </span>
-                  ) : null}
-                  {isWaitingForProvider(item) ? (
-                    <p className="truncate text-[0.6875rem] text-amber-500/90 dark:text-amber-400/90">
-                      {item.next_retry_at
-                        ? formatContinuationTime(item.next_retry_at)
-                        : 'Provider vorübergehend nicht verfügbar'}
-                    </p>
-                  ) : item.error_message ? (
-                    <p className="truncate text-[0.6875rem] text-destructive">
-                      {item.error_message}
-                    </p>
-                  ) : null}
+                    {item.track?.artists?.length ? (
+                      <span className="text-muted-foreground">
+                        {' '}
+                        · {item.track.artists.join(', ')}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <ItemStatusBadge status={item.status} errorCode={item.error_code} />
+                    {(item.status === 'failed' || (item.status === 'retry_wait' && !isWaitingForProvider(item))) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRetryItem(item.id)}
+                        disabled={actionPending}
+                        className="h-6 px-1.5 text-[0.6875rem]"
+                        title="Track jetzt wiederholen"
+                        aria-label={`${item.track?.title || item.label || 'Track'} erneut versuchen`}
+                      >
+                        <RotateCcwIcon className="size-2.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <ItemStatusBadge status={item.status} errorCode={item.error_code} />
-                  {(item.status === 'failed' || (item.status === 'retry_wait' && !isWaitingForProvider(item))) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleRetryItem(item.id)}
-                      disabled={actionPending}
-                      className="h-6 px-1.5 text-[0.6875rem]"
-                      title="Track jetzt wiederholen"
-                    >
-                      <RotateCcwIcon className="size-2.5" />
-                    </Button>
-                  )}
-                </div>
+                {(item.error_code || item.error_message || item.status === 'failed' || item.status === 'retry_wait') && (
+                  <ProblemNotice
+                    compact
+                    code={item.error_code}
+                    waiting={item.status === 'retry_wait' || item.status === 'waiting_for_storage' || item.status === 'waiting_for_space'}
+                    continuation={item.status === 'retry_wait' ? (item.next_retry_at ? formatContinuationTime(item.next_retry_at) : 'Automatische Wiederholung geplant') : undefined}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -410,10 +434,11 @@ const STATUS_TONE: Record<
   cancelled: 'neutral',
 }
 
-function StatusBadge({ status, errorCode }: { status: JobStatus; errorCode?: string }) {
+function StatusBadge({ status, errorCode, failed = 0 }: { status: JobStatus; errorCode?: string; failed?: number }) {
   const isWaiting = isWaitingForProvider({ status, error_code: errorCode })
-  const tone = isWaiting ? 'warning' : STATUS_TONE[status]
-  const label = isWaiting ? 'Wartet auf Provider' : (JOB_STATUS_LABELS[status] || status)
+  const partial = status === 'completed' && failed > 0
+  const tone = isWaiting || partial ? 'warning' : STATUS_TONE[status]
+  const label = partial ? 'Abgeschlossen mit Problemen' : isWaiting ? 'Wartet auf Provider' : (JOB_STATUS_LABELS[status] || status)
 
   return (
     <Badge variant={tone} className="shrink-0">
@@ -475,7 +500,7 @@ function CancelButton({
   onCancelled?: (job: Job) => void
 }) {
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
 
   async function handleCancel() {
     setPending(true)
@@ -484,7 +509,7 @@ function CancelButton({
       const cancelled = await cancelJob(job.id)
       onCancelled?.(cancelled)
     } catch (caught) {
-      if (!isAbortError(caught)) setError(errorMessage(caught))
+      if (!isAbortError(caught)) setError(caught)
     } finally {
       setPending(false)
     }
@@ -502,11 +527,7 @@ function CancelButton({
         {pending ? <Loader2Icon className="size-3 animate-spin" /> : <XIcon className="size-3" />}
         Abbrechen
       </Button>
-      {error && (
-        <p role="alert" className="text-xs text-destructive">
-          {error}
-        </p>
-      )}
+      {error !== null && <ErrorState error={error} />}
     </div>
   )
 }
