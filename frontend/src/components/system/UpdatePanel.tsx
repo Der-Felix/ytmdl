@@ -206,6 +206,7 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
   }
 
   const commands = current.update_commands?.length ? current.update_commands : ['ytmdlctl update']
+  const needsCLIUpgradeNotice = current.current_version.replace(/^v/, '') === '0.28.0'
 
   return (
     <Panel className="space-y-5 p-5">
@@ -334,6 +335,14 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
           </div>
 
           <div className="space-y-1.5 rounded-md border border-border/60 bg-background/50 p-3">
+            {needsCLIUpgradeNotice && (
+              <p role="note" className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-foreground">
+                Bei deaktiviertem Storage Identity Guard blockiert die CLI aus v0.28.0 dieses Update.
+                Lade zuerst die CLI aus dem Ziel-Release {current.latest_version} für deinen Host herunter,
+                prüfe sie mit <code>SHA256SUMS</code> und verwende sie als <code>ytmdlctl</code> für die Befehle unten.
+                Die installierte App-Version sagt nicht aus, welche CLI auf dem Host vorhanden ist.
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               Auf dem YTMDL-Host ausführen:
             </p>

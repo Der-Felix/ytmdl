@@ -9,12 +9,12 @@
 #   ytmdl-db         PostgreSQL 18
 #
 # For building locally from source, use compose.yaml instead.
-name: ytmdl
+name: ${YTMDL_PROJECT_NAME:-ytmdl}
 
 services:
   db:
-    image: docker.io/library/postgres:18-alpine
-    container_name: ytmdl-db
+    image: docker.io/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    container_name: ${YTMDL_PROJECT_NAME:-ytmdl}-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ytmdl}
       POSTGRES_USER: ${POSTGRES_USER:-ytmdl}
@@ -37,7 +37,7 @@ services:
 
   backend:
     image: ghcr.io/der-felix/ytmdl-backend:${YTMDL_VERSION:?YTMDL_VERSION must be set in .env}
-    container_name: ytmdl-backend
+    container_name: ${YTMDL_PROJECT_NAME:-ytmdl}-backend
     depends_on:
       db:
         condition: service_healthy
@@ -53,7 +53,6 @@ services:
       - ${YTMDL_MUSIC_PATH:-./music}:/music:Z
     networks:
       - ytmdl-net
-    userns_mode: "keep-id:uid=10001,gid=10001"
     healthcheck:
       test:
         - CMD
@@ -71,7 +70,7 @@ services:
 
   frontend:
     image: ghcr.io/der-felix/ytmdl-frontend:${YTMDL_VERSION:?YTMDL_VERSION must be set in .env}
-    container_name: ytmdl-frontend
+    container_name: ${YTMDL_PROJECT_NAME:-ytmdl}-frontend
     depends_on:
       backend:
         condition: service_healthy
@@ -95,12 +94,12 @@ services:
 
 volumes:
   postgres-data:
-    name: ytmdl-postgres-data
+    name: ${YTMDL_PROJECT_NAME:-ytmdl}-postgres-data
 
 networks:
   ytmdl-net:
-    name: ytmdl-net
+    name: ${YTMDL_PROJECT_NAME:-ytmdl}-net
     driver: bridge
     ipam:
       config:
-        - subnet: 172.31.250.0/28
+        - subnet: ${YTMDL_NETWORK_SUBNET:-172.31.250.0/28}

@@ -268,7 +268,7 @@ func TestStageTargetImagesSecretBearingComposeConfigDoesNotLeak(t *testing.T) {
 	}
 }
 
-func TestStageTargetImagesSecretInComposeConfigErrorIsRedacted(t *testing.T) {
+func TestStageTargetImagesSecretInComposeConfigErrorIsOmitted(t *testing.T) {
 	fake := runner.NewFake()
 	m := validTestManifest()
 
@@ -294,8 +294,8 @@ func TestStageTargetImagesSecretInComposeConfigErrorIsRedacted(t *testing.T) {
 	if strings.Contains(errStr, "super-secret-test-value") {
 		t.Fatalf("SECURITY VIOLATION: secret password leaked in returned error: %s", errStr)
 	}
-	if !strings.Contains(errStr, "***REDACTED***") {
-		t.Fatalf("expected redacted marker in error, got: %s", errStr)
+	if errStr != "target image resolution failed: compose configuration unavailable" {
+		t.Fatalf("expected a diagnostic without subprocess output, got: %s", errStr)
 	}
 }
 

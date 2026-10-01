@@ -394,6 +394,80 @@ func TestUpdateDryRunZeroWriteFilesystemInvariant(t *testing.T) {
 	}
 }
 
+func TestUpdateDryRunChecksTargetImagesWithHostOverrideWithoutMutations(t *testing.T) {
+	for _, tc := range []struct {
+		name, backend, frontend, reason string
+	}{
+		{"matching release", "ghcr.io/der-felix/ytmdl-backend:0.16.0", "ghcr.io/der-felix/ytmdl-frontend:0.16.0", ""},
+		{"backend hotfix pinned", "localhost/ytmdl-backend:0.15.0-proxy-hotfix", "ghcr.io/der-felix/ytmdl-frontend:0.16.0", "backend image reference mismatch"},
+		{"frontend pinned", "ghcr.io/der-felix/ytmdl-backend:0.16.0", "ghcr.io/der-felix/ytmdl-frontend:0.15.0", "frontend image reference mismatch"},
+		{"frontend missing", "ghcr.io/der-felix/ytmdl-backend:0.16.0", "", "frontend service or image missing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range map[string]string{
+				"compose.ghcr.yaml":          "services: {}\n",
+				"compose.ghcr.override.yaml": "services: {}\n",
+				".env":                       "YTMDL_VERSION=0.15.0\nPOSTGRES_PASSWORD=fixture-secret\n",
+			} {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := listDirRecursive(t, dir)
+			gh := setupMockGitHub(t, "v0.16.0", "0.16.0", true)
+			defer gh.Close()
+			backend := setupMockBackendHealth(t, "ok", "0.15.0", true)
+			defer backend.Close()
+			fake := runner.NewFake()
+			fake.Register("docker", []string{"compose", "version"}, &runner.RunResult{Stdout: []byte("Docker Compose v2.24.0\n")}, nil)
+			fake.Register("docker", []string{"compose", "-f", "compose.ghcr.yaml", "-f", "compose.ghcr.override.yaml", "config"}, &runner.RunResult{
+				Stdout: []byte(fmt.Sprintf("services:\n  backend:\n    image: %s\n    environment:\n      PASSWORD: fixture-secret\n  frontend:\n    image: %s\n", tc.backend, tc.frontend)),
+			}, nil)
+			var stdout, stderr bytes.Buffer
+			code := runCLIWithDeps(context.Background(), []string{"--project-dir", dir, "--file", "compose.ghcr.yaml", "--engine", "docker", "--base-url", backend.URL, "update", "--channel", "stable", "--dry-run"},
+				&stdout, &stderr, CLIDependencies{Runner: fake, GitHubURL: gh.URL, HTTPClient: gh.Client()})
+			if tc.reason == "" && code != 0 {
+				t.Fatalf("valid target blocked: %s", stdout.String())
+			}
+			if tc.reason != "" && (code != 1 || !strings.Contains(stdout.String(), tc.reason)) {
+				t.Fatalf("expected %s to block, code=%d: %s", tc.reason, code, stdout.String())
+			}
+			if strings.Contains(stdout.String()+stderr.String(), "fixture-secret") {
+				t.Fatal("configuration secret leaked")
+			}
+			after := listDirRecursive(t, dir)
+			if len(before) != len(after) {
+				t.Fatal("dry run created or deleted files")
+			}
+			for path, content := range before {
+				if after[path] != content {
+					t.Fatal("dry run changed a file")
+				}
+			}
+			sawTargetConfig := false
+			for _, call := range fake.Calls() {
+				for _, arg := range call.Args {
+					if arg == "config" {
+						sawTargetConfig = true
+						if strings.Join(call.Env, " ") != "YTMDL_VERSION=0.16.0" {
+							t.Fatal("compose configuration was not resolved for the target release")
+						}
+					}
+					for _, forbidden := range []string{"pull", "up", "restart", "stop", "down", "create"} {
+						if arg == forbidden {
+							t.Fatalf("dry run executed %s", forbidden)
+						}
+					}
+				}
+			}
+			if !sawTargetConfig {
+				t.Fatal("target compose configuration was not checked")
+			}
+		})
+	}
+}
+
 func TestUpdateDryRunWarningActiveJobs(t *testing.T) {
 	tmpDir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(tmpDir, "compose.yaml"), []byte("services: {}"), 0644)
@@ -500,6 +574,13 @@ func TestUpdateDryRunBlockedScenarios(t *testing.T) {
 				_ = os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("YTMDL_VERSION=0.15.0\nPOSTGRES_PASSWORD=\n"), 0600)
 			},
 			expectedBlock: "missing required configuration: POSTGRES_PASSWORD",
+		},
+		{
+			name: "conflicting guard aliases are unavailable",
+			setup: func(t *testing.T, tmpDir string, fake *runner.FakeProcessRunner, ghServer, backendServer *httptest.Server) {
+				_ = os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("YTMDL_VERSION=0.15.0\nPOSTGRES_PASSWORD=secret\nYTMDL_STORAGE_GUARD_ID=private-one\nMUSICDL_STORAGE_GUARD_ID=private-two\n"), 0600)
+			},
+			expectedBlock: "storage guard verification failed: unavailable",
 		},
 		{
 			name: "storage guard missing",

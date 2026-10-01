@@ -12,6 +12,27 @@ import (
 	"ytdm/backend/cmd/ytmdlctl/internal/runner"
 )
 
+func TestResolveStorageGuardIdentityAliases(t *testing.T) {
+	for _, key := range []string{"YTMDL_STORAGE_GUARD_ID", "MUSICDL_STORAGE_GUARD_ID", "YTDM_STORAGE_GUARD_ID"} {
+		got, err := discovery.ResolveStorageGuardID(map[string]string{key: " ytmdl-storage:fixture-id "})
+		if err != nil || got != "fixture-id" {
+			t.Fatalf("alias %s was not resolved", key)
+		}
+	}
+	got, err := discovery.ResolveStorageGuardID(map[string]string{"YTMDL_STORAGE_GUARD_ID": "fixture-id", "MUSICDL_STORAGE_GUARD_ID": "ytmdl-storage:fixture-id"})
+	if err != nil || got != "fixture-id" {
+		t.Fatal("equivalent configured guard aliases should agree")
+	}
+	_, err = discovery.ResolveStorageGuardID(map[string]string{"YTMDL_STORAGE_GUARD_ID": "private-one", "MUSICDL_STORAGE_GUARD_ID": "private-two"})
+	if err == nil || strings.Contains(err.Error(), "private-") {
+		t.Fatal("conflicting identities must be blocked without exposing values")
+	}
+	got, err = discovery.ResolveStorageGuardID(nil)
+	if err != nil || got != "" {
+		t.Fatal("empty guard configuration should remain intentionally disabled")
+	}
+}
+
 func TestVerifyStorageGuardHostPathAloneCannotVerify(t *testing.T) {
 	tmpDir := t.TempDir()
 	musicDir := filepath.Join(tmpDir, "music")

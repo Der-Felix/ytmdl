@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.0.0 — 2026-10-01
+
+### Highlights
+
+- **Official deployment package:** Docker Compose and rootless Podman share a release-pinned installation bundle. Fresh installation creates private database credentials, writable service directories and a storage identity marker without changing existing data.
+- **Container release contract:** Backend and frontend images target Linux amd64 and arm64, with pinned base-image digests, OCI source/version labels and published software inventories. Qualification gates run before stable publication.
+- **Consistent v1 version:** CLI, backend, frontend package metadata, documentation and deployment defaults use 1.0.0. Database schema stays at 12.
+
+### Fixed
+
+- The update panel now shows the conditional v0.28.0 CLI bootstrap notice before host update commands.
+- Numbered release-note instructions render as separate steps, preserving wrapped text and code blocks.
+- Managed-update dry runs check target image resolution with host overrides, rejecting pinned hotfix or stale images before reporting readiness. The real update uses the same read-only check; private configuration and subprocess output are omitted from its diagnostics.
+
+- Verify release indexes, platform manifests and actual image identities across Docker classic, Docker containerd and Podman stores. A single retained local RepoDigest no longer incorrectly rejects a valid release.
+- Use the same storage guard environment aliases in status, dry runs and real updates. Conflicting identities are blocked without exposing their values.
+- Replace an unguarded live lyrics test with a local HTTP fixture so ordinary test runs do not depend on provider availability.
+
+### Upgrade from v0.28.1
+
+Preserve `.env`, music/data mounts, cookies, database volumes and local overrides.
+Use the checksum-verified v1 host CLI and the two v1 Compose files. First run
+`ytmdlctl update --target 1.0.0 --dry-run`, then perform the update. The dry run
+rejects image overrides pinned to an older release or private hotfix. Do not
+remove storage checks to work around a bad mount. The fresh installer is only
+for new installations; see `INSTALL.md` for exact commands.
+
+For v0.28.0 with disabled Storage Identity Guard, use the v1 CLI directly:
+the old CLI blocks before downloading its own fix. No database migration is
+required.
+
+### Known Limits
+
+- Provider availability, credentials and network proxy requirements remain external dependencies. Restrictions and provider protection are not bypassed.
+- Combined-stream audio fallback is disabled by default; no multiday production soak or throughput comparison is claimed for this release.
+- NFS and full Safari/iOS playback are outside the qualified v1 support boundary.
+
 ## 0.28.1 — 2026-10-01
 
 ### Highlights

@@ -1,0 +1,5 @@
+# Rootless Podman mapping for writable bind mounts. Pass after compose.ghcr.yaml.
+# ytmdlctl automatically selects this file for Podman, before local overrides.
+services:
+  backend:
+    userns_mode: "keep-id:uid=10001,gid=10001"

@@ -34,26 +34,35 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
-## Updating v0.28.0 to v0.28.1
+## Upgrade to v1.0.0
 
-When Storage Identity Guard is disabled, the v0.28.0 CLI refuses an update in
-preflight. Download the **v0.28.1** `ytmdlctl` binary for your platform together
-with `SHA256SUMS` from the [v0.28.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v0.28.1),
-verify its checksum, and invoke the new binary directly:
+Use the verified **v1.0.0** `ytmdlctl` binary for your host platform from the
+[v1.0.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.0.0).
+Preserve `.env`, music/data mounts, cookies, database volume and local overrides.
+Do not run the fresh installer against an existing installation.
+
+Extract the checked installation archive in a separate directory and copy only
+`compose.ghcr.yaml` and `compose.ghcr.podman.yaml` into the existing project.
+Retain the existing database volume name and review local adaptations. The v1
+CLI selects the Podman mapping file automatically, before the host override.
+A backend/frontend image pinned in `compose.ghcr.override.yaml` must be removed
+or updated to the exact target before the preflight can pass.
 
 ```sh
-# Replace linux-amd64 and the installation directory as appropriate.
+# Substitute your platform, engine and installation directory.
 sha256sum --ignore-missing -c SHA256SUMS
 # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
 chmod +x ./ytmdlctl-linux-amd64
-./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl update --target 0.28.1 --dry-run
-./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl update --target 0.28.1
+./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl --engine docker update --target 1.0.0 --dry-run
+./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl --engine docker update --target 1.0.0
 ```
 
-A configured and verified Storage Identity Guard permits the normal update.
-Missing, mismatched, unavailable or unverifiable storage remains blocked.
-Schema stays at 12; no database migration is required. The combined-stream
-fallback stays disabled unless explicitly enabled by the operator.
+The v0.28.0 CLI refuses updates when Storage Identity Guard is disabled; using
+the new CLI avoids that old preflight bug. Configured storage must still be
+verified: missing, mismatched or unavailable markers block an update. Schema
+stays at 12 and no database migration is required. Combined-stream fallback
+stays off unless deliberately enabled. Take and verify a backup first; also
+protect music files, configuration and cookies separately from the database.
 
 ## Update Channels
 
@@ -136,7 +145,7 @@ A published release candidate has passed CI, the release qualification and the a
 1. **Download the binary and checksums for your platform:**
    ```sh
    # Example for Linux (x86_64 / amd64):
-   VERSION="0.27.0"
+   VERSION="1.0.0"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/ytmdlctl-linux-amd64"
    curl -LO "https://github.com/Der-Felix/ytmdl/releases/download/v${VERSION}/SHA256SUMS"
    ```
@@ -182,6 +191,17 @@ The dry-run verifies:
 - Storage Guard filesystem token validity
 - Active download queue state
 - Release manifest schema and cryptographic image digest availability
+
+Development builds additionally check that the effective backend and frontend
+image references resolve to the target release, including
+`compose.ghcr.override.yaml`. The published v0.28.0 and v0.28.1 dry runs do not
+perform this check; their actual update still rejects mismatched images before
+pulling or restarting containers.
+
+A temporary local hotfix may pin an `image:` in the host override. Once its fix
+is included in the target release, remove only that temporary image pin before
+updating. Keep proxy settings, mounts, cookie configuration and other host
+settings. Changing `YTMDL_VERSION` alone cannot override a fixed image reference.
 
 ### 3. Apply Update
 When ready, execute the update:

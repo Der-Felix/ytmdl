@@ -1,4 +1,4 @@
-# Deployment mit Podman
+# Deployment mit Docker und rootless Podman
 
 ## Zielarchitektur
 
@@ -43,20 +43,25 @@ vollständig in PostgreSQL.
   > Die Python-Implementierung `podman-compose` (Version 1.3.x oder älter) ist mit den Compose v2-Optionen und User-Namespace-Mappings (`keep-id`) von YTMDL teilweise inkompatibel. Der Host-Updater `ytmdlctl` erkennt diesen Provider im Preflight und blockiert Änderungen zum Schutz der Installation.
 * Ausgehende Netzverbindung für die Provider-APIs und die Downloads
 
-## Schnellstart
+## Installation der offiziellen Images
+
+Der geprüfte Einstieg ist das versionierte Paket aus dem
+[v1.0.0 Release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.0.0).
+Die [Schnellstartanleitung](/getting-started) beschreibt Download, Prüfsumme und
+`python3 scripts/install.py --engine docker` beziehungsweise `--engine podman`.
+Der Installer bereitet ausschließlich neue Verzeichnisse vor. Vorhandene
+Installationen werden mit dem verifizierten v1-CLI [aktualisiert](/updates).
+
+Manuelle Befehle für die offiziellen Images wählen die Dateien ausdrücklich:
 
 ```sh
-cp .env.example .env
+docker compose -f compose.ghcr.yaml ps
+podman compose -f compose.ghcr.yaml -f compose.ghcr.podman.yaml ps
 ```
 
-In `.env` mindestens `POSTGRES_PASSWORD` setzen und denselben Wert in
-`MUSICDL_DATABASE_URL` eintragen. Für ein Deployment mit den offiziellen Images (`compose.ghcr.yaml`) empfiehlt es sich, die Version fest anzugeben (z. B. `YTMDL_VERSION=0.27.0`), um deterministische Updates mit `ytmdlctl` zu ermöglichen.
-
-```sh
-mkdir -p data music
-podman compose config
-podman compose up -d --build
-```
+`compose.ghcr.podman.yaml` ergänzt ausschließlich das rootless UID-Mapping.
+Host-spezifische Overrides werden als letzte Datei angegeben. `ytmdlctl` wählt
+beide Dateien bei Podman und vorhandene Host-Overrides automatisch.
 
 Compose startet zuerst `ytmdl-db`, wartet auf dessen Healthcheck und startet
 danach `ytmdl-backend`. Zusätzlich wartet das Backend beim Start selbst noch bis
@@ -102,8 +107,8 @@ podman exec ytmdl-backend getent hosts db
 
 `172.31.250.0/28` liegt in einem privaten RFC1918-Bereich und kann theoretisch
 mit einem vorhandenen LAN-, VPN- oder anderen Container-Netz kollidieren.
-Falls das passiert, kann das Subnetz in `compose.yaml` unter
-`networks.ytmdl-net.ipam.config` frei geändert werden. Es ist keine Anpassung
+Falls das passiert, kann für den offiziellen Stack `YTMDL_NETWORK_SUBNET`
+in `.env` auf ein freies Subnetz gesetzt werden. Es ist keine Anpassung
 an anderer Stelle nötig, weil die Container über DNS-Service-Namen und nicht
 über fest codierte IP-Adressen kommunizieren. Eine automatische
 Netzwerkerkennung gibt es bewusst nicht.
@@ -176,29 +181,22 @@ einer ausführlichen Fehlermeldung abbrechen; der Mount muss deshalb auf
 
 ## Rootless Podman und Bind-Mounts
 
-`compose.yaml` nutzt Podmans `keep-id`-Mapping für den Backend-Container und
-bindet `./data` sowie `./music` mit SELinux-Relabeling (`:Z`) ein. Dadurch
-entspricht der Benutzer des aufrufenden Rootless-Podman-Prozesses im Container
-der UID/GID `10001` und beide Verzeichnisse bleiben ohne Host-UID-0 beschreibbar.
+Die gemeinsame `compose.ghcr.yaml` funktioniert mit Docker. Podman ergänzt
+`compose.ghcr.podman.yaml` mit `keep-id:uid=10001,gid=10001`, sodass der
+rootless Container-Benutzer dem Backend-Benutzer entspricht. Der frische
+Installer bereitet nur die neuen Verzeichnisse und den Guard-Marker vor und
+prüft Schreibzugriff als Dienstbenutzer. Bestehende Daten werden nicht rekursiv
+umgeschrieben.
 
 `ytmdl-db` braucht kein `keep-id`: sein Cluster liegt in einem Named Volume,
-dessen Eigentümer Podman im Benutzer-Namespace verwaltet.
-
-Falls ein älterer Compose-Provider die erweiterte `keep-id`-Syntax nicht
-unterstützt, die Zeile `userns_mode` entfernen und die Verzeichnisse einmal im
-Rootless-Namespace vorbereiten:
-
-```sh
-mkdir -p data music
-podman unshare chown -R 10001:10001 data music
-```
-
-Auf Systemen ohne SELinux kann `:Z` entfallen.
+dessen Eigentümer Podman im Benutzer-Namespace verwaltet. Für vorhandene
+NAS-Mounts gelten die [Storage-Anleitungen](/storage/). Prüfe Rechte und Marker
+im tatsächlichen Container-Mount, bevor du ein Update startest.
 
 ## Healthchecks
 
 ```sh
-podman compose ps
+podman compose -f compose.ghcr.yaml -f compose.ghcr.podman.yaml ps
 curl -fsS 'http://127.0.0.1:8080/api/v1/health?scope=essential'
 ```
 
@@ -281,11 +279,8 @@ optionale Override-Datei `compose.ghcr.override.yaml` im Projektverzeichnis
 (neben `compose.ghcr.yaml`). Sie ist in `.gitignore` eingetragen und bleibt
 damit lokal — Updates überschreiben sie nie.
 
-> [!NOTE]
-> Die Datei selbst funktioniert mit jedem Compose-Provider. Die **automatische**
-> Einbindung durch `ytmdlctl` ist in Stable **v0.27.0 enthalten** und
-> kommt mit dem nächsten Release; bis dahin gilt der manuelle Aufruf weiter
-> unten.
+`ytmdlctl` bindet diese Datei automatisch ein. Bei Podman folgt sie nach
+`compose.ghcr.podman.yaml`, damit die lokalen Einstellungen zuletzt gelten.
 
 Typischer Einsatz: einen zusätzlichen Bind-Mount oder eine Umgebungsvariable
 ergänzen, ohne die versionierte `compose.ghcr.yaml` zu verändern. Beispiel
@@ -320,7 +315,7 @@ nötig; fehlt die Datei, verhält sich `ytmdlctl` unverändert.
 Ohne `ytmdlctl` beide `-f`-Dateien in fester Reihenfolge angeben:
 
 ```sh
-podman compose -f compose.ghcr.yaml -f compose.ghcr.override.yaml up -d
+podman compose -f compose.ghcr.yaml -f compose.ghcr.podman.yaml -f compose.ghcr.override.yaml up -d
 # oder: docker compose -f compose.ghcr.yaml -f compose.ghcr.override.yaml up -d
 ```
 
@@ -340,8 +335,8 @@ In dem Fall:
 ## Stop, Restart und Recovery
 
 ```sh
-podman compose stop
-podman compose start
+podman compose -f compose.ghcr.yaml -f compose.ghcr.podman.yaml stop
+podman compose -f compose.ghcr.yaml -f compose.ghcr.podman.yaml start
 ```
 
 Podman sendet SIGTERM direkt an `/app/musicdl`. Das Backend sperrt daraufhin

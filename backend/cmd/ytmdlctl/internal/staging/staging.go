@@ -68,36 +68,9 @@ func StageTargetImages(ctx context.Context, eng engine.Engine, opts StageOptions
 	expectedBackend := opts.Manifest.Images.Backend.Repository + ":" + targetVersion
 	expectedFrontend := opts.Manifest.Images.Frontend.Repository + ":" + targetVersion
 
-	// 1. Supply-Chain Pre-Pull Gate: Resolve what Compose intends to use with YTMDL_VERSION=<target>
-	configRes, err := eng.Config(ctx, opts.ProjectDir, opts.ComposeFile, map[string]string{
-		"YTMDL_VERSION": targetVersion,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed executing compose config for target version: %w", err)
-	}
-	if configRes.ExitCode != 0 {
-		return nil, fmt.Errorf("compose config failed (exit %d): %s", configRes.ExitCode, redact.String(string(configRes.Stderr)))
-	}
-
-	var parsedConfig composeConfigServices
-	if err := yaml.Unmarshal(configRes.Stdout, &parsedConfig); err != nil {
-		return nil, fmt.Errorf("failed parsing compose config output: %w", err)
-	}
-
-	backendSvc, ok := parsedConfig.Services["backend"]
-	if !ok || backendSvc.Image == "" {
-		return nil, errors.New("compose config does not declare backend service or image")
-	}
-	if backendSvc.Image != expectedBackend {
-		return nil, fmt.Errorf("target image resolution failed: backend image reference mismatch: expected %q, compose resolved %q", expectedBackend, backendSvc.Image)
-	}
-
-	frontendSvc, ok := parsedConfig.Services["frontend"]
-	if !ok || frontendSvc.Image == "" {
-		return nil, errors.New("compose config does not declare frontend service or image")
-	}
-	if frontendSvc.Image != expectedFrontend {
-		return nil, fmt.Errorf("target image resolution failed: frontend image reference mismatch: expected %q, compose resolved %q", expectedFrontend, frontendSvc.Image)
+	// 1. The dry run and real update share the same read-only pre-pull gate.
+	if err := VerifyTargetImageResolution(ctx, eng, opts); err != nil {
+		return nil, err
 	}
 
 	// 2. Pre-Pull Platform & Digest Resolution:
@@ -182,4 +155,36 @@ func StageTargetImages(ctx context.Context, eng engine.Engine, opts StageOptions
 		TargetSchema:           opts.Manifest.TargetSchema,
 		RollbackClassification: opts.Manifest.RollbackClassification,
 	}, nil
+}
+
+// VerifyTargetImageResolution checks the effective target Compose configuration,
+// including host overrides, without pulling images or changing the deployment.
+// Configuration and subprocess output may contain secrets and are never returned.
+func VerifyTargetImageResolution(ctx context.Context, eng engine.Engine, opts StageOptions) error {
+	if eng == nil || opts.Manifest == nil {
+		return errors.New("target image resolution requires a container engine and release manifest")
+	}
+	res, err := eng.Config(ctx, opts.ProjectDir, opts.ComposeFile, map[string]string{
+		"YTMDL_VERSION": opts.Manifest.ReleaseVersion,
+	})
+	if err != nil || res == nil || res.ExitCode != 0 {
+		return errors.New("target image resolution failed: compose configuration unavailable")
+	}
+	var config composeConfigServices
+	if err := yaml.Unmarshal(res.Stdout, &config); err != nil {
+		return errors.New("target image resolution failed: invalid compose configuration")
+	}
+	for _, component := range []struct{ name, repository string }{
+		{"backend", opts.Manifest.Images.Backend.Repository},
+		{"frontend", opts.Manifest.Images.Frontend.Repository},
+	} {
+		service, ok := config.Services[component.name]
+		if !ok || service.Image == "" {
+			return fmt.Errorf("target image resolution failed: %s service or image missing", component.name)
+		}
+		if service.Image != component.repository+":"+opts.Manifest.ReleaseVersion {
+			return fmt.Errorf("target image resolution failed: %s image reference mismatch; check host image overrides before updating", component.name)
+		}
+	}
+	return nil
 }

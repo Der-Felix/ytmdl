@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"ytdm/backend/internal/music"
 	"ytdm/backend/internal/provider"
 	"ytdm/backend/internal/provider/genius"
-	"ytdm/backend/internal/provider/ytmusic"
 )
 
 type stubProvider struct {
@@ -362,18 +362,23 @@ func (c *countedProvider) Lyrics(ctx context.Context, t music.Track, m string) (
 	return c.inner.Lyrics(ctx, t, m)
 }
 
-func TestLiveResolverCallCounter_Instrumental_ShortCircuit(t *testing.T) {
+func TestResolverHTTPInstrumentalShortCircuit(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-
-	realLRC := &countedProvider{inner: lyrics.NewLRCLib(lyrics.LRCLibConfig{Client: httpClient})}
-	realYTM := &countedProvider{inner: ytmusic.NewLyricsProvider(ytmusic.Config{HTTPClient: httpClient})}
-	realGenius := &countedProvider{inner: genius.NewLyricsProvider(genius.Config{
-		Enabled:    true,
-		Timeout:    10 * time.Second,
-		HTTPClient: httpClient,
-		Logger:     logger,
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/get" {
+			t.Errorf("unexpected fixture endpoint: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":1,"instrumental":true,"plainLyrics":null,"syncedLyrics":null}`)
+	}))
+	t.Cleanup(server.Close)
+	realLRC := &countedProvider{inner: lyrics.NewLRCLib(lyrics.LRCLibConfig{
+		Client: server.Client(), BaseURL: server.URL,
 	})}
+	realYTM := &countedProvider{inner: &stubProvider{name: "ytmusic"}}
+	realGenius := &countedProvider{inner: &stubProvider{name: "genius"}}
 
 	resolver := lyrics.NewResolver(lyrics.ResolverOptions{
 		Providers: []provider.LyricsProvider{realLRC, realYTM, realGenius},
@@ -382,7 +387,7 @@ func TestLiveResolverCallCounter_Instrumental_ShortCircuit(t *testing.T) {
 
 	ctx := context.Background()
 
-	// 1. Sample 6: Kevin MacLeod - Bumbly March (LRCLIB Instrumental)
+	// 1. The real HTTP LRCLIB adapter receives an instrumental fixture.
 	trackBumbly := music.Track{Title: "Bumbly March", Artists: []string{"Kevin MacLeod"}}
 	resBumbly, err := resolver.Resolve(ctx, trackBumbly, "")
 	if err != nil || resBumbly == nil {
@@ -406,7 +411,7 @@ func TestLiveResolverCallCounter_Instrumental_ShortCircuit(t *testing.T) {
 	realYTM.calls = 0
 	realGenius.calls = 0
 
-	// 2. Sample 7: Camille Saint-Saëns - Aquarium (LRCLIB Instrumental)
+	// 2. A second track receives the same instrumental state and skips fallback.
 	trackAquarium := music.Track{Title: "Aquarium", Artists: []string{"Camille Saint-Saëns"}}
 	resAquarium, err := resolver.Resolve(ctx, trackAquarium, "")
 	if err != nil || resAquarium == nil {
