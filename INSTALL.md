@@ -56,6 +56,10 @@ database schema 12. A v0.28.0 CLI with disabled Storage Identity Guard cannot
 perform this upgrade; use the verified v1 CLI. A missing or mismatched configured
 guard remains a blocker. Never disable guard verification to hide a bad mount.
 
+The release gate tests upgrades from v0.28.1 with both engines and both guard
+modes. Older installations should first follow their version's upgrade notes;
+they are not covered by that v1 qualification.
+
 For an existing Linux Docker bind mount, ensure the service user 10001 can write
 the selected directories. For rootless Podman, the overlay maps that service
 user to the container owner. NAS permissions must be configured on the actual

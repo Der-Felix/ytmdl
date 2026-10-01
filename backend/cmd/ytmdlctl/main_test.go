@@ -576,6 +576,13 @@ func TestUpdateDryRunBlockedScenarios(t *testing.T) {
 			expectedBlock: "missing required configuration: POSTGRES_PASSWORD",
 		},
 		{
+			name: "conflicting guard aliases are unavailable",
+			setup: func(t *testing.T, tmpDir string, fake *runner.FakeProcessRunner, ghServer, backendServer *httptest.Server) {
+				_ = os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("YTMDL_VERSION=0.15.0\nPOSTGRES_PASSWORD=secret\nYTMDL_STORAGE_GUARD_ID=private-one\nMUSICDL_STORAGE_GUARD_ID=private-two\n"), 0600)
+			},
+			expectedBlock: "storage guard verification failed: unavailable",
+		},
+		{
 			name: "storage guard missing",
 			setup: func(t *testing.T, tmpDir string, fake *runner.FakeProcessRunner, ghServer, backendServer *httptest.Server) {
 				_ = os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("YTMDL_VERSION=0.15.0\nPOSTGRES_PASSWORD=secret\nYTMDL_STORAGE_GUARD_ID=test-guard\n"), 0600)

@@ -16,6 +16,15 @@ import (
 	"ytdm/backend/cmd/ytmdlctl/internal/runner"
 )
 
+func TestReleaseDigestInspectionFailureIsPrivate(t *testing.T) {
+	fake := runner.NewFake()
+	fake.Register("docker", []string{"image", "inspect", "private-image-sentinel"}, &runner.RunResult{ExitCode: 1, Stderr: []byte("private-output-sentinel")}, nil)
+	err := engine.NewDocker(fake).VerifyImageDualDigests(context.Background(), "private-image-sentinel", "", "")
+	if err == nil || strings.Contains(err.Error(), "sentinel") {
+		t.Fatal("inspection failure must block without publishing private details")
+	}
+}
+
 func TestReleaseDigestChainAcrossImageStores(t *testing.T) {
 	indexDigest := "sha256:" + strings.Repeat("a", 64)
 	platformDigest := "sha256:" + strings.Repeat("b", 64)
@@ -27,6 +36,7 @@ func TestReleaseDigestChainAcrossImageStores(t *testing.T) {
 	}{
 		{name: "classic Docker index only", id: configDigest, localDigest: indexDigest, platformMember: platformDigest, config: configDigest, arch: "arm64"},
 		{name: "Podman platform only", id: configDigest, localDigest: platformDigest, platformMember: platformDigest, config: configDigest, arch: "arm64"},
+		{name: "Podman bare config ID", id: strings.TrimPrefix(configDigest, "sha256:"), localDigest: platformDigest, platformMember: platformDigest, config: configDigest, arch: "arm64"},
 		{name: "containerd index identity", id: indexDigest, localDigest: indexDigest, descriptorDigest: indexDigest, descriptorType: "application/vnd.oci.image.index.v1+json", platformMember: platformDigest, config: configDigest, arch: "arm64"},
 		{name: "containerd platform identity", id: platformDigest, localDigest: platformDigest, descriptorDigest: platformDigest, descriptorType: "application/vnd.oci.image.manifest.v1+json", platformMember: platformDigest, config: configDigest, arch: "arm64"},
 		{name: "unrelated pulled image", id: configDigest, localDigest: configDigest, platformMember: platformDigest, config: configDigest, arch: "arm64", fail: true},

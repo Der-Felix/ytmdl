@@ -21,7 +21,7 @@ A development PR does not invoke the release or documentation deployment jobs.
 - **Go:** the version required by `backend/go.mod` (currently 1.26.6)
 - **Node.js / Bun:** Bun 1.1+ (or Node 20+ with npm)
 - **Container Runtime:** Podman or Docker with Compose
-- **PostgreSQL:** 16+ or 18 (for running integration tests)
+- **PostgreSQL:** 18 server and client tools (for running integration tests)
 - **CLI Tools:** `ffmpeg`, `ffprobe`, `yt-dlp`
 
 ## Local Development Setup
@@ -106,7 +106,7 @@ Python 3 and Docker (or add `--engine podman`):
 python3 scripts/smoke-release-containers.py \
   --backend ytmdl-backend:release-smoke \
   --frontend ytmdl-frontend:release-smoke \
-  --version 0.28.1
+  --version 1.0.0
 ```
 
 The test creates uniquely named networks, disposable PostgreSQL 18,
@@ -125,3 +125,21 @@ and validates the manifest without publishing artifacts:
 ```sh
 gh workflow run release.yml --repo Der-Felix/ytmdl --ref dev -f verify_only=true
 ```
+
+## v1 Release Qualification
+
+`scripts/test-installation.py` checks private configuration, refusal of existing
+files and the reproducible package whitelist. `scripts/qualify-compose.py` uses
+the packaged Compose stack, an isolated synthetic catalogue and a real FLAC tone
+to exercise setup, search, acquisition, PostgreSQL backup/restore and recreation.
+It runs with Docker and rootless Podman. The browser qualification covers Chromium
+setup/search/acquisition/playback and ordinary-user role denial, plus Firefox
+login and playback. It does not measure real provider throughput.
+
+Before publication, the release workflow scans both immutable image architectures,
+records SBOMs and runtime tool versions, exercises ARM64 runtime under QEMU, and
+performs real v0.28.1 upgrades for both engines and both storage guard modes.
+Only then does it publish the checked draft and promote immutable images to
+`latest`. Release assets include `qualification.json`, full scan reports and
+SPDX inventories; every asset is covered by `SHA256SUMS`. Manual verify-only runs
+publish no images or releases and report the tag-only gates as unqualified.

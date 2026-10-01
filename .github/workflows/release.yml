@@ -667,8 +667,14 @@ jobs:
           ARM64_RUNTIME_QUALIFIED: ${{ github.event_name == 'push' }}
           MANAGED_UPGRADE_QUALIFIED: ${{ github.event_name == 'push' }}
         run: |
+          backend="ytmdl-backend:release-smoke"
+          frontend="ytmdl-frontend:release-smoke"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            backend="ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend_amd64 }}"
+            frontend="ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend_amd64 }}"
+          fi
           python3 scripts/record-runtime-tools.py \
-            --backend ytmdl-backend:release-smoke --frontend ytmdl-frontend:release-smoke
+            --backend "${backend}" --frontend "${frontend}"
           python3 - <<'PY'
           import json, os
           from pathlib import Path

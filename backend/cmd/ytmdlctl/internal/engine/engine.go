@@ -194,11 +194,8 @@ func (e *BaseEngine) VerifyImageDualDigests(ctx context.Context, imageRef, expec
 		Executable: e.binary,
 		Args:       []string{"image", "inspect", imageRef},
 	})
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("inspect image %s failed (exit %d): %s", imageRef, res.ExitCode, res.Stderr)
+	if err != nil || res == nil || res.ExitCode != 0 {
+		return errors.New("pulled image inspection unavailable")
 	}
 	if err := VerifyBothExpectedDigests(res.Stdout, imageRef, expectedIndexDigest, expectedPlatformDigest); err == nil {
 		return nil

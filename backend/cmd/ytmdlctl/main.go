@@ -1006,7 +1006,11 @@ func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, exp
 		musicPath = filepath.Join(projDir, "music")
 	}
 	guardID, guardConfigErr := discovery.ResolveStorageGuardID(envVars)
-	guardStatus, guardErr := discovery.VerifyStorageGuard(ctx, eng, projDir, selectedFile, musicPath, guardID)
+	guardStatus := discovery.GuardStatusUnavailable
+	var guardErr error
+	if guardConfigErr == nil {
+		guardStatus, guardErr = discovery.VerifyStorageGuard(ctx, eng, projDir, selectedFile, musicPath, guardID)
+	}
 	if guardConfigErr != nil || guardErr != nil || !guardStatus.AllowsUpdate() {
 		blockedReasons = append(blockedReasons, fmt.Sprintf("storage guard verification failed: %s", guardStatus))
 	}

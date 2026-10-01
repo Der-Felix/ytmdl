@@ -38,7 +38,7 @@ def qualify(args, guard_enabled):
     text = env_file.read_text()
     if not guard_enabled:
         text = "\n".join(line for line in text.splitlines() if not line.startswith("MUSICDL_STORAGE_GUARD_ID=")) + "\n"
-    text += "MUSICDL_UPDATE_CHECK_ENABLED=false\nMUSICDL_LIBRARY_LYRICS_ENABLED=false\n"
+    text += "MUSICDL_UPDATE_CHECKS_ENABLED=false\nMUSICDL_LIBRARY_LYRICS_ENABLED=false\n"
     env_file.write_text(text)
     override = directory / "compose.ghcr.override.yaml"
     base_override = """services:
@@ -107,7 +107,10 @@ networks:
                     payload = json.dumps({
                         "tag_name": "v" + args.target, "name": "Qualification release",
                         "draft": False, "prerelease": "-rc." in args.target,
-                        "assets": [{"name": "release-manifest.json", "browser_download_url": origin + "/release-manifest.json"}],
+                        "assets": [{"name": name, "browser_download_url": origin + "/" + name} for name in (
+                            "release-manifest.json", "SHA256SUMS", "ytmdlctl-linux-amd64",
+                            "ytmdlctl-linux-arm64", "ytmdlctl-darwin-amd64", "ytmdlctl-darwin-arm64",
+                        ) if (Path(args.manifest).parent / name).is_file()],
                     }).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -124,6 +127,7 @@ networks:
     try:
         run(compose + ["up", "-d"])
         wait_version(args.source)
+        print("PASS: " + args.engine + " upgrade source is healthy", flush=True)
         request("/auth/status")
         status, _ = request("/auth/setup", "POST", json.dumps({"username": "upgrade-admin", "password": secrets.token_urlsafe(32)}).encode())
         assert status == 201, "Upgrade fixture setup failed."
@@ -149,7 +153,9 @@ networks:
         elif args.old_cli:
             blocked = run([str(Path(args.old_cli).resolve()), *cli[1:], "update", "--channel", channel, "--target", args.target, "--yes"], required=False, env=environment)
             assert blocked.returncode != 0 and env_file.read_bytes() == snapshot, "Old CLI disabled-guard case was not contained."
+        print("PASS: negative update preflight preserves the isolated installation", flush=True)
         run(cli + ["update", "--channel", channel, "--target", args.target, "--dry-run"], env=environment)
+        print("PASS: managed update dry run permits the verified target", flush=True)
         result = run(cli + ["update", "--channel", channel, "--target", args.target, "--yes"], env=environment, timeout=600)
         wait_version(args.target)
         assert request("/auth/me")[0] == 200, "User/session did not survive managed upgrade."

@@ -49,7 +49,7 @@ def qualify(args):
                      "YTDM_DEFAULT_METADATA_PROVIDER=deezer\nYTDM_DEFAULT_MEDIA_PROVIDER=youtube\n"
                      "YTDM_DEEZER_API_BASE_URL=http://203.0.113.10:8080\n"
                      "YTDM_YTMUSIC_ENABLED=false\nYTDM_SPOTIFY_ENABLED=false\nYTDM_SOUNDCLOUD_ENABLED=false\n"
-                     "MUSICDL_LIBRARY_LYRICS_ENABLED=false\nMUSICDL_UPDATE_CHECK_ENABLED=false\n"
+                     "MUSICDL_LIBRARY_LYRICS_ENABLED=false\nMUSICDL_UPDATE_CHECKS_ENABLED=false\n"
                      "MUSICDL_YTDLP=/fixtures/ytdlp.py\n")
     override = project / "compose.qualification.yaml"
     override.write_text("""services:
@@ -113,6 +113,7 @@ networks:
     try:
         run("up", "-d")
         wait(lambda: request("/health?scope=essential")[1].get("data", {}).get("version") == version)
+        print("PASS: " + args.engine + " official package starts and reports the expected version", flush=True)
         status, storage = request("/auth/status")
         assert status == 200
         if args.browser:
@@ -137,6 +138,7 @@ networks:
         job_id = job["data"]["id"]
         wait(lambda: request("/jobs/" + job_id)[1]["data"]["job"]["status"] in ("completed", "failed"))
         assert request("/jobs/" + job_id)[1]["data"]["job"]["status"] == "completed", "Synthetic acquisition failed"
+        print("PASS: isolated setup, catalogue search and verified synthetic acquisition", flush=True)
         # A real PostgreSQL custom archive is restored into a separate disposable DB.
         dump = subprocess.run(compose + ["exec", "-T", "db", "pg_dump", "-U", "ytmdl", "-d", "ytmdl", "-Fc"], cwd=project, capture_output=True, check=True, timeout=60).stdout
         run("exec", "-T", "db", "createdb", "-U", "ytmdl", "qualification_restore")
@@ -146,6 +148,7 @@ networks:
         before = run("exec", "-T", "db", "psql", "-U", "ytmdl", "-d", "ytmdl", "-Atc", "SELECT count(*) FROM files")
         after = run("exec", "-T", "db", "psql", "-U", "ytmdl", "-d", "qualification_restore", "-Atc", "SELECT count(*) FROM files")
         assert before.strip() == after.strip() and int(before.strip()) > 0, "Restored media inventory mismatch"
+        print("PASS: PostgreSQL backup restored with matching user and media inventory", flush=True)
         run("up", "-d", "--force-recreate", "backend", "frontend")
         wait(lambda: request("/health?scope=essential")[0] == 200)
         assert request("/auth/me")[0] == 200, "Session did not persist"
@@ -167,6 +170,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         qualify(args)
-    except (RuntimeError, AssertionError, subprocess.SubprocessError) as error:
-        print("FAIL:", str(error).split("\n")[0], file=sys.stderr)
+    except (OSError, RuntimeError, AssertionError, subprocess.SubprocessError):
+        print("FAIL: isolated Compose qualification stopped; inspect its completed stage without disclosing engine output.", file=sys.stderr)
         sys.exit(1)

@@ -113,6 +113,9 @@ for (const [name, type] of [['chromium', chromium], ['firefox', firefox]]) {
   }
 }
 
+} catch {
+  console.error('FAIL: isolated browser qualification stopped')
+  process.exitCode = 1
 } finally {
   // Connection state is created by the disposable Compose qualification script.
   assert(state.prefix.startsWith('ytmdl-qualification-'))
