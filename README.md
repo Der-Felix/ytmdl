@@ -45,38 +45,26 @@ The recommended way to deploy YTMDL is using official prebuilt container images 
 mkdir -p ytmdl && cd ytmdl
 
 # Download compose file and sample environment
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.27.0/compose.ghcr.yaml
-curl -fsSL -O https://raw.githubusercontent.com/Der-Felix/ytmdl/v0.27.0/.env.example
-cp .env.example .env
+curl -fsSLO https://github.com/Der-Felix/ytmdl/releases/download/v1.0.0/ytmdl-1.0.0.tar.gz
+curl -fsSLO https://github.com/Der-Felix/ytmdl/releases/download/v1.0.0/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+# macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
+tar -xzf ytmdl-1.0.0.tar.gz
+cd ytmdl-1.0.0
 ```
 
-### 2. Configure Environment
-
-Edit `.env` to set your music storage path and database password:
-
-```env
-# Pin a stable release (recommended) or use 'latest'
-YTMDL_VERSION=0.27.0
-
-# Path to your local music directory or host-mounted SMB/CIFS share
-YTMDL_MUSIC_PATH=/path/to/your/music
-
-# Database credentials
-POSTGRES_PASSWORD=replace_with_a_secure_password
-MUSICDL_DATABASE_URL=postgres://ytmdl:replace_with_a_secure_password@db:5432/ytmdl?sslmode=disable
-```
-
-### 3. Start the Stack
-
-Start the containers using Docker Compose or Podman Compose:
+### 2. Prepare and Start
 
 ```sh
-# Using Docker Compose:
-docker compose -f compose.ghcr.yaml up -d
-
-# Or using Podman Compose:
-podman compose -f compose.ghcr.yaml up -d
+python3 scripts/install.py --engine docker
+# Or rootless Podman:
+python3 scripts/install.py --engine podman
 ```
+
+The fresh installer creates a private `.env` with random database credentials,
+checks the new data/music directory permissions and enables Storage Identity
+Guard. It refuses to overwrite existing installations. See [installation and
+upgrade instructions](INSTALL.md) for existing data, NAS mounts and the host CLI.
 
 ### 4. Access the Web Interface
 
@@ -150,8 +138,8 @@ Official container images are published to the GitHub Container Registry (GHCR) 
 Images can be pulled anonymously without authentication:
 
 ```sh
-podman pull ghcr.io/der-felix/ytmdl-backend:0.27.0
-podman pull ghcr.io/der-felix/ytmdl-frontend:0.27.0
+podman pull ghcr.io/der-felix/ytmdl-backend:1.0.0
+podman pull ghcr.io/der-felix/ytmdl-frontend:1.0.0
 ```
 
 For building from source or running a development environment, see [docs/development.md](docs/development.md).

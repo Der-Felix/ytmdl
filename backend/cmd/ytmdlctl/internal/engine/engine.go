@@ -23,26 +23,39 @@ const (
 	ComposeFileGHCR = "compose.ghcr.yaml"
 	// ComposeFileOverride is the optional host-specific override filename.
 	ComposeFileOverride = "compose.ghcr.override.yaml"
+	// ComposeFilePodman supplies rootless Podman user mapping, before host overrides.
+	ComposeFilePodman = "compose.ghcr.podman.yaml"
 )
 
 // ComposeArgs builds the base compose CLI arguments for the given compose file.
 // When targeting compose.ghcr.yaml, it automatically appends -f compose.ghcr.override.yaml
 // if that override file exists in the project directory.
 func ComposeArgs(projectDir, composeFile string) []string {
+	return ComposeArgsForEngine("docker", projectDir, composeFile)
+}
+
+// ComposeArgsForEngine selects engine-specific settings and then host overrides.
+func ComposeArgsForEngine(binary, projectDir, composeFile string) []string {
 	args := []string{"compose", "-f", composeFile}
 	if filepath.Base(composeFile) == ComposeFileGHCR {
-		overridePath := ComposeFileOverride
-		checkPath := ComposeFileOverride
-		if projectDir != "" {
-			checkPath = filepath.Join(projectDir, ComposeFileOverride)
-		} else if filepath.IsAbs(composeFile) {
-			checkPath = filepath.Join(filepath.Dir(composeFile), ComposeFileOverride)
+		files := []string{ComposeFileOverride}
+		if binary == "podman" {
+			files = append([]string{ComposeFilePodman}, files...)
 		}
-		if filepath.IsAbs(composeFile) {
-			overridePath = checkPath
-		}
-		if fi, err := os.Stat(checkPath); err == nil && !fi.IsDir() {
-			args = append(args, "-f", overridePath)
+		for _, file := range files {
+			overridePath := file
+			checkPath := file
+			if projectDir != "" {
+				checkPath = filepath.Join(projectDir, file)
+			} else if filepath.IsAbs(composeFile) {
+				checkPath = filepath.Join(filepath.Dir(composeFile), file)
+			}
+			if filepath.IsAbs(composeFile) {
+				overridePath = checkPath
+			}
+			if fi, err := os.Stat(checkPath); err == nil && !fi.IsDir() {
+				args = append(args, "-f", overridePath)
+			}
 		}
 	}
 	res := make([]string, len(args))
@@ -109,7 +122,7 @@ func (e *BaseEngine) ComposeVersion(ctx context.Context) (string, error) {
 
 // IsServiceRunning inspects if a service is actively running for the given compose project.
 func (e *BaseEngine) IsServiceRunning(ctx context.Context, projectDir, composeFile, service string) (bool, error) {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "ps", "--format", "{{.Service}}")
+	cmdArgs := append(ComposeArgsForEngine(e.binary, projectDir, composeFile), "ps", "--format", "{{.Service}}")
 	res, err := e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
 		Args:       cmdArgs,
@@ -129,7 +142,7 @@ func (e *BaseEngine) IsServiceRunning(ctx context.Context, projectDir, composeFi
 
 // Port queries the host-forwarded port for a service's container port.
 func (e *BaseEngine) Port(ctx context.Context, projectDir, composeFile, service string, containerPort int) (string, error) {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "port", service, strconv.Itoa(containerPort))
+	cmdArgs := append(ComposeArgsForEngine(e.binary, projectDir, composeFile), "port", service, strconv.Itoa(containerPort))
 	res, err := e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
 		Args:       cmdArgs,
@@ -147,6 +160,10 @@ type imageInspectEntry struct {
 	RepoDigests  []string `json:"RepoDigests"`
 	Architecture string   `json:"Architecture"`
 	Os           string   `json:"Os"`
+	Descriptor   struct {
+		Digest    string `json:"digest"`
+		MediaType string `json:"mediaType"`
+	} `json:"Descriptor"`
 }
 
 // VerifyImageDigest verifies that imageRef contains expectedDigest for its repository.
@@ -170,10 +187,8 @@ func (e *BaseEngine) VerifyImageAnyDigest(ctx context.Context, imageRef string, 
 	return VerifyAnyExpectedDigest(res.Stdout, imageRef, expectedDigests)
 }
 
-// VerifyImageDualDigests verifies that imageRef contains BOTH expectedIndexDigest AND expectedPlatformDigest
-// in its repository digests for expectedRepo.
-// This enforces logical AND: the image must be part of the approved multi-platform release set (index digest)
-// and match the approved platform-specific binary digest.
+// VerifyImageDualDigests proves both release index membership and the actual
+// platform image identity, including stores that retain only one RepoDigest.
 func (e *BaseEngine) VerifyImageDualDigests(ctx context.Context, imageRef, expectedIndexDigest, expectedPlatformDigest string) error {
 	res, err := e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
@@ -185,7 +200,86 @@ func (e *BaseEngine) VerifyImageDualDigests(ctx context.Context, imageRef, expec
 	if res.ExitCode != 0 {
 		return fmt.Errorf("inspect image %s failed (exit %d): %s", imageRef, res.ExitCode, res.Stderr)
 	}
-	return VerifyBothExpectedDigests(res.Stdout, imageRef, expectedIndexDigest, expectedPlatformDigest)
+	if err := VerifyBothExpectedDigests(res.Stdout, imageRef, expectedIndexDigest, expectedPlatformDigest); err == nil {
+		return nil
+	}
+	// Docker commonly retains only the index RepoDigest; Podman may retain only
+	// the selected platform digest. Prove the complete chain through immutable
+	// registry manifests instead of requiring two local aliases for one image.
+	if !digestRegex.MatchString(expectedIndexDigest) || !digestRegex.MatchString(expectedPlatformDigest) {
+		return errors.New("invalid expected release image digests")
+	}
+	if err := VerifyAnyExpectedDigest(res.Stdout, imageRef, []string{expectedIndexDigest, expectedPlatformDigest}); err != nil {
+		return errors.New("pulled image is not associated with either expected release digest")
+	}
+	entries, err := parseInspectEntries(res.Stdout)
+	if err != nil {
+		return errors.New("pulled image configuration identity is unavailable")
+	}
+	// Podman reports the config ID as bare hex; Docker prefixes it with sha256.
+	if len(entries[0].ID) == 64 {
+		entries[0].ID = "sha256:" + entries[0].ID
+	}
+	if !digestRegex.MatchString(entries[0].ID) {
+		return errors.New("pulled image configuration identity is unavailable")
+	}
+	repository := normalizeExpectedRepo(imageRef)
+	inspectManifest := func(digest string) ([]byte, error) {
+		manifestResult, manifestErr := e.runner.Run(ctx, runner.RunRequest{
+			Executable: e.binary,
+			Args:       []string{"manifest", "inspect", repository + "@" + digest},
+		})
+		if manifestErr != nil || manifestResult == nil || manifestResult.ExitCode != 0 {
+			return nil, errors.New("immutable release manifest verification unavailable")
+		}
+		return manifestResult.Stdout, nil
+	}
+	indexData, err := inspectManifest(expectedIndexDigest)
+	if err != nil {
+		return err
+	}
+	var index struct {
+		Manifests []struct {
+			Digest   string `json:"digest"`
+			Platform struct {
+				OS           string `json:"os"`
+				Architecture string `json:"architecture"`
+			} `json:"platform"`
+		} `json:"manifests"`
+	}
+	if err := json.Unmarshal(indexData, &index); err != nil {
+		return errors.New("invalid immutable release index")
+	}
+	linked := false
+	for _, descriptor := range index.Manifests {
+		if descriptor.Digest == expectedPlatformDigest && descriptor.Platform.OS == entries[0].Os && descriptor.Platform.Architecture == entries[0].Architecture {
+			linked = true
+		}
+	}
+	if !linked {
+		return errors.New("release index does not contain the expected image platform and digest")
+	}
+	platformData, err := inspectManifest(expectedPlatformDigest)
+	if err != nil {
+		return err
+	}
+	var platform struct {
+		Config struct {
+			Digest string `json:"digest"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(platformData, &platform); err != nil || !digestRegex.MatchString(platform.Config.Digest) {
+		return errors.New("invalid immutable release platform configuration")
+	}
+	entry := entries[0]
+	// Containerd image stores (Docker 29+) identify images by an index or
+	// manifest descriptor instead of the config digest used by classic stores.
+	descriptorIdentity := entry.ID == entry.Descriptor.Digest && ((entry.ID == expectedIndexDigest && (entry.Descriptor.MediaType == "application/vnd.oci.image.index.v1+json" || entry.Descriptor.MediaType == "application/vnd.docker.distribution.manifest.list.v2+json")) ||
+		(entry.ID == expectedPlatformDigest && (entry.Descriptor.MediaType == "application/vnd.oci.image.manifest.v1+json" || entry.Descriptor.MediaType == "application/vnd.docker.distribution.manifest.v2+json")))
+	if platform.Config.Digest != entry.ID && !descriptorIdentity {
+		return errors.New("pulled image configuration does not match the verified release platform")
+	}
+	return nil
 }
 
 // TargetPlatform detects and returns the normalized container engine host platform (e.g. "linux/amd64" or "linux/arm64").
@@ -530,7 +624,7 @@ func CheckPodmanProviderCompatibility(ctx context.Context, eng Engine) error {
 
 // PS executes compose ps with optional flags.
 func (e *BaseEngine) PS(ctx context.Context, projectDir, composeFile string, args ...string) (*runner.RunResult, error) {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "ps")
+	cmdArgs := append(ComposeArgsForEngine(e.binary, projectDir, composeFile), "ps")
 	cmdArgs = append(cmdArgs, args...)
 	return e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
@@ -546,7 +640,7 @@ func (e *BaseEngine) Exec(ctx context.Context, projectDir, composeFile, service 
 
 // ExecStream executes a command inside a compose service container with optional streamed stdout and stdin.
 func (e *BaseEngine) ExecStream(ctx context.Context, projectDir, composeFile, service string, stdin io.Reader, stdout io.Writer, command ...string) (*runner.RunResult, error) {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "exec", "-T", service)
+	cmdArgs := append(ComposeArgsForEngine(e.binary, projectDir, composeFile), "exec", "-T", service)
 	cmdArgs = append(cmdArgs, command...)
 	return e.runner.Run(ctx, runner.RunRequest{
 		Executable:   e.binary,
@@ -559,7 +653,7 @@ func (e *BaseEngine) ExecStream(ctx context.Context, projectDir, composeFile, se
 
 // Config runs compose config with optional environment overrides.
 func (e *BaseEngine) Config(ctx context.Context, projectDir, composeFile string, envOverrides map[string]string) (*runner.RunResult, error) {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "config")
+	cmdArgs := append(ComposeArgsForEngine(e.binary, projectDir, composeFile), "config")
 	var env []string
 	for k, v := range envOverrides {
 		env = append(env, k+"="+v)
@@ -574,7 +668,7 @@ func (e *BaseEngine) Config(ctx context.Context, projectDir, composeFile string,
 
 // Pull runs compose pull with optional environment overrides for specific services.
 func (e *BaseEngine) Pull(ctx context.Context, projectDir, composeFile string, envOverrides map[string]string, services ...string) (*runner.RunResult, error) {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "pull")
+	cmdArgs := append(ComposeArgsForEngine(e.binary, projectDir, composeFile), "pull")
 	cmdArgs = append(cmdArgs, services...)
 	var env []string
 	for k, v := range envOverrides {
@@ -590,7 +684,7 @@ func (e *BaseEngine) Pull(ctx context.Context, projectDir, composeFile string, e
 
 // UpServices executes compose -f <file> up -d --no-deps <services...> with optional env overrides.
 func (e *BaseEngine) UpServices(ctx context.Context, projectDir, composeFile string, envOverrides map[string]string, services ...string) (*runner.RunResult, error) {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "up", "-d", "--no-deps")
+	cmdArgs := append(ComposeArgsForEngine(e.binary, projectDir, composeFile), "up", "-d", "--no-deps")
 	cmdArgs = append(cmdArgs, services...)
 	var env []string
 	for k, v := range envOverrides {
@@ -606,7 +700,7 @@ func (e *BaseEngine) UpServices(ctx context.Context, projectDir, composeFile str
 
 // StopServices executes compose -f <file> stop <services...>.
 func (e *BaseEngine) StopServices(ctx context.Context, projectDir, composeFile string, services ...string) (*runner.RunResult, error) {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "stop")
+	cmdArgs := append(ComposeArgsForEngine(e.binary, projectDir, composeFile), "stop")
 	cmdArgs = append(cmdArgs, services...)
 	return e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
@@ -617,7 +711,7 @@ func (e *BaseEngine) StopServices(ctx context.Context, projectDir, composeFile s
 
 // GetServiceContainerID queries the running container ID for a compose service.
 func (e *BaseEngine) GetServiceContainerID(ctx context.Context, projectDir, composeFile, service string) (string, error) {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "ps", "-q", service)
+	cmdArgs := append(ComposeArgsForEngine(e.binary, projectDir, composeFile), "ps", "-q", service)
 	res, err := e.runner.Run(ctx, runner.RunRequest{
 		Executable: e.binary,
 		Args:       cmdArgs,
@@ -750,7 +844,7 @@ func isBinaryAvailable(ctx context.Context, r runner.ProcessRunner, name string)
 }
 
 func checkEngineOwnsProject(ctx context.Context, r runner.ProcessRunner, binary, projectDir, composeFile string) bool {
-	cmdArgs := append(ComposeArgs(projectDir, composeFile), "ps", "-q")
+	cmdArgs := append(ComposeArgsForEngine(binary, projectDir, composeFile), "ps", "-q")
 	res, err := r.Run(ctx, runner.RunRequest{
 		Executable: binary,
 		Args:       cmdArgs,

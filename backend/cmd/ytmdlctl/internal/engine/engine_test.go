@@ -10,10 +10,105 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"ytdm/backend/cmd/ytmdlctl/internal/engine"
 	"ytdm/backend/cmd/ytmdlctl/internal/runner"
 )
+
+func TestReleaseDigestChainAcrossImageStores(t *testing.T) {
+	indexDigest := "sha256:" + strings.Repeat("a", 64)
+	platformDigest := "sha256:" + strings.Repeat("b", 64)
+	configDigest := "sha256:" + strings.Repeat("c", 64)
+	repository := "ghcr.io/der-felix/ytmdl-backend"
+	for _, tc := range []struct {
+		name, id, localDigest, descriptorDigest, descriptorType, platformMember, config, arch string
+		registryUnavailable, fail                                                             bool
+	}{
+		{name: "classic Docker index only", id: configDigest, localDigest: indexDigest, platformMember: platformDigest, config: configDigest, arch: "arm64"},
+		{name: "Podman platform only", id: configDigest, localDigest: platformDigest, platformMember: platformDigest, config: configDigest, arch: "arm64"},
+		{name: "containerd index identity", id: indexDigest, localDigest: indexDigest, descriptorDigest: indexDigest, descriptorType: "application/vnd.oci.image.index.v1+json", platformMember: platformDigest, config: configDigest, arch: "arm64"},
+		{name: "containerd platform identity", id: platformDigest, localDigest: platformDigest, descriptorDigest: platformDigest, descriptorType: "application/vnd.oci.image.manifest.v1+json", platformMember: platformDigest, config: configDigest, arch: "arm64"},
+		{name: "unrelated pulled image", id: configDigest, localDigest: configDigest, platformMember: platformDigest, config: configDigest, arch: "arm64", fail: true},
+		{name: "different platform content", id: configDigest, localDigest: indexDigest, platformMember: platformDigest, config: indexDigest, arch: "arm64", fail: true},
+		{name: "index lacks platform", id: configDigest, localDigest: indexDigest, platformMember: configDigest, config: configDigest, arch: "arm64", fail: true},
+		{name: "wrong architecture", id: configDigest, localDigest: indexDigest, platformMember: platformDigest, config: configDigest, arch: "amd64", fail: true},
+		{name: "descriptor identity must agree", id: indexDigest, localDigest: indexDigest, descriptorDigest: platformDigest, descriptorType: "application/vnd.oci.image.index.v1+json", platformMember: platformDigest, config: configDigest, arch: "arm64", fail: true},
+		{name: "unknown registry is blocked", id: configDigest, localDigest: indexDigest, platformMember: platformDigest, config: configDigest, arch: "arm64", registryUnavailable: true, fail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := runner.NewFake()
+			image, _ := json.Marshal([]any{map[string]any{
+				"Id": tc.id, "Os": "linux", "Architecture": "arm64",
+				"RepoDigests": []string{repository + "@" + tc.localDigest},
+				"Descriptor":  map[string]string{"digest": tc.descriptorDigest, "mediaType": tc.descriptorType},
+			}})
+			index, _ := json.Marshal(map[string]any{"manifests": []any{map[string]any{
+				"digest": tc.platformMember, "platform": map[string]string{"os": "linux", "architecture": tc.arch},
+			}}})
+			platform, _ := json.Marshal(map[string]any{"config": map[string]string{"digest": tc.config}})
+			fake.Register("docker", []string{"image", "inspect", repository + ":1.0.0"}, &runner.RunResult{Stdout: image}, nil)
+			exitCode := 0
+			if tc.registryUnavailable {
+				exitCode = 1
+			}
+			fake.Register("docker", []string{"manifest", "inspect", repository + "@" + indexDigest}, &runner.RunResult{Stdout: index, ExitCode: exitCode, Stderr: []byte("private-sentinel")}, nil)
+			fake.Register("docker", []string{"manifest", "inspect", repository + "@" + platformDigest}, &runner.RunResult{Stdout: platform}, nil)
+			err := engine.NewDocker(fake).VerifyImageDualDigests(context.Background(), repository+":1.0.0", indexDigest, platformDigest)
+			if (err != nil) != tc.fail {
+				t.Fatalf("verification error=%v, expected failure=%v", err, tc.fail)
+			}
+			if err != nil && strings.Contains(err.Error(), "private-sentinel") {
+				t.Fatal("registry output leaked")
+			}
+		})
+	}
+}
+
+// Opt-in registry qualification; ordinary tests remain offline and isolated.
+func TestPublishedReleaseDigestVerification(t *testing.T) {
+	binary := os.Getenv("YTMDL_TEST_IMAGE_ENGINE")
+	manifestPath := os.Getenv("YTMDL_TEST_RELEASE_MANIFEST")
+	if binary == "" || manifestPath == "" {
+		t.Skip("explicit image engine and release fixture are required")
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal("release fixture unavailable")
+	}
+	var release struct {
+		Version string `json:"release_version"`
+		Images  map[string]struct {
+			Repository string `json:"repository"`
+			Digest     string `json:"digest"`
+			Platforms  map[string]struct {
+				Digest string `json:"digest"`
+			} `json:"platforms"`
+		} `json:"images"`
+	}
+	if json.Unmarshal(data, &release) != nil {
+		t.Fatal("invalid release fixture")
+	}
+	var eng engine.Engine
+	switch binary {
+	case "docker":
+		eng = engine.NewDocker(runner.New())
+	case "podman":
+		eng = engine.NewPodman(runner.New())
+	default:
+		t.Fatal("unsupported image engine fixture")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	platform, err := eng.TargetPlatform(ctx)
+	if err != nil {
+		t.Fatal("engine platform unavailable")
+	}
+	image := release.Images["backend"]
+	if err := eng.VerifyImageDualDigests(ctx, image.Repository+":"+release.Version, image.Digest, image.Platforms[platform].Digest); err != nil {
+		t.Fatalf("published image verification failed: %v", err)
+	}
+}
 
 func TestDockerEngineCommands(t *testing.T) {
 	fake := runner.NewFake()
@@ -782,6 +877,38 @@ func TestComposeArgs(t *testing.T) {
 			t.Errorf("got %v, want %v", got, want)
 		}
 	})
+}
+
+func TestComposeArgsForEngineOverlayOrder(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{engine.ComposeFilePodman, engine.ComposeFileOverride} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("services: {}\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, absolute := range []bool{false, true} {
+		path := func(name string) string {
+			if absolute {
+				return filepath.Join(dir, name)
+			}
+			return name
+		}
+		for _, binary := range []string{"docker", "podman"} {
+			want := []string{"compose", "-f", path(engine.ComposeFileGHCR)}
+			if binary == "podman" {
+				want = append(want, "-f", path(engine.ComposeFilePodman))
+			}
+			want = append(want, "-f", path(engine.ComposeFileOverride))
+			got := engine.ComposeArgsForEngine(binary, dir, path(engine.ComposeFileGHCR))
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s absolute=%v: got %v, want %v", binary, absolute, got, want)
+			}
+		}
+	}
+	got := engine.ComposeArgsForEngine("podman", dir, "compose.yaml")
+	if !reflect.DeepEqual(got, []string{"compose", "-f", "compose.yaml"}) {
+		t.Fatalf("source compose unexpectedly included production overlays: %v", got)
+	}
 }
 
 func TestEngineCommandsWithComposeOverride(t *testing.T) {

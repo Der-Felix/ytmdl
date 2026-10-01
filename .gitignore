@@ -47,3 +47,7 @@ compose.ghcr.override.yaml
 .idea/
 .vscode/
 *.swp
+
+# Qualification tooling caches
+__pycache__/
+/scripts/browser/node_modules/

@@ -198,7 +198,10 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 	if guardChecker == nil {
 		guardChecker = discovery.VerifyStorageGuard
 	}
-	guardID := envVars["YTMDL_STORAGE_GUARD_ID"]
+	guardID, guardConfigErr := discovery.ResolveStorageGuardID(envVars)
+	if guardConfigErr != nil {
+		return nil, guardConfigErr
+	}
 	musicPath := envVars["YTMDL_MUSIC_PATH"]
 	if musicPath == "" {
 		musicPath = "/music"

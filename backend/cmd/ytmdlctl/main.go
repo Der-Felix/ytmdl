@@ -314,11 +314,11 @@ Flags:
 	if musicPath == "" {
 		musicPath = filepath.Join(projDir, "music")
 	}
-	guardID := envVars["YTMDL_STORAGE_GUARD_ID"]
-	if guardID == "" {
-		guardID = envVars["MUSICDL_STORAGE_GUARD_ID"]
+	guardID, guardConfigErr := discovery.ResolveStorageGuardID(envVars)
+	guardStatus := discovery.GuardStatusUnavailable
+	if guardConfigErr == nil {
+		guardStatus, _ = discovery.VerifyStorageGuard(ctx, eng, projDir, composeRes.SelectedFile, musicPath, guardID)
 	}
-	guardStatus, _ := discovery.VerifyStorageGuard(ctx, eng, projDir, composeRes.SelectedFile, musicPath, guardID)
 
 	// 10. Update state & lock
 	st, _ := state.Load(projDir)
@@ -1005,12 +1005,9 @@ func runUpdateDryRun(ctx context.Context, stdout, stderr io.Writer, projDir, exp
 	if musicPath == "" {
 		musicPath = filepath.Join(projDir, "music")
 	}
-	guardID := envVars["YTMDL_STORAGE_GUARD_ID"]
-	if guardID == "" {
-		guardID = envVars["MUSICDL_STORAGE_GUARD_ID"]
-	}
+	guardID, guardConfigErr := discovery.ResolveStorageGuardID(envVars)
 	guardStatus, guardErr := discovery.VerifyStorageGuard(ctx, eng, projDir, selectedFile, musicPath, guardID)
-	if guardErr != nil || !guardStatus.AllowsUpdate() {
+	if guardConfigErr != nil || guardErr != nil || !guardStatus.AllowsUpdate() {
 		blockedReasons = append(blockedReasons, fmt.Sprintf("storage guard verification failed: %s", guardStatus))
 	}
 
@@ -1620,7 +1617,7 @@ func runReconcileArtists(ctx context.Context, stdout, stderr io.Writer, stdin io
 	}
 	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
 	if currentVersion == "" {
-		currentVersion = "0.28.1"
+		currentVersion = "1.0.0"
 	}
 
 	backupDir := subBackupDir
@@ -2038,7 +2035,7 @@ func runMergeArtists(ctx context.Context, stdout, stderr io.Writer, stdin io.Rea
 	}
 	currentVersion := getEffectiveEnv("YTMDL_VERSION", envVars)
 	if currentVersion == "" {
-		currentVersion = "0.28.1"
+		currentVersion = "1.0.0"
 	}
 
 	backupDir := subBackupDir
