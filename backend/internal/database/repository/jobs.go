@@ -139,6 +139,23 @@ func (r *Jobs) List(ctx context.Context, filter jobs.ListFilter) ([]jobs.Job, in
 		args         []any
 		argIdx       = 1
 	)
+	if !filter.View.Valid() {
+		return nil, 0, apperr.New(apperr.CodeInvalidRequest, "The view filter is not a known job group.")
+	}
+	// These fixed groups match QueueSummary's global counts. Apply them to
+	// both COUNT and the paged SELECT so tabs cannot hide matches on other pages.
+	switch filter.View {
+	case "active":
+		whereClauses = append(whereClauses, "status NOT IN ('completed', 'cancelled', 'failed', 'queued')")
+	case "queued":
+		whereClauses = append(whereClauses, "status = 'queued'")
+	case "paused":
+		whereClauses = append(whereClauses, "paused AND status NOT IN ('completed', 'cancelled', 'failed')")
+	case "done":
+		whereClauses = append(whereClauses, "status IN ('completed', 'cancelled')")
+	case "failed":
+		whereClauses = append(whereClauses, "status = 'failed'")
+	}
 
 	if filter.Status != "" {
 		whereClauses = append(whereClauses, "status = $"+strconv.Itoa(argIdx))

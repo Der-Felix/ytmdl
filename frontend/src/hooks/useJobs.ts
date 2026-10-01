@@ -17,7 +17,8 @@ import {
   useSyncExternalStore,
 } from 'react'
 
-import { listJobsWithMeta } from '@/lib/api/jobs'
+import { getJob, listJobsWithMeta } from '@/lib/api/jobs'
+import type { JobView } from '@/lib/api/jobs'
 import {
   connectionState,
   subscribeToConnectionState,
@@ -50,6 +51,8 @@ export function useJobEvents(handler: (event: JobEvent) => void): void {
 }
 
 export interface UseJobsOptions {
+  id?: string
+  view?: JobView
   status?: JobStatus
   type?: JobType
   priority?: JobPriority
@@ -72,12 +75,20 @@ export function useJobs(options: UseJobsOptions = {}): JobsResult {
   const status = options.status
   const type = options.type
   const priority = options.priority
+  const view = options.view
+  const id = options.id
 
   const [meta, setMeta] = useState<ListMeta | null>(null)
 
   const { state, reload, setData } = useAsync(
     async (signal) => {
+      if (id) {
+        const detail = await getJob(id, signal)
+        setMeta({ count: 1, total: 1 })
+        return [detail.job]
+      }
       const res = await listJobsWithMeta({
+        view,
         limit,
         offset,
         status,
@@ -88,14 +99,30 @@ export function useJobs(options: UseJobsOptions = {}): JobsResult {
       setMeta(res.meta)
       return res.items
     },
-    [limit, offset, status, type, priority],
+    [id, view, limit, offset, status, type, priority],
+    // Status events may refresh filtered membership frequently. Keep the
+    // current list visible until the replacement arrives instead of flashing.
+    { keepDataOnReload: true },
   )
   const connection = useConnectionState()
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current)
+    refreshTimer.current = null
+  }, [id, view, priority, offset, limit, status, type])
 
   useJobEvents(
     useCallback(
       (event: JobEvent) => {
         if (!event.job_id) return
+        if (id && event.job_id !== id) return
+
+        if (!id && view && view !== 'all' && (event.status !== undefined || event.paused !== undefined)) {
+          if (!refreshTimer.current) refreshTimer.current = setTimeout(() => {
+            refreshTimer.current = null
+            reload()
+          }, 300)
+        }
 
         // A newly created job is not in the list yet and cannot be patched
         // into it: only a reload gets its label, providers and options.
@@ -105,7 +132,7 @@ export function useJobs(options: UseJobsOptions = {}): JobsResult {
         }
         setData((jobs) => applyEvent(jobs, event))
       },
-      [reload, setData],
+      [id, view, reload, setData],
     ),
   )
 

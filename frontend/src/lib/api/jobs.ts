@@ -40,7 +40,10 @@ export function downloadTrack(
   return request<Job>('/downloads/track', { method: 'POST', body, signal })
 }
 
+export type JobView = 'all' | 'active' | 'queued' | 'paused' | 'done' | 'failed'
+
 export interface ListJobsOptions {
+  view?: JobView
   status?: JobStatus
   type?: JobType
   priority?: JobPriority
@@ -60,6 +63,7 @@ export async function listJobs(
 ): Promise<Job[]> {
   const result = await requestList<Job>('/jobs', {
     query: {
+      view: options.view,
       status: options.status,
       type: options.type,
       priority: options.priority,
@@ -77,6 +81,7 @@ export function listJobsWithMeta(
 ): Promise<ListJobsResult> {
   return requestList<Job>('/jobs', {
     query: {
+      view: options.view,
       status: options.status,
       type: options.type,
       priority: options.priority,
@@ -299,4 +304,3 @@ export function section(job: Job): 'active' | 'queued' | 'done' | 'failed' {
   if (isTerminal(job)) return 'done'
   return 'active'
 }
-

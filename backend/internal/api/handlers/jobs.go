@@ -21,6 +21,11 @@ func (h *Handlers) ListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := jobs.ListFilter{Limit: limit, Offset: offset}
+	filter.View = jobs.ListView(queryString(r, "view"))
+	if !filter.View.Valid() {
+		response.Fail(w, r, apperr.CodeInvalidRequest, "The view filter is not a known job group.")
+		return
+	}
 	if raw := queryString(r, "status"); raw != "" {
 		status := jobs.Status(raw)
 		if !status.Valid() {

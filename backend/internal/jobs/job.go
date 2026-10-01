@@ -567,9 +567,23 @@ func DeriveParentStatusDetails(items []Item) (Status, string, string) {
 
 // ListFilter narrows a job listing.
 type ListFilter struct {
+	View     ListView
 	Status   Status
 	Type     Type
 	Priority Priority
 	Limit    int
 	Offset   int
+}
+
+// ListView applies a downloads-page group before pagination. Paused is an
+// overlay; a paused job still belongs to its ordinary status group.
+type ListView string
+
+func (v ListView) Valid() bool {
+	switch v {
+	case "", "all", "active", "queued", "paused", "done", "failed":
+		return true
+	default:
+		return false
+	}
 }

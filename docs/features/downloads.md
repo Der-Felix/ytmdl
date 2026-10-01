@@ -76,10 +76,30 @@ cancellation ends a track as **Abgebrochen**. Stopping or restarting the
 service is neither: interrupted tracks are picked up again after the restart.
 
 > [!NOTE]
-> A job that finishes with some failed tracks still reports **Abgeschlossen**.
-> Use *Fehlgeschlagene wiederholen* on the job, or retry a single item, to
-> re-attempt just those tracks.
+> A job that finishes with some failed tracks remains `completed`, and appears
+> in **Fertig**, with the badge **Abgeschlossen mit Problemen**. Click the
+> amber track count to inspect only its failed tracks. Opening these details
+> never starts a retry. Use *Fehlgeschlagene wiederholen* or a single item's
+> retry action to explicitly re-attempt those tracks.
 
 The Downloads page tab badges (`Aktiv`, `In Warteschlange`, `Pausiert`,
 `Abgeschlossen`, `Fehlgeschlagen`) reflect global database totals, not just the
 jobs visible on the current page.
+
+The selected status group and priority are applied on the server **before**
+pagination, so older failures remain discoverable. Paused is an overlay on
+non-terminal jobs; it overlaps the active and queued groups. Direct links to
+a job load that job independently of its position in the list.
+
+## Understanding Errors
+
+Search errors and download problems explain the known cause and a next step
+in German. Unknown causes remain unknown: a provider connectivity failure does
+not imply expired cookies. Raw provider output is not shown in these notices.
+**Technische Details** reveals the error code and, for API failures when
+available, the request ID for support.
+
+Automatic continuation is shown for a download scheduled for retry, with its
+continuation time when available. Failed search requests do not promise an
+automatic repeat. Provider/session cooldown notices offer no immediate retry
+button; new cookies do not lift an active protective pause.

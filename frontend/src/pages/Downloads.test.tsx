@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { Downloads } from './Downloads'
 import { AuthProvider } from '@/hooks/useAuth'
@@ -62,6 +62,7 @@ const mockSummary: QueueSummary = {
 
 let originalFetch: typeof fetch
 let originalEventSource: typeof EventSource
+let streamListeners: Map<string, (event: MessageEvent<string>) => void>
 
 function stubFetch(jobs: Job[], summary: QueueSummary | null, totalCount = 587) {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -139,9 +140,10 @@ function setTestURL(to: string) {
 beforeEach(() => {
   originalFetch = globalThis.fetch
   originalEventSource = globalThis.EventSource
+  streamListeners = new Map()
   globalThis.EventSource = class {
     close() {}
-    addEventListener() {}
+    addEventListener(type: string, listener: (event: MessageEvent<string>) => void) { streamListeners.set(type, listener) }
     onopen = null
     onerror = null
     readyState = 0
@@ -157,6 +159,81 @@ afterEach(() => {
 })
 
 describe('Downloads page tab counts', () => {
+  it('loads a linked job directly even when it is not on the first list page', async () => {
+    stubFetch([], mockSummary)
+    const mocked = globalThis.fetch
+    const paths: string[] = []
+    globalThis.fetch = (async (input, init) => {
+      const path = new URL(String(input), 'http://localhost').pathname
+      paths.push(path)
+      if (path === '/api/v1/jobs/older-job') return new Response(JSON.stringify({ data: { job: mockJob('older-job', 'completed'), items: [] } }), { headers: { 'Content-Type': 'application/json' } })
+      return mocked(input, init)
+    }) as typeof fetch
+    render(<AuthProvider><Downloads jobId="older-job" /></AuthProvider>)
+    expect(await screen.findByText('Artist older-job')).toBeDefined()
+    expect(paths).toContain('/api/v1/jobs/older-job')
+    expect(paths).not.toContain('/api/v1/jobs')
+  })
+
+  it('refreshes filtered membership when an unseen job completes through SSE', async () => {
+    stubFetch([], mockSummary, 0)
+    const mocked = globalThis.fetch
+    let completed = false
+    let requests = 0
+    let finishRefresh: (() => void) | undefined
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/v1/jobs') {
+        requests++
+        if (completed) await new Promise<void>((resolve) => { finishRefresh = resolve })
+        const data = [mockJob('already-done', 'completed'), ...(completed ? [mockJob('newly-done', 'completed')] : [])]
+        return new Response(JSON.stringify({ data, meta: { total: data.length, count: data.length } }), { headers: { 'Content-Type': 'application/json' } })
+      }
+      return mocked(input, init)
+    }) as typeof fetch
+    setTestURL('/downloads?view=done')
+    render(<AuthProvider><Downloads /></AuthProvider>)
+    await waitFor(() => expect(requests).toBe(1))
+    expect(await screen.findByText('Artist already-done')).toBeDefined()
+    completed = true
+    act(() => streamListeners.get('job.completed')!(new MessageEvent('job.completed', { data: JSON.stringify({ type: 'job.completed', job_id: 'newly-done', status: 'completed' }) })))
+    await waitFor(() => expect(finishRefresh).toBeDefined())
+    expect(screen.getByText('Artist already-done')).toBeDefined()
+    await act(async () => finishRefresh!())
+    expect(await screen.findByText('Artist newly-done')).toBeDefined()
+    expect(requests).toBe(2)
+  })
+
+  it('does not label a filtered total as the global all count when the summary is unavailable', async () => {
+    stubFetch([mockJob('failure', 'failed')], null, 7)
+    setTestURL('/downloads?view=failed')
+    render(<AuthProvider><Downloads /></AuthProvider>)
+    expect(await screen.findByText('Artist failure')).toBeDefined()
+    expect(screen.getByRole('button', { name: /^Alle/ }).textContent).toBe('Alle')
+    expect(screen.getByText('7 Aufträge in dieser Ansicht')).toBeDefined()
+  })
+
+  it('requests the selected group and very-high priority before pagination', async () => {
+    stubFetch([], mockSummary, 0)
+    const mocked = globalThis.fetch
+    const queries: URLSearchParams[] = []
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/v1/jobs') queries.push(url.searchParams)
+      return mocked(input, init)
+    }) as typeof fetch
+    setTestURL('/downloads?view=failed&priority=very_high&page=2')
+    render(<AuthProvider><Downloads /></AuthProvider>)
+    await waitFor(() => expect(queries.length).toBeGreaterThan(0))
+    expect(queries.at(-1)!.get('view')).toBe('failed')
+    expect(queries.at(-1)!.get('priority')).toBe('very_high')
+    expect(queries.at(-1)!.get('offset')).toBe('20')
+    expect((screen.getByRole('combobox', { name: 'Priorität:' }) as HTMLSelectElement).value).toBe('very_high')
+    fireEvent.click(screen.getByRole('button', { name: /Aktiv/ }))
+    await waitFor(() => expect(queries.at(-1)!.get('view')).toBe('active'))
+    expect(queries.at(-1)!.get('offset')).toBe('0')
+  })
+
   it('uses global summary counts for tab badges instead of paginated slice length', async () => {
     const page1Jobs: Job[] = Array.from({ length: 20 }, (_, i) =>
       mockJob(`job-${i + 1}`, 'queued', false),
@@ -307,7 +384,7 @@ describe('Downloads page tab counts', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/not available/i),
+        screen.getByText('Unerwarteter Fehler'),
       ).toBeDefined()
     })
   })

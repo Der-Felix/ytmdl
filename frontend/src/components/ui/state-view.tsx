@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
-import { AlertTriangleIcon, RotateCwIcon } from 'lucide-react'
+import { RotateCwIcon } from 'lucide-react'
 
-import { ApiError, errorMessage } from '@/lib/api/client'
+import { ApiError } from '@/lib/api/client'
+import { explainProblem } from '@/lib/problems'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ProblemNotice } from '@/components/ui/problem-notice'
 
 /**
  * The three non-success states, in one place. Every data-driven view in the
@@ -62,41 +64,33 @@ interface ErrorStateProps {
 }
 
 /**
- * A failure the user can act on. The backend's error code is shown alongside
- * the message because it is stable and makes a report unambiguous — but the
- * message itself is what the user reads.
+ * Explain the cause and next step; technical identifiers can be expanded.
  */
 function ErrorState({ error, onRetry, className }: ErrorStateProps) {
   const code = error instanceof ApiError ? error.code : undefined
-  const retryable = !(error instanceof ApiError) || error.isRetryable
+  const status = error instanceof ApiError ? error.status : undefined
+  const info = explainProblem(code, status)
 
   return (
     <div
       role="alert"
       className={cn(
-        'flex flex-col items-center justify-center gap-3 px-6 py-10 text-center',
+        'mx-auto max-w-2xl px-4 py-6 sm:px-6',
         className,
       )}
     >
-      <div className="flex size-11 items-center justify-center rounded-xl border border-destructive/25 bg-destructive/10 text-destructive">
-        <AlertTriangleIcon className="size-5" />
-      </div>
-      <div className="space-y-1">
-        <p className="font-heading text-[0.9375rem] font-medium text-foreground">
-          {errorMessage(error)}
-        </p>
-        {code && (
-          <p className="font-mono text-xs tracking-wide text-muted-foreground">
-            {code}
-          </p>
-        )}
-      </div>
-      {onRetry && retryable && (
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          <RotateCwIcon />
-          Erneut versuchen
-        </Button>
-      )}
+      <ProblemNotice
+        code={code}
+        status={status}
+        requestId={error instanceof ApiError ? error.requestId : undefined}
+        waiting={['PROVIDER_RATE_LIMITED', 'RATE_LIMITED', 'SESSION_UNAVAILABLE', 'SESSION_RATE_LIMITED', 'SESSION_BOT_CHALLENGE', 'SESSION_IN_USE'].includes(code || '')}
+        action={onRetry && info.retryable ? (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            <RotateCwIcon />
+            Erneut versuchen
+          </Button>
+        ) : undefined}
+      />
     </div>
   )
 }
