@@ -39,6 +39,7 @@ def qualify(args, guard_enabled):
     if not guard_enabled:
         text = "\n".join(line for line in text.splitlines() if not line.startswith("MUSICDL_STORAGE_GUARD_ID=")) + "\n"
     text += "MUSICDL_UPDATE_CHECKS_ENABLED=false\nMUSICDL_LIBRARY_LYRICS_ENABLED=false\n"
+    text += "HTTP_PROXY=http://192.0.2.10:3128\nNO_PROXY=localhost,127.0.0.1,db,backend\n"
     env_file.write_text(text)
     override = directory / "compose.ghcr.override.yaml"
     base_override = """services:
@@ -153,11 +154,17 @@ networks:
         elif args.old_cli:
             blocked = run([str(Path(args.old_cli).resolve()), *cli[1:], "update", "--channel", channel, "--target", args.target, "--yes"], required=False, env=environment)
             assert blocked.returncode != 0 and env_file.read_bytes() == snapshot, "Old CLI disabled-guard case was not contained."
+            if channel == "stable":
+                failure = (blocked.stdout + blocked.stderr).lower()
+                assert b"storage guard" in failure and b"disabled" in failure, "Old CLI failed for an unrelated reason."
         print("PASS: negative update preflight preserves the isolated installation", flush=True)
         run(cli + ["update", "--channel", channel, "--target", args.target, "--dry-run"], env=environment)
         print("PASS: managed update dry run permits the verified target", flush=True)
         result = run(cli + ["update", "--channel", channel, "--target", args.target, "--yes"], env=environment, timeout=600)
         wait_version(args.target)
+        expected_env = snapshot.replace(("YTMDL_VERSION=" + args.source + "\n").encode(), ("YTMDL_VERSION=" + args.target + "\n").encode(), 1)
+        assert env_file.read_bytes() == expected_env, "Managed update changed unrelated configuration or proxy settings."
+        assert override.read_text() == base_override, "Managed update changed host overrides."
         assert request("/auth/me")[0] == 200, "User/session did not survive managed upgrade."
         assert request("/media-sessions/" + session_id)[1]["data"]["has_credentials"], "Managed cookies did not survive upgrade."
         stored = run(compose + ["exec", "-T", "backend", "sha256sum", "/data/cookies/" + session_id + ".cookies.txt"]).stdout.decode().split()[0]
