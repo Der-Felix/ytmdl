@@ -1,0 +1,12 @@
+# Only dependency manifests and source files belong in the build context.
+node_modules
+dist
+dist-ssr
+coverage
+*.tsbuildinfo
+*.log
+.env
+.env.*
+.git
+.DS_Store
+**/.DS_Store

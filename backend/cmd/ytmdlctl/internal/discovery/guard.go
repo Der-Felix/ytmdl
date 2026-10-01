@@ -19,6 +19,18 @@ const (
 	GuardStatusUnavailable GuardStatus = "unavailable"
 )
 
+// AllowsUpdate reports whether a storage guard verification outcome permits proceeding with an update.
+// Updates are permitted when the guard is either intentionally disabled or successfully verified.
+// All configured but unverified, missing, mismatched, unavailable, or unknown states are blocked.
+func (s GuardStatus) AllowsUpdate() bool {
+	switch s {
+	case GuardStatusVerified, GuardStatusDisabled:
+		return true
+	default:
+		return false
+	}
+}
+
 // StaticStorageGuardScript is the FIXED, constant script executed inside backend container.
 // It never interpolates user variables. Expected guard ID is passed strictly via stdin.
 const StaticStorageGuardScript = `read -r EXPECTED

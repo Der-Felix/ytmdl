@@ -37,13 +37,13 @@ validate_notes() {
   fi
 
   # Must contain Highlights or Changes
-  if ! echo "$content" | grep -Eq "^## (Highlights|Changes|Queue improvements|Added|Fixed)"; then
+  if ! grep -Eq "^## (Highlights|Changes|Queue improvements|Added|Fixed)" <<< "$content"; then
     echo "::error::Release notes must contain a ## Highlights or ## Changes section" >&2
     return 1
   fi
 
   # Must contain Full Changelog link
-  if ! echo "$content" | grep -Eq "(\*\*Full Changelog:\*\*|Full Changelog:)"; then
+  if ! grep -Eq "(\*\*Full Changelog:\*\*|Full Changelog:)" <<< "$content"; then
     echo "::error::Release notes must contain a Full Changelog compare link" >&2
     return 1
   fi
@@ -59,7 +59,7 @@ validate_notes() {
   fi
 
   # Must contain at least one bullet point item
-  if ! echo "$content" | grep -Eq "^- "; then
+  if ! grep -Eq "^- " <<< "$content"; then
     echo "::error::Release notes must contain descriptive bullet points (- ...)" >&2
     return 1
   fi
@@ -181,10 +181,10 @@ if [ -z "$MIGRATION" ] && [ -n "${MANIFEST:-}" ] && [ -f "$MANIFEST" ]; then
 fi
 
 if [ -z "$MIGRATION" ]; then
-  if echo "$RAW_BODY" | grep -qiE "(no database migration|keine datenbankmigration|remains at schema)"; then
+  if grep -qiE "(no database migration|keine datenbankmigration|remains at schema)" <<< "$RAW_BODY"; then
     MIGRATION="No database migration is required."
-  elif echo "$RAW_BODY" | grep -qiE "migration"; then
-    MIGRATION="$(echo "$RAW_BODY" | grep -iE "migration" | head -n 1 | sed 's/^[-*] //; s/^\*\*Database Schema:\*\*[[:space:]]*//' | tr -d '\r')"
+  elif grep -qiE "migration" <<< "$RAW_BODY"; then
+    MIGRATION="$(awk 'tolower($0) ~ /migration/ { print; exit }' <<< "$RAW_BODY" | sed 's/^[-*] //; s/^\*\*Database Schema:\*\*[[:space:]]*//' | tr -d '\r')"
   else
     echo "Error: Unable to determine migration status for version ${VERSION} from manifest or changelog" >&2
     exit 1
@@ -198,8 +198,8 @@ fi
 CLEAN_BODY="$(echo "$RAW_BODY" | grep -vE "^[-*] \*\*Database Schema:\*\*" | sed 's/^### /## /' | awk 'NF {p=1} p')"
 
 UPDATE_HEADING="Updates"
-if ! echo "$MIGRATION" | grep -qiE "(no database migration|keine datenbankmigration|remains at schema)"; then
-  if echo "$MIGRATION" | grep -qiE "migration"; then
+if ! grep -qiE "(no database migration|keine datenbankmigration|remains at schema)" <<< "$MIGRATION"; then
+  if grep -qiE "migration" <<< "$MIGRATION"; then
     UPDATE_HEADING="Upgrade Notes"
     MIGRATION="$(echo "$MIGRATION" | sed -E 's/([.!?]) ([A-Z])/\1\n\n\2/g')"
   fi
@@ -208,6 +208,9 @@ fi
 # Build final notes. A release candidate is installed deliberately on the
 # development channel with the ytmdlctl binary of the same release.
 UPDATE_TEXT="Existing installations can update using:\n\n\`ytmdlctl update\`"
+if [ "${VERSION}" = "0.28.1" ]; then
+  UPDATE_TEXT="For v0.28.0 installations with Storage Identity Guard disabled, first download the v0.28.1 \`ytmdlctl\` binary for your platform and verify it against \`SHA256SUMS\`. The old v0.28.0 CLI refuses this update during preflight. Follow **Upgrade from v0.28.0** above, then use the verified v0.28.1 binary for \`update --target 0.28.1 --dry-run\` and \`update --target 0.28.1\`."
+fi
 if [[ "${VERSION}" == *-* ]]; then
   UPDATE_TEXT="This is a prerelease for the development channel. It is never offered on the stable channel. Install it deliberately with \`ytmdlctl\` ${VERSION} from this release, verified against \`SHA256SUMS\`:\n\n\`ytmdlctl update --channel development --target ${VERSION} --dry-run\`\n\n\`ytmdlctl update --channel development --target ${VERSION}\`"
 fi

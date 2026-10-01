@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.28.1 — 2026-09-30
+
+### Highlights
+
+- **Provider proxy access:** HTTP clients now accept an explicitly configured private-network proxy. Origin-address validation, redirect protection and `NO_PROXY` routing remain enforced.
+- **25 MiB cookie uploads:** Both media-session upload routes and the bundled Nginx proxy accept cookie files up to 25 MiB, with 26 MiB for multipart framing. Managed cookies persist under `/data/cookies` across container recreations.
+- **Reliable track timeouts:** A track reaching `YTDM_TRACK_TIMEOUT` is retried within `MUSICDL_MAX_ATTEMPTS` as `TRACK_TIMEOUT`. Explicit cancellation remains cancellation; shutdown leaves interrupted work for recovery. Cancelling a query no longer pauses the YouTube family.
+- **Staging cleanup:** Staging is removed after an item's final state is stored, including permanent failures. Startup pruning runs after recovery and preserves active, retryable, unknown and symlinked entries.
+
+### Changes
+
+- Fixed `ytmdlctl update` refusing updates when Storage Identity Guard is intentionally disabled. Missing, mismatched, unavailable or unverifiable storage still blocks updates.
+- Treat Music Premium and YouTube Premium item restrictions as candidate failures, preserving session health and allowing resolution to continue with another candidate.
+- Added an optional combined-stream audio fallback, **disabled by default**. It is considered only when no audio-only stream exists; preview markers, DRM, protected transports and unsupported codecs are rejected. Audio packets are copied without re-encoding and video never reaches the library.
+- Bound combined transfers by size (default 128 MiB) and process time (default 10 minutes, starting after the session slot is granted). Budget and format failures remain candidate scoped and never pause providers or media sessions.
+- Isolate each download attempt in its own staging directory. Only verified audio is published; stale files are never adopted as a successful result. Partial transfers are not resumed after an interrupted attempt or restart.
+- Report `TRACK_TIMEOUT`, `UNSUPPORTED_MEDIA_FORMAT` and `TRANSFER_BUDGET_EXCEEDED` in the frontend error-code types.
+- Correct deployment links and repository workflow documentation; exclude local environment overrides, dependencies and build outputs from container build contexts.
+- Preserve explicitly configured custom cookie directories. Database schema remains 12; no database migration is required.
+
+### Upgrade from v0.28.0
+
+**If Storage Identity Guard is disabled, use the v0.28.1 CLI for this update.**
+The old v0.28.0 `ytmdlctl` stops during preflight before it can download the fix.
+
+1. Download `ytmdlctl-<os>-<arch>` and `SHA256SUMS` from the
+   [v0.28.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v0.28.1).
+2. Verify the downloaded binary's checksum with `sha256sum --ignore-missing -c SHA256SUMS`
+   (on macOS, `shasum -a 256 --ignore-missing -c SHA256SUMS`).
+3. Make it executable and use that binary directly, substituting your platform
+   and installation directory:
+
+   ```sh
+   chmod +x ./ytmdlctl-<os>-<arch>
+   ./ytmdlctl-<os>-<arch> --project-dir /path/to/ytmdl update --target 0.28.1 --dry-run
+   ./ytmdlctl-<os>-<arch> --project-dir /path/to/ytmdl update --target 0.28.1
+   ```
+
+Installations with a configured and verified Storage Identity Guard can update
+normally. Backup, manifest and image-digest checks still apply.
+
+### Known Limits
+
+- The combined-stream fallback remains disabled until an operator explicitly enables `YTDM_COMBINED_AUDIO_FALLBACK`. Its effect on real bandwidth, verified downloads and provider throttling has not been measured. The controlled comparison plan is documented in `docs/diagnostics/combined-fallback-comparison.md`.
+- Combined transfers occupy a session slot for their duration. Waiting for a slot still counts against the track's time limit.
+- Historical failed items are not automatically retried. Interrupted partial transfers start again.
+
 ## 0.28.0 — 2026-09-20
 
 ### Highlights

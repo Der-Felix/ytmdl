@@ -97,3 +97,31 @@ podman compose up -d --build
 ```
 
 Access the web interface at `http://localhost:8080`.
+## Release container smoke test
+
+After building the backend and frontend images, run the release smoke test with
+Python 3 and Docker (or add `--engine podman`):
+
+```sh
+python3 scripts/smoke-release-containers.py \
+  --backend ytmdl-backend:release-smoke \
+  --frontend ytmdl-frontend:release-smoke \
+  --version 0.28.1
+```
+
+The test creates uniquely named networks, disposable PostgreSQL 18,
+volumes and containers. Backend and database use an internal network without
+internet access; the frontend also joins an ingress network to publish its test
+port on host loopback under both Docker and Podman. It checks first-run setup, the default-disabled combined
+fallback, exact 25 MiB multipart uploads through both route aliases, oversized
+file/request rejection, and cookie content, permissions and authentication after
+backend restart and recreation. It uses synthetic cookies, sends no provider
+requests, and removes its own containers, volumes and networks when finished.
+
+The release workflow runs this test before publishing. Its manual verify-only
+mode also builds both container architectures, compiles the host CLI binaries,
+and validates the manifest without publishing artifacts:
+
+```sh
+gh workflow run release.yml --repo Der-Felix/ytmdl --ref dev -f verify_only=true
+```

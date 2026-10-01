@@ -447,11 +447,20 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		allAcceptable      []matcher.Result
 		attemptedCount     int
 		lastResolveErr     error
+		failures           candidateFailures
 		bestCandidate      *matcher.Result
 		deferredCount      int
 		deferredRetryAfter time.Duration
 		deferredReason     string
 	)
+
+	// Every candidate failure that does not stop the fanout is remembered by
+	// its class, so the item's final error describes what really happened
+	// across all candidates rather than only the last one.
+	recordFailure := func(err error) {
+		lastResolveErr = err
+		failures.record(err)
+	}
 
 	recordDeferred := func(reason string, retryAfter time.Duration) {
 		deferredCount++
@@ -554,7 +563,7 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 				o.handleSystemicFailure(err, provFam, provName)
 				return nil, err
 			}
-			lastResolveErr = err
+			recordFailure(err)
 			continue
 		}
 
@@ -611,7 +620,7 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 					}, nil
 				}
 
-				lastResolveErr = err
+				recordFailure(err)
 				tried[key] = struct{}{}
 
 				// Systemic failure: stop candidate fanout immediately
@@ -675,8 +684,7 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 	}
 
 	if lastResolveErr != nil {
-		return nil, apperr.Wrapf(apperr.CodeTrackNotFound, lastResolveErr,
-			"Keine der %d passenden Quellen konnte aufgelöst werden.", attemptedCount)
+		return nil, failures.exhausted(attemptedCount, lastResolveErr)
 	}
 
 	return nil, apperr.Newf(apperr.CodeTrackNotFound, "No media candidates were found for %q.", track.Label())

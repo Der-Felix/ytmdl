@@ -124,6 +124,24 @@ func TestReleaseConsistency_CaseC_AllConsistent(t *testing.T) {
 	}
 }
 
+// A successful early grep match must not turn valid notes into a failure when
+// pipefail observes the writer's SIGPIPE. Large notes make that race repeatable.
+func TestReleaseNotesValidation_LargeValidContent(t *testing.T) {
+	repoRoot := findRepoRoot(t)
+	notes := "# Release fixture\n\n## Highlights\n\n" +
+		strings.Repeat("- Verified offline release-note fixture.\n", 4096) +
+		"\n**Full Changelog:** fixture\n"
+	path := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(path, []byte(notes), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(repoRoot, "scripts", "generate-release-notes.sh"), "--validate", path)
+	cmd.Dir = repoRoot
+	if _, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("valid large release notes were rejected: %v", err)
+	}
+}
+
 // Case D: verify_only must perform zero publication mutation (STATE AFTER == STATE BEFORE)
 func TestReleaseConsistency_CaseD_ZeroPublicationMutation(t *testing.T) {
 	repoRoot := findRepoRoot(t)

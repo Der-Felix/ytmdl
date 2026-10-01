@@ -52,6 +52,21 @@ and take precedence over the environment for those specific fields.
 | `MUSICDL_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | Comma-separated CIDRs/IPs trusted for `X-Forwarded-For`. The bundled compose files pass `127.0.0.1/32,::1/128,172.31.250.0/28` so the frontend proxy is trusted out of the box. |
 | `MUSICDL_COOKIE_SECURE` | `false` | Force the `Secure` flag on session cookies (enable when serving over HTTPS). |
 
+### Outbound proxy
+
+Set `HTTP_PROXY` and `HTTPS_PROXY` in the deployment `.env` when providers must
+be reached through a proxy. Both Compose files pass that file to the backend.
+Set the lowercase `http_proxy` and `https_proxy` aliases to the same values for
+command-line tools, and use `NO_PROXY` / `no_proxy` for local services such as
+`localhost,127.0.0.1,::1,backend,frontend,db`. Recreate the backend after changing
+its environment; a container restart alone does not reload `.env`.
+
+The proxy endpoint must be reachable from the container. A proxy on a private
+network is supported when explicitly configured, while private origin addresses
+and redirects remain blocked by the HTTP client. Origin DNS answers are checked
+locally; the trusted proxy must also enforce its own destination policy. The
+frontend and database do not need provider proxy settings.
+
 ### Database pool
 
 | Variable | Default | Description |
@@ -93,10 +108,32 @@ and take precedence over the environment for those specific fields.
 | `MUSICDL_MAX_ATTEMPTS` | `5` | Maximum attempts for a job item across protected and unprotected retries. |
 | `YTDM_MAX_RETRIES` | `2` | Ordinary retry budget for transient errors (range 0–10). |
 | `YTDM_RETRY_BACKOFF` | `15s` | Base backoff between ordinary retries. |
-| `YTDM_TRACK_TIMEOUT` | `30m` | Hard timeout for a single track's acquisition. |
+| `YTDM_TRACK_TIMEOUT` | `30m` | Hard timeout for a single track's acquisition, including time spent waiting for a media session. A track that reaches it is retried as `TRACK_TIMEOUT` within `MUSICDL_MAX_ATTEMPTS`; it never pauses a provider. |
 | `YTDM_MATCH_MIN_SCORE` | `70` | Minimum match confidence (0–100) for a candidate to be accepted. Dynamic. |
 | `YTDM_MATCH_CANDIDATE_LIMIT` | `10` | Maximum candidates evaluated per track (1–50). |
 | `YTDM_MATCH_DURATION_TOLERANCE_MS` | `4000` | Allowed duration difference between metadata and audio candidate. |
+
+### Combined-stream audio fallback (v0.27.3+)
+
+Off by default, for every existing and every new installation. It is meant to
+be switched on deliberately for a controlled comparison first — see
+[Audio format classification](/diagnostics/audio-format-classification).
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `YTDM_COMBINED_AUDIO_FALLBACK` | `false` | Allow acquiring a track from a combined audio/video stream when the item offers no audio-only stream. The audio is copied out without re-encoding; the video never reaches the library. Requires a restart. |
+| `YTDM_COMBINED_FALLBACK_MAX_BYTES` | `134217728` (128 MiB) | Hard limit on what one combined transfer may move. An announced size above it is refused before the transfer, a running transfer is stopped once its progress passes it, and the arrived file is measured afterwards. A stop ends the item as `TRANSFER_BUDGET_EXCEEDED` without a retry. |
+| `YTDM_COMBINED_FALLBACK_TIMEOUT` | `10m` | Hard limit on how long one combined transfer may run, because it occupies the media session for its whole duration. It starts once the session's execution slot is granted; waiting for a busy session does not count. A stop ends the item as `TRANSFER_BUDGET_EXCEEDED` without a retry. |
+
+What the switch does **not** change: an audio-only stream always wins when one
+exists; matching, verification and duration tolerance are untouched; nothing is
+re-encoded; preview, DRM-protected and insufficiently described formats stay
+rejected; the absence of an audio-only stream never puts a provider family
+on hold; and with the switch off, an item without an audio-only stream ends
+exactly as before (`TRACK_NOT_FOUND`, no retry). A budget stop never pauses a
+provider family either.
+
+---
 
 ### Library output
 
@@ -162,7 +199,7 @@ and take precedence over the environment for those specific fields.
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `MUSICDL_COOKIE_DIR` / `YTDM_COOKIE_DIR` | `./data/cookies` | Directory where uploaded session cookie files are stored (writable by UID 10001). |
+| `MUSICDL_COOKIE_DIR` / `YTDM_COOKIE_DIR` | `/data/cookies` *(container)* | Directory where uploaded session cookie files are stored (writable by UID 10001; defaults to `./data/cookies` for non-container runs). |
 | `MUSICDL_SESSION_MAX_LEASES` | `1` | Concurrent `yt-dlp` processes allowed per managed session. |
 | `MUSICDL_SESSION_REQUESTS_PER_SECOND` | `0.5` | Per-session process-start rate. |
 | `MUSICDL_SESSION_BURST` | `1` | Per-session burst. |

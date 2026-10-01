@@ -336,3 +336,69 @@ func TestMediaSessionsConfig(t *testing.T) {
 		t.Error("expected validation error for SessionRequestsPerSecond <= 0, got nil")
 	}
 }
+
+func TestCookieDirConfiguration(t *testing.T) {
+	// Baseline: default CookieDir remains "./data/cookies" for local/bare-metal execution
+	clearConfigEnv(t)
+	def := Default()
+	if def.MediaSessions.CookieDir != "./data/cookies" {
+		t.Errorf("default CookieDir = %q, want ./data/cookies", def.MediaSessions.CookieDir)
+	}
+
+	// Container default: setting MUSICDL_COOKIE_DIR=/data/cookies (from Containerfile / .env.example)
+	t.Run("container default via MUSICDL_COOKIE_DIR", func(t *testing.T) {
+		clearConfigEnv(t)
+		t.Setenv("MUSICDL_COOKIE_DIR", "/data/cookies")
+		cfg := Default()
+		cfg.Database.URL = "postgres://test:test@localhost:5432/test"
+		if err := cfg.applyEnv(); err != nil {
+			t.Fatalf("applyEnv: %v", err)
+		}
+		if cfg.MediaSessions.CookieDir != "/data/cookies" {
+			t.Errorf("CookieDir = %q, want /data/cookies", cfg.MediaSessions.CookieDir)
+		}
+	})
+
+	// Custom override: explicit custom directory takes precedence
+	t.Run("explicit custom MUSICDL_COOKIE_DIR overrides", func(t *testing.T) {
+		clearConfigEnv(t)
+		t.Setenv("MUSICDL_COOKIE_DIR", "/mnt/custom/my-cookies")
+		cfg := Default()
+		cfg.Database.URL = "postgres://test:test@localhost:5432/test"
+		if err := cfg.applyEnv(); err != nil {
+			t.Fatalf("applyEnv: %v", err)
+		}
+		if cfg.MediaSessions.CookieDir != "/mnt/custom/my-cookies" {
+			t.Errorf("CookieDir = %q, want /mnt/custom/my-cookies", cfg.MediaSessions.CookieDir)
+		}
+	})
+
+	// Legacy alias: YTDM_COOKIE_DIR works when MUSICDL_COOKIE_DIR is unset
+	t.Run("legacy YTDM_COOKIE_DIR alias", func(t *testing.T) {
+		clearConfigEnv(t)
+		t.Setenv("YTDM_COOKIE_DIR", "/legacy/cookies")
+		cfg := Default()
+		cfg.Database.URL = "postgres://test:test@localhost:5432/test"
+		if err := cfg.applyEnv(); err != nil {
+			t.Fatalf("applyEnv: %v", err)
+		}
+		if cfg.MediaSessions.CookieDir != "/legacy/cookies" {
+			t.Errorf("CookieDir = %q, want /legacy/cookies", cfg.MediaSessions.CookieDir)
+		}
+	})
+
+	// Precedence: MUSICDL_COOKIE_DIR takes precedence over legacy YTDM_COOKIE_DIR
+	t.Run("MUSICDL_COOKIE_DIR takes precedence over YTDM_COOKIE_DIR", func(t *testing.T) {
+		clearConfigEnv(t)
+		t.Setenv("YTDM_COOKIE_DIR", "/legacy/cookies")
+		t.Setenv("MUSICDL_COOKIE_DIR", "/data/cookies")
+		cfg := Default()
+		cfg.Database.URL = "postgres://test:test@localhost:5432/test"
+		if err := cfg.applyEnv(); err != nil {
+			t.Fatalf("applyEnv: %v", err)
+		}
+		if cfg.MediaSessions.CookieDir != "/data/cookies" {
+			t.Errorf("CookieDir = %q, want /data/cookies", cfg.MediaSessions.CookieDir)
+		}
+	})
+}

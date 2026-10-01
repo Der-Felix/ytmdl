@@ -926,3 +926,111 @@ func TestUpdate_Schema9To9_SchemaNeutral_HappyPath(t *testing.T) {
 		t.Errorf("schemas = %d -> %d, want 9 -> 9", st.SchemaBefore, st.TargetSchema)
 	}
 }
+
+func TestUpdateStorageGuardPolicy(t *testing.T) {
+	prevBackendDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	prevFrontendDigest := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	targetBackendDigest := "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	targetFrontendDigest := "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+
+	cases := []struct {
+		name          string
+		guardStatus   discovery.GuardStatus
+		guardErr      error
+		expectSuccess bool
+		expectedErr   string
+		expectedPrint string
+	}{
+		{
+			name:          "guard disabled allows update",
+			guardStatus:   discovery.GuardStatusDisabled,
+			guardErr:      nil,
+			expectSuccess: true,
+			expectedPrint: "Storage Guard:   disabled",
+		},
+		{
+			name:          "guard verified allows update",
+			guardStatus:   discovery.GuardStatusVerified,
+			guardErr:      nil,
+			expectSuccess: true,
+			expectedPrint: "Storage Guard:   VERIFIED",
+		},
+		{
+			name:          "guard missing blocks update",
+			guardStatus:   discovery.GuardStatusMissing,
+			guardErr:      errors.New("marker file not found"),
+			expectSuccess: false,
+			expectedErr:   "preflight Storage Guard verification failed: status=missing",
+		},
+		{
+			name:          "guard mismatch blocks update",
+			guardStatus:   discovery.GuardStatusMismatch,
+			guardErr:      errors.New("identity mismatch"),
+			expectSuccess: false,
+			expectedErr:   "preflight Storage Guard verification failed: status=mismatch",
+		},
+		{
+			name:          "guard unavailable blocks update",
+			guardStatus:   discovery.GuardStatusUnavailable,
+			guardErr:      errors.New("container probe unavailable"),
+			expectSuccess: false,
+			expectedErr:   "preflight Storage Guard verification failed: status=unavailable",
+		},
+		{
+			name:          "guard disabled but with error blocks update",
+			guardStatus:   discovery.GuardStatusDisabled,
+			guardErr:      errors.New("unexpected probe error"),
+			expectSuccess: false,
+			expectedErr:   "preflight Storage Guard verification failed: status=disabled",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			projectDir, composeFile := setupTestEnv(t, "0.15.0")
+			fake := setupHappyFakeRunner(composeFile, prevBackendDigest, prevFrontendDigest, targetBackendDigest, targetFrontendDigest)
+			eng := engine.NewDocker(fake)
+
+			deps := defaultMockDeps(targetBackendDigest, targetFrontendDigest)
+			callCount := 0
+			deps.HealthChecker = func(ctx context.Context, baseURL string) (*discovery.BackendHealth, error) {
+				callCount++
+				if callCount == 1 {
+					return &discovery.BackendHealth{Status: "ok", Version: "0.15.0"}, nil
+				}
+				return &discovery.BackendHealth{Status: "ok", Version: "0.16.0"}, nil
+			}
+			deps.GuardChecker = func(ctx context.Context, eng engine.Engine, projectDir, composeFile, localMusicPath, expectedGuardID string) (discovery.GuardStatus, error) {
+				return tc.guardStatus, tc.guardErr
+			}
+
+			var stdout, stderr bytes.Buffer
+			res, err := orchestrator.Update(context.Background(), eng, deps, orchestrator.UpdateOptions{
+				ProjectDir:  projectDir,
+				ComposeFile: composeFile,
+				AutoConfirm: true,
+				Stdout:      &stdout,
+				Stderr:      &stderr,
+			})
+
+			if tc.expectSuccess {
+				if err != nil {
+					t.Fatalf("expected update success, got err: %v\nstderr: %s", err, stderr.String())
+				}
+				if res == nil {
+					t.Fatal("expected non-nil UpdateResult")
+				}
+				if tc.expectedPrint != "" && !strings.Contains(stdout.String(), tc.expectedPrint) {
+					t.Errorf("expected stdout to contain %q, got:\n%s", tc.expectedPrint, stdout.String())
+				}
+			} else {
+				if err == nil {
+					t.Fatalf("expected update failure, got success")
+				}
+				if tc.expectedErr != "" && !strings.Contains(err.Error(), tc.expectedErr) {
+					t.Errorf("expected error to contain %q, got %q", tc.expectedErr, err.Error())
+				}
+			}
+		})
+	}
+}

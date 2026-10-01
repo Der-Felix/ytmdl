@@ -13,7 +13,7 @@ import (
 	"ytdm/backend/internal/mediasession"
 )
 
-const maxCookieUploadBytes = 1024 * 1024 // 1 MiB conservative limit
+const maxCookieUploadBytes = mediasession.MaxCookieFileSize
 
 // ListMediaSessions returns all configured media sessions.
 func (h *Handlers) ListMediaSessions(w http.ResponseWriter, r *http.Request) {
@@ -93,9 +93,9 @@ func (h *Handlers) UploadMediaSessionCookies(w http.ResponseWriter, r *http.Requ
 	var cookieBytes []byte
 
 	if strings.HasPrefix(contentType, "multipart/form-data") {
-		// Limit multipart upload body to 2 MiB (1 MiB file + multipart framing)
-		r.Body = http.MaxBytesReader(w, r.Body, 2*1024*1024)
-		if err := r.ParseMultipartForm(2 * 1024 * 1024); err != nil {
+		// Limit multipart upload body to 26 MiB (25 MiB file + multipart framing)
+		r.Body = http.MaxBytesReader(w, r.Body, mediasession.MaxCookieUploadBodySize)
+		if err := r.ParseMultipartForm(mediasession.MaxCookieUploadBodySize); err != nil {
 			response.Fail(w, r, apperr.CodeInvalidRequest, "Failed to parse multipart cookie upload: request too large or malformed.")
 			return
 		}
@@ -108,7 +108,7 @@ func (h *Handlers) UploadMediaSessionCookies(w http.ResponseWriter, r *http.Requ
 			if err == nil {
 				defer file.Close()
 				if header.Size > maxCookieUploadBytes {
-					response.Fail(w, r, apperr.CodeInvalidRequest, "Cookie file exceeds 1 MiB limit.")
+					response.Fail(w, r, apperr.CodeInvalidRequest, "Cookie file exceeds 25 MiB limit.")
 					return
 				}
 				data, err := io.ReadAll(io.LimitReader(file, maxCookieUploadBytes+1))
@@ -117,7 +117,7 @@ func (h *Handlers) UploadMediaSessionCookies(w http.ResponseWriter, r *http.Requ
 					return
 				}
 				if len(data) > maxCookieUploadBytes {
-					response.Fail(w, r, apperr.CodeInvalidRequest, "Cookie file exceeds 1 MiB limit.")
+					response.Fail(w, r, apperr.CodeInvalidRequest, "Cookie file exceeds 25 MiB limit.")
 					return
 				}
 				cookieBytes = data
@@ -155,14 +155,14 @@ func (h *Handlers) UploadMediaSessionCookies(w http.ResponseWriter, r *http.Requ
 		if err != nil {
 			var maxBytesErr *http.MaxBytesError
 			if errors.As(err, &maxBytesErr) {
-				response.Fail(w, r, apperr.CodeInvalidRequest, "Cookie file exceeds 1 MiB limit.")
+				response.Fail(w, r, apperr.CodeInvalidRequest, "Cookie file exceeds 25 MiB limit.")
 				return
 			}
 			response.Fail(w, r, apperr.CodeInvalidRequest, "Failed to read cookie payload.")
 			return
 		}
 		if len(data) > maxCookieUploadBytes {
-			response.Fail(w, r, apperr.CodeInvalidRequest, "Cookie file exceeds 1 MiB limit.")
+			response.Fail(w, r, apperr.CodeInvalidRequest, "Cookie file exceeds 25 MiB limit.")
 			return
 		}
 		cookieBytes = data

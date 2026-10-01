@@ -31,6 +31,8 @@ compose.ghcr.override.yaml
 # Build artefacts
 /bin/
 /out/
+/dist/
+*.tsbuildinfo
 /backend/musicdl
 /backend/server
 *.test

@@ -1,10 +1,11 @@
 // Package httpx builds the HTTP clients the backend uses to talk to external
-// services. Every outgoing request goes through a dialer that refuses to
-// connect to private address ranges, so that a provider supplied URL can never
-// be used to reach services inside the host network.
+// services. Direct connections and destinations reached through a configured
+// proxy reject private address ranges. An operator-configured proxy itself may
+// be on a private network.
 package httpx
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/net/http/httpproxy"
 
 	"ytdm/backend/internal/apperr"
 )
@@ -35,7 +38,6 @@ func New(timeout time.Duration) *http.Client {
 	}
 
 	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           dialer.DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          32,
@@ -45,10 +47,22 @@ func New(timeout time.Duration) *http.Client {
 		ExpectContinueTimeout: 2 * time.Second,
 		ResponseHeaderTimeout: timeout,
 	}
+	// Capture the operator's environment for this client, including NO_PROXY.
+	// The public-address dialer must protect origin connections, not reject
+	// the explicitly configured proxy's own private address.
+	proxyFunc := httpproxy.FromEnvironment().ProxyFunc()
+	proxy := func(req *http.Request) (*url.URL, error) { return proxyFunc(req.URL) }
+	proxyDialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	proxied := transport.Clone()
+	proxied.Proxy = proxy
+	proxied.DialContext = proxyDialer.DialContext
 
 	return &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
+		Timeout: timeout,
+		Transport: &proxyTransport{
+			direct: transport, proxied: proxied, proxy: proxy,
+			lookupIP: net.DefaultResolver.LookupIPAddr,
+		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= maxRedirects {
 				return fmt.Errorf("stopped after %d redirects", maxRedirects)
@@ -59,6 +73,52 @@ func New(timeout time.Duration) *http.Client {
 			return nil
 		},
 	}
+}
+
+type proxyTransport struct {
+	direct, proxied *http.Transport
+	proxy           func(*http.Request) (*url.URL, error)
+	lookupIP        func(context.Context, string) ([]net.IPAddr, error)
+}
+
+func (t *proxyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	proxy, err := t.proxy(req)
+	if err != nil {
+		return nil, err
+	}
+	if proxy == nil {
+		return t.direct.RoundTrip(req)
+	}
+	if err := validateScheme(req.URL); err != nil {
+		return nil, err
+	}
+	// The proxy is trusted infrastructure, but provider-supplied destinations
+	// are not. Check literals and DNS answers before handing them to the proxy,
+	// including every redirect. The proxy must enforce its own egress policy
+	// as well, since it resolves the origin independently.
+	var addresses []net.IPAddr
+	if ip := net.ParseIP(req.URL.Hostname()); ip != nil {
+		addresses = []net.IPAddr{{IP: ip}}
+	} else {
+		addresses, err = t.lookupIP(req.Context(), req.URL.Hostname())
+		if err != nil {
+			return nil, fmt.Errorf("proxy destination could not be resolved: %w", err)
+		}
+	}
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("proxy destination has no public address")
+	}
+	for _, address := range addresses {
+		if !IsPublicIP(address.IP) {
+			return nil, fmt.Errorf("proxy destination is not a public address")
+		}
+	}
+	return t.proxied.RoundTrip(req)
+}
+
+func (t *proxyTransport) CloseIdleConnections() {
+	t.direct.CloseIdleConnections()
+	t.proxied.CloseIdleConnections()
 }
 
 // controlAddress rejects connections to addresses that are not routable on the
