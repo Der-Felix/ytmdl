@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { DiscIcon, UserIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
 interface CoverProps {
   src?: string
+  fallbackSrc?: string
   alt: string
   /** A round frame for artists, a rounded square for releases. */
   shape?: 'square' | 'circle'
@@ -19,15 +20,16 @@ interface CoverProps {
  * an error: the placeholder keeps the grid aligned instead of collapsing the
  * tile.
  */
-function Cover({ src, alt, shape = 'square', className }: CoverProps) {
-  const [failed, setFailed] = useState(false)
+function Cover(props: CoverProps) {
+  return <CoverImage key={`${props.src ?? ''}|${props.fallbackSrc ?? ''}`} {...props} />
+}
 
-  // A new URL deserves a fresh attempt; without this a once-broken image would
-  // stay broken after the component is reused for another release.
-  useEffect(() => setFailed(false), [src])
+function CoverImage({ src, fallbackSrc, alt, shape = 'square', className }: CoverProps) {
+  const sources = [...new Set([src, fallbackSrc].filter((value): value is string => Boolean(value)))]
+  const [attempt, setAttempt] = useState(0)
 
   const rounded = shape === 'circle' ? 'rounded-full' : 'rounded-2xl'
-  const showImage = Boolean(src) && !failed
+  const showImage = attempt < sources.length
 
   return (
     <div
@@ -39,11 +41,11 @@ function Cover({ src, alt, shape = 'square', className }: CoverProps) {
     >
       {showImage ? (
         <img
-          src={src}
+          src={sources[attempt]}
           alt={alt}
           loading="lazy"
           decoding="async"
-          onError={() => setFailed(true)}
+          onError={() => setAttempt((value) => value + 1)}
           className="size-full object-cover"
         />
       ) : (

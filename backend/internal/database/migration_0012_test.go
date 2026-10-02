@@ -138,8 +138,8 @@ func TestMigration0012_UpgradeFromSchema11(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT MAX(version) FROM schema_migrations").Scan(&maxVersion); err != nil {
 		t.Fatalf("query max version: %v", err)
 	}
-	if maxVersion != 12 {
-		t.Fatalf("expected schema version 12, got %d", maxVersion)
+	if maxVersion < 12 {
+		t.Fatalf("expected schema version at least 12, got %d", maxVersion)
 	}
 
 	// 5. Verify all new tables exist

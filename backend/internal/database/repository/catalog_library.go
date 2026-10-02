@@ -30,6 +30,8 @@ func escapeLike(s string) string {
 
 // TrackListFilter parameters for filtering library tracks.
 type TrackListFilter struct {
+	Genre        string
+	GenreMissing bool
 	Query        string
 	ArtistID     string
 	ReleaseID    string
@@ -45,23 +47,27 @@ type TrackListFilter struct {
 
 // ReleaseListFilter parameters for filtering library releases.
 type ReleaseListFilter struct {
-	Query       string
-	ArtistID    string
-	ReleaseType string
-	Year        int
-	Sort        string
-	Order       string
-	Limit       int
-	Offset      int
+	Genre        string
+	GenreMissing bool
+	Query        string
+	ArtistID     string
+	ReleaseType  string
+	Year         int
+	Sort         string
+	Order        string
+	Limit        int
+	Offset       int
 }
 
 // ArtistListFilter parameters for filtering library artists.
 type ArtistListFilter struct {
-	Query  string
-	Sort   string
-	Order  string
-	Limit  int
-	Offset int
+	Genre        string
+	GenreMissing bool
+	Query        string
+	Sort         string
+	Order        string
+	Limit        int
+	Offset       int
 }
 
 func sanitizeTrackSort(sort, order string) (string, error) {
@@ -242,6 +248,10 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		argIdx += 2
 	}
 
+	if err := appendGenreFilter(filter.Genre, filter.GenreMissing, "t.artist_id", &whereClauses, &args, &argIdx); err != nil {
+		return nil, 0, err
+	}
+
 	whereSQL := ""
 	if len(whereClauses) > 0 {
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
@@ -390,6 +400,10 @@ func (c *Catalog) ListReleasesFiltered(ctx context.Context, filter ReleaseListFi
 		argIdx++
 	}
 
+	if err := appendGenreFilter(filter.Genre, filter.GenreMissing, "r.artist_id", &whereClauses, &args, &argIdx); err != nil {
+		return nil, 0, err
+	}
+
 	whereSQL := ""
 	if len(whereClauses) > 0 {
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
@@ -477,6 +491,10 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 		argIdx++
 	}
 
+	if err := appendGenreFilter(filter.Genre, filter.GenreMissing, "a.id", &whereClauses, &args, &argIdx); err != nil {
+		return nil, 0, err
+	}
+
 	whereSQL := ""
 	if len(whereClauses) > 0 {
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
@@ -490,7 +508,7 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 
 	dataQuery := fmt.Sprintf(`
 		SELECT
-			a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url, a.created_at,
+			a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url, a.genres_json, a.created_at,
 			COUNT(DISTINCT r.id) AS release_count,
 			COALESCE(ts.track_count, 0) AS track_count,
 			COALESCE(ts.total_size, 0) AS total_size
@@ -517,15 +535,17 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 	out := make([]music.LibraryArtist, 0, limit)
 	for rows.Next() {
 		var (
+			genres    string
 			la        music.LibraryArtist
 			createdAt time.Time
 		)
 		if err := rows.Scan(
-			&la.ID, &la.Name, &la.Provider, &la.SourceID, &la.SourceURL, &la.ImageURL, &createdAt,
+			&la.ID, &la.Name, &la.Provider, &la.SourceID, &la.SourceURL, &la.ImageURL, &genres, &createdAt,
 			&la.ReleaseCount, &la.TrackCount, &la.TotalSizeBytes,
 		); err != nil {
 			return nil, 0, wrapDB("scan artist filtered", err)
 		}
+		la.Genres = decodeStrings(genres)
 		la.CreatedAt = createdAt.UTC()
 		out = append(out, la)
 	}
@@ -754,7 +774,7 @@ func (c *Catalog) SearchArtists(ctx context.Context, query string, limit int) ([
 
 	dataQuery := `
 		SELECT
-			a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url, a.created_at,
+			a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url, a.genres_json, a.created_at,
 			COUNT(DISTINCT r.id) AS release_count,
 			COALESCE(ts.track_count, 0) AS track_count,
 			COALESCE(ts.total_size, 0) AS total_size
@@ -786,15 +806,17 @@ func (c *Catalog) SearchArtists(ctx context.Context, query string, limit int) ([
 	out := make([]music.LibraryArtist, 0, limit)
 	for rows.Next() {
 		var (
+			genres    string
 			la        music.LibraryArtist
 			createdAt time.Time
 		)
 		if err := rows.Scan(
-			&la.ID, &la.Name, &la.Provider, &la.SourceID, &la.SourceURL, &la.ImageURL, &createdAt,
+			&la.ID, &la.Name, &la.Provider, &la.SourceID, &la.SourceURL, &la.ImageURL, &genres, &createdAt,
 			&la.ReleaseCount, &la.TrackCount, &la.TotalSizeBytes,
 		); err != nil {
 			return nil, wrapDB("scan searched artist", err)
 		}
+		la.Genres = decodeStrings(genres)
 		la.CreatedAt = createdAt.UTC()
 		out = append(out, la)
 	}

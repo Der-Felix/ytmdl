@@ -1,3 +1,4 @@
+import { libraryArtwork } from '@/lib/artwork'
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
@@ -174,7 +175,8 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
         {/* Release Header Banner */}
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-6">
           <Cover
-            src={release.cover_url}
+            src={libraryArtwork('releases', release.id)}
+            fallbackSrc={release.cover_url}
             alt={release.title}
             className="size-36 sm:size-44 rounded-xl shadow-2xl shrink-0"
           />

@@ -1,3 +1,4 @@
+import { libraryArtwork } from '@/lib/artwork'
 import { DownloadButton } from '@/components/downloads/DownloadButton'
 import { Cover } from '@/components/music/Cover'
 import { downloadRelease } from '@/lib/api/jobs'
@@ -24,7 +25,7 @@ function ReleaseCard({ release, provider, href, isLocal }: ReleaseCardProps) {
 
   return (
     <div className="panel panel-interactive group relative flex h-full flex-col gap-3 p-3">
-      <Cover src={release.cover_url} alt="" className="w-full" />
+      <Cover src={isLocal ? libraryArtwork('releases', release.id) : release.cover_url} fallbackSrc={isLocal ? release.cover_url : undefined} alt="" className="w-full" />
 
       <div className="min-w-0 flex-1 space-y-1 px-1">
         <Link

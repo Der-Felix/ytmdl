@@ -1,3 +1,4 @@
+import { libraryArtwork } from '@/lib/artwork'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown,
@@ -53,7 +54,7 @@ import type {
   SleepTimerOption,
   VisualizerMode,
 } from '@/lib/audio/types'
-import { Link, paths, useLocation } from '@/lib/router'
+import { Link, navigate, paths, useLocation } from '@/lib/router'
 import { formatDuration, formatPlaybackTime, joinArtists } from '@/lib/utils/format'
 import { parseLrc } from '@/lib/utils/lrc'
 import type { TrackLyrics } from '@/types/api'
@@ -166,6 +167,24 @@ export function NowPlaying() {
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
+
+  useEffect(() => {
+    const leavePlayer = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      // Native fullscreen consumes Escape itself; a second Escape closes the large view.
+      if (document.fullscreenElement) return
+      if (playlistDialogOpen || savePresetOpen) return
+      event.preventDefault()
+      if (optionsMenuOpen || visualizerMenuOpen) {
+        setOptionsMenuOpen(false)
+        setVisualizerMenuOpen(false)
+        return
+      }
+      navigate(paths.library())
+    }
+    window.addEventListener('keydown', leavePlayer)
+    return () => window.removeEventListener('keydown', leavePlayer)
+  }, [optionsMenuOpen, visualizerMenuOpen, playlistDialogOpen, savePresetOpen])
 
   const toggleFullscreen = async () => {
     try {
@@ -440,7 +459,7 @@ export function NowPlaying() {
             {/* Artwork Cover (Height-Responsive, Max 420px, Fits on 768p/900p/1080p) */}
             <div className="relative group player-artwork w-full max-w-[clamp(180px,32dvh,380px)] aspect-square rounded-[22px] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.65)] bg-black/40 border border-white/[0.06] mx-auto lg:mx-0">
               <Cover
-                src={currentTrack.cover_url}
+                src={libraryArtwork('tracks', currentTrack.id)} fallbackSrc={currentTrack.cover_url}
                 alt={currentTrack.title}
                 shape="square"
                 className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
@@ -1075,7 +1094,7 @@ export function NowPlaying() {
                                 <GripVertical className="size-3.5" />
                               </button>
                               <Cover
-                                src={track.cover_url}
+                                src={libraryArtwork('tracks', track.id)} fallbackSrc={track.cover_url}
                                 alt={track.title}
                                 shape="square"
                                 className="size-9 rounded-lg shrink-0 border border-white/10"
@@ -1141,7 +1160,7 @@ export function NowPlaying() {
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <Cover
-                              src={item.track.cover_url}
+                              src={libraryArtwork('tracks', item.track.id)} fallbackSrc={item.track.cover_url}
                               alt={item.track.title}
                               shape="square"
                               className="size-9 rounded-lg shrink-0 border border-white/10"

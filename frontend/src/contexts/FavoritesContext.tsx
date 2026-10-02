@@ -21,6 +21,7 @@ interface FavoritesContextValue {
   toggleFavorite: (trackId: string) => Promise<boolean>
   refresh: () => Promise<void>
   loading: boolean
+  loaded: boolean
 }
 
 export const FavoritesContext = createContext<FavoritesContextValue | null>(null)
@@ -28,6 +29,7 @@ export const FavoritesContext = createContext<FavoritesContextValue | null>(null
 export function FavoritesProvider({ children }: { children: ReactNode }) {
   const auth = useOptionalAuth()
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set())
+  const [loaded, setLoaded] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -39,6 +41,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       setLoading(true)
       const ids = await listFavoriteIDs()
       setFavoriteIds(new Set(ids))
+      setLoaded(true)
     } catch {
       // Ignore background refresh failure
     } finally {
@@ -104,8 +107,9 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       toggleFavorite,
       refresh,
       loading,
+      loaded,
     }),
-    [favoriteIds, isFavorite, toggleFavorite, refresh, loading],
+    [favoriteIds, isFavorite, toggleFavorite, refresh, loading, loaded],
   )
 
   return (

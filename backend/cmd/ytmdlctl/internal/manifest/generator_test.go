@@ -336,12 +336,12 @@ func TestGenerateSchema12Manifest(t *testing.T) {
 }
 
 func TestGenerateSchemaUnallowlistedRejection(t *testing.T) {
-	// TargetSchema 13 without explicit upgrade paths should fail validation because no upgrade paths are automatically generated
+	// TargetSchema 14 without explicit upgrade paths should fail validation because no upgrade paths are automatically generated
 	opts := manifest.GeneratorOptions{
 		ManifestVersion: manifest.ManifestVersion3,
 		ReleaseVersion:  "0.24.0",
 		ReleaseTag:      "v0.24.0",
-		TargetSchema:    13,
+		TargetSchema:    14,
 		MinUpgradeFrom:  "0.15.0",
 		BackendDigest:   validDigest1,
 		FrontendDigest:  validDigest2,
@@ -349,6 +349,64 @@ func TestGenerateSchemaUnallowlistedRejection(t *testing.T) {
 
 	_, err := manifest.Generate(opts)
 	if err == nil {
-		t.Fatalf("expected error for unqualified TargetSchema 13 without explicit upgrade paths, got nil")
+		t.Fatalf("expected error for unqualified TargetSchema 14 without explicit upgrade paths, got nil")
+	}
+}
+
+func TestGenerateSchema13Manifest(t *testing.T) {
+	opts := manifest.GeneratorOptions{
+		ManifestVersion: manifest.ManifestVersion3,
+		ReleaseVersion:  "0.27.0",
+		ReleaseTag:      "v0.27.0",
+		TargetSchema:    13,
+		MinUpgradeFrom:  "0.15.0",
+		BackendDigest:   validDigest1,
+		BackendPlatforms: map[string]string{
+			"linux/amd64": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+			"linux/arm64": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+		},
+		FrontendDigest: validDigest2,
+		FrontendPlatforms: map[string]string{
+			"linux/amd64": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+			"linux/arm64": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+		},
+	}
+
+	data, err := manifest.Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate Schema 13 manifest failed: %v", err)
+	}
+
+	decoded, err := manifest.Decode(data)
+	if err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	if decoded.TargetSchema != 13 {
+		t.Fatalf("expected TargetSchema 13, got %d", decoded.TargetSchema)
+	}
+
+	// Verify 12 -> 13 path is forward migration and requires backup restore on rollback
+	path12Forward, err := decoded.FindUpgradePath(12)
+	if err != nil {
+		t.Fatalf("FindUpgradePath(12) failed: %v", err)
+	}
+	if path12Forward.UpdateClassification != manifest.UpdateSchemaForward {
+		t.Errorf("expected 12->13 update_classification schema_forward, got %s", path12Forward.UpdateClassification)
+	}
+	if path12Forward.RollbackClassification != manifest.RollbackBackupRestoreRequired {
+		t.Errorf("expected 12->13 rollback_classification backup_restore_required, got %s", path12Forward.RollbackClassification)
+	}
+
+	// Verify 13 -> 13 path is schema neutral
+	path13, err := decoded.FindUpgradePath(13)
+	if err != nil {
+		t.Fatalf("FindUpgradePath(13) failed: %v", err)
+	}
+	if path13.UpdateClassification != manifest.UpdateSchemaNeutral {
+		t.Errorf("expected 13->13 update_classification schema_neutral, got %s", path13.UpdateClassification)
+	}
+	if path13.RollbackClassification != manifest.RollbackSchemaNeutral {
+		t.Errorf("expected 13->13 rollback_classification schema_neutral, got %s", path13.RollbackClassification)
 	}
 }

@@ -25,11 +25,13 @@ func (h *Handlers) LibraryArtists(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := repository.ArtistListFilter{
-		Query:  queryString(r, "q"),
-		Sort:   queryString(r, "sort"),
-		Order:  queryString(r, "order"),
-		Limit:  limit,
-		Offset: offset,
+		Genre:        queryString(r, "genre"),
+		GenreMissing: queryString(r, "genre_missing") == "true",
+		Query:        queryString(r, "q"),
+		Sort:         queryString(r, "sort"),
+		Order:        queryString(r, "order"),
+		Limit:        limit,
+		Offset:       offset,
 	}
 
 	artists, total, err := h.deps.Catalog.ListArtistsFiltered(r.Context(), filter)
@@ -75,14 +77,16 @@ func (h *Handlers) LibraryReleases(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := repository.ReleaseListFilter{
-		Query:       queryString(r, "q"),
-		ArtistID:    queryString(r, "artist_id"),
-		ReleaseType: queryString(r, "release_type"),
-		Year:        year,
-		Sort:        queryString(r, "sort"),
-		Order:       queryString(r, "order"),
-		Limit:       limit,
-		Offset:      offset,
+		Genre:        queryString(r, "genre"),
+		GenreMissing: queryString(r, "genre_missing") == "true",
+		Query:        queryString(r, "q"),
+		ArtistID:     queryString(r, "artist_id"),
+		ReleaseType:  queryString(r, "release_type"),
+		Year:         year,
+		Sort:         queryString(r, "sort"),
+		Order:        queryString(r, "order"),
+		Limit:        limit,
+		Offset:       offset,
 	}
 
 	releases, total, err := h.deps.Catalog.ListReleasesFiltered(r.Context(), filter)
@@ -146,6 +150,8 @@ func (h *Handlers) LibraryTracks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := repository.TrackListFilter{
+		Genre:        queryString(r, "genre"),
+		GenreMissing: queryString(r, "genre_missing") == "true",
 		Query:        q,
 		ArtistID:     queryString(r, "artist_id"),
 		ReleaseID:    queryString(r, "release_id"),
