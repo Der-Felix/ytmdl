@@ -90,6 +90,8 @@ export function NowPlaying() {
     preamp,
     autoHeadroom,
     limiterEnabled,
+    normalizationEnabled,
+    normalizationMessage,
     balance,
     mono,
     visualizerMode,
@@ -118,6 +120,7 @@ export function NowPlaying() {
     setPreamp,
     setAutoHeadroom,
     setLimiter,
+    setNormalization,
     setBalance,
     setMono,
     setVisualizerMode,
@@ -1503,6 +1506,18 @@ export function NowPlaying() {
                 <div className="space-y-4">
                   {/* Section 4: Crossfade Transition */}
                   <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2.5">
+                    <div className="space-y-2 rounded-lg border border-border p-3">
+                      <label className="flex items-center justify-between gap-3 text-sm">
+                        <span>Lautstärke angleichen</span>
+                        <input type="checkbox" checked={normalizationEnabled}
+                          onChange={(e) => setNormalization(e.target.checked)} />
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Passt die Wiedergabe pro Titel an. Aktuelle und nächste Titel werden einmal
+                        gemessen; Audiodateien bleiben unverändert.
+                      </p>
+                      {normalizationEnabled && <p role="status" className="text-xs text-muted-foreground">{normalizationMessage}</p>}
+                    </div>
                     <div className="flex items-center justify-between text-xs text-neutral-300">
                       <label htmlFor="player-crossfade">Überblendung zwischen Liedern</label>
                       <span className="font-mono text-white">{crossfadeSeconds === 0 ? 'Aus' : `${crossfadeSeconds} s`}</span>

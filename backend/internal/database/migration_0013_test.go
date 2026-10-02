@@ -28,7 +28,7 @@ func TestMigration0013UpgradePreservesMetadata(t *testing.T) {
 	if genres != "[]" || image != "cover-fixture" || manual {
 		t.Fatal("migration changed existing metadata or did not initialize empty genres")
 	}
-	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version != 13 {
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil || version < 13 {
 		t.Fatalf("schema %d: %v", version, err)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE artists SET genres_json = '["Pop"]', genres_manual = true WHERE id = 'existing'`); err != nil {

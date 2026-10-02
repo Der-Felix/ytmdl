@@ -70,7 +70,11 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
     engine.load('/api/v1/tracks/1/stream', 45)
 
     const activeDeck = engine.getActiveDeckElement()
-    Object.defineProperty(activeDeck, 'duration', { value: 180, configurable: true, writable: true })
+    Object.defineProperty(activeDeck, 'duration', {
+      value: 180,
+      configurable: true,
+      writable: true,
+    })
 
     // Simulate loadedmetadata event from browser audio decoder
     activeDeck.dispatchEvent(new Event('loadedmetadata'))
@@ -88,7 +92,11 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
     timeUpdates = []
 
     const inactiveDeck = engine.getInactiveDeckElement()
-    Object.defineProperty(inactiveDeck, 'duration', { value: 300, configurable: true, writable: true })
+    Object.defineProperty(inactiveDeck, 'duration', {
+      value: 300,
+      configurable: true,
+      writable: true,
+    })
     inactiveDeck.currentTime = 50
 
     // Fire events on inactive deck (e.g. background preload or previous deck)
@@ -116,7 +124,11 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
       configurable: true,
       writable: true,
     })
-    Object.defineProperty(activeDeck, 'duration', { value: 999, configurable: true, writable: true })
+    Object.defineProperty(activeDeck, 'duration', {
+      value: 999,
+      configurable: true,
+      writable: true,
+    })
     activeDeck.dispatchEvent(new Event('loadedmetadata'))
 
     // Event should be rejected because src does not match the active track URL
@@ -124,7 +136,11 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
 
     // Restore real active track src and trigger metadata for Track 2
     Object.defineProperty(activeDeck, 'src', { value: oldSrc, configurable: true, writable: true })
-    Object.defineProperty(activeDeck, 'duration', { value: 150, configurable: true, writable: true })
+    Object.defineProperty(activeDeck, 'duration', {
+      value: 150,
+      configurable: true,
+      writable: true,
+    })
     activeDeck.dispatchEvent(new Event('loadedmetadata'))
 
     expect(timeUpdates.length).toBe(1)
@@ -135,7 +151,11 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
     // 1. Initial load at position 10
     engine.load('/api/v1/tracks/same-track/stream', 10)
     const activeDeck = engine.getActiveDeckElement()
-    Object.defineProperty(activeDeck, 'duration', { value: 200, configurable: true, writable: true })
+    Object.defineProperty(activeDeck, 'duration', {
+      value: 200,
+      configurable: true,
+      writable: true,
+    })
     activeDeck.dispatchEvent(new Event('loadedmetadata'))
     expect(activeDeck.currentTime).toBe(10)
 
@@ -157,14 +177,22 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
   it('keeps active playback isolated during gapless preloading on the secondary deck', () => {
     engine.load('/api/v1/tracks/current-playing/stream', 25)
     const activeDeck = engine.getActiveDeckElement()
-    Object.defineProperty(activeDeck, 'duration', { value: 240, configurable: true, writable: true })
+    Object.defineProperty(activeDeck, 'duration', {
+      value: 240,
+      configurable: true,
+      writable: true,
+    })
     activeDeck.dispatchEvent(new Event('loadedmetadata'))
     timeUpdates = []
 
     // Preload next track on inactive deck
     engine.preloadNext('/api/v1/tracks/next-upcoming/stream')
     const inactiveDeck = engine.getInactiveDeckElement()
-    Object.defineProperty(inactiveDeck, 'duration', { value: 180, configurable: true, writable: true })
+    Object.defineProperty(inactiveDeck, 'duration', {
+      value: 180,
+      configurable: true,
+      writable: true,
+    })
     inactiveDeck.currentTime = 0
 
     // Metadata fires on inactive deck for upcoming track
@@ -186,8 +214,12 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
       Object.defineProperty(deck, 'duration', { value: 240, configurable: true })
       Object.defineProperty(deck, 'readyState', { value: 4, configurable: true })
       Object.defineProperty(deck, 'paused', { value: false, writable: true, configurable: true })
-      deck.play = async () => { Object.defineProperty(deck, 'paused', { value: false, writable: true, configurable: true }) }
-      deck.pause = () => { Object.defineProperty(deck, 'paused', { value: true, writable: true, configurable: true }) }
+      deck.play = async () => {
+        Object.defineProperty(deck, 'paused', { value: false, writable: true, configurable: true })
+      }
+      deck.pause = () => {
+        Object.defineProperty(deck, 'paused', { value: true, writable: true, configurable: true })
+      }
     }
     current.currentTime = 239.96
     return { current, next }
@@ -197,7 +229,10 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
     const { current, next } = prepareTransition()
     const started: string[] = []
     let ended = 0
-    engine.setCallbacks({ onNextDeckCrossfadeStart: url => started.push(url), onTrackEnded: () => ended++ })
+    engine.setCallbacks({
+      onNextDeckCrossfadeStart: (url) => started.push(url),
+      onTrackEnded: () => ended++,
+    })
     current.dispatchEvent(new Event('timeupdate'))
     await Promise.resolve()
     expect(started).toEqual(['/next'])
@@ -206,7 +241,7 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
     expect(current.src).toContain('/current')
     next.currentTime = 0.02
     next.dispatchEvent(new Event('timeupdate'))
-    await new Promise(resolve => setTimeout(resolve, 70))
+    await new Promise((resolve) => setTimeout(resolve, 70))
     expect(current.paused).toBe(true)
     expect(current.src).toContain('/third')
     expect(ended).toBe(0)
@@ -217,7 +252,9 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
 
   it('keeps the current track and queue unchanged if incoming playback is rejected', async () => {
     const { current, next } = prepareTransition()
-    next.play = async () => { throw new Error('decoder failure') }
+    next.play = async () => {
+      throw new Error('decoder failure')
+    }
     let started = 0
     engine.setCallbacks({ onNextDeckCrossfadeStart: () => started++ })
     current.dispatchEvent(new Event('timeupdate'))
@@ -235,7 +272,7 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
     current.dispatchEvent(new Event('timeupdate'))
     await Promise.resolve()
     engine.pause()
-    await new Promise(resolve => setTimeout(resolve, 70))
+    await new Promise((resolve) => setTimeout(resolve, 70))
     expect(current.paused).toBe(true)
     expect(next.paused).toBe(true)
     expect(engine.getStatus()).toBe('paused')
@@ -245,7 +282,10 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
   it('cancels a pending handoff when the queue is cleared or a new track is loaded', async () => {
     const { current, next } = prepareTransition()
     let resolvePlay: (() => void) | undefined
-    next.play = () => new Promise<void>(resolve => { resolvePlay = resolve })
+    next.play = () =>
+      new Promise<void>((resolve) => {
+        resolvePlay = resolve
+      })
     let started = 0
     engine.setCallbacks({ onNextDeckCrossfadeStart: () => started++ })
     current.dispatchEvent(new Event('timeupdate'))
@@ -268,7 +308,7 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
     expect(next.currentTime).toBe(10)
     expect(current.src).toContain('/third')
     engine.load('/manual')
-    await new Promise(resolve => setTimeout(resolve, 70))
+    await new Promise((resolve) => setTimeout(resolve, 70))
     expect(engine.getActiveDeckElement().src).toContain('/manual')
     expect(engine.getInactiveDeckElement().paused).toBe(true)
   })
@@ -285,5 +325,61 @@ describe('AudioEngine Metadata, Deck Isolation and State Transitions', () => {
     current.dispatchEvent(new Event('timeupdate'))
     await Promise.resolve()
     expect(started).toBe(0)
+  })
+})
+
+// The normalization nodes are separate from deck envelopes, so fades stay linear.
+describe('Per-track loudness normalization', () => {
+  it('adjusts both decks independently and returns to unity when disabled', () => {
+    const original = window.AudioContext
+    const node = () => {
+      const n = createMockNode()
+      n.gain.setValueAtTime = function (value?: number) {
+        if (value !== undefined) this.value = value
+      }
+      return n
+    }
+    window.AudioContext = class {
+      currentTime = 0
+      state = 'running'
+      destination = node()
+      createMediaElementSource = node
+      createGain = node
+      createChannelSplitter = node
+      createChannelMerger = node
+      createBiquadFilter = node
+      createStereoPanner = node
+      createDynamicsCompressor = node
+      createAnalyser = node
+      resume = async () => {}
+    } as unknown as typeof AudioContext
+    ;(AudioEngine as unknown as { instance: AudioEngine | null }).instance = null
+    const engine = AudioEngine.getInstance()
+    try {
+      engine.load('/first')
+      engine.preloadNext('/second')
+      engine.setLoudnessGain('/first', -6)
+      engine.setLoudnessGain('/second', 3)
+      engine.setNormalization(true)
+      const nodes = engine as unknown as {
+        normalizationA: GainNode
+        normalizationB: GainNode
+        gainA: GainNode
+        gainB: GainNode
+      }
+      expect(nodes.normalizationA.gain.value).toBeCloseTo(0.501187, 4)
+      expect(nodes.normalizationB.gain.value).toBeCloseTo(1.41254, 4)
+      expect(nodes.gainA.gain.value).toBe(1)
+      expect(nodes.gainB.gain.value).toBe(0)
+      engine.load('/unmeasured')
+      expect(nodes.normalizationA.gain.value).toBe(1)
+      engine.setNormalization(false)
+      expect(nodes.normalizationA.gain.value).toBe(1)
+      expect(nodes.normalizationB.gain.value).toBe(1)
+    } finally {
+      engine.cancelCrossfade()
+      window.AudioContext = original
+      ;(AudioEngine as unknown as { instance: AudioEngine | null }).instance = null
+    }
   })
 })

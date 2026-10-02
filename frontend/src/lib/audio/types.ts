@@ -8,12 +8,7 @@ export type EQMode = 'graphic' | 'parametric' | 'off'
 
 export type VisualizerMode = 'spectrum' | 'waveform' | 'off'
 
-export type ParametricFilterType =
-  | 'peaking'
-  | 'lowshelf'
-  | 'highshelf'
-  | 'lowpass'
-  | 'highpass'
+export type ParametricFilterType = 'peaking' | 'lowshelf' | 'highshelf' | 'lowpass' | 'highpass'
 
 export interface ParametricFilter {
   id: string
@@ -31,14 +26,7 @@ export interface EQPreset {
   isCustom?: boolean
 }
 
-export type SleepTimerOption =
-  | 'off'
-  | '15'
-  | '30'
-  | '45'
-  | '60'
-  | 'end_of_track'
-  | 'end_of_album'
+export type SleepTimerOption = 'off' | '15' | '30' | '45' | '60' | 'end_of_track' | 'end_of_album'
 
 export type StopAfterOption = 'none' | 'track' | 'album'
 
@@ -65,7 +53,7 @@ export interface PlayerState {
   sleepTimer: SleepTimerOption
   sleepTimerEndsAt: number | null // timestamp ms
   stopAfter: StopAfterOption
-  
+
   // DSP & EQ
   eqEnabled: boolean
   eqMode: EQMode
@@ -75,11 +63,13 @@ export interface PlayerState {
   customPresets: EQPreset[]
   preamp: number // -12 to +6 dB
   autoHeadroom: boolean
+  normalizationEnabled: boolean
+  normalizationMessage: string
   limiterEnabled: boolean
   balance: number // -1 (L) to +1 (R)
   mono: boolean
   bassBoost: number // 0 to 100%
-  
+
   // Visualizer & UI
   visualizerMode: VisualizerMode
   peakWarning: boolean

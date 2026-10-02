@@ -20,6 +20,7 @@ import { LibrarySearchField } from '@/components/library/LibrarySearchField'
 import { ArtistCard } from '@/components/music/ArtistCard'
 import { ReleaseCard } from '@/components/music/ReleaseCard'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
+import { LibraryToolsPanel } from '@/components/library/LibraryToolsPanel'
 import { TracksTable } from '@/components/music/TracksTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -64,7 +65,7 @@ import type {
   LibraryTrack,
 } from '@/types/api'
 
-type LibraryTab = 'releases' | 'tracks' | 'artists' | 'maintenance'
+type LibraryTab = 'releases' | 'tracks' | 'artists' | 'maintenance' | 'tools'
 
 export function Library() {
   const auth = useOptionalAuth()
@@ -97,6 +98,7 @@ export function Library() {
   const currentTrackId = params.get('track') || null
 
   // Active view state (synced with URL)
+  const [refreshIndex, setRefreshIndex] = useState(0)
   const [view, setView] = useState<LibraryTab>(currentView)
 
   // Overall Stats
@@ -305,6 +307,7 @@ export function Library() {
     }
   }, [
     view,
+    refreshIndex,
     currentQ,
     currentGenre,
     currentGenreMissing,
@@ -540,6 +543,7 @@ export function Library() {
             Künstler {stats?.total_artists !== undefined ? `(${stats.total_artists})` : ''}
           </Button>
 
+          <Button variant={view==='tools'?'default':'ghost'} size="sm" onClick={()=>handleTabChange('tools')}>Werkzeuge</Button>
           <Button
             variant={view === 'maintenance' ? 'default' : 'ghost'}
             size="sm"
@@ -553,7 +557,7 @@ export function Library() {
       </div>
 
       {/* Tab 1: Releases Grid */}
-      {view !== 'maintenance' && (
+      {view !== 'maintenance' && view !== 'tools' && (
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             Genre
@@ -1053,6 +1057,7 @@ export function Library() {
             <>
               <TracksTable
                 tracks={tracks}
+ onMetadataUpdated={() => setRefreshIndex((value) => value + 1)}
                 sort={currentSort || (currentQ ? 'relevance' : 'recent')}
                 order={
                   currentOrder ||
@@ -1183,9 +1188,8 @@ export function Library() {
       )}
 
       {/* Tab 4: Maintenance & Scan */}
-      {view === 'maintenance' && (
-        <IntegrityPanel isAdmin={isAdmin} />
-      )}
+      {view === 'tools' && <LibraryToolsPanel isAdmin={isAdmin} />}
+      {view === 'maintenance' && <IntegrityPanel isAdmin={isAdmin} />}
 
       {/* Track Detail Dialog (with deep-link support) */}
       <TrackDetailDialog

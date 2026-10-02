@@ -19,6 +19,9 @@ import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
 import type { LibraryTrack } from '@/types/api'
 import { AddToPlaylistDialog } from './AddToPlaylistDialog'
+import { useOptionalAuth } from '@/hooks/useAuth'
+import type { MetadataPatch } from '@/lib/api/libraryTools'
+import { BulkMetadataDialog } from './BulkMetadataDialog'
 import { LyricsBadge } from './LyricsBadge'
 
 interface TracksTableProps {
@@ -32,11 +35,12 @@ interface TracksTableProps {
   showAlbum?: boolean
   showArtist?: boolean
   showDiscNumber?: boolean
+  onMetadataUpdated?: () => void
   className?: string
 }
 
 export function TracksTable({
-  tracks,
+  tracks: sourceTracks,
   sort,
   order,
   onSortChange,
@@ -47,9 +51,24 @@ export function TracksTable({
   showArtist = true,
   showDiscNumber = false,
   className = '',
+  onMetadataUpdated,
 }: TracksTableProps) {
   const { currentTrack, status } = usePlayerState()
   const { playTrack, togglePlayPause, playNext, addToQueue } = usePlayerActions()
+  const auth = useOptionalAuth()
+  const [metadata, setMetadata] = useState<Record<string, MetadataPatch>>({})
+  const tracks = sourceTracks.map((track) => ({ ...track, ...metadata[track.id] }))
+  const [selection, setSelection] = useState<Set<string>>(new Set())
+  const [bulkPlaylist, setBulkPlaylist] = useState(false),
+    [bulkMetadata, setBulkMetadata] = useState(false)
+  const selected = tracks.filter((t) => selection.has(t.id))
+  const toggle = (id: string) =>
+    setSelection((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   const favorites = useOptionalFavorites()
   const [playlistTrack, setPlaylistTrack] = useState<LibraryTrack | null>(null)
   const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false)
@@ -77,10 +96,42 @@ export function TracksTable({
   }
 
   return (
-    <div className={`w-full overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-950/40 ${className}`}>
+    <div className="space-y-3">
+      {selected.length > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background p-3 text-sm"
+          role="region"
+          aria-label="Ausgewählte Titel"
+        >
+          <span>{selected.length} ausgewählt</span>
+          {selected.length > 100 && <span className="text-xs text-muted-foreground">Für Playlist und Metadaten maximal 100 Titel auswählen.</span>}
+          <Button size="sm" onClick={() => addToQueue(selected)}>
+            Zur Queue
+          </Button>
+          <Button size="sm" variant="outline" disabled={selected.length > 100} onClick={() => setBulkPlaylist(true)}>
+            Zur Playlist
+          </Button>
+          {auth?.isAdmin && (
+            <Button size="sm" variant="outline" disabled={selected.length > 100} onClick={() => setBulkMetadata(true)}>
+              Metadaten bearbeiten
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={() => setSelection(new Set())}>
+            Auswahl aufheben
+          </Button>
+        </div>
+      )}
+      <div
+        className={`w-full overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-950/40 ${className}`}
+      >
       <table className="w-full text-left text-sm border-collapse min-w-[650px]">
         <thead>
           <tr className="border-b border-neutral-800/80 bg-neutral-900/40 text-neutral-400">
+            <th className="p-3 w-10">
+              <input type="checkbox" aria-label="Alle angezeigten Titel auswählen"
+                checked={tracks.length > 0 && selected.length === tracks.length}
+                onChange={(e) => setSelection(e.target.checked ? new Set(tracks.map((t) => t.id)) : new Set())} />
+            </th>
             <th className="py-3 px-3 w-12 text-center">
               {renderSortHeader('#', 'track_number')}
             </th>
@@ -130,12 +181,17 @@ export function TracksTable({
             return (
               <tr
                 key={track.id}
+                aria-selected={selection.has(track.id)}
                 onClick={() => onTrackSelect(track)}
                 className={`transition-colors cursor-pointer group ${
                   isCurrent ? 'bg-white/[0.04]' : 'hover:bg-white/[0.02]'
                 }`}
               >
                 {/* Track Number / Play Button */}
+                <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" aria-label={`${track.title} auswählen`}
+                    checked={selection.has(track.id)} onChange={() => toggle(track.id)} />
+                </td>
                 <td className="py-2.5 px-3 text-center font-mono text-xs relative">
                   <span className={`group-hover:hidden ${isCurrent ? 'hidden' : 'text-neutral-500'}`}>
                     {track.track_number || '–'}
@@ -308,6 +364,12 @@ export function TracksTable({
         open={playlistDialogOpen}
         onOpenChange={setPlaylistDialogOpen}
       />
+      <AddToPlaylistDialog track={null} tracks={selected} open={bulkPlaylist} onOpenChange={setBulkPlaylist} />
+      <BulkMetadataDialog ids={selected.map(t=>t.id)} open={bulkMetadata} onOpenChange={setBulkMetadata} onSaved={(patch) => {
+        setMetadata((previous) => { const next = { ...previous }; for (const track of selected) next[track.id] = { ...next[track.id], ...patch }; return next })
+        onMetadataUpdated?.()
+      }} />
+    </div>
     </div>
   )
 }

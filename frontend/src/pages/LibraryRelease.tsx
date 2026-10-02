@@ -10,6 +10,7 @@ import {
   Trash2Icon,
 } from 'lucide-react'
 
+import { ArtworkEditor } from '@/components/music/ArtworkEditor'
 import { Cover } from '@/components/music/Cover'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
 import { TracksTable } from '@/components/music/TracksTable'
@@ -32,6 +33,7 @@ interface LibraryReleaseProps {
 
 export function LibraryRelease({ id }: LibraryReleaseProps) {
   const auth = useOptionalAuth()
+  const [artworkVersion, setArtworkVersion] = useState(0)
   const isAdmin = auth ? auth.isAdmin : true
   const { playAlbum, addToQueue } = usePlayerActions()
   const [detail, setDetail] = useState<LibraryReleaseDetail | null>(null)
@@ -175,7 +177,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
         {/* Release Header Banner */}
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-6">
           <Cover
-            src={libraryArtwork('releases', release.id)}
+            src={libraryArtwork('releases', release.id)+`?v=${artworkVersion}`}
             fallbackSrc={release.cover_url}
             alt={release.title}
             className="size-36 sm:size-44 rounded-xl shadow-2xl shrink-0"
@@ -196,6 +198,8 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
             <h1 className="text-2xl sm:text-3xl font-bold font-heading text-neutral-100 truncate">
               {release.title}
             </h1>
+ {isAdmin && <ArtworkEditor kind="releases" id={release.id}
+                onSaved={() => setArtworkVersion((value) => value + 1)} />}
 
             {artist ? (
               <p className="text-base text-neutral-300 font-medium">

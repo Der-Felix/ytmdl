@@ -39,6 +39,9 @@ import {
 } from '@/lib/api/playlists'
 import { Link, useNavigate, paths } from '@/lib/router'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
+import { SmartRuleEditor } from '@/components/music/SmartRuleEditor'
+import { setPlaylistRules } from '@/lib/api/libraryTools'
+import type { SmartRules } from '@/types/playlist'
 import type { PlaylistTrack } from '@/types/playlist'
 
 interface PlaylistDetailProps {
@@ -51,15 +54,13 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
   const { playTrack, playAlbum, togglePlayPause, playNext, addToQueue } = usePlayerActions()
   const favorites = useOptionalFavorites()
 
-  const { state, reload, setData } = useAsync(
-    (signal) => getPlaylist(id, signal),
-    [id],
-  )
+  const { state, reload, setData } = useAsync((signal) => getPlaylist(id, signal), [id])
 
   // Edit modal
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [editRules, setEditRules] = useState<SmartRules | null>(null)
   const [updating, setUpdating] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
 
@@ -111,6 +112,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
     if (!playlist) return
     setEditName(playlist.name)
     setEditDescription(playlist.description || '')
+    setEditRules(playlist.smart_rules || null)
     setUpdateError(null)
     setEditDialogOpen(true)
   }
@@ -133,11 +135,11 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
         description: updated.description,
         updated_at: updated.updated_at,
       }))
+      await setPlaylistRules(id, editRules)
+      void reload()
       setEditDialogOpen(false)
     } catch (err: unknown) {
-      setUpdateError(
-        err instanceof Error ? err.message : 'Fehler beim Aktualisieren der Playlist',
-      )
+      setUpdateError(err instanceof Error ? err.message : 'Fehler beim Aktualisieren der Playlist')
     } finally {
       setUpdating(false)
     }
@@ -152,9 +154,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       setDeleteDialogOpen(false)
       navigate(paths.playlists())
     } catch (err: unknown) {
-      setDeleteError(
-        err instanceof Error ? err.message : 'Fehler beim Löschen der Playlist',
-      )
+      setDeleteError(err instanceof Error ? err.message : 'Fehler beim Löschen der Playlist')
     } finally {
       setDeleting(false)
     }
@@ -278,8 +278,11 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
         </div>
 
         <div className="flex-1 min-w-0 space-y-2">
-          <Badge variant="outline" className="text-[11px] uppercase tracking-wider text-primary border-primary/30">
-            Playlist
+          <Badge
+            variant="outline"
+            className="text-[11px] uppercase tracking-wider text-primary border-primary/30"
+          >
+            {playlist.smart_rules ? 'Intelligente Playlist' : 'Playlist'}
           </Badge>
           <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white break-words">
             {playlist.name}
@@ -375,9 +378,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                 const isCurrent = currentTrack?.id === pt.id
                 const isPlaying = isCurrent && status === 'playing'
                 const artistName =
-                  pt.artists?.length > 0
-                    ? joinArtists(pt.artists)
-                    : pt.album_artist || ''
+                  pt.artists?.length > 0 ? joinArtists(pt.artists) : pt.album_artist || ''
                 const isFav = favorites?.isFavorite(pt.id)
 
                 return (
@@ -469,7 +470,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={index === 0 || reordering}
+                          disabled={!!playlist.smart_rules || index === 0 || reordering}
                           className="h-7 w-7 p-0 text-neutral-400 hover:text-white disabled:opacity-20"
                           onClick={(e) => {
                             e.stopPropagation()
@@ -484,7 +485,9 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={index === tracks.length - 1 || reordering}
+                          disabled={
+                            !!playlist.smart_rules || index === tracks.length - 1 || reordering
+                          }
                           className="h-7 w-7 p-0 text-neutral-400 hover:text-white disabled:opacity-20"
                           onClick={(e) => {
                             e.stopPropagation()
@@ -549,7 +552,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={actionTrackId === pt.id}
+                          disabled={!!playlist.smart_rules || actionTrackId === pt.id}
                           className="h-7 w-7 p-0 text-neutral-400 hover:text-destructive hover:bg-destructive/10"
                           onClick={(e) => {
                             e.stopPropagation()
@@ -593,7 +596,8 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
               </div>
             )}
 
-            <div className="space-y-4 py-4">
+            <div className="space-y-4 py-4 max-h-[65dvh] overflow-y-auto">
+              <SmartRuleEditor value={editRules} onChange={setEditRules} />
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-neutral-300">
                   Name <span className="text-destructive">*</span>
@@ -608,9 +612,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-neutral-300">
-                  Beschreibung
-                </label>
+                <label className="text-xs font-semibold text-neutral-300">Beschreibung</label>
                 <Input
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
@@ -646,8 +648,8 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
               Playlist wirklich löschen?
             </DialogTitle>
             <DialogDescription>
-              Möchtest du die Playlist &quot;{playlist.name}&quot; wirklich löschen?
-              Die Titel in deiner Bibliothek bleiben davon unberührt.
+              Möchtest du die Playlist &quot;{playlist.name}&quot; wirklich löschen? Die Titel in
+              deiner Bibliothek bleiben davon unberührt.
             </DialogDescription>
           </DialogHeader>
 

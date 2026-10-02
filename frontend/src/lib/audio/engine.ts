@@ -1,12 +1,5 @@
-import {
-  calculateAutoHeadroom,
-  EQ_FREQUENCIES,
-} from './eqPresets'
-import type {
-  EQMode,
-  ParametricFilter,
-  PlaybackStatus,
-} from './types'
+import { calculateAutoHeadroom, EQ_FREQUENCIES } from './eqPresets'
+import type { EQMode, ParametricFilter, PlaybackStatus } from './types'
 
 function dbToLinear(db: number): number {
   return Math.pow(10, db / 20)
@@ -29,6 +22,10 @@ export class AudioEngine {
   private activeDeck: 'A' | 'B' = 'A'
 
   // Web Audio Nodes
+  private normalizationA: GainNode | null = null
+  private normalizationB: GainNode | null = null
+  private normalizationEnabled = false
+  private loudnessGains = new Map<string, number>()
   private sourceA: MediaElementAudioSourceNode | null = null
   private sourceB: MediaElementAudioSourceNode | null = null
   private gainA: GainNode | null = null
@@ -96,8 +93,12 @@ export class AudioEngine {
     this.configureDeck(this.deckA, 'A')
     this.configureDeck(this.deckB, 'B')
     if (import.meta.env.DEV && typeof window !== 'undefined') {
-      ;(window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }).__audioEngine = this
-      ;(window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }).__audioDecks = [this.deckA, this.deckB]
+      ;(
+        window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }
+      ).__audioEngine = this
+      ;(
+        window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }
+      ).__audioDecks = [this.deckA, this.deckB]
     }
   }
 
@@ -106,6 +107,34 @@ export class AudioEngine {
       AudioEngine.instance = new AudioEngine()
     }
     return AudioEngine.instance
+  }
+
+  public setNormalization(enabled: boolean): void {
+    this.normalizationEnabled = enabled
+    this.applyNormalization()
+  }
+  public setLoudnessGain(url: string, db: number): void {
+    if (!Number.isFinite(db)) return
+    this.loudnessGains.set(new URL(url, window.location.href).href, Math.max(-24, Math.min(6, db)))
+    // Keep only recently used measurements in the browser; authoritative cache is on the server.
+    if (this.loudnessGains.size > 200) {
+      const first = this.loudnessGains.keys().next().value
+      if (first) this.loudnessGains.delete(first)
+    }
+    this.applyNormalization()
+  }
+  private applyNormalization(): void {
+    if (!this.ctx) return
+    for (const [node, deck] of [
+      [this.normalizationA, this.deckA],
+      [this.normalizationB, this.deckB],
+    ] as const) {
+      if (!node) continue
+      const gain = this.normalizationEnabled ? dbToLinear(this.loudnessGains.get(deck.src) ?? 0) : 1
+      if (typeof node.gain.setTargetAtTime === 'function')
+        node.gain.setTargetAtTime(gain, this.ctx.currentTime, 0.08)
+      else node.gain.setValueAtTime(gain, this.ctx.currentTime)
+    }
   }
 
   public setCallbacks(callbacks: AudioEngineCallbacks): void {
@@ -196,14 +225,18 @@ export class AudioEngine {
     deck.addEventListener('error', () => {
       if (this.activeDeck === deckId) {
         this.setStatus('error')
-        this.callbacks.onError?.('Audiodatei konnte nicht geladen werden (404 oder inkompatibles Format).')
+        this.callbacks.onError?.(
+          'Audiodatei konnte nicht geladen werden (404 oder inkompatibles Format).',
+        )
       }
     })
   }
 
   public ensureAudioContext(): AudioContext {
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       this.ctx = new AudioCtx()
       this.buildAudioGraph()
     }
@@ -224,8 +257,13 @@ export class AudioEngine {
     this.gainA.gain.setValueAtTime(1.0, this.ctx.currentTime)
     this.gainB.gain.setValueAtTime(0.0, this.ctx.currentTime)
 
-    this.sourceA.connect(this.gainA)
-    this.sourceB.connect(this.gainB)
+    this.normalizationA = this.ctx.createGain()
+    this.normalizationB = this.ctx.createGain()
+    this.sourceA.connect(this.normalizationA)
+    this.normalizationA.connect(this.gainA)
+    this.sourceB.connect(this.normalizationB)
+    this.normalizationB.connect(this.gainB)
+    this.applyNormalization()
 
     // 2. Mix bus
     this.mixBus = this.ctx.createGain()
@@ -384,6 +422,7 @@ export class AudioEngine {
     if (active.src !== streamUrl) {
       active.src = streamUrl
     }
+    this.applyNormalization()
     active.playbackRate = this.playbackRate
     if (initialPosition > 0) {
       try {
@@ -415,6 +454,7 @@ export class AudioEngine {
     this.pendingInitialPosition[this.activeDeck] = initialPosition > 0 ? initialPosition : 0
 
     active.src = streamUrl
+    this.applyNormalization()
     active.playbackRate = this.playbackRate
     if (initialPosition > 0) {
       try {
@@ -458,6 +498,7 @@ export class AudioEngine {
       return
     }
     inactive.src = streamUrl
+    this.applyNormalization()
     inactive.preload = 'auto'
     inactive.playbackRate = this.playbackRate
   }
@@ -507,7 +548,10 @@ export class AudioEngine {
     }
     if (generation !== this.transitionGeneration) return
     const now = this.ctx.currentTime
-    const duration = Math.min(this.crossfadeSeconds, (currentDeck.duration - currentDeck.currentTime) / this.playbackRate)
+    const duration = Math.min(
+      this.crossfadeSeconds,
+      (currentDeck.duration - currentDeck.currentTime) / this.playbackRate,
+    )
     if (!Number.isFinite(duration) || duration <= 0) {
       this.cancelCrossfade()
       return
@@ -587,12 +631,16 @@ export class AudioEngine {
     const active = this.getActiveDeckElement()
     if (active.src) {
       this.setStatus('buffering')
-      active.play()
+      active
+        .play()
         .then(() => {
           this.setStatus('playing')
         })
         .catch((err) => {
-          if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
+          if (
+            err instanceof Error &&
+            (err.name === 'AbortError' || err.name === 'NotAllowedError')
+          ) {
             this.setStatus('paused')
             return
           }
