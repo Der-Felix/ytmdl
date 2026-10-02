@@ -1,5 +1,69 @@
 # Changelog
 
+## 1.1.0 — 2026-10-02
+
+### Highlights
+
+- **Swipe your favorite version:** A cover-card deck, clear keep/pass choices, shared-position listening samples, keyboard controls and an undo step make duplicate review easier on desktop and mobile. Motion respects reduced-motion preferences.
+- **Optional direct deletion:** Administrators can disable repeated confirmation explicitly per account and browser. Confirmation remains on by default. In direct mode, completing the final comparison immediately removes the other versions, including their files and all users' favorite/playlist memberships. Keeping all versions or skipping never deletes anything.
+- **A calmer library and player:** Consistent button feedback, stable play controls, responsive player sizing, Escape to leave the expanded player, configurable crossfade and more useful download/provider errors.
+- **More useful library tools:** Artist genres and filtering, local artwork in library/search, favorite-cover mosaics, custom portraits/covers, intelligent playlists, bulk queue/playlist actions, metadata overrides, listening history and optional loudness adjustment.
+
+### Changes
+
+- Store duplicate review decisions per user; changed group membership, metadata or file records reopen stale decisions. Protect the selected winner, shared files, active jobs and storage boundaries during removal; accurately report partial failures.
+- Preserve the main playback queue during comparison samples and remove only successfully deleted tracks from the current queue.
+- Align CLI, application/package metadata, documentation and installation defaults with this release. Publish qualified Linux amd64/arm64 container images, four host CLI binaries, checksums, installation archive and a release manifest.
+- Check upgrade schema against the target manifest instead of a hardcoded schema 12; qualify real managed upgrades from v0.28.1 and v1.0.0 with Docker and rootless Podman.
+- **Database Schema:** Migration from schema 12–14 to 15 is additive. Take a verified database backup and protect configuration, cookies and media separately; full schema rollback requires restoring that backup.
+
+### Upgrade from v1.0.0
+
+Use the checksum-verified CLI and Compose files from this release. Preserve
+private configuration, mounts, database volume, cookies and proxy settings. Run
+`ytmdlctl update --channel stable --target 1.1.0 --dry-run` before the
+real update. The fresh installer is only for new installations. Locally pinned
+hotfix images must be replaced by the exact release target before preflight.
+Upgrading never automatically removes duplicate candidates or changes audio.
+
+### Known Limits
+
+- Duplicate matching uses normalized title and artist credit, not audio fingerprints. Live, remix and album versions can be intentional. Groups with more than 100 versions are not eligible for bulk removal.
+- Deletion is permanent and affects every user's references. Undo applies only to unfinished comparisons; restoring deleted audio requires a separate media backup. Filesystem/database changes cannot be atomic together, so a failed deletion can leave a partially removed item.
+- Loudness analysis is opt-in and bounded; it does not scan the whole library automatically. Combined-stream fallback remains disabled by default. Provider/network dependencies and the v1 platform support boundary still apply.
+
+## 1.1.0-rc.1 — 2026-10-02
+
+### Highlights
+
+- **Swipe your favorite version:** A cover-card deck, clear keep/pass choices, shared-position listening samples, keyboard controls and an undo step make duplicate review easier on desktop and mobile. Motion respects reduced-motion preferences.
+- **Optional direct deletion:** Administrators can disable repeated confirmation explicitly per account and browser. Confirmation remains on by default. In direct mode, completing the final comparison immediately removes the other versions, including their files and all users' favorite/playlist memberships. Keeping all versions or skipping never deletes anything.
+- **A calmer library and player:** Consistent button feedback, stable play controls, responsive player sizing, Escape to leave the expanded player, configurable crossfade and more useful download/provider errors.
+- **More useful library tools:** Artist genres and filtering, local artwork in library/search, favorite-cover mosaics, custom portraits/covers, intelligent playlists, bulk queue/playlist actions, metadata overrides, listening history and optional loudness adjustment.
+
+### Changes
+
+- Store duplicate review decisions per user; changed group membership, metadata or file records reopen stale decisions. Protect the selected winner, shared files, active jobs and storage boundaries during removal; accurately report partial failures.
+- Preserve the main playback queue during comparison samples and remove only successfully deleted tracks from the current queue.
+- Align CLI, application/package metadata, documentation and installation defaults with this release. Publish qualified Linux amd64/arm64 container images, four host CLI binaries, checksums, installation archive and a release manifest.
+- Check upgrade schema against the target manifest instead of a hardcoded schema 12; qualify real managed upgrades from v0.28.1 and v1.0.0 with Docker and rootless Podman.
+- **Database Schema:** Migration from schema 12–14 to 15 is additive. Take a verified database backup and protect configuration, cookies and media separately; full schema rollback requires restoring that backup.
+
+### Upgrade from v1.0.0
+
+Use the checksum-verified CLI and Compose files from this release. Preserve
+private configuration, mounts, database volume, cookies and proxy settings. Run
+`ytmdlctl update --channel development --target 1.1.0-rc.1 --dry-run` before the
+real update. The fresh installer is only for new installations. Locally pinned
+hotfix images must be replaced by the exact release target before preflight.
+Upgrading never automatically removes duplicate candidates or changes audio.
+
+### Known Limits
+
+- Duplicate matching uses normalized title and artist credit, not audio fingerprints. Live, remix and album versions can be intentional. Groups with more than 100 versions are not eligible for bulk removal.
+- Deletion is permanent and affects every user's references. Undo applies only to unfinished comparisons; restoring deleted audio requires a separate media backup. Filesystem/database changes cannot be atomic together, so a failed deletion can leave a partially removed item.
+- Loudness analysis is opt-in and bounded; it does not scan the whole library automatically. Combined-stream fallback remains disabled by default. Provider/network dependencies and the v1 platform support boundary still apply.
+
 ## 1.0.0 — 2026-10-01
 
 ### Highlights

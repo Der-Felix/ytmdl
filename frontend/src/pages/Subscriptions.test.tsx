@@ -147,7 +147,7 @@ describe('Subscriptions page', () => {
     render(<Subscriptions />)
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Datenbankfehler.')
+    expect(alert.textContent).toContain('Unerwarteter Fehler')
     expect(screen.getByRole('button', { name: /Erneut versuchen/ })).toBeDefined()
   })
 

@@ -1,12 +1,5 @@
-import {
-  calculateAutoHeadroom,
-  EQ_FREQUENCIES,
-} from './eqPresets'
-import type {
-  EQMode,
-  ParametricFilter,
-  PlaybackStatus,
-} from './types'
+import { calculateAutoHeadroom, EQ_FREQUENCIES } from './eqPresets'
+import type { EQMode, ParametricFilter, PlaybackStatus } from './types'
 
 function dbToLinear(db: number): number {
   return Math.pow(10, db / 20)
@@ -17,7 +10,7 @@ export interface AudioEngineCallbacks {
   onStatusChange?: (status: PlaybackStatus) => void
   onError?: (error: string) => void
   onTrackEnded?: () => void
-  onNextDeckCrossfadeStart?: () => void
+  onNextDeckCrossfadeStart?: (streamUrl: string) => void
 }
 
 export class AudioEngine {
@@ -29,6 +22,10 @@ export class AudioEngine {
   private activeDeck: 'A' | 'B' = 'A'
 
   // Web Audio Nodes
+  private normalizationA: GainNode | null = null
+  private normalizationB: GainNode | null = null
+  private normalizationEnabled = false
+  private loudnessGains = new Map<string, number>()
   private sourceA: MediaElementAudioSourceNode | null = null
   private sourceB: MediaElementAudioSourceNode | null = null
   private gainA: GainNode | null = null
@@ -77,6 +74,8 @@ export class AudioEngine {
   private smartAlbumTransition = true
   private isCrossfading = false
   private crossfadeTimer: number | null = null
+  private transitionGeneration = 0
+  private deferredPreload: string | null = null
 
   private callbacks: AudioEngineCallbacks = {}
   private status: PlaybackStatus = 'idle'
@@ -94,8 +93,12 @@ export class AudioEngine {
     this.configureDeck(this.deckA, 'A')
     this.configureDeck(this.deckB, 'B')
     if (import.meta.env.DEV && typeof window !== 'undefined') {
-      ;(window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }).__audioEngine = this
-      ;(window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }).__audioDecks = [this.deckA, this.deckB]
+      ;(
+        window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }
+      ).__audioEngine = this
+      ;(
+        window as unknown as { __audioEngine?: AudioEngine; __audioDecks?: HTMLAudioElement[] }
+      ).__audioDecks = [this.deckA, this.deckB]
     }
   }
 
@@ -104,6 +107,34 @@ export class AudioEngine {
       AudioEngine.instance = new AudioEngine()
     }
     return AudioEngine.instance
+  }
+
+  public setNormalization(enabled: boolean): void {
+    this.normalizationEnabled = enabled
+    this.applyNormalization()
+  }
+  public setLoudnessGain(url: string, db: number): void {
+    if (!Number.isFinite(db)) return
+    this.loudnessGains.set(new URL(url, window.location.href).href, Math.max(-24, Math.min(6, db)))
+    // Keep only recently used measurements in the browser; authoritative cache is on the server.
+    if (this.loudnessGains.size > 200) {
+      const first = this.loudnessGains.keys().next().value
+      if (first) this.loudnessGains.delete(first)
+    }
+    this.applyNormalization()
+  }
+  private applyNormalization(): void {
+    if (!this.ctx) return
+    for (const [node, deck] of [
+      [this.normalizationA, this.deckA],
+      [this.normalizationB, this.deckB],
+    ] as const) {
+      if (!node) continue
+      const gain = this.normalizationEnabled ? dbToLinear(this.loudnessGains.get(deck.src) ?? 0) : 1
+      if (typeof node.gain.setTargetAtTime === 'function')
+        node.gain.setTargetAtTime(gain, this.ctx.currentTime, 0.08)
+      else node.gain.setValueAtTime(gain, this.ctx.currentTime)
+    }
   }
 
   public setCallbacks(callbacks: AudioEngineCallbacks): void {
@@ -121,7 +152,7 @@ export class AudioEngine {
     deck.webkitPreservesPitch = true
 
     const handleMetadata = () => {
-      if (this.activeDeck !== deckId || this.isCrossfading) return
+      if (this.activeDeck !== deckId) return
 
       // Guard: Ignore events if the deck URL doesn't match the current expected track URL
       const expectedUrl = this.currentTrackUrl[deckId]
@@ -152,7 +183,7 @@ export class AudioEngine {
     deck.addEventListener('durationchange', handleMetadata)
 
     deck.addEventListener('timeupdate', () => {
-      if (this.activeDeck === deckId && !this.isCrossfading) {
+      if (this.activeDeck === deckId) {
         const d = deck.duration
         const validDuration = Number.isFinite(d) && d > 0 ? d : 0
         this.callbacks.onTimeUpdate?.(deck.currentTime || 0, validDuration)
@@ -185,7 +216,8 @@ export class AudioEngine {
     })
 
     deck.addEventListener('ended', () => {
-      if (this.activeDeck === deckId && !this.isCrossfading) {
+      if (this.activeDeck === deckId) {
+        this.cancelCrossfade()
         this.callbacks.onTrackEnded?.()
       }
     })
@@ -193,14 +225,18 @@ export class AudioEngine {
     deck.addEventListener('error', () => {
       if (this.activeDeck === deckId) {
         this.setStatus('error')
-        this.callbacks.onError?.('Audiodatei konnte nicht geladen werden (404 oder inkompatibles Format).')
+        this.callbacks.onError?.(
+          'Audiodatei konnte nicht geladen werden (404 oder inkompatibles Format).',
+        )
       }
     })
   }
 
   public ensureAudioContext(): AudioContext {
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       this.ctx = new AudioCtx()
       this.buildAudioGraph()
     }
@@ -221,8 +257,13 @@ export class AudioEngine {
     this.gainA.gain.setValueAtTime(1.0, this.ctx.currentTime)
     this.gainB.gain.setValueAtTime(0.0, this.ctx.currentTime)
 
-    this.sourceA.connect(this.gainA)
-    this.sourceB.connect(this.gainB)
+    this.normalizationA = this.ctx.createGain()
+    this.normalizationB = this.ctx.createGain()
+    this.sourceA.connect(this.normalizationA)
+    this.normalizationA.connect(this.gainA)
+    this.sourceB.connect(this.normalizationB)
+    this.normalizationB.connect(this.gainB)
+    this.applyNormalization()
 
     // 2. Mix bus
     this.mixBus = this.ctx.createGain()
@@ -367,8 +408,10 @@ export class AudioEngine {
     const active = this.getActiveDeckElement()
     const inactive = this.getInactiveDeckElement()
 
+    active.pause()
+
     inactive.pause()
-    inactive.src = ''
+    inactive.removeAttribute('src')
 
     this.setDeckGains(this.activeDeck === 'A' ? 1.0 : 0.0, this.activeDeck === 'B' ? 1.0 : 0.0)
 
@@ -379,6 +422,7 @@ export class AudioEngine {
     if (active.src !== streamUrl) {
       active.src = streamUrl
     }
+    this.applyNormalization()
     active.playbackRate = this.playbackRate
     if (initialPosition > 0) {
       try {
@@ -399,15 +443,18 @@ export class AudioEngine {
 
     // Stop inactive deck
     inactive.pause()
-    inactive.src = ''
+    inactive.removeAttribute('src')
 
     this.setDeckGains(this.activeDeck === 'A' ? 1.0 : 0.0, this.activeDeck === 'B' ? 1.0 : 0.0)
 
     this.currentTrackUrl[this.activeDeck] = streamUrl
     this.loadGeneration[this.activeDeck]++
+    const deckId = this.activeDeck
+    const generation = this.loadGeneration[deckId]
     this.pendingInitialPosition[this.activeDeck] = initialPosition > 0 ? initialPosition : 0
 
     active.src = streamUrl
+    this.applyNormalization()
     active.playbackRate = this.playbackRate
     if (initialPosition > 0) {
       try {
@@ -420,8 +467,10 @@ export class AudioEngine {
     try {
       this.setStatus('buffering')
       await active.play()
+      if (this.activeDeck !== deckId || this.loadGeneration[deckId] !== generation) return
       this.setStatus('playing')
     } catch (err) {
+      if (this.activeDeck !== deckId || this.loadGeneration[deckId] !== generation) return
       if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
         this.setStatus('paused')
         return
@@ -431,13 +480,25 @@ export class AudioEngine {
     }
   }
 
-  public preloadNext(streamUrl: string): void {
+  public preloadNext(streamUrl: string | null): void {
+    // The inactive deck still contains the outgoing audio until the fade ends.
+    if (this.isCrossfading && this.crossfadeTimer !== null) {
+      this.deferredPreload = streamUrl
+      return
+    }
     if (this.nextTrackUrl === streamUrl && this.isPreloadingNext) return
+    if (this.isCrossfading) this.cancelCrossfade()
     this.nextTrackUrl = streamUrl
-    this.isPreloadingNext = true
+    this.isPreloadingNext = streamUrl !== null
 
     const inactive = this.getInactiveDeckElement()
+    inactive.pause()
+    if (!streamUrl) {
+      inactive.removeAttribute('src')
+      return
+    }
     inactive.src = streamUrl
+    this.applyNormalization()
     inactive.preload = 'auto'
     inactive.playbackRate = this.playbackRate
   }
@@ -446,23 +507,24 @@ export class AudioEngine {
     if (
       this.crossfadeSeconds <= 0 ||
       this.isCrossfading ||
+      this.ctx?.state !== 'running' ||
+      deck.paused ||
       !this.nextTrackUrl ||
+      this.getInactiveDeckElement().readyState < 3 ||
       !deck.duration ||
       deck.duration <= this.crossfadeSeconds * 2
     ) {
       return
     }
 
-    const timeLeft = deck.duration - deck.currentTime
+    const timeLeft = (deck.duration - deck.currentTime) / this.playbackRate
     if (timeLeft <= this.crossfadeSeconds && timeLeft > 0) {
-      this.startCrossfade()
+      void this.startCrossfade()
     }
   }
 
-  private startCrossfade(): void {
+  private async startCrossfade(): Promise<void> {
     if (this.isCrossfading || !this.ctx) return
-    this.isCrossfading = true
-    this.callbacks.onNextDeckCrossfadeStart?.()
 
     const currentDeckId = this.activeDeck
     const nextDeckId = currentDeckId === 'A' ? 'B' : 'A'
@@ -472,50 +534,76 @@ export class AudioEngine {
     const nextGain = nextDeckId === 'A' ? this.gainA : this.gainB
 
     if (!currentGain || !nextGain) return
-
-    const now = this.ctx.currentTime
-    const duration = this.crossfadeSeconds
-
+    const streamUrl = this.nextTrackUrl
+    if (!streamUrl) return
+    const generation = ++this.transitionGeneration
+    this.isCrossfading = true
     nextDeck.currentTime = 0
-    nextDeck.play().catch((err) => {
-      if (err instanceof Error && err.name === 'AbortError') return
-      this.setStatus('error')
-      this.callbacks.onError?.('Nächster Titel konnte nicht gestartet werden.')
-    })
+    try {
+      await nextDeck.play()
+    } catch {
+      if (generation === this.transitionGeneration) this.cancelCrossfade()
+      // Keep the current track audible. Its normal ended event can retry loading.
+      return
+    }
+    if (generation !== this.transitionGeneration) return
+    const now = this.ctx.currentTime
+    const duration = Math.min(
+      this.crossfadeSeconds,
+      (currentDeck.duration - currentDeck.currentTime) / this.playbackRate,
+    )
+    if (!Number.isFinite(duration) || duration <= 0) {
+      this.cancelCrossfade()
+      return
+    }
 
     // Smooth linear crossfade ramp
+    currentGain.gain.cancelScheduledValues(now)
     currentGain.gain.setValueAtTime(1.0, now)
     currentGain.gain.linearRampToValueAtTime(0.0, now + duration)
 
+    nextGain.gain.cancelScheduledValues(now)
     nextGain.gain.setValueAtTime(0.0, now)
     nextGain.gain.linearRampToValueAtTime(1.0, now + duration)
 
+    // Adopt the new deck once playback is confirmed. React must not reload it.
+    this.activeDeck = nextDeckId
+    this.currentTrackUrl[nextDeckId] = streamUrl
+    this.loadGeneration[nextDeckId]++
+    this.pendingInitialPosition[nextDeckId] = 0
+    this.nextTrackUrl = null
+    this.isPreloadingNext = false
     this.crossfadeTimer = window.setTimeout(() => {
       currentDeck.pause()
-      currentDeck.src = ''
+      currentDeck.removeAttribute('src')
       this.currentTrackUrl[currentDeckId] = null
-      this.activeDeck = nextDeckId
-      this.currentTrackUrl[nextDeckId] = this.nextTrackUrl
-      this.loadGeneration[nextDeckId]++
-      this.pendingInitialPosition[nextDeckId] = 0
+      this.crossfadeTimer = null
       this.isCrossfading = false
-      this.isPreloadingNext = false
-      this.nextTrackUrl = null
-      this.callbacks.onTrackEnded?.()
+      this.setDeckGains(nextDeckId === 'A' ? 1 : 0, nextDeckId === 'B' ? 1 : 0)
+      const deferred = this.deferredPreload
+      this.deferredPreload = null
+      this.preloadNext(deferred)
     }, duration * 1000)
+    this.callbacks.onNextDeckCrossfadeStart?.(streamUrl)
+    this.setStatus('playing')
   }
 
   public cancelCrossfade(): void {
+    this.transitionGeneration++
     if (this.crossfadeTimer !== null) {
       clearTimeout(this.crossfadeTimer)
       this.crossfadeTimer = null
     }
+    if (this.isCrossfading) this.getInactiveDeckElement().pause()
     this.isCrossfading = false
+    this.deferredPreload = null
+    this.setDeckGains(this.activeDeck === 'A' ? 1 : 0, this.activeDeck === 'B' ? 1 : 0)
     this.isPreloadingNext = false
     this.nextTrackUrl = null
   }
 
   public switchDeckImmediate(): void {
+    const nextTrackUrl = this.nextTrackUrl
     this.cancelCrossfade()
     const nextDeckId = this.activeDeck === 'A' ? 'B' : 'A'
     const currentDeck = this.getActiveDeckElement()
@@ -524,7 +612,7 @@ export class AudioEngine {
 
     this.currentTrackUrl[this.activeDeck] = null
     this.activeDeck = nextDeckId
-    this.currentTrackUrl[nextDeckId] = this.nextTrackUrl
+    this.currentTrackUrl[nextDeckId] = nextTrackUrl
     this.loadGeneration[nextDeckId]++
     this.pendingInitialPosition[nextDeckId] = 0
     this.setDeckGains(this.activeDeck === 'A' ? 1.0 : 0.0, this.activeDeck === 'B' ? 1.0 : 0.0)
@@ -532,6 +620,8 @@ export class AudioEngine {
 
   private setDeckGains(gainA: number, gainB: number): void {
     if (!this.ctx || !this.gainA || !this.gainB) return
+    this.gainA.gain.cancelScheduledValues(this.ctx.currentTime)
+    this.gainB.gain.cancelScheduledValues(this.ctx.currentTime)
     this.gainA.gain.setValueAtTime(gainA, this.ctx.currentTime)
     this.gainB.gain.setValueAtTime(gainB, this.ctx.currentTime)
   }
@@ -541,12 +631,16 @@ export class AudioEngine {
     const active = this.getActiveDeckElement()
     if (active.src) {
       this.setStatus('buffering')
-      active.play()
+      active
+        .play()
         .then(() => {
           this.setStatus('playing')
         })
         .catch((err) => {
-          if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
+          if (
+            err instanceof Error &&
+            (err.name === 'AbortError' || err.name === 'NotAllowedError')
+          ) {
             this.setStatus('paused')
             return
           }
@@ -557,10 +651,21 @@ export class AudioEngine {
   }
 
   public pause(): void {
+    // Preserve the following candidate when cancelling an overlap or pending play.
+    const upcoming = this.deferredPreload ?? this.nextTrackUrl
+    this.cancelCrossfade()
     this.getActiveDeckElement().pause()
+    this.getInactiveDeckElement().pause()
+    this.preloadNext(upcoming)
+    if (this.status !== 'idle') this.setStatus('paused')
   }
 
   public seek(seconds: number): void {
+    if (this.isCrossfading) {
+      const upcoming = this.deferredPreload ?? this.nextTrackUrl
+      this.cancelCrossfade()
+      this.preloadNext(upcoming)
+    }
     const active = this.getActiveDeckElement()
     if (Number.isFinite(seconds) && active.duration) {
       active.currentTime = Math.max(0, Math.min(seconds, active.duration))
@@ -584,13 +689,18 @@ export class AudioEngine {
   }
 
   public setPlaybackRate(rate: number): void {
+    if (rate !== this.playbackRate && this.isCrossfading) {
+      const upcoming = this.deferredPreload ?? this.nextTrackUrl
+      this.cancelCrossfade()
+      this.preloadNext(upcoming)
+    }
     this.playbackRate = Math.max(0.5, Math.min(2.0, rate))
     this.deckA.playbackRate = this.playbackRate
     this.deckB.playbackRate = this.playbackRate
   }
 
   public setCrossfadeSeconds(seconds: number): void {
-    this.crossfadeSeconds = Math.max(0, Math.min(12, seconds))
+    this.crossfadeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.min(12, seconds)) : 0
   }
 
   public setCrossfade(seconds: number): void {

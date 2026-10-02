@@ -73,7 +73,7 @@ State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid CSRF 
 
 | Method | Endpoint | Access | Purpose |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/jobs` | User | List jobs with status, priority, and progress. |
+| `GET` | `/api/v1/jobs` | User | List jobs with status, priority, and progress. Supports `view=all\|active\|queued\|paused\|done\|failed` together with `status`, `type`, `priority`, `limit` and `offset`. Group filters apply before pagination; `meta.total` counts matching jobs. Paused overlaps queued/active; done includes completed/cancelled. Unknown groups return `INVALID_REQUEST`. |
 | `GET` | `/api/v1/jobs/summary` | User | Global queue counters (active, queued, paused, done, failed) used by the Downloads tab badges. |
 | `GET` | `/api/v1/jobs/{id}` | User | Inspect job items, attempts, and error details. |
 | `PATCH` | `/api/v1/jobs/{id}` | User | Update job priority and/or paused state (`{"priority": "...", "paused": true}`). |

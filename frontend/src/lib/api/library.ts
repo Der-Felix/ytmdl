@@ -25,6 +25,8 @@ import type {
 /** GET /library/artists */
 export async function libraryArtists(
   options: {
+    genre?: string
+    genreMissing?: boolean
     q?: string
     sort?: string
     order?: string
@@ -35,6 +37,8 @@ export async function libraryArtists(
 ): Promise<ListResult<LibraryArtist>> {
   return requestList<LibraryArtist>('/library/artists', {
     query: {
+      genre: options.genre,
+      genre_missing: options.genreMissing || undefined,
       q: options.q,
       sort: options.sort,
       order: options.order,
@@ -58,6 +62,8 @@ export async function libraryArtistDetail(
 /** GET /library/releases — optionally restricted to one artist. */
 export async function libraryReleases(
   options: {
+    genre?: string
+    genreMissing?: boolean
     q?: string
     artistId?: string
     releaseType?: string
@@ -71,6 +77,8 @@ export async function libraryReleases(
 ): Promise<ListResult<LibraryRelease>> {
   return requestList<LibraryRelease>('/library/releases', {
     query: {
+      genre: options.genre,
+      genre_missing: options.genreMissing || undefined,
       q: options.q,
       artist_id: options.artistId,
       release_type: options.releaseType,
@@ -97,6 +105,8 @@ export async function libraryReleaseDetail(
 /** GET /library/tracks — optionally restricted to one release. */
 export async function libraryTracks(
   options: {
+    genre?: string
+    genreMissing?: boolean
     q?: string
     artistId?: string
     releaseId?: string
@@ -112,6 +122,8 @@ export async function libraryTracks(
 ): Promise<ListResult<LibraryTrack>> {
   return requestList<LibraryTrack>('/library/tracks', {
     query: {
+      genre: options.genre,
+      genre_missing: options.genreMissing || undefined,
       q: options.q,
       artist_id: options.artistId,
       release_id: options.releaseId,
@@ -430,3 +442,11 @@ export async function applyLibraryRepairs(
 }
 
 
+
+export function libraryGenres(signal?: AbortSignal): Promise<string[]> {
+  return request<string[]>('/library/genres', { signal })
+}
+
+export function updateArtistGenres(id: string, genres: string[], signal?: AbortSignal): Promise<string[]> {
+  return request<string[]>(`/library/artists/${encodeURIComponent(id)}/genres`, { method: 'PUT', body: { genres }, signal })
+}

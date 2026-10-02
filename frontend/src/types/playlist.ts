@@ -1,6 +1,7 @@
 import type { LibraryTrack } from './api'
 
 export interface Playlist {
+  smart_rules?: SmartRules | null
   id: string
   user_id: string
   name: string
@@ -21,6 +22,7 @@ export interface PlaylistDetail extends Playlist {
 }
 
 export interface CreatePlaylistInput {
+  smart_rules?: SmartRules | null
   name: string
   description?: string
 }
@@ -32,4 +34,13 @@ export interface UpdatePlaylistInput {
 
 export interface ReorderTracksInput {
   track_ids: string[]
+}
+
+export interface SmartRules {
+  genre?: string
+  artist_id?: string
+  favorites?: boolean
+  added_days?: number
+  sort: 'recent' | 'title' | 'frequent' | 'last_played'
+  limit: number
 }

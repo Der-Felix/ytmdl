@@ -73,6 +73,7 @@ export default defineConfig({
           { text: 'Download Automation', link: '/features/downloads' },
           { text: 'Artist Subscriptions', link: '/features/subscriptions' },
           { text: 'Library Management & Audit', link: '/features/library' },
+          { text: 'Playlists, Artwork & Duplicate Review', link: '/features/library-tools' },
           { text: 'Integrated Web Player', link: '/features/player' },
           { text: 'Playlists & Favorites', link: '/features/playlists_favorites' },
           { text: 'Multi-Tier Lyrics', link: '/features/lyrics' },

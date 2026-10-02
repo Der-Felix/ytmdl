@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -8,12 +9,14 @@ import (
 	"ytdm/backend/internal/api/middleware"
 	"ytdm/backend/internal/api/response"
 	"ytdm/backend/internal/apperr"
+	"ytdm/backend/internal/database/repository"
 )
 
 // CreatePlaylistRequest payload.
 type CreatePlaylistRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	SmartRules  *repository.SmartRules `json:"smart_rules"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
 }
 
 // UpdatePlaylistRequest payload.
@@ -62,7 +65,7 @@ func (h *Handlers) CreatePlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	playlist, err := h.deps.Playlists.CreatePlaylist(r.Context(), user.ID, req.Name, req.Description)
+	playlist, err := h.deps.Playlists.CreatePlaylist(r.Context(), user.ID, req.Name, req.Description, req.SmartRules)
 	if err != nil {
 		response.Error(w, r, err)
 		return
@@ -218,4 +221,45 @@ func (h *Handlers) ReorderPlaylistTracks(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	response.OK(w, r, detail)
+}
+
+func (h *Handlers) SetPlaylistRules(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	var body struct {
+		Rules json.RawMessage `json:"smart_rules"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	if len(body.Rules) == 0 {
+		response.Error(w, r, apperr.New(apperr.CodeInvalidRequest, "Playlist-Regeln fehlen."))
+		return
+	}
+	var rules *repository.SmartRules
+	if err := json.Unmarshal(body.Rules, &rules); err != nil {
+		response.Error(w, r, apperr.New(apperr.CodeInvalidRequest, "Ungültige Playlist-Regeln."))
+		return
+	}
+	if err := h.deps.Playlists.SetSmartRules(r.Context(), user.ID, chi.URLParam(r, "id"), rules); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.NoContent(w)
+}
+func (h *Handlers) AddPlaylistTracks(w http.ResponseWriter, r *http.Request) {
+	user := middleware.UserFromContext(r.Context())
+	var req struct {
+		IDs []string `json:"track_ids"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	p, err := h.deps.Playlists.AddTracks(r.Context(), user.ID, chi.URLParam(r, "id"), req.IDs)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.OK(w, r, p)
 }

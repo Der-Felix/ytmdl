@@ -1,3 +1,4 @@
+import { libraryArtwork } from '@/lib/artwork'
 import { useState } from 'react'
 import {
   Heart,
@@ -97,7 +98,7 @@ export function MiniPlayer() {
             title="Now Playing öffnen"
           >
             <Cover
-              src={currentTrack.cover_url}
+              src={libraryArtwork('tracks', currentTrack.id)} fallbackSrc={currentTrack.cover_url}
               alt={currentTrack.title}
               shape="square"
               className="size-11 sm:size-14 rounded-xl border border-white/10 shadow-md transition-transform duration-200 group-hover:scale-105"
@@ -194,7 +195,7 @@ export function MiniPlayer() {
               size="icon"
               onClick={togglePlayPause}
               disabled={isBuffering}
-              className="size-10 sm:size-11 rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/20 hover:scale-105 active:scale-95 transition-all duration-150"
+              className="size-10 sm:size-11 rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition-colors duration-150"
               title={isBuffering ? 'Puffern...' : isPlaying ? 'Pause' : 'Wiedergabe'}
               aria-label={isBuffering ? 'Puffern...' : isPlaying ? 'Pause' : 'Wiedergabe'}
             >

@@ -1,3 +1,4 @@
+import { libraryArtwork } from '@/lib/artwork'
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
@@ -9,6 +10,7 @@ import {
   UserIcon,
 } from 'lucide-react'
 
+import { ArtworkEditor } from '@/components/music/ArtworkEditor'
 import { Cover } from '@/components/music/Cover'
 import { ReleaseCard } from '@/components/music/ReleaseCard'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
@@ -18,7 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useOptionalAuth } from '@/hooks/useAuth'
 import { usePlayerActions } from '@/hooks/usePlayer'
-import { libraryArtistDetail } from '@/lib/api/library'
+import { libraryArtistDetail, updateArtistGenres } from '@/lib/api/library'
 import { Link, paths } from '@/lib/router'
 import { formatBytes, pluralize } from '@/lib/utils/format'
 import type { LibraryArtistDetail, LibraryTrack } from '@/types/api'
@@ -28,9 +30,18 @@ interface LibraryArtistProps {
 }
 
 export function LibraryArtist({ id }: LibraryArtistProps) {
+  return <LibraryArtistView key={id} id={id} />
+}
+
+function LibraryArtistView({ id }: LibraryArtistProps) {
   const auth = useOptionalAuth()
+  const [artworkVersion, setArtworkVersion] = useState(0)
   const isAdmin = auth ? auth.isAdmin : true
   const { playArtist } = usePlayerActions()
+  const [genreDraft, setGenreDraft] = useState('')
+  const [genreEditing, setGenreEditing] = useState(false)
+  const [genreSaving, setGenreSaving] = useState(false)
+  const [genreMessage, setGenreMessage] = useState<string | null>(null)
   const [detail, setDetail] = useState<LibraryArtistDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -163,13 +174,16 @@ export function LibraryArtist({ id }: LibraryArtistProps) {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-6">
           <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 text-center sm:text-left">
             <Cover
-              src={artist.image_url}
+              src={artworkVersion>0 ? libraryArtwork('artists', artist.id)+`?v=${artworkVersion}` : artist.image_url}
+              fallbackSrc={libraryArtwork('artists', artist.id)}
               alt={artist.name}
               shape="circle"
               className="size-28 shadow-xl shrink-0"
             />
             <div className="space-y-2">
               <h1 className="text-2xl sm:text-3xl font-bold font-heading text-neutral-100">{artist.name}</h1>
+ {isAdmin && <ArtworkEditor kind="artists" id={artist.id}
+                onSaved={() => setArtworkVersion((value) => value + 1)} />}
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 text-xs text-neutral-400">
                 <span className="flex items-center gap-1">
                   <Disc3Icon className="size-3.5" />
@@ -218,6 +232,31 @@ export function LibraryArtist({ id }: LibraryArtistProps) {
           </div>
         </div>
       </div>
+
+      <section className="rounded-2xl border border-border p-4 space-y-3" aria-label="Künstler-Genres">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="font-semibold">Genres</h2><p className="text-sm text-muted-foreground">{artist.genres?.length ? artist.genres.join(' · ') : 'Ohne Genre'}</p></div>
+          {isAdmin && !genreEditing && <Button size="sm" variant="outline" onClick={() => { setGenreDraft((artist.genres || []).join(', ')); setGenreMessage(null); setGenreEditing(true) }}>Genres bearbeiten</Button>}
+        </div>
+        {genreEditing && <form className="flex flex-wrap items-end gap-3" onSubmit={async (event) => {
+          event.preventDefault(); if (genreSaving) return
+          setGenreSaving(true); setGenreMessage(null)
+          try {
+            const genres = await updateArtistGenres(id, genreDraft.split(','))
+            setDetail((value) => value ? { ...value, artist: { ...value.artist, genres } } : value)
+            setGenreEditing(false); setGenreMessage('Genres gespeichert.')
+          } catch (error) { setGenreMessage(error instanceof Error ? error.message : 'Genres konnten nicht gespeichert werden.') }
+          finally { setGenreSaving(false) }
+        }}>
+          <label className="flex-1 min-w-48 text-sm space-y-1">Genres, durch Kommas getrennt
+            <input aria-label="Genres, durch Kommas getrennt" className="block w-full rounded-lg border border-border bg-background px-3 py-2" value={genreDraft} onChange={(event) => setGenreDraft(event.target.value)} disabled={genreSaving} placeholder="z. B. Hip-Hop, Deutschrap" />
+          </label>
+          <Button type="submit" disabled={genreSaving}>{genreSaving ? 'Speichern …' : 'Speichern'}</Button>
+          <Button type="button" variant="ghost" disabled={genreSaving} onClick={() => setGenreEditing(false)}>Abbrechen</Button>
+          <p className="w-full text-xs text-muted-foreground">Bis zu 20 Genres. Die Zuordnung gilt für die Bibliotheksfilter des Künstlers, seiner Releases und Titel. Ein leeres Feld entfernt die Zuordnung.</p>
+        </form>}
+        {genreMessage && <p role="status" className="text-sm text-muted-foreground">{genreMessage}</p>}
+      </section>
 
       {/* Local Releases Section */}
       <div className="space-y-4">

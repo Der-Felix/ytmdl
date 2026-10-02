@@ -80,7 +80,7 @@ function getHealthExplanation(status: MediaSessionHealthStatus): string | null {
     case 'rate_limited':
       return 'YouTube begrenzt diese Session derzeit. YTMDL verwendet sie bis zum Ende der Abkühlzeit nicht.'
     case 'bot_challenge':
-      return 'Diese YouTube-Session muss erneuert werden. Exportiere neue Cookies aus einer funktionierenden Browser-Sitzung.'
+      return 'YouTube verlangt eine Prüfung im Browser. Prüfe die Browser-Sitzung und lade bei Bedarf neue Cookies hoch. Eine laufende Schutzpause bleibt dabei erhalten.'
     case 'auth_failed':
       return 'Die Anmeldung dieser Session ist nicht mehr gültig.'
     default:
@@ -309,7 +309,7 @@ export function MediaSessionsPanel() {
         )}
 
         {error && (
-          <ErrorState error={error} onRetry={reloadSessions} />
+          <ErrorState error={asyncState.error} onRetry={reloadSessions} />
         )}
 
         {!loading && !error && sessions.length === 0 && (

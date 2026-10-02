@@ -114,6 +114,14 @@
         min-height: 100dvh;
     }
 
+    :where(button, [role="button"], [data-slot="button"]) {
+        cursor: pointer;
+    }
+
+    :where(button, [role="button"], [data-slot="button"]):is(:disabled, [aria-disabled="true"], [data-disabled]) {
+        cursor: not-allowed;
+    }
+
     /* The atmosphere: a few wide, heavily blurred accent glows behind
        everything. They are what the panels' backdrop-filter has to work with,
        and they are the only decorative layer in the application. */
@@ -165,6 +173,27 @@
         background: rgb(255 255 255 / 0.14);
         background-clip: content-box;
     }
+}
+
+/* Native controls and shared Buttons receive the same visible feedback. The
+   translucent surface preserves accent/selected backgrounds and never changes
+   dimensions. Keep this outside utility layers so custom button classes cannot
+   accidentally remove the feedback. Hover-capable devices only, to avoid a
+   persistent hover highlight after touch input. */
+@media (hover: hover) {
+    :where(button, [role="button"], [data-slot="button"]):not(:disabled):not([aria-disabled="true"]):not([data-disabled]):hover {
+        background-image: linear-gradient(rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.1));
+    }
+}
+
+:where(button, [role="button"], [data-slot="button"]):not(:disabled):not([aria-disabled="true"]):not([data-disabled]):active {
+    background-image: linear-gradient(rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.16));
+}
+
+:where(button, [role="button"], [data-slot="button"]):focus-visible,
+[data-slot="button"]:has(:focus-visible) {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
 }
 
 /* A panel: the translucent, softly bordered surface every card, list and
@@ -378,4 +407,20 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
     }
+}
+
+/* The player owns its panel scroll; lyric updates never move the document. */
+.player-panel { height: min(68dvh, 680px); min-height: 320px; }
+.player-tabs button { min-width: 0; justify-content: center; padding-inline: 0.5rem; }
+.player-tabs svg { flex-shrink: 0; }
+@media (max-width: 639px) {
+  .player-tabs button { gap: 0.25rem; font-size: 0.75rem; }
+  .player-tabs svg, .player-tabs [data-slot="badge"] { display: none; }
+}
+@media (min-width: 1024px) and (min-height: 560px) {
+  .player-page { height: 100dvh; min-height: 0; }
+  .player-grid { height: 100%; min-height: 0; }
+  .player-controls { max-height: 100%; overflow-y: auto; scrollbar-width: thin; }
+  .player-artwork { max-width: clamp(140px, calc(100dvh - 390px), 420px); flex-shrink: 0; }
+  .player-panel { height: 100%; min-height: 0; }
 }

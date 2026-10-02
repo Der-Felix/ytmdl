@@ -32,9 +32,10 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
   return (
     <Panel className={cn('p-4 space-y-4 sm:p-5', className)}>
       <PanelHeader
+        className="flex-col gap-2 sm:flex-row"
         title={
           <div className="flex items-center gap-2">
-            <span className="font-heading font-semibold">Warteschlangen-Status & ETA</span>
+            <span className="font-heading font-semibold">Deine Warteschlange</span>
           </div>
         }
         action={
@@ -122,13 +123,13 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
         <div className="col-span-2 sm:col-span-1 rounded-lg border border-border/50 bg-white/[0.02] p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <AlertTriangleIcon className={cn('size-3.5', summary.retry_wait_items > 0 ? 'text-warning' : 'text-muted-foreground')} />
-            <span>Retry-Wartend</span>
+            <span>Wiederholung geplant</span>
           </div>
           <div className={cn('mt-1.5 text-xl font-bold tracking-tight', summary.retry_wait_items > 0 ? 'text-warning' : 'text-foreground')}>
             {summary.retry_wait_items}
           </div>
           <div className="mt-0.5 text-[0.6875rem] text-muted-foreground">
-            {summary.retry_wait_items > 0 ? 'Warten auf Wiederholung' : '0 Fehler'}
+            {summary.retry_wait_items > 0 ? 'Warten auf Wiederholung' : 'Keine Wiederholung ausstehend'}
           </div>
         </div>
       </div>

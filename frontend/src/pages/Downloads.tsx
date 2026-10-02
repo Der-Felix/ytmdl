@@ -65,7 +65,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
 
   const rawPriority = params.get('priority') as JobPriority | 'all'
   const priorityFilter: JobPriority | 'all' =
-    rawPriority === 'high' || rawPriority === 'normal' || rawPriority === 'low'
+    rawPriority === 'very_high' || rawPriority === 'high' || rawPriority === 'normal' || rawPriority === 'low'
       ? rawPriority
       : 'all'
 
@@ -93,6 +93,8 @@ function Downloads({ jobId }: DownloadsPageProps) {
   const queryPriority = priorityFilter === 'all' ? undefined : priorityFilter
 
   const { state, meta, reload, setJobs } = useJobs({
+    id: jobId,
+    view: activeTab,
     limit: PAGE_SIZE,
     offset: (page - 1) * PAGE_SIZE,
     priority: queryPriority,
@@ -119,14 +121,14 @@ function Downloads({ jobId }: DownloadsPageProps) {
     // Badges represent global database counts from QueueSummary.
     // When summary is unavailable or loading, avoid displaying misleading page-local slice counts (e.g. 20).
     return {
-      all: summary?.total_jobs ?? meta?.total,
+      all: summary?.total_jobs ?? (activeTab === 'all' && !jobId ? meta?.total : undefined),
       active: summary?.active_jobs,
       queued: summary?.queued_jobs,
       paused: summary?.paused_jobs,
       done: summary?.done_jobs,
       failed: summary?.failed_jobs,
     }
-  }, [summary, meta?.total])
+  }, [summary, meta?.total, activeTab, jobId])
 
   const filteredJobs = useMemo(() => {
     if (!rawJobs) return []
@@ -182,10 +184,10 @@ function Downloads({ jobId }: DownloadsPageProps) {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-            Downloads & Warteschlange
+            Downloads
           </h1>
           <p className="text-sm text-muted-foreground">
-            Verwalten Sie laufende und anstehende Download-Aufträge, Prioritäten und Verlaufsdaten.
+            Fortschritt verfolgen, Wartezeiten verstehen und fehlgeschlagene Tracks prüfen.
           </p>
         </div>
 
@@ -276,6 +278,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
               <button
                 key={tab.key}
                 type="button"
+                aria-pressed={isActive}
                 onClick={() => updateUrl({ view: tab.key, page: 1 })}
                 className={cn(
                   'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
@@ -337,7 +340,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
         <Panel>
           <EmptyState
             icon={<DownloadIcon />}
-            title={activeTab === 'all' ? 'Keine Downloads vorhanden' : `Keine Jobs im Status "${activeTab}"`}
+            title={activeTab === 'all' ? 'Keine Downloads vorhanden' : `Keine Aufträge: ${tabs.find((tab) => tab.key === activeTab)?.label}`}
             description={
               priorityFilter !== 'all'
                 ? 'Mit dem gewählten Prioritätsfilter wurden keine Aufträge gefunden.'
@@ -349,6 +352,9 @@ function Downloads({ jobId }: DownloadsPageProps) {
 
       {state.status === 'success' && filteredJobs.length > 0 && (
         <div className="space-y-4">
+          {meta?.total !== undefined && (
+            <p className="text-xs text-muted-foreground">{formatNumber(meta.total)} {meta.total === 1 ? 'Auftrag' : 'Aufträge'} in dieser Ansicht{meta.total > PAGE_SIZE ? ` · Seite ${formatNumber(page)}` : ''}</p>
+          )}
           <div className="space-y-3">
             {filteredJobs.map((job) => (
               <JobCard

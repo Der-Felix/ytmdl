@@ -30,6 +30,9 @@ func escapeLike(s string) string {
 
 // TrackListFilter parameters for filtering library tracks.
 type TrackListFilter struct {
+	IDs          []string
+	Genre        string
+	GenreMissing bool
 	Query        string
 	ArtistID     string
 	ReleaseID    string
@@ -45,23 +48,27 @@ type TrackListFilter struct {
 
 // ReleaseListFilter parameters for filtering library releases.
 type ReleaseListFilter struct {
-	Query       string
-	ArtistID    string
-	ReleaseType string
-	Year        int
-	Sort        string
-	Order       string
-	Limit       int
-	Offset      int
+	Genre        string
+	GenreMissing bool
+	Query        string
+	ArtistID     string
+	ReleaseType  string
+	Year         int
+	Sort         string
+	Order        string
+	Limit        int
+	Offset       int
 }
 
 // ArtistListFilter parameters for filtering library artists.
 type ArtistListFilter struct {
-	Query  string
-	Sort   string
-	Order  string
-	Limit  int
-	Offset int
+	Genre        string
+	GenreMissing bool
+	Query        string
+	Sort         string
+	Order        string
+	Limit        int
+	Offset       int
 }
 
 func sanitizeTrackSort(sort, order string) (string, error) {
@@ -92,17 +99,17 @@ func sanitizeTrackSort(sort, order string) (string, error) {
 		if order == "" {
 			order = "asc"
 		}
-		return fmt.Sprintf("t.album_artist %s, t.title %s, t.id %s", order, order, order), nil
+		return fmt.Sprintf("COALESCE(o.album_artist,t.album_artist) %s, t.title %s, t.id %s", order, order, order), nil
 	case "album":
 		if order == "" {
 			order = "asc"
 		}
-		return fmt.Sprintf("t.album %s, t.disc_number %s, t.track_number %s, t.id %s", order, order, order, order), nil
+		return fmt.Sprintf("COALESCE(o.album,t.album) %s, t.disc_number %s, t.track_number %s, t.id %s", order, order, order, order), nil
 	case "year":
 		if order == "" {
 			order = "desc"
 		}
-		return fmt.Sprintf("t.year %s, t.title %s, t.id %s", order, order, order), nil
+		return fmt.Sprintf("COALESCE(o.year,t.year) %s, t.title %s, t.id %s", order, order, order), nil
 	case "duration":
 		if order == "" {
 			order = "desc"
@@ -192,6 +199,21 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		argIdx       = 1
 	)
 
+	if filter.IDs != nil {
+		if len(filter.IDs) == 0 {
+			return []music.LibraryTrack{}, 0, nil
+		}
+		if len(filter.IDs) > 100 {
+			return nil, 0, apperr.New(apperr.CodeInvalidRequest, "Maximal 100 Titel.")
+		}
+		placeholders := []string{}
+		for _, id := range filter.IDs {
+			placeholders = append(placeholders, fmt.Sprintf("$%d", argIdx))
+			args = append(args, id)
+			argIdx++
+		}
+		whereClauses = append(whereClauses, "t.id IN ("+strings.Join(placeholders, ",")+")")
+	}
 	if filter.ArtistID != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("t.artist_id = $%d", argIdx))
 		args = append(args, filter.ArtistID)
@@ -203,7 +225,7 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		argIdx++
 	}
 	if filter.Year > 0 {
-		whereClauses = append(whereClauses, fmt.Sprintf("t.year = $%d", argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("COALESCE(o.year,t.year) = $%d", argIdx))
 		args = append(args, filter.Year)
 		argIdx++
 	}
@@ -235,11 +257,15 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		escQ := escapeLike(trimmedQuery)
 		likeTerm := "%" + escQ + "%"
 		whereClauses = append(whereClauses, fmt.Sprintf(
-			"(t.title COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR t.album COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR t.album_artist COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR LOWER(t.isrc) = LOWER($%d))",
+			"(t.title COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR COALESCE(o.album,t.album) COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR COALESCE(o.album_artist,t.album_artist) COLLATE \"pg_c_utf8\" ILIKE $%d ESCAPE '\\' OR LOWER(t.isrc) = LOWER($%d))",
 			argIdx, argIdx, argIdx, argIdx+1,
 		))
 		args = append(args, likeTerm, isrcTerm)
 		argIdx += 2
+	}
+
+	if err := appendGenreFilter(filter.Genre, filter.GenreMissing, "t.artist_id", &whereClauses, &args, &argIdx); err != nil {
+		return nil, 0, err
 	}
 
 	whereSQL := ""
@@ -247,7 +273,7 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
 	}
 
-	countQuery := "SELECT COUNT(*) FROM tracks t " + whereSQL
+	countQuery := "SELECT COUNT(*) FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id " + whereSQL
 	var total int
 	if err := c.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, wrapDB("count tracks", err)
@@ -274,10 +300,10 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 		orderBy = fmt.Sprintf(`CASE
 			WHEN LOWER(t.title COLLATE "pg_c_utf8") = LOWER($%d COLLATE "pg_c_utf8") THEN 1
 			WHEN LOWER(t.title COLLATE "pg_c_utf8") LIKE LOWER($%d COLLATE "pg_c_utf8") ESCAPE '\' THEN 2
-			WHEN LOWER(t.album_artist COLLATE "pg_c_utf8") = LOWER($%d COLLATE "pg_c_utf8") THEN 3
-			WHEN LOWER(t.album_artist COLLATE "pg_c_utf8") LIKE LOWER($%d COLLATE "pg_c_utf8") ESCAPE '\' THEN 4
-			WHEN LOWER(t.album COLLATE "pg_c_utf8") = LOWER($%d COLLATE "pg_c_utf8") THEN 5
-			WHEN LOWER(t.album COLLATE "pg_c_utf8") LIKE LOWER($%d COLLATE "pg_c_utf8") ESCAPE '\' THEN 6
+			WHEN LOWER(COALESCE(o.album_artist,t.album_artist) COLLATE "pg_c_utf8") = LOWER($%d COLLATE "pg_c_utf8") THEN 3
+			WHEN LOWER(COALESCE(o.album_artist,t.album_artist) COLLATE "pg_c_utf8") LIKE LOWER($%d COLLATE "pg_c_utf8") ESCAPE '\' THEN 4
+			WHEN LOWER(COALESCE(o.album,t.album) COLLATE "pg_c_utf8") = LOWER($%d COLLATE "pg_c_utf8") THEN 5
+			WHEN LOWER(COALESCE(o.album,t.album) COLLATE "pg_c_utf8") LIKE LOWER($%d COLLATE "pg_c_utf8") ESCAPE '\' THEN 6
 			ELSE 7
 		END %s, t.created_at DESC, t.id DESC`, exactArg, prefixArg, exactArg, prefixArg, exactArg, prefixArg, direction)
 	} else {
@@ -290,12 +316,12 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 
 	dataQuery := fmt.Sprintf(`
 		SELECT
-			t.id, t.release_id, t.artist_id, t.title, t.artists_json, t.album, t.album_artist,
-			t.track_number, t.track_total, t.disc_number, t.disc_total, t.duration_ms, t.year,
+			t.id, t.release_id, t.artist_id, t.title, COALESCE(o.artists_json,t.artists_json), COALESCE(o.album,t.album), COALESCE(o.album_artist,t.album_artist),
+			t.track_number, t.track_total, t.disc_number, t.disc_total, t.duration_ms, COALESCE(o.year,t.year),
 			t.isrc, t.cover_url, t.identity_key, t.compilation, t.lyrics_state, t.lyrics_provider,
 			t.lyrics_checked_at, t.created_at,
 			COALESCE(f.path, ''), COALESCE(f.size_bytes, 0), COALESCE(f.codec, ''), COALESCE(f.bitrate_kbps, 0)
-		FROM tracks t
+		FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id
 		LEFT JOIN files f ON f.track_id = t.id
 		%s
 		ORDER BY %s
@@ -390,6 +416,10 @@ func (c *Catalog) ListReleasesFiltered(ctx context.Context, filter ReleaseListFi
 		argIdx++
 	}
 
+	if err := appendGenreFilter(filter.Genre, filter.GenreMissing, "r.artist_id", &whereClauses, &args, &argIdx); err != nil {
+		return nil, 0, err
+	}
+
 	whereSQL := ""
 	if len(whereClauses) > 0 {
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
@@ -477,6 +507,10 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 		argIdx++
 	}
 
+	if err := appendGenreFilter(filter.Genre, filter.GenreMissing, "a.id", &whereClauses, &args, &argIdx); err != nil {
+		return nil, 0, err
+	}
+
 	whereSQL := ""
 	if len(whereClauses) > 0 {
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
@@ -490,7 +524,7 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 
 	dataQuery := fmt.Sprintf(`
 		SELECT
-			a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url, a.created_at,
+			a.id, a.name, a.provider, a.source_id, a.source_url, CASE WHEN EXISTS(SELECT 1 FROM library_artwork ar WHERE ar.kind='artists' AND ar.entity_id=a.id) THEN '/api/v1/library/artists/'||a.id||'/artwork' ELSE a.image_url END, a.genres_json, a.created_at,
 			COUNT(DISTINCT r.id) AS release_count,
 			COALESCE(ts.track_count, 0) AS track_count,
 			COALESCE(ts.total_size, 0) AS total_size
@@ -498,7 +532,7 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 		LEFT JOIN releases r ON r.artist_id = a.id
 		LEFT JOIN (
 			SELECT t.artist_id, COUNT(t.id) AS track_count, COALESCE(SUM(f.size_bytes), 0) AS total_size
-			FROM tracks t
+			FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id
 			LEFT JOIN files f ON f.track_id = t.id
 			GROUP BY t.artist_id
 		) ts ON ts.artist_id = a.id
@@ -517,15 +551,17 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 	out := make([]music.LibraryArtist, 0, limit)
 	for rows.Next() {
 		var (
+			genres    string
 			la        music.LibraryArtist
 			createdAt time.Time
 		)
 		if err := rows.Scan(
-			&la.ID, &la.Name, &la.Provider, &la.SourceID, &la.SourceURL, &la.ImageURL, &createdAt,
+			&la.ID, &la.Name, &la.Provider, &la.SourceID, &la.SourceURL, &la.ImageURL, &genres, &createdAt,
 			&la.ReleaseCount, &la.TrackCount, &la.TotalSizeBytes,
 		); err != nil {
 			return nil, 0, wrapDB("scan artist filtered", err)
 		}
+		la.Genres = decodeStrings(genres)
 		la.CreatedAt = createdAt.UTC()
 		out = append(out, la)
 	}
@@ -560,6 +596,14 @@ func (c *Catalog) GetLibraryArtistDetail(ctx context.Context, id string) (*music
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	var custom bool
+	if err := c.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM library_artwork WHERE kind='artists' AND entity_id=$1)", id).Scan(&custom); err != nil {
+		return nil, err
+	}
+	if custom {
+		artist.ImageURL = "/api/v1/library/artists/" + id + "/artwork"
 	}
 
 	var totalSizeBytes int64
@@ -650,7 +694,7 @@ func (c *Catalog) GetLibraryReleaseDetail(ctx context.Context, id string) (*musi
 
 	var artist *music.Artist
 	row := c.db.QueryRowContext(ctx, `
-		SELECT a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url
+		SELECT a.id, a.name, a.provider, a.source_id, a.source_url, CASE WHEN EXISTS(SELECT 1 FROM library_artwork ar WHERE ar.kind='artists' AND ar.entity_id=a.id) THEN '/api/v1/library/artists/'||a.id||'/artwork' ELSE a.image_url END
 		FROM artists a
 		JOIN releases r ON r.artist_id = a.id
 		WHERE r.id = $1`, id)
@@ -691,6 +735,9 @@ func (c *Catalog) GetLibraryTrackDetail(ctx context.Context, id string) (*music.
 		return nil, err
 	}
 
+	if err := c.ApplyTrackOverride(ctx, track); err != nil {
+		return nil, err
+	}
 	var (
 		file       *music.File
 		release    *music.Release
@@ -754,7 +801,7 @@ func (c *Catalog) SearchArtists(ctx context.Context, query string, limit int) ([
 
 	dataQuery := `
 		SELECT
-			a.id, a.name, a.provider, a.source_id, a.source_url, a.image_url, a.created_at,
+			a.id, a.name, a.provider, a.source_id, a.source_url, CASE WHEN EXISTS(SELECT 1 FROM library_artwork ar WHERE ar.kind='artists' AND ar.entity_id=a.id) THEN '/api/v1/library/artists/'||a.id||'/artwork' ELSE a.image_url END, a.genres_json, a.created_at,
 			COUNT(DISTINCT r.id) AS release_count,
 			COALESCE(ts.track_count, 0) AS track_count,
 			COALESCE(ts.total_size, 0) AS total_size
@@ -762,7 +809,7 @@ func (c *Catalog) SearchArtists(ctx context.Context, query string, limit int) ([
 		LEFT JOIN releases r ON r.artist_id = a.id
 		LEFT JOIN (
 			SELECT t.artist_id, COUNT(t.id) AS track_count, COALESCE(SUM(f.size_bytes), 0) AS total_size
-			FROM tracks t
+			FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id
 			LEFT JOIN files f ON f.track_id = t.id
 			GROUP BY t.artist_id
 		) ts ON ts.artist_id = a.id
@@ -786,15 +833,17 @@ func (c *Catalog) SearchArtists(ctx context.Context, query string, limit int) ([
 	out := make([]music.LibraryArtist, 0, limit)
 	for rows.Next() {
 		var (
+			genres    string
 			la        music.LibraryArtist
 			createdAt time.Time
 		)
 		if err := rows.Scan(
-			&la.ID, &la.Name, &la.Provider, &la.SourceID, &la.SourceURL, &la.ImageURL, &createdAt,
+			&la.ID, &la.Name, &la.Provider, &la.SourceID, &la.SourceURL, &la.ImageURL, &genres, &createdAt,
 			&la.ReleaseCount, &la.TrackCount, &la.TotalSizeBytes,
 		); err != nil {
 			return nil, wrapDB("scan searched artist", err)
 		}
+		la.Genres = decodeStrings(genres)
 		la.CreatedAt = createdAt.UTC()
 		out = append(out, la)
 	}
@@ -896,22 +945,22 @@ func (c *Catalog) SearchTracks(ctx context.Context, query string, limit int) ([]
 
 	dataQuery := `
 		SELECT
-			t.id, t.release_id, t.artist_id, t.title, t.artists_json, t.album, t.album_artist,
-			t.track_number, t.track_total, t.disc_number, t.disc_total, t.duration_ms, t.year,
+			t.id, t.release_id, t.artist_id, t.title, COALESCE(o.artists_json,t.artists_json), COALESCE(o.album,t.album), COALESCE(o.album_artist,t.album_artist),
+			t.track_number, t.track_total, t.disc_number, t.disc_total, t.duration_ms, COALESCE(o.year,t.year),
 			t.isrc, t.cover_url, t.identity_key, t.compilation, t.lyrics_state, t.lyrics_provider,
 			t.lyrics_checked_at, t.created_at,
 			COALESCE(f.path, ''), COALESCE(f.size_bytes, 0), COALESCE(f.codec, ''), COALESCE(f.bitrate_kbps, 0)
-		FROM tracks t
+		FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id
 		LEFT JOIN files f ON f.track_id = t.id
-		WHERE (t.title COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR t.album COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR t.album_artist COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR LOWER(t.isrc) = LOWER($2))
+		WHERE (t.title COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR COALESCE(o.album,t.album) COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR COALESCE(o.album_artist,t.album_artist) COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR LOWER(t.isrc) = LOWER($2))
 		ORDER BY
 			CASE
 				WHEN LOWER(t.title COLLATE "pg_c_utf8") = LOWER($3 COLLATE "pg_c_utf8") THEN 1
 				WHEN LOWER(t.title COLLATE "pg_c_utf8") LIKE LOWER($4 COLLATE "pg_c_utf8") ESCAPE '\' THEN 2
-				WHEN LOWER(t.album_artist COLLATE "pg_c_utf8") = LOWER($3 COLLATE "pg_c_utf8") THEN 3
-				WHEN LOWER(t.album_artist COLLATE "pg_c_utf8") LIKE LOWER($4 COLLATE "pg_c_utf8") ESCAPE '\' THEN 4
-				WHEN LOWER(t.album COLLATE "pg_c_utf8") = LOWER($3 COLLATE "pg_c_utf8") THEN 5
-				WHEN LOWER(t.album COLLATE "pg_c_utf8") LIKE LOWER($4 COLLATE "pg_c_utf8") ESCAPE '\' THEN 6
+				WHEN LOWER(COALESCE(o.album_artist,t.album_artist) COLLATE "pg_c_utf8") = LOWER($3 COLLATE "pg_c_utf8") THEN 3
+				WHEN LOWER(COALESCE(o.album_artist,t.album_artist) COLLATE "pg_c_utf8") LIKE LOWER($4 COLLATE "pg_c_utf8") ESCAPE '\' THEN 4
+				WHEN LOWER(COALESCE(o.album,t.album) COLLATE "pg_c_utf8") = LOWER($3 COLLATE "pg_c_utf8") THEN 5
+				WHEN LOWER(COALESCE(o.album,t.album) COLLATE "pg_c_utf8") LIKE LOWER($4 COLLATE "pg_c_utf8") ESCAPE '\' THEN 6
 				ELSE 7
 			END,
 			t.created_at DESC, t.id DESC

@@ -30,6 +30,7 @@ export interface PersistedPlayerState {
   parametricFilters: ParametricFilter[]
   preamp: number
   autoHeadroom: boolean
+  normalizationEnabled: boolean
   limiterEnabled: boolean
   balance: number
   mono: boolean
@@ -37,7 +38,11 @@ export interface PersistedPlayerState {
   visualizerMode: PlayerState['visualizerMode']
 }
 
-function userKey(userId: string | null | undefined, suffix: string, prefix = KEY_PREFIX_V2): string {
+function userKey(
+  userId: string | null | undefined,
+  suffix: string,
+  prefix = KEY_PREFIX_V2,
+): string {
   const uid = userId && userId.trim() ? userId.trim() : 'default'
   return `${prefix}.${uid}.${suffix}`
 }
@@ -88,15 +93,29 @@ export function loadPlayerState(
   }
 }
 
-function sanitizePersistedState(state: Partial<PersistedPlayerState>): Partial<PersistedPlayerState> {
+function sanitizePersistedState(
+  state: Partial<PersistedPlayerState>,
+): Partial<PersistedPlayerState> {
   const out = { ...state }
+  if (out.normalizationEnabled !== undefined)
+    out.normalizationEnabled = out.normalizationEnabled === true
+  if (out.crossfadeSeconds !== undefined) {
+    out.crossfadeSeconds =
+      typeof out.crossfadeSeconds === 'number' && Number.isFinite(out.crossfadeSeconds)
+        ? Math.max(0, Math.min(12, out.crossfadeSeconds))
+        : 0
+  }
 
   // Sanitize queue: verify each track has valid ID and title
   if (Array.isArray(out.queue)) {
-    out.queue = out.queue.filter((t) => t && typeof t.id === 'string' && t.id.trim() !== '' && typeof t.title === 'string')
+    out.queue = out.queue.filter(
+      (t) => t && typeof t.id === 'string' && t.id.trim() !== '' && typeof t.title === 'string',
+    )
   }
   if (Array.isArray(out.originalQueue)) {
-    out.originalQueue = out.originalQueue.filter((t) => t && typeof t.id === 'string' && t.id.trim() !== '' && typeof t.title === 'string')
+    out.originalQueue = out.originalQueue.filter(
+      (t) => t && typeof t.id === 'string' && t.id.trim() !== '' && typeof t.title === 'string',
+    )
   }
 
   // Ensure preamp is within [-12, +6]
@@ -117,7 +136,9 @@ export function saveCustomPresets(presets: EQPreset[]): void {
 
 export function loadCustomPresets(): EQPreset[] {
   try {
-    const raw = localStorage.getItem(`${KEY_PREFIX_V2}.custom_presets`) || localStorage.getItem(`${KEY_PREFIX_V1}.custom_presets`)
+    const raw =
+      localStorage.getItem(`${KEY_PREFIX_V2}.custom_presets`) ||
+      localStorage.getItem(`${KEY_PREFIX_V1}.custom_presets`)
     if (!raw) return []
     return JSON.parse(raw) as EQPreset[]
   } catch {
@@ -125,10 +146,7 @@ export function loadCustomPresets(): EQPreset[] {
   }
 }
 
-export function saveHistory(
-  userId: string | null | undefined,
-  history: PlayerHistoryItem[],
-): void {
+export function saveHistory(userId: string | null | undefined, history: PlayerHistoryItem[]): void {
   try {
     const key = userKey(userId, 'history')
     // Keep max 100 history items
@@ -139,12 +157,11 @@ export function saveHistory(
   }
 }
 
-export function loadHistory(
-  userId: string | null | undefined,
-): PlayerHistoryItem[] {
+export function loadHistory(userId: string | null | undefined): PlayerHistoryItem[] {
   try {
     const key = userKey(userId, 'history')
-    const raw = localStorage.getItem(key) || localStorage.getItem(userKey(userId, 'history', KEY_PREFIX_V1))
+    const raw =
+      localStorage.getItem(key) || localStorage.getItem(userKey(userId, 'history', KEY_PREFIX_V1))
     if (!raw) return []
     return JSON.parse(raw) as PlayerHistoryItem[]
   } catch {

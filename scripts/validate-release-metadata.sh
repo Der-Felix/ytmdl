@@ -95,16 +95,18 @@ if [ -f "${CHANGELOG_FILE}" ] && [ -n "${CANONICAL_VERSION}" ]; then
   fi
 fi
 
-# Check docs/package.json
-DOCS_PKG="${REPO_ROOT}/docs/package.json"
-if [ -f "${DOCS_PKG}" ] && [ -n "${CANONICAL_VERSION}" ]; then
-  DOCS_VER="$(python3 -c "import json; print(json.load(open('${DOCS_PKG}')).get('version', ''))" 2>/dev/null || true)"
-  if [ "${DOCS_VER}" != "${CANONICAL_VERSION}" ]; then
-    log_error "docs/package.json version (${DOCS_VER}) does not match canonical version (${CANONICAL_VERSION})"
-  else
-    log_pass "docs/package.json version: ${DOCS_VER}"
+# Validate both application and documentation package versions.
+for PACKAGE in frontend docs; do
+  PKG_FILE="${REPO_ROOT}/${PACKAGE}/package.json"
+  if [ -f "${PKG_FILE}" ] && [ -n "${CANONICAL_VERSION}" ]; then
+    PKG_VER="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('version', ''))" "${PKG_FILE}" 2>/dev/null || true)"
+    if [ "${PKG_VER}" != "${CANONICAL_VERSION}" ]; then
+      log_error "${PACKAGE}/package.json version (${PKG_VER}) does not match canonical version (${CANONICAL_VERSION})"
+    else
+      log_pass "${PACKAGE}/package.json version: ${PKG_VER}"
+    fi
   fi
-fi
+done
 
 # Check .env.example
 ENV_EXAMPLE="${REPO_ROOT}/.env.example"
@@ -121,7 +123,7 @@ fi
 MAIN_GO="${REPO_ROOT}/backend/cmd/ytmdlctl/main.go"
 if [ -f "${MAIN_GO}" ] && [ -n "${CANONICAL_VERSION}" ]; then
   # runReconcileArtists and runMergeArtists define fallback versions for maintenance backup tagging
-  STALE_FALLBACKS=$(grep -n -E 'currentVersion = "0\.(1[6-9]|[2-9][0-9])\.' "${MAIN_GO}" | grep -v "${CANONICAL_VERSION}" || true)
+  STALE_FALLBACKS=$(awk '/^func / { maintenance = ($0 ~ /^func run(ReconcileArtists|MergeArtists)\(/) } maintenance { print NR ":" $0 }' "${MAIN_GO}" | grep -E 'currentVersion = "[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?"' | grep -vF "currentVersion = \"${CANONICAL_VERSION}\"" || true)
   if [ -n "${STALE_FALLBACKS}" ]; then
     log_error "backend/cmd/ytmdlctl/main.go contains stale maintenance currentVersion fallback:\n${STALE_FALLBACKS}"
   else

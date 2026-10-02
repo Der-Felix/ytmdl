@@ -4,9 +4,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -363,36 +360,5 @@ func TestStep5_9_PriorityEnumRankMappingUnchanged(t *testing.T) {
 	}
 	if PriorityFromRank(3) != PriorityVeryHigh {
 		t.Errorf("PriorityFromRank(3) = %v, want PriorityVeryHigh", PriorityFromRank(3))
-	}
-}
-
-// 10. no migration: schema remains 12 -> 12
-func TestStep5_10_NoMigration(t *testing.T) {
-	migrationsDir := filepath.Join("..", "database", "migrations")
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		t.Fatalf("ReadDir migrations failed: %v", err)
-	}
-
-	maxMigration := 0
-	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".sql") {
-			parts := strings.Split(entry.Name(), "_")
-			if len(parts) > 0 {
-				var num int
-				for _, ch := range parts[0] {
-					if ch >= '0' && ch <= '9' {
-						num = num*10 + int(ch-'0')
-					}
-				}
-				if num > maxMigration {
-					maxMigration = num
-				}
-			}
-		}
-	}
-
-	if maxMigration != 12 {
-		t.Errorf("latest migration = %d, want 12 (no new migration allowed)", maxMigration)
 	}
 }

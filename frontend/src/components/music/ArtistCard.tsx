@@ -1,3 +1,4 @@
+import { libraryArtwork } from '@/lib/artwork'
 import { Cover } from '@/components/music/Cover'
 import { Link, paths } from '@/lib/router'
 import { formatNumber, pluralize } from '@/lib/utils/format'
@@ -31,6 +32,7 @@ function ArtistCard({ artist, href, isLocal }: ArtistCardProps) {
     >
       <Cover
         src={artist.image_url}
+        fallbackSrc={isLocal ? libraryArtwork('artists', artist.id) : undefined}
         alt=""
         shape="circle"
         className="w-28 max-w-full"
@@ -47,6 +49,7 @@ function ArtistCard({ artist, href, isLocal }: ArtistCardProps) {
         {isLibArtist ? (
           <p className="text-xs text-muted-foreground">
             {pluralize(artist.release_count, 'Release', 'Releases')} · {pluralize(artist.track_count, 'Track')}
+            {genres.length > 0 && <span className="mt-1 block line-clamp-1">{genres.join(' · ')}</span>}
           </p>
         ) : (
           <>

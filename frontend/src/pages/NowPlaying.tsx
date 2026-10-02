@@ -1,3 +1,4 @@
+import { libraryArtwork } from '@/lib/artwork'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown,
@@ -53,7 +54,7 @@ import type {
   SleepTimerOption,
   VisualizerMode,
 } from '@/lib/audio/types'
-import { Link, paths, useLocation } from '@/lib/router'
+import { Link, navigate, paths, useLocation } from '@/lib/router'
 import { formatDuration, formatPlaybackTime, joinArtists } from '@/lib/utils/format'
 import { parseLrc } from '@/lib/utils/lrc'
 import type { TrackLyrics } from '@/types/api'
@@ -89,6 +90,8 @@ export function NowPlaying() {
     preamp,
     autoHeadroom,
     limiterEnabled,
+    normalizationEnabled,
+    normalizationMessage,
     balance,
     mono,
     visualizerMode,
@@ -117,6 +120,7 @@ export function NowPlaying() {
     setPreamp,
     setAutoHeadroom,
     setLimiter,
+    setNormalization,
     setBalance,
     setMono,
     setVisualizerMode,
@@ -154,6 +158,7 @@ export function NowPlaying() {
   const [lyricsData, setLyricsData] = useState<TrackLyrics | null>(null)
   const [lyricsLoading, setLyricsLoading] = useState(false)
   const [lyricsRefreshing, setLyricsRefreshing] = useState(false)
+  const [followLyrics, setFollowLyrics] = useState(true)
   const activeLyricRef = useRef<HTMLDivElement | null>(null)
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null)
 
@@ -165,6 +170,24 @@ export function NowPlaying() {
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
+
+  useEffect(() => {
+    const leavePlayer = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      // Native fullscreen consumes Escape itself; a second Escape closes the large view.
+      if (document.fullscreenElement) return
+      if (playlistDialogOpen || savePresetOpen) return
+      event.preventDefault()
+      if (optionsMenuOpen || visualizerMenuOpen) {
+        setOptionsMenuOpen(false)
+        setVisualizerMenuOpen(false)
+        return
+      }
+      navigate(paths.library())
+    }
+    window.addEventListener('keydown', leavePlayer)
+    return () => window.removeEventListener('keydown', leavePlayer)
+  }, [optionsMenuOpen, visualizerMenuOpen, playlistDialogOpen, savePresetOpen])
 
   const toggleFullscreen = async () => {
     try {
@@ -186,6 +209,7 @@ export function NowPlaying() {
     }
 
     let active = true
+    setLyricsData(null)
     setLyricsLoading(true)
 
     trackLyrics(currentTrack.id)
@@ -244,15 +268,17 @@ export function NowPlaying() {
     return activeIdx
   }, [parsedLrcLines, currentTime])
 
-  // Auto-scroll active lyric line into view smoothly
+  // Scroll only the panel; scrollIntoView also moves the page and hides controls.
   useEffect(() => {
-    if (activeLyricRef.current) {
-      activeLyricRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      })
-    }
-  }, [activeLrcIndex])
+    const panel = lyricsContainerRef.current
+    const line = activeLyricRef.current
+    if (!panel || !line || !followLyrics || activeTab !== 'lyrics' || lyricsLoading) return
+    const top = panel.scrollTop + line.getBoundingClientRect().top - panel.getBoundingClientRect().top
+    panel.scrollTo({
+      top: Math.max(0, top - (panel.clientHeight - line.clientHeight) / 2),
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+    })
+  }, [activeLrcIndex, activeTab, followLyrics, lyricsLoading])
 
   if (!currentTrack) {
     return (
@@ -304,7 +330,7 @@ export function NowPlaying() {
   }
 
   return (
-    <div className="player-enter relative min-h-dvh flex flex-col bg-[#05070d] text-foreground select-none overflow-x-hidden">
+    <div className="player-page player-enter relative min-h-dvh flex flex-col bg-[#05070d] text-foreground select-none overflow-x-hidden">
       
       {/* Dynamic Immersive Background Atmosphere from Cover Art */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25 filter blur-3xl scale-125 transition-all duration-1000">
@@ -425,18 +451,18 @@ export function NowPlaying() {
       </header>
 
       {/* Main Responsive Grid Layout (Top-Aligned, Viewport-Constrained) */}
-      <main className="relative z-10 flex-1 flex items-start justify-center px-4 py-2 sm:px-8 lg:px-12 max-w-[1440px] mx-auto w-full">
-        <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 xl:gap-14 items-start">
+      <div className="player-content relative z-10 min-h-0 flex-1 flex items-start justify-center px-4 py-2 sm:px-8 lg:px-12 max-w-[1440px] mx-auto w-full">
+        <div className="player-grid w-full grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 xl:gap-14 items-start">
           
           {/* ======================================================== */}
           {/* LEFT COLUMN (42%): Height-Aware Artwork + Meta + Controls */}
           {/* ======================================================== */}
-          <div className="lg:col-span-5 flex flex-col items-center lg:items-start space-y-4 max-w-md mx-auto lg:mx-0 w-full">
+          <div className="player-controls lg:col-span-5 min-w-0 flex flex-col items-center lg:items-start space-y-4 max-w-md mx-auto lg:mx-0 w-full">
             
             {/* Artwork Cover (Height-Responsive, Max 420px, Fits on 768p/900p/1080p) */}
-            <div className="relative group w-full max-w-[clamp(240px,36vh,420px)] aspect-square rounded-[22px] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.65)] bg-black/40 border border-white/[0.06] mx-auto lg:mx-0">
+            <div className="relative group player-artwork w-full max-w-[clamp(180px,32dvh,380px)] aspect-square rounded-[22px] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.65)] bg-black/40 border border-white/[0.06] mx-auto lg:mx-0">
               <Cover
-                src={currentTrack.cover_url}
+                src={libraryArtwork('tracks', currentTrack.id)} fallbackSrc={currentTrack.cover_url}
                 alt={currentTrack.title}
                 shape="square"
                 className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
@@ -492,6 +518,16 @@ export function NowPlaying() {
                   onMouseDown={() => setSeekingValue(currentTime)}
                   onTouchStart={() => setSeekingValue(currentTime)}
                   onChange={(e) => setSeekingValue(parseFloat(e.target.value))}
+                  onKeyUp={(e) => {
+                    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+                      seek(Number(e.currentTarget.value))
+                      setSeekingValue(null)
+                    }
+                  }}
+                  onBlur={() => {
+                    if (seekingValue !== null) seek(seekingValue)
+                    setSeekingValue(null)
+                  }}
                   onMouseUp={() => {
                     if (seekingValue !== null) {
                       seek(seekingValue)
@@ -553,7 +589,7 @@ export function NowPlaying() {
                 size="icon"
                 onClick={togglePlayPause}
                 disabled={isBuffering}
-                className="size-13 sm:size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 hover:scale-[1.03] active:scale-[0.97] transition-all duration-150"
+                className="size-13 sm:size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/90 transition-colors duration-150"
                 title={isPlaying ? 'Pause' : 'Wiedergabe'}
                 aria-label={isPlaying ? 'Pause' : 'Wiedergabe'}
               >
@@ -728,7 +764,7 @@ export function NowPlaying() {
                           Sleep Timer
                         </label>
                         <div className="grid grid-cols-2 gap-1">
-                          {(['off', '15m', '30m', '45m', '60m', 'end_of_track'] as SleepTimerOption[]).map(
+                          {(['off', '15', '30', '45', '60', 'end_of_track'] as SleepTimerOption[]).map(
                             (option) => (
                               <button
                                 key={option}
@@ -743,7 +779,7 @@ export function NowPlaying() {
                                     : 'text-neutral-400 hover:text-white hover:bg-white/5'
                                 }`}
                               >
-                                {option === 'off' ? 'Aus' : option === 'end_of_track' ? 'Track-Ende' : option}
+                                {option === 'off' ? 'Aus' : option === 'end_of_track' ? 'Track-Ende' : `${option} min`}
                               </button>
                             ),
                           )}
@@ -785,10 +821,10 @@ export function NowPlaying() {
           {/* ======================================================== */}
           {/* RIGHT COLUMN (58%): Soft Glass Panel (Top-Aligned)       */}
           {/* ======================================================== */}
-          <div className="lg:col-span-7 flex flex-col rounded-[22px] bg-white/[0.02] border border-white/[0.05] backdrop-blur-xl shadow-2xl overflow-hidden max-h-[calc(100dvh-96px)] min-h-[500px]">
+          <div className="player-panel lg:col-span-7 min-w-0 min-h-0 flex flex-col rounded-[22px] bg-white/[0.02] border border-white/[0.05] backdrop-blur-xl shadow-2xl overflow-hidden">
             
             {/* Panel Tabs Navigation (Subtle Underline Active) */}
-            <div className="flex items-center border-b border-white/[0.05] px-4 pt-2 bg-white/[0.01]">
+            <div className="player-tabs grid grid-cols-4 shrink-0 items-center border-b border-white/[0.05] px-2 sm:px-4 pt-2 bg-white/[0.01]">
               <button
                 type="button"
                 onClick={() => setActiveTab('lyrics')}
@@ -851,13 +887,21 @@ export function NowPlaying() {
             </div>
 
             {/* Panel Tab Content (Internally Scrollable) */}
-            <div className="p-5 sm:p-6 flex-1 overflow-y-auto">
+            {activeTab === 'lyrics' && parsedLrcLines && (
+              <button type="button" aria-pressed={followLyrics} onClick={() => setFollowLyrics(!followLyrics)}
+                className="shrink-0 self-end mx-4 mt-2 rounded-lg px-2 py-1 text-xs text-neutral-400 hover:text-white focus-visible:ring-2 focus-visible:ring-primary">
+                {followLyrics ? 'Lyrics folgen · Ein' : 'Lyrics folgen · Aus'}
+              </button>
+            )}
+            <div ref={lyricsContainerRef} className="p-5 sm:p-6 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              onWheel={() => { if (activeTab === 'lyrics') setFollowLyrics(false) }}
+              onTouchMove={() => { if (activeTab === 'lyrics') setFollowLyrics(false) }}>
               
               {/* ---------------------------------------------------- */}
               {/* TAB 1: LYRICS                                        */}
               {/* ---------------------------------------------------- */}
               {activeTab === 'lyrics' && (
-                <div ref={lyricsContainerRef} className="space-y-4 py-2 min-h-[380px]">
+                <div className="space-y-4 py-2">
                   {lyricsLoading && (
                     <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
                       <RefreshCw className="size-6 animate-spin mb-3 text-primary" />
@@ -1053,7 +1097,7 @@ export function NowPlaying() {
                                 <GripVertical className="size-3.5" />
                               </button>
                               <Cover
-                                src={track.cover_url}
+                                src={libraryArtwork('tracks', track.id)} fallbackSrc={track.cover_url}
                                 alt={track.title}
                                 shape="square"
                                 className="size-9 rounded-lg shrink-0 border border-white/10"
@@ -1119,7 +1163,7 @@ export function NowPlaying() {
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <Cover
-                              src={item.track.cover_url}
+                              src={libraryArtwork('tracks', item.track.id)} fallbackSrc={item.track.cover_url}
                               alt={item.track.title}
                               shape="square"
                               className="size-9 rounded-lg shrink-0 border border-white/10"
@@ -1460,6 +1504,64 @@ export function NowPlaying() {
               {/* ---------------------------------------------------- */}
               {activeTab === 'audio' && (
                 <div className="space-y-4">
+                  {/* Section 4: Crossfade Transition */}
+                  <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2.5">
+                    <div className="space-y-2 rounded-lg border border-border p-3">
+                      <label className="flex items-center justify-between gap-3 text-sm">
+                        <span>Lautstärke angleichen</span>
+                        <input type="checkbox" checked={normalizationEnabled}
+                          onChange={(e) => setNormalization(e.target.checked)} />
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Passt die Wiedergabe pro Titel an. Aktuelle und nächste Titel werden einmal
+                        gemessen; Audiodateien bleiben unverändert.
+                      </p>
+                      {normalizationEnabled && <p role="status" className="text-xs text-muted-foreground">{normalizationMessage}</p>}
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-neutral-300">
+                      <label htmlFor="player-crossfade">Überblendung zwischen Liedern</label>
+                      <span className="font-mono text-white">{crossfadeSeconds === 0 ? 'Aus' : `${crossfadeSeconds} s`}</span>
+                    </div>
+                    <input id="player-crossfade" type="range" min={0} max={12} step={1}
+                      value={crossfadeSeconds} onChange={(e) => setCrossfade(Number(e.target.value))}
+                      aria-valuetext={crossfadeSeconds === 0 ? 'Aus' : `${crossfadeSeconds} Sekunden`}
+                      className="slider-quiet w-full" />
+                    <p className="text-[11px] text-neutral-400">Der nächste Titel beginnt leise, während der aktuelle ausklingt. Diese Einstellung wird in diesem Browser gespeichert.</p>
+                    <div className="flex items-center gap-1.5">
+                      {[0, 3, 6, 12].map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setCrossfade(s)}
+                          aria-pressed={crossfadeSeconds === s}
+                          className={`flex-1 py-1 rounded-lg text-xs font-medium transition-all ${
+                            crossfadeSeconds === s
+                              ? 'bg-primary text-white shadow-sm shadow-primary/20'
+                              : 'bg-white/[0.04] text-neutral-400 hover:text-white hover:bg-white/[0.08]'
+                          }`}
+                        >
+                          {s === 0 ? 'Aus' : `${s}s`}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-medium text-neutral-200">Album-Reihenfolge erhalten</p>
+                        <p className="text-[11px] text-neutral-400">
+                          Deaktiviert Crossfade automatisch bei aufeinanderfolgenden Tracks desselben Albums.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        aria-label="Aufeinanderfolgende Albumtitel ohne Überblendung"
+                        checked={smartAlbumTransition}
+                        onChange={(e) => setSmartAlbumTransition(e.target.checked)}
+                        className="rounded size-4 border-white/20 bg-white/5 text-primary"
+                      />
+                    </div>
+                  </div>
+
                   {/* Section 1: Preamp & Headroom Schutz */}
                   <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-3">
                     <h3 className="text-[11px] font-semibold text-neutral-300 uppercase tracking-wider">Klang & Pegelschutz</h3>
@@ -1557,44 +1659,7 @@ export function NowPlaying() {
                     </div>
                   </div>
 
-                  {/* Section 4: Crossfade Transition */}
-                  <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2.5">
-                    <div className="flex items-center justify-between text-xs text-neutral-300">
-                      <span>Crossfade Überblendung</span>
-                      <span className="font-mono text-white">{crossfadeSeconds}s</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {[0, 3, 6, 12].map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => setCrossfade(s)}
-                          className={`flex-1 py-1 rounded-lg text-xs font-medium transition-all ${
-                            crossfadeSeconds === s
-                              ? 'bg-primary text-white shadow-sm shadow-primary/20'
-                              : 'bg-white/[0.04] text-neutral-400 hover:text-white hover:bg-white/[0.08]'
-                          }`}
-                        >
-                          {s === 0 ? 'Aus' : `${s}s`}
-                        </button>
-                      ))}
-                    </div>
 
-                    <div className="pt-2 border-t border-white/5 flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-neutral-200">Smart Album Bypass</p>
-                        <p className="text-[11px] text-neutral-400">
-                          Deaktiviert Crossfade automatisch bei aufeinanderfolgenden Tracks desselben Albums.
-                        </p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={smartAlbumTransition}
-                        onChange={(e) => setSmartAlbumTransition(e.target.checked)}
-                        className="rounded size-4 border-white/20 bg-white/5 text-primary"
-                      />
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -1602,7 +1667,7 @@ export function NowPlaying() {
           </div>
 
         </div>
-      </main>
+      </div>
       <AddToPlaylistDialog
         track={currentTrack}
         open={playlistDialogOpen}

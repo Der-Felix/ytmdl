@@ -20,6 +20,7 @@ import { LibrarySearchField } from '@/components/library/LibrarySearchField'
 import { ArtistCard } from '@/components/music/ArtistCard'
 import { ReleaseCard } from '@/components/music/ReleaseCard'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
+import { LibraryToolsPanel } from '@/components/library/LibraryToolsPanel'
 import { TracksTable } from '@/components/music/TracksTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -41,6 +42,7 @@ import {
   deleteLibraryTrack,
   getCompatibilityReport,
   libraryArtists,
+  libraryGenres,
   libraryReleases,
   libraryStats,
   libraryTracks,
@@ -63,7 +65,7 @@ import type {
   LibraryTrack,
 } from '@/types/api'
 
-type LibraryTab = 'releases' | 'tracks' | 'artists' | 'maintenance'
+type LibraryTab = 'releases' | 'tracks' | 'artists' | 'maintenance' | 'tools'
 
 export function Library() {
   const auth = useOptionalAuth()
@@ -73,6 +75,16 @@ export function Library() {
 
   // URL state
   const currentView = (params.get('view') as LibraryTab) || 'releases'
+  const currentGenre = params.get('genre') || ''
+  const currentGenreMissing = params.get('genre_missing') === 'true'
+  const [genres, setGenres] = useState<string[]>([])
+  const [genreError, setGenreError] = useState<string | null>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    libraryGenres(controller.signal).then(setGenres).catch(() => { if (!controller.signal.aborted) setGenreError('Genres konnten nicht geladen werden.') })
+    return () => controller.abort()
+  }, [])
+
   const currentQ = params.get('q') || ''
   const currentSort = params.get('sort') || ''
   const currentOrder = params.get('order') || ''
@@ -86,6 +98,7 @@ export function Library() {
   const currentTrackId = params.get('track') || null
 
   // Active view state (synced with URL)
+  const [refreshIndex, setRefreshIndex] = useState(0)
   const [view, setView] = useState<LibraryTab>(currentView)
 
   // Overall Stats
@@ -191,6 +204,8 @@ export function Library() {
       const offset = (currentPage - 1) * pageSize
 
       libraryReleases({
+        genre: currentGenre,
+        genreMissing: currentGenreMissing,
         q: currentQ,
         artistId: currentArtistId,
         releaseType: currentType,
@@ -228,6 +243,8 @@ export function Library() {
             : 'asc'
 
       libraryTracks({
+        genre: currentGenre,
+        genreMissing: currentGenreMissing,
         q: currentQ,
         artistId: currentArtistId,
         releaseId: currentReleaseId,
@@ -260,6 +277,8 @@ export function Library() {
       const offset = (currentPage - 1) * pageSize
 
       libraryArtists({
+        genre: currentGenre,
+        genreMissing: currentGenreMissing,
         q: currentQ,
         sort: currentSort || 'name',
         order: currentOrder || (currentSort === 'recent' || currentSort === 'release_count' ? 'desc' : 'asc'),
@@ -288,7 +307,10 @@ export function Library() {
     }
   }, [
     view,
+    refreshIndex,
     currentQ,
+    currentGenre,
+    currentGenreMissing,
     currentSort,
     currentOrder,
     currentType,
@@ -521,6 +543,7 @@ export function Library() {
             Künstler {stats?.total_artists !== undefined ? `(${stats.total_artists})` : ''}
           </Button>
 
+          <Button variant={view==='tools'?'default':'ghost'} size="sm" onClick={()=>handleTabChange('tools')}>Werkzeuge</Button>
           <Button
             variant={view === 'maintenance' ? 'default' : 'ghost'}
             size="sm"
@@ -534,6 +557,26 @@ export function Library() {
       </div>
 
       {/* Tab 1: Releases Grid */}
+      {view !== 'maintenance' && view !== 'tools' && (
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            Genre
+            <select aria-label="Genre" className="max-w-64 rounded-lg border border-border bg-background px-3 py-2 text-foreground"
+              value={currentGenreMissing ? 'missing' : currentGenre ? `genre:${currentGenre}` : ''}
+              onChange={(event) => {
+                const value = event.target.value
+                updateUrl({ genre: value.startsWith('genre:') ? value.slice(6) : undefined, genre_missing: value === 'missing', page: 1 })
+              }}>
+              <option value="">Alle Genres</option>
+              <option value="missing">Ohne Genre</option>
+              {[...new Set([...genres, ...(currentGenre ? [currentGenre] : [])])].map((genre) => <option key={genre} value={`genre:${genre}`}>{genre}</option>)}
+            </select>
+          </label>
+          {(currentGenre || currentGenreMissing) && <Button variant="ghost" size="sm" onClick={() => updateUrl({ genre: undefined, genre_missing: undefined, page: 1 })}>Genre zurücksetzen</Button>}
+          {genreError && <p role="status" className="text-xs text-muted-foreground">{genreError}</p>}
+        </div>
+      )}
+
       {view === 'releases' && (
         <div className="space-y-6">
           {/* Release Filter & Sort Bar */}
@@ -650,7 +693,7 @@ export function Library() {
                 className="h-6 text-xs text-neutral-400 hover:text-accent px-1.5"
                 onClick={() => {
                   updateUrl({
-                    q: undefined,
+                    q: undefined, genre: undefined, genre_missing: undefined,
                     type: undefined,
                     year: undefined,
                     artist: undefined,
@@ -691,7 +734,7 @@ export function Library() {
                     ? currentQ
                       ? `Keine Releases für „${currentQ}“ gefunden.`
                       : 'Keine Releases mit den ausgewählten Filtern gefunden.'
-                    : 'Lade Musik über Discover herunter.'
+                    : currentGenre || currentGenreMissing ? 'Kein Künstler entspricht dem ausgewählten Genre.' : 'Lade Musik über Discover herunter.'
                 }
                 action={
                   currentQ || currentType || currentYear !== undefined || currentArtistId ? (
@@ -700,7 +743,7 @@ export function Library() {
                       size="sm"
                       onClick={() => {
                         updateUrl({
-                          q: undefined,
+                          q: undefined, genre: undefined, genre_missing: undefined,
                           type: undefined,
                           year: undefined,
                           artist: undefined,
@@ -929,7 +972,7 @@ export function Library() {
                 className="h-6 text-xs text-neutral-400 hover:text-accent px-1.5"
                 onClick={() => {
                   updateUrl({
-                    q: undefined,
+                    q: undefined, genre: undefined, genre_missing: undefined,
                     favorite: undefined,
                     year: undefined,
                     lyrics: undefined,
@@ -978,7 +1021,7 @@ export function Library() {
                     ? currentQ
                       ? `Keine Titel für „${currentQ}“ mit den ausgewählten Filtern gefunden.`
                       : 'Keine Titel mit den ausgewählten Filtern gefunden.'
-                    : 'Lade Musik über Discover herunter.'
+                    : currentGenre || currentGenreMissing ? 'Kein Künstler entspricht dem ausgewählten Genre.' : 'Lade Musik über Discover herunter.'
                 }
                 action={
                   currentQ ||
@@ -992,7 +1035,7 @@ export function Library() {
                       size="sm"
                       onClick={() => {
                         updateUrl({
-                          q: undefined,
+                          q: undefined, genre: undefined, genre_missing: undefined,
                           favorite: undefined,
                           year: undefined,
                           lyrics: undefined,
@@ -1014,6 +1057,7 @@ export function Library() {
             <>
               <TracksTable
                 tracks={tracks}
+ onMetadataUpdated={() => setRefreshIndex((value) => value + 1)}
                 sort={currentSort || (currentQ ? 'relevance' : 'recent')}
                 order={
                   currentOrder ||
@@ -1067,7 +1111,7 @@ export function Library() {
                   variant="ghost"
                   size="sm"
                   className="h-6 text-xs text-neutral-400 hover:text-accent px-1.5"
-                  onClick={() => updateUrl({ q: undefined, page: 1 })}
+                  onClick={() => updateUrl({ q: undefined, genre: undefined, genre_missing: undefined, page: 1 })}
                 >
                   Filter zurücksetzen
                 </Button>
@@ -1105,18 +1149,18 @@ export function Library() {
             <Panel>
               <EmptyState
                 icon={<UserIcon />}
-                title={currentQ ? 'Keine Treffer für deine Suche' : 'Keine Künstler in der Bibliothek'}
+                title={currentQ || currentGenre || currentGenreMissing ? 'Keine Künstler für diese Filter' : 'Keine Künstler in der Bibliothek'}
                 description={
                   currentQ
                     ? `Keine Künstler für „${currentQ}“ gefunden.`
-                    : 'Lade Musik über Discover herunter.'
+                    : currentGenre || currentGenreMissing ? 'Kein Künstler entspricht dem ausgewählten Genre.' : 'Lade Musik über Discover herunter.'
                 }
                 action={
-                  currentQ ? (
+                  currentQ || currentGenre || currentGenreMissing ? (
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => updateUrl({ q: undefined, page: 1 })}
+                      onClick={() => updateUrl({ q: undefined, genre: undefined, genre_missing: undefined, page: 1 })}
                     >
                       Filter zurücksetzen
                     </Button>
@@ -1144,9 +1188,8 @@ export function Library() {
       )}
 
       {/* Tab 4: Maintenance & Scan */}
-      {view === 'maintenance' && (
-        <IntegrityPanel isAdmin={isAdmin} />
-      )}
+      {view === 'tools' && <LibraryToolsPanel isAdmin={isAdmin} />}
+      {view === 'maintenance' && <IntegrityPanel isAdmin={isAdmin} />}
 
       {/* Track Detail Dialog (with deep-link support) */}
       <TrackDetailDialog

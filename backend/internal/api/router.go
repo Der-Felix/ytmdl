@@ -178,11 +178,19 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					mutating.Patch("/{id}", h.UpdatePlaylist)
 					mutating.Delete("/{id}", h.DeletePlaylist)
 					mutating.Post("/{id}/tracks", h.AddPlaylistTrack)
+					mutating.Post("/{id}/tracks/bulk", h.AddPlaylistTracks)
+					mutating.Put("/{id}/rules", h.SetPlaylistRules)
 					mutating.Delete("/{id}/tracks/{track_id}", h.RemovePlaylistTrack)
 					mutating.Put("/{id}/tracks/reorder", h.ReorderPlaylistTracks)
 				})
 			})
 
+			authed.Get("/history", h.ListeningHistory)
+			authed.Group(func(m chi.Router) {
+				m.Use(middleware.CSRF)
+				m.Post("/history", h.RecordPlayback)
+				m.Delete("/history", h.ClearListeningHistory)
+			})
 			authed.Route("/favorites", func(favorites chi.Router) {
 				favorites.Get("/", h.ListFavorites)
 				favorites.Get("/ids", h.ListFavoriteIDs)
@@ -197,6 +205,12 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 
 			authed.Route("/library", func(library chi.Router) {
 				library.Get("/stats", h.LibraryStats)
+				library.Get("/genres", h.LibraryGenres)
+				library.Get("/duplicates", h.DuplicateGroups)
+				for _, kind := range []string{"artists", "releases", "tracks"} {
+					library.Get("/"+kind+"/{id}/artwork", h.LibraryArtwork(kind))
+					library.Head("/"+kind+"/{id}/artwork", h.LibraryArtwork(kind))
+				}
 				library.Get("/search", h.LibrarySearch)
 				library.Get("/artists", h.LibraryArtists)
 				library.Get("/artists/{id}", h.LibraryArtistDetail)
@@ -220,8 +234,11 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 
 				library.Group(func(mutating chi.Router) {
 					mutating.Use(middleware.CSRF)
+					mutating.Post("/duplicates/review", h.SaveDuplicateReview)
+					mutating.Delete("/duplicates/review/{key}", h.ResetDuplicateReview)
 					mutating.Post("/tracks/{id}/redownload", h.RedownloadLibraryTrack)
 					mutating.Post("/tracks/{id}/retag", h.RetagLibraryTrack)
+					mutating.Post("/tracks/{id}/loudness", h.AnalyzeTrackLoudness)
 					mutating.Post("/tracks/{id}/lyrics/refresh", h.RefreshTrackLyrics)
 					mutating.Delete("/tracks/{id}/lyrics", h.DeleteTrackLyrics)
 					mutating.Post("/lyrics/backfill", h.BackfillLyrics)
@@ -231,6 +248,13 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					// Destructive library mutations & repairs require Administrator privileges
 					mutating.Group(func(admin chi.Router) {
 						admin.Use(middleware.RequireAdmin)
+						admin.Post("/duplicates/remove", h.RemoveDuplicateVersions)
+						admin.Put("/artists/{id}/genres", h.UpdateArtistGenres)
+						admin.Patch("/tracks/metadata", h.UpdateSelectedMetadata)
+						for _, kind := range []string{"artists", "releases"} {
+							admin.Put("/"+kind+"/{id}/artwork", h.UploadLibraryArtwork(kind))
+							admin.Delete("/"+kind+"/{id}/artwork", h.DeleteLibraryArtwork(kind))
+						}
 						admin.Post("/audits", h.StartLibraryAudit)
 						admin.Post("/audits/{id}/cancel", h.CancelLibraryAudit)
 						admin.Post("/repairs/preview", h.PreviewLibraryRepairs)

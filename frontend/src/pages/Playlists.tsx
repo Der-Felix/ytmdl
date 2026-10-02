@@ -1,10 +1,5 @@
 import { useCallback, useState } from 'react'
-import {
-  ListMusic,
-  Loader2,
-  Play,
-  Plus,
-} from 'lucide-react'
+import { ListMusic, Loader2, Play, Plus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -22,6 +17,8 @@ import { usePlayerActions } from '@/hooks/usePlayer'
 import { createPlaylist, getPlaylist, listPlaylists } from '@/lib/api/playlists'
 import { Link, useNavigate, paths } from '@/lib/router'
 import { formatRelative } from '@/lib/utils/format'
+import { SmartRuleEditor } from '@/components/music/SmartRuleEditor'
+import type { SmartRules } from '@/types/playlist'
 import type { Playlist } from '@/types/playlist'
 
 export function Playlists() {
@@ -32,6 +29,7 @@ export function Playlists() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [rules, setRules] = useState<SmartRules | null>(null)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [playingPlaylistId, setPlayingPlaylistId] = useState<string | null>(null)
@@ -46,16 +44,16 @@ export function Playlists() {
       const created = await createPlaylist({
         name: name.trim(),
         description: description.trim(),
+        smart_rules: rules,
       })
       setData((prev) => (prev ? [created, ...prev] : [created]))
       setCreateDialogOpen(false)
       setName('')
+      setRules(null)
       setDescription('')
       navigate(paths.playlist(created.id))
     } catch (err: unknown) {
-      setCreateError(
-        err instanceof Error ? err.message : 'Fehler beim Erstellen der Playlist',
-      )
+      setCreateError(err instanceof Error ? err.message : 'Fehler beim Erstellen der Playlist')
     } finally {
       setCreating(false)
     }
@@ -89,13 +87,12 @@ export function Playlists() {
             <ListMusic className="size-7 text-primary" />
             Playlists
           </h1>
-          <p className="text-sm text-neutral-400 mt-1">
-            Deine persönlichen Wiedergabelisten
-          </p>
+          <p className="text-sm text-neutral-400 mt-1">Deine persönlichen Wiedergabelisten</p>
         </div>
         <Button
           onClick={() => {
             setName('')
+            setRules(null)
             setDescription('')
             setCreateError(null)
             setCreateDialogOpen(true)
@@ -110,9 +107,7 @@ export function Playlists() {
       {/* Main Content */}
       {state.status === 'loading' && <ListSkeleton rows={4} />}
 
-      {state.status === 'error' && (
-        <ErrorState error={state.error} onRetry={reload} />
-      )}
+      {state.status === 'error' && <ErrorState error={state.error} onRetry={reload} />}
 
       {state.status === 'success' && state.data.length === 0 && (
         <EmptyState
@@ -123,6 +118,7 @@ export function Playlists() {
             <Button
               onClick={() => {
                 setName('')
+                setRules(null)
                 setDescription('')
                 setCreateError(null)
                 setCreateDialogOpen(true)
@@ -168,6 +164,9 @@ export function Playlists() {
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-base text-neutral-100 truncate group-hover:text-primary transition-colors">
                   {playlist.name}
+                  {playlist.smart_rules && (
+                    <span className="ml-2 text-xs text-primary">Intelligent</span>
+                  )}{' '}
                 </h3>
                 {playlist.description && (
                   <p className="text-xs text-neutral-400 line-clamp-2 mt-0.5">
@@ -178,8 +177,7 @@ export function Playlists() {
 
               <div className="mt-3.5 pt-3 border-t border-white/5 flex items-center justify-between text-xs text-neutral-500 font-mono">
                 <span>
-                  {playlist.track_count}{' '}
-                  {playlist.track_count === 1 ? 'Titel' : 'Titel'}
+                  {playlist.track_count} {playlist.track_count === 1 ? 'Titel' : 'Titel'}
                 </span>
                 <span>{formatRelative(playlist.updated_at)}</span>
               </div>
@@ -208,7 +206,8 @@ export function Playlists() {
               </div>
             )}
 
-            <div className="space-y-4 py-4">
+            <div className="space-y-4 py-4 max-h-[65dvh] overflow-y-auto">
+              <SmartRuleEditor value={rules} onChange={setRules} />
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-neutral-300">
                   Name <span className="text-destructive">*</span>
@@ -246,9 +245,7 @@ export function Playlists() {
                 Abbrechen
               </Button>
               <Button type="submit" disabled={creating || !name.trim()}>
-                {creating ? (
-                  <Loader2 className="size-4 animate-spin mr-2" />
-                ) : null}
+                {creating ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
                 Erstellen
               </Button>
             </DialogFooter>

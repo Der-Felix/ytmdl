@@ -627,7 +627,7 @@ jobs:
             --version "${{ steps.version.outputs.version }}" \
             --tag "${{ steps.version.outputs.tag }}" \
             "${channel_args[@]}" \
-            --schema 12 \
+            --schema 15 \
             --min-upgrade 0.15.0 \
             --backend-digest "${backend_digest}" \
             --backend-platform "linux/amd64=${backend_amd64}" \
@@ -637,7 +637,7 @@ jobs:
             --frontend-platform "linux/arm64=${frontend_arm64}" \
             --output "${PWD}/dist/release-manifest.json"
 
-      - name: Qualify Real Upgrade from v0.28.1
+      - name: Qualify Real Upgrades from v0.28.1 and v1.0.0
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
@@ -649,16 +649,16 @@ jobs:
             https://github.com/Der-Felix/ytmdl/releases/download/v0.28.0/SHA256SUMS -o "${old_cli_dir}/SHA256SUMS"
           (cd "${old_cli_dir}" && sha256sum --ignore-missing -c SHA256SUMS)
           chmod +x "${old_cli_dir}/ytmdlctl-linux-amd64"
-          python3 scripts/qualify-upgrade.py --engine docker \
-            --cli "${PWD}/dist/ytmdlctl-linux-amd64" \
-            --target "${{ steps.version.outputs.version }}" \
-            --manifest "${PWD}/dist/release-manifest.json" \
-            --old-cli "${old_cli_dir}/ytmdlctl-linux-amd64"
-          python3 scripts/qualify-upgrade.py --engine podman \
-            --cli "${PWD}/dist/ytmdlctl-linux-amd64" \
-            --target "${{ steps.version.outputs.version }}" \
-            --manifest "${PWD}/dist/release-manifest.json" \
-            --old-cli "${old_cli_dir}/ytmdlctl-linux-amd64"
+          for source in 0.28.1 1.0.0; do
+            for engine in docker podman; do
+              python3 scripts/qualify-upgrade.py --engine "${engine}" \
+                --cli "${PWD}/dist/ytmdlctl-linux-amd64" \
+                --source "${source}" \
+                --target "${{ steps.version.outputs.version }}" \
+                --manifest "${PWD}/dist/release-manifest.json" \
+                --old-cli "${old_cli_dir}/ytmdlctl-linux-amd64"
+            done
+          done
 
       - name: Record Runtime Tools and Qualification Evidence
         shell: bash
@@ -695,7 +695,7 @@ jobs:
                   "arm64_runtime_under_qemu": os.environ["ARM64_RUNTIME_QUALIFIED"] == "true",
                   "managed_upgrade_both_engines_and_guard_modes": os.environ["MANAGED_UPGRADE_QUALIFIED"] == "true",
               },
-              "database_schema": 12,
+              "database_schema": 15,
               "combined_stream_fallback": "disabled_by_default",
               "not_claimed": ["multiday_production_soak", "independent_security_audit", "full_safari_ios_support"],
           }

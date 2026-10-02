@@ -14,14 +14,15 @@ import (
 
 // Playlist represents a user-created collection of tracks.
 type Playlist struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	TrackCount  int       `json:"track_count"`
-	DurationMS  int       `json:"duration_ms"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	SmartRules  *SmartRules `json:"smart_rules,omitempty"`
+	ID          string      `json:"id"`
+	UserID      string      `json:"user_id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	TrackCount  int         `json:"track_count"`
+	DurationMS  int         `json:"duration_ms"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
 // PlaylistTrack represents a track membership within a playlist, preserving position.
@@ -88,7 +89,7 @@ func (r *Playlists) ListPlaylistsForUser(ctx context.Context, userID string) ([]
 			COALESCE(SUM(t.duration_ms), 0) AS duration_ms
 		FROM playlists p
 		LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
-		LEFT JOIN tracks t ON t.id = pt.track_id
+		LEFT JOIN tracks t ON t.id = pt.track_id LEFT JOIN track_overrides o ON o.track_id=t.id
 		WHERE p.user_id = $1
 		GROUP BY p.id
 		ORDER BY p.updated_at DESC, p.created_at DESC`
@@ -128,7 +129,7 @@ func (r *Playlists) GetPlaylistForUser(ctx context.Context, userID, playlistID s
 			COALESCE(SUM(t.duration_ms), 0) AS duration_ms
 		FROM playlists p
 		LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
-		LEFT JOIN tracks t ON t.id = pt.track_id
+		LEFT JOIN tracks t ON t.id = pt.track_id LEFT JOIN track_overrides o ON o.track_id=t.id
 		WHERE p.id = $1 AND p.user_id = $2
 		GROUP BY p.id`
 
@@ -149,14 +150,14 @@ func (r *Playlists) GetPlaylistForUser(ctx context.Context, userID, playlistID s
 
 	trkQuery := `
 		SELECT
-			t.id, t.release_id, t.artist_id, t.title, t.artists_json, t.album, t.album_artist,
-			t.track_number, t.track_total, t.disc_number, t.disc_total, t.duration_ms, t.year,
+			t.id, t.release_id, t.artist_id, t.title, COALESCE(o.artists_json,t.artists_json), COALESCE(o.album,t.album), COALESCE(o.album_artist,t.album_artist),
+			t.track_number, t.track_total, t.disc_number, t.disc_total, t.duration_ms, COALESCE(o.year,t.year),
 			t.isrc, t.cover_url, t.identity_key, t.compilation, t.lyrics_state, t.lyrics_provider,
 			t.lyrics_checked_at, t.created_at,
 			COALESCE(f.path, ''), COALESCE(f.size_bytes, 0), COALESCE(f.codec, ''), COALESCE(f.bitrate_kbps, 0),
 			ROW_NUMBER() OVER (ORDER BY pt.position ASC)::integer AS position, pt.added_at
 		FROM playlist_tracks pt
-		JOIN tracks t ON t.id = pt.track_id
+		JOIN tracks t ON t.id = pt.track_id LEFT JOIN track_overrides o ON o.track_id=t.id
 		LEFT JOIN files f ON f.track_id = t.id
 		WHERE pt.playlist_id = $1
 		ORDER BY pt.position ASC`
@@ -273,7 +274,8 @@ func (r *Playlists) AddTrack(ctx context.Context, userID, playlistID, trackID st
 
 	err := r.db.WithTx(ctx, func(tx *sql.Tx) error {
 		var ownerID string
-		err := tx.QueryRowContext(ctx, `SELECT user_id FROM playlists WHERE id = $1 FOR UPDATE`, playlistID).Scan(&ownerID)
+		var smart bool
+		err := tx.QueryRowContext(ctx, `SELECT user_id,smart_rules IS NOT NULL FROM playlists WHERE id = $1 FOR UPDATE`, playlistID).Scan(&ownerID, &smart)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return apperr.New(apperr.CodePlaylistNotFound, "Playlist nicht gefunden.")
@@ -282,6 +284,9 @@ func (r *Playlists) AddTrack(ctx context.Context, userID, playlistID, trackID st
 		}
 		if ownerID != userID {
 			return apperr.New(apperr.CodePlaylistNotFound, "Playlist nicht gefunden.")
+		}
+		if smart {
+			return apperr.New(apperr.CodeInvalidRequest, "Intelligente Playlists werden durch ihre Regeln gepflegt.")
 		}
 
 		var trackExists bool
@@ -350,7 +355,8 @@ func (r *Playlists) RemoveTrack(ctx context.Context, userID, playlistID, trackID
 
 	err := r.db.WithTx(ctx, func(tx *sql.Tx) error {
 		var ownerID string
-		err := tx.QueryRowContext(ctx, `SELECT user_id FROM playlists WHERE id = $1 FOR UPDATE`, playlistID).Scan(&ownerID)
+		var smart bool
+		err := tx.QueryRowContext(ctx, `SELECT user_id,smart_rules IS NOT NULL FROM playlists WHERE id = $1 FOR UPDATE`, playlistID).Scan(&ownerID, &smart)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return apperr.New(apperr.CodePlaylistNotFound, "Playlist nicht gefunden.")
@@ -359,6 +365,9 @@ func (r *Playlists) RemoveTrack(ctx context.Context, userID, playlistID, trackID
 		}
 		if ownerID != userID {
 			return apperr.New(apperr.CodePlaylistNotFound, "Playlist nicht gefunden.")
+		}
+		if smart {
+			return apperr.New(apperr.CodeInvalidRequest, "Intelligente Playlists werden durch ihre Regeln gepflegt.")
 		}
 
 		res, err := tx.ExecContext(ctx, `
@@ -412,7 +421,8 @@ func (r *Playlists) ReorderTracks(ctx context.Context, userID, playlistID string
 
 	err := r.db.WithTx(ctx, func(tx *sql.Tx) error {
 		var ownerID string
-		err := tx.QueryRowContext(ctx, `SELECT user_id FROM playlists WHERE id = $1 FOR UPDATE`, playlistID).Scan(&ownerID)
+		var smart bool
+		err := tx.QueryRowContext(ctx, `SELECT user_id,smart_rules IS NOT NULL FROM playlists WHERE id = $1 FOR UPDATE`, playlistID).Scan(&ownerID, &smart)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return apperr.New(apperr.CodePlaylistNotFound, "Playlist nicht gefunden.")
@@ -421,6 +431,9 @@ func (r *Playlists) ReorderTracks(ctx context.Context, userID, playlistID string
 		}
 		if ownerID != userID {
 			return apperr.New(apperr.CodePlaylistNotFound, "Playlist nicht gefunden.")
+		}
+		if smart {
+			return apperr.New(apperr.CodeInvalidRequest, "Intelligente Playlists werden durch ihre Regeln gepflegt.")
 		}
 
 		// Retrieve all existing track IDs in this playlist
@@ -553,13 +566,13 @@ func (r *Playlists) IsFavorite(ctx context.Context, userID, trackID string) (boo
 func (r *Playlists) ListFavoriteTracks(ctx context.Context, userID string) ([]music.LibraryTrack, error) {
 	query := `
 		SELECT
-			t.id, t.release_id, t.artist_id, t.title, t.artists_json, t.album, t.album_artist,
-			t.track_number, t.track_total, t.disc_number, t.disc_total, t.duration_ms, t.year,
+			t.id, t.release_id, t.artist_id, t.title, COALESCE(o.artists_json,t.artists_json), COALESCE(o.album,t.album), COALESCE(o.album_artist,t.album_artist),
+			t.track_number, t.track_total, t.disc_number, t.disc_total, t.duration_ms, COALESCE(o.year,t.year),
 			t.isrc, t.cover_url, t.identity_key, t.compilation, t.lyrics_state, t.lyrics_provider,
 			t.lyrics_checked_at, t.created_at,
 			COALESCE(f.path, ''), COALESCE(f.size_bytes, 0), COALESCE(f.codec, ''), COALESCE(f.bitrate_kbps, 0)
 		FROM favorite_tracks ft
-		JOIN tracks t ON t.id = ft.track_id
+		JOIN tracks t ON t.id = ft.track_id LEFT JOIN track_overrides o ON o.track_id=t.id
 		LEFT JOIN files f ON f.track_id = t.id
 		WHERE ft.user_id = $1
 		ORDER BY ft.created_at DESC`

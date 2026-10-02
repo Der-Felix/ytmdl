@@ -17,7 +17,7 @@ Starting with **v0.25**, the web player provides a first-class interactive playb
 
 > [!IMPORTANT]
 > **Playback Queue vs. Playlists vs. Download Queue:**
-> - **Playback Queue:** A temporary, in-memory queue that governs your current listening session. It does not persist across browser reloads or sync between devices.
+> - **Playback Queue:** A listening queue saved in this browser for the signed-in user. Reloading restores it paused; it does not sync between devices.
 > - **Playlists:** Permanent, database-backed user collections created in the Playlists section.
 > - **Download Queue:** Asynchronous background job queue managing download and metadata acquisition tasks.
 
@@ -38,6 +38,27 @@ Starting with **v0.25**, the web player provides a first-class interactive playb
 - **Shuffle & Repeat:** Supports shuffle mode and three-way repeat cycling (off, repeat all, repeat single track). Queue mutations while shuffled maintain deterministic mapping to original queue ordering.
 - **Responsive Controls:** Desktop control bar with timeline scrubbing, volume slider, and album artwork, transitioning to a compact responsive mini-player on mobile and tablet viewport widths.
 
+## Full player, lyrics and transitions
+
+The full player fits desktop windows by reducing the artwork height and scrolling
+the right panel independently. Smaller and short landscape windows use normal
+page scrolling so every control remains reachable. Synchronized lyrics scroll
+only their panel. Scrolling lyrics manually turns following off; use **Lyrics
+folgen** to resume. Following respects the browser's reduced-motion setting.
+
+Under **Audio**, **Überblendung zwischen Liedern** sets a transition from 0
+(off) to 12 seconds in one-second steps. The setting is saved in this browser.
+**Album-Reihenfolge erhalten** suppresses the overlap for consecutive tracks of
+the same album. Repeat-one, stop-after and end-of-track/album sleep timers keep
+their boundaries. Short tracks or an unready next stream finish normally.
+
+During an overlap the next track becomes current exactly once, after its audio
+starts. Pause stops both decks; seeking or manually selecting another track ends
+the overlap. If the next deck cannot start, the current track continues and the
+normal completion path handles the next selection. Background tabs and Safari/iOS
+remain subject to browser playback and timer policies; acoustic seamlessness is
+not guaranteed.
+
 ## Keyboard Shortcuts
 
 Global player shortcuts are available during active browsing and automatically isolated whenever focus is within an input field, search bar, or modal dialog:
@@ -48,8 +69,8 @@ Global player shortcuts are available during active browsing and automatically i
 | `ArrowLeft` / `ArrowRight` | Seek backward / forward 5 seconds |
 | `ArrowUp` / `ArrowDown` | Adjust volume up / down |
 | `M` | Mute / Unmute toggle |
-| `N` | Next track |
-| `P` | Previous track |
+| `Shift` + `ArrowRight` | Next track |
+| `Shift` + `ArrowLeft` | Previous track |
 | `S` | Toggle shuffle |
 | `R` | Cycle repeat mode |
 
