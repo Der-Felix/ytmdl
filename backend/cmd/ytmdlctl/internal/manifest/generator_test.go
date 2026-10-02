@@ -1,6 +1,7 @@
 package manifest_test
 
 import (
+	"strings"
 	"testing"
 
 	"ytdm/backend/cmd/ytmdlctl/internal/manifest"
@@ -336,12 +337,12 @@ func TestGenerateSchema12Manifest(t *testing.T) {
 }
 
 func TestGenerateSchemaUnallowlistedRejection(t *testing.T) {
-	// TargetSchema 14 without explicit upgrade paths should fail validation because no upgrade paths are automatically generated
+	// TargetSchema 15 without explicit upgrade paths should fail validation because no upgrade paths are automatically generated
 	opts := manifest.GeneratorOptions{
 		ManifestVersion: manifest.ManifestVersion3,
 		ReleaseVersion:  "0.24.0",
 		ReleaseTag:      "v0.24.0",
-		TargetSchema:    14,
+		TargetSchema:    15,
 		MinUpgradeFrom:  "0.15.0",
 		BackendDigest:   validDigest1,
 		FrontendDigest:  validDigest2,
@@ -349,7 +350,7 @@ func TestGenerateSchemaUnallowlistedRejection(t *testing.T) {
 
 	_, err := manifest.Generate(opts)
 	if err == nil {
-		t.Fatalf("expected error for unqualified TargetSchema 14 without explicit upgrade paths, got nil")
+		t.Fatalf("expected error for unqualified TargetSchema 15 without explicit upgrade paths, got nil")
 	}
 }
 
@@ -408,5 +409,24 @@ func TestGenerateSchema13Manifest(t *testing.T) {
 	}
 	if path13.RollbackClassification != manifest.RollbackSchemaNeutral {
 		t.Errorf("expected 13->13 rollback_classification schema_neutral, got %s", path13.RollbackClassification)
+	}
+}
+
+func TestGenerateSchema14Manifest(t *testing.T) {
+	data, err := manifest.Generate(manifest.GeneratorOptions{ManifestVersion: manifest.ManifestVersion3, ReleaseVersion: "1.0.1", ReleaseTag: "v1.0.1", TargetSchema: 14, MinUpgradeFrom: "0.15.0", BackendDigest: validDigest1, FrontendDigest: validDigest2, BackendPlatforms: map[string]string{"linux/amd64": "sha256:" + strings.Repeat("1", 64), "linux/arm64": "sha256:" + strings.Repeat("2", 64)}, FrontendPlatforms: map[string]string{"linux/amd64": "sha256:" + strings.Repeat("3", 64), "linux/arm64": "sha256:" + strings.Repeat("4", 64)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := m.FindUpgradePath(13)
+	if err != nil || p.UpdateClassification != manifest.UpdateSchemaForward || p.RollbackClassification != manifest.RollbackBackupRestoreRequired {
+		t.Fatal("unsafe schema13 upgrade", err)
+	}
+	p, err = m.FindUpgradePath(14)
+	if err != nil || p.UpdateClassification != manifest.UpdateSchemaNeutral {
+		t.Fatal("schema14 path missing")
 	}
 }

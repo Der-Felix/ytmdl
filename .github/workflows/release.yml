@@ -627,7 +627,7 @@ jobs:
             --version "${{ steps.version.outputs.version }}" \
             --tag "${{ steps.version.outputs.tag }}" \
             "${channel_args[@]}" \
-            --schema 13 \
+            --schema 14 \
             --min-upgrade 0.15.0 \
             --backend-digest "${backend_digest}" \
             --backend-platform "linux/amd64=${backend_amd64}" \
@@ -695,7 +695,7 @@ jobs:
                   "arm64_runtime_under_qemu": os.environ["ARM64_RUNTIME_QUALIFIED"] == "true",
                   "managed_upgrade_both_engines_and_guard_modes": os.environ["MANAGED_UPGRADE_QUALIFIED"] == "true",
               },
-              "database_schema": 13,
+              "database_schema": 14,
               "combined_stream_fallback": "disabled_by_default",
               "not_claimed": ["multiday_production_soak", "independent_security_audit", "full_safari_ios_support"],
           }

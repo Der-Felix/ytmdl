@@ -12,17 +12,20 @@ import {
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/api/client'
 import { addTrackToPlaylist, createPlaylist, listPlaylists } from '@/lib/api/playlists'
+import { addPlaylistTracks } from '@/lib/api/libraryTools'
 import type { LibraryTrack } from '@/types/api'
 import type { Playlist } from '@/types/playlist'
 
 interface AddToPlaylistDialogProps {
   track: LibraryTrack | null
+  tracks?: LibraryTrack[]
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
 export function AddToPlaylistDialog({
   track,
+  tracks,
   open,
   onOpenChange,
 }: AddToPlaylistDialogProps) {
@@ -54,7 +57,7 @@ export function AddToPlaylistDialog({
         setLoading(true)
         setError(null)
         const list = await listPlaylists()
-        setPlaylists(list)
+        setPlaylists(list.filter((pl) => !pl.smart_rules))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Fehler beim Laden der Playlists')
       } finally {
@@ -66,11 +69,16 @@ export function AddToPlaylistDialog({
   }, [open])
 
   const handleAddToPlaylist = async (playlistId: string) => {
-    if (!track) return
+    if (!track && !tracks?.length) return
     try {
       setAddingId(playlistId)
       setError(null)
-      await addTrackToPlaylist(playlistId, track.id)
+      if (tracks?.length)
+        await addPlaylistTracks(
+          playlistId,
+          tracks.map((t) => t.id),
+        )
+      else if (track) await addTrackToPlaylist(playlistId, track.id)
       setAddedIds((prev) => new Set(prev).add(playlistId))
       // Auto-close dialog after brief feedback
       setTimeout(() => {
@@ -81,7 +89,11 @@ export function AddToPlaylistDialog({
         setError('Track ist bereits in dieser Playlist')
       } else {
         const msg = err instanceof Error ? err.message : 'Fehler beim Hinzufügen'
-        if (msg.includes('already exists') || msg.includes('ALREADY_EXISTS') || msg.includes('bereits in dieser Playlist')) {
+        if (
+          msg.includes('already exists') ||
+          msg.includes('ALREADY_EXISTS') ||
+          msg.includes('bereits in dieser Playlist')
+        ) {
           setError('Track ist bereits in dieser Playlist')
         } else {
           setError(msg)
@@ -94,13 +106,18 @@ export function AddToPlaylistDialog({
 
   const handleCreateAndAdd = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!track || !newPlaylistName.trim()) return
+    if ((!track && !tracks?.length) || !newPlaylistName.trim()) return
 
     try {
       setCreateLoading(true)
       setError(null)
       const created = await createPlaylist({ name: newPlaylistName.trim() })
-      await addTrackToPlaylist(created.id, track.id)
+      if (tracks?.length)
+        await addPlaylistTracks(
+          created.id,
+          tracks.map((t) => t.id),
+        )
+      else if (track) await addTrackToPlaylist(created.id, track.id)
       setAddedIds((prev) => new Set(prev).add(created.id))
       setPlaylists((prev) => [created, ...prev])
       setNewPlaylistName('')
@@ -124,7 +141,11 @@ export function AddToPlaylistDialog({
             Zur Playlist hinzufügen
           </DialogTitle>
           <DialogDescription className="truncate">
-            {track ? `"${track.title}" auswählen` : 'Wähle eine Playlist aus'}
+            {tracks?.length
+              ? `${tracks.length} Titel hinzufügen`
+              : track
+                ? `"${track.title}" auswählen`
+                : 'Wähle eine Playlist aus'}
           </DialogDescription>
         </DialogHeader>
 
@@ -184,7 +205,10 @@ export function AddToPlaylistDialog({
             )}
 
             {isCreating ? (
-              <form onSubmit={(e) => void handleCreateAndAdd(e)} className="space-y-2 pt-2 border-t border-white/10">
+              <form
+                onSubmit={(e) => void handleCreateAndAdd(e)}
+                className="space-y-2 pt-2 border-t border-white/10"
+              >
                 <Input
                   autoFocus
                   placeholder="Playlist-Name..."

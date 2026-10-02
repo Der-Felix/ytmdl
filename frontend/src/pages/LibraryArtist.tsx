@@ -10,6 +10,7 @@ import {
   UserIcon,
 } from 'lucide-react'
 
+import { ArtworkEditor } from '@/components/music/ArtworkEditor'
 import { Cover } from '@/components/music/Cover'
 import { ReleaseCard } from '@/components/music/ReleaseCard'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
@@ -34,6 +35,7 @@ export function LibraryArtist({ id }: LibraryArtistProps) {
 
 function LibraryArtistView({ id }: LibraryArtistProps) {
   const auth = useOptionalAuth()
+  const [artworkVersion, setArtworkVersion] = useState(0)
   const isAdmin = auth ? auth.isAdmin : true
   const { playArtist } = usePlayerActions()
   const [genreDraft, setGenreDraft] = useState('')
@@ -172,7 +174,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-6">
           <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 text-center sm:text-left">
             <Cover
-              src={artist.image_url}
+              src={artworkVersion>0 ? libraryArtwork('artists', artist.id)+`?v=${artworkVersion}` : artist.image_url}
               fallbackSrc={libraryArtwork('artists', artist.id)}
               alt={artist.name}
               shape="circle"
@@ -180,6 +182,8 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
             />
             <div className="space-y-2">
               <h1 className="text-2xl sm:text-3xl font-bold font-heading text-neutral-100">{artist.name}</h1>
+ {isAdmin && <ArtworkEditor kind="artists" id={artist.id}
+                onSaved={() => setArtworkVersion((value) => value + 1)} />}
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 text-xs text-neutral-400">
                 <span className="flex items-center gap-1">
                   <Disc3Icon className="size-3.5" />

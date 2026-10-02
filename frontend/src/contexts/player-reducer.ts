@@ -1,7 +1,4 @@
-import {
-  BUILTIN_PRESETS,
-  DEFAULT_PARAMETRIC_FILTERS,
-} from '@/lib/audio/eqPresets'
+import { BUILTIN_PRESETS, DEFAULT_PARAMETRIC_FILTERS } from '@/lib/audio/eqPresets'
 import type {
   EQMode,
   EQPreset,
@@ -17,7 +14,10 @@ import type {
 import type { LibraryTrack } from '@/types/api'
 
 export type PlayerAction =
-  | { type: 'PLAY_TRACK'; payload: { track: LibraryTrack; queue?: LibraryTrack[]; queueIndex?: number } }
+  | {
+      type: 'PLAY_TRACK'
+      payload: { track: LibraryTrack; queue?: LibraryTrack[]; queueIndex?: number }
+    }
   | { type: 'PLAY_ALBUM'; payload: { tracks: LibraryTrack[]; startIndex?: number } }
   | { type: 'PLAY_ARTIST'; payload: { tracks: LibraryTrack[]; shuffle?: boolean } }
   | { type: 'PLAY_NEXT'; payload: { track: LibraryTrack } }
@@ -49,6 +49,8 @@ export type PlayerAction =
   | { type: 'DELETE_PARAMETRIC_FILTER'; payload: string }
   | { type: 'SET_PREAMP'; payload: number }
   | { type: 'SET_AUTO_HEADROOM'; payload: boolean }
+  | { type: 'SET_NORMALIZATION'; payload: boolean }
+  | { type: 'SET_NORMALIZATION_MESSAGE'; payload: string }
   | { type: 'SET_LIMITER'; payload: boolean }
   | { type: 'SET_BALANCE'; payload: number }
   | { type: 'SET_MONO'; payload: boolean }
@@ -87,6 +89,8 @@ export const INITIAL_PLAYER_STATE: PlayerState = {
   customPresets: [],
   preamp: 0,
   autoHeadroom: true,
+  normalizationEnabled: false,
+  normalizationMessage: '',
   limiterEnabled: true,
   balance: 0,
   mono: false,
@@ -120,7 +124,12 @@ function pushHistory(history: PlayerHistoryItem[], track: LibraryTrack): PlayerH
 }
 
 function trackDurationSeconds(track: LibraryTrack | null | undefined): number {
-  if (!track || typeof track.duration_ms !== 'number' || !Number.isFinite(track.duration_ms) || track.duration_ms <= 0) {
+  if (
+    !track ||
+    typeof track.duration_ms !== 'number' ||
+    !Number.isFinite(track.duration_ms) ||
+    track.duration_ms <= 0
+  ) {
     return 0
   }
   return track.duration_ms / 1000
@@ -140,7 +149,8 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         ...state,
         currentTrack: track,
         queue: newQueue,
-        originalQueue: state.shuffle && state.originalQueue.length > 0 ? state.originalQueue : newQueue,
+        originalQueue:
+          state.shuffle && state.originalQueue.length > 0 ? state.originalQueue : newQueue,
         queueIndex: idx,
         status: 'buffering',
         currentTime: 0,
@@ -372,7 +382,11 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     }
 
     case 'CLEAR_UPCOMING_QUEUE': {
-      if (!state.currentTrack || state.queueIndex < 0 || state.queueIndex >= state.queue.length - 1) {
+      if (
+        !state.currentTrack ||
+        state.queueIndex < 0 ||
+        state.queueIndex >= state.queue.length - 1
+      ) {
         return state
       }
       const removedTracks = state.queue.slice(state.queueIndex + 1)
@@ -444,7 +458,8 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         }
       } else {
         // Turn OFF: Restore originalQueue, reposition queueIndex to current track
-        const restored = state.originalQueue.length > 0 ? [...state.originalQueue] : [...state.queue]
+        const restored =
+          state.originalQueue.length > 0 ? [...state.originalQueue] : [...state.queue]
         let newIndex = 0
         if (state.currentTrack) {
           const found = restored.findIndex((t) => t.id === state.currentTrack!.id)
@@ -468,7 +483,12 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     }
 
     case 'SET_CROSSFADE': {
-      return { ...state, crossfadeSeconds: Number.isFinite(action.payload) ? Math.max(0, Math.min(12, action.payload)) : 0 }
+      return {
+        ...state,
+        crossfadeSeconds: Number.isFinite(action.payload)
+          ? Math.max(0, Math.min(12, action.payload))
+          : 0,
+      }
     }
 
     case 'SET_SMART_ALBUM_TRANSITION': {
@@ -554,9 +574,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       const filter = action.payload
       return {
         ...state,
-        parametricFilters: state.parametricFilters.map((f) =>
-          f.id === filter.id ? filter : f,
-        ),
+        parametricFilters: state.parametricFilters.map((f) => (f.id === filter.id ? filter : f)),
       }
     }
 
@@ -583,6 +601,10 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       return { ...state, autoHeadroom: action.payload }
     }
 
+    case 'SET_NORMALIZATION':
+      return { ...state, normalizationEnabled: action.payload }
+    case 'SET_NORMALIZATION_MESSAGE':
+      return { ...state, normalizationMessage: action.payload }
     case 'SET_LIMITER': {
       return { ...state, limiterEnabled: action.payload }
     }
@@ -653,7 +675,11 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         }
         if (state.sleepTimer === 'end_of_album' && state.currentTrack) {
           const nextCandidate = state.queue[state.queueIndex + 1]
-          if (!nextCandidate || nextCandidate.release_id !== state.currentTrack.release_id || nextCandidate.album !== state.currentTrack.album) {
+          if (
+            !nextCandidate ||
+            nextCandidate.release_id !== state.currentTrack.release_id ||
+            nextCandidate.album !== state.currentTrack.album
+          ) {
             return { ...state, status: 'paused', sleepTimer: 'off', sleepTimerEndsAt: null }
           }
         }

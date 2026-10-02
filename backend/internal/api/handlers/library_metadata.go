@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -43,6 +46,29 @@ func (h *Handlers) UpdateArtistGenres(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) LibraryArtwork(kind string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		customKind, customID := kind, id
+		if kind == "tracks" {
+			detail, err := h.deps.Catalog.GetLibraryTrackDetail(r.Context(), id)
+			if err != nil {
+				response.Error(w, r, err)
+				return
+			}
+			customKind, customID = "releases", detail.Track.ReleaseID
+		}
+		data, updated, err := h.deps.Catalog.CustomArtwork(r.Context(), customKind, customID)
+		if err != nil {
+			response.Error(w, r, err)
+			return
+		}
+		if len(data) > 0 {
+			w.Header().Set("ETag", fmt.Sprintf(`"%x"`, sha256.Sum256(data)))
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Cache-Control", "private, no-cache")
+			http.ServeContent(w, r, "cover.jpg", updated, bytes.NewReader(data))
+			return
+		}
 		paths, err := h.deps.Catalog.ArtworkFilePaths(r.Context(), kind, chi.URLParam(r, "id"))
 		if err != nil {
 			response.Error(w, r, err)
@@ -107,7 +133,7 @@ func serveLocalArtwork(w http.ResponseWriter, r *http.Request, rootPath string, 
 			}
 			w.Header().Set("Content-Type", mime)
 			w.Header().Set("X-Content-Type-Options", "nosniff")
-			w.Header().Set("Cache-Control", "private, max-age=300")
+			w.Header().Set("Cache-Control", "private, no-cache")
 			http.ServeContent(w, r, name, info.ModTime(), io.NewSectionReader(f, 0, info.Size()))
 			f.Close()
 			return true

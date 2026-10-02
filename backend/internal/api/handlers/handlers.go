@@ -64,6 +64,7 @@ type Deps struct {
 	// Tools are the external programs shown by the health endpoint.
 	Tools map[string]Checker
 
+	FFmpegPath   string
 	Version      string
 	StartedAt    time.Time
 	CookieSecure bool
@@ -74,6 +75,8 @@ type Deps struct {
 type Handlers struct {
 	deps Deps
 
+	loudnessMu   sync.Mutex
+	loudnessBusy bool
 	healthMu     sync.Mutex
 	healthCache  map[string]checkResult
 	healthCached time.Time

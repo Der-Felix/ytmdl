@@ -10,6 +10,8 @@ import {
 import type { ReactNode } from 'react'
 
 import { useOptionalAuth } from '@/hooks/useAuth'
+import { ListeningTracker } from '@/lib/audio/listeningTracker'
+import { analyzeLoudness, recordPlayback } from '@/lib/api/libraryTools'
 import { AudioEngine } from '@/lib/audio/engine'
 import {
   loadCustomPresets,
@@ -30,10 +32,7 @@ import type {
 } from '@/lib/audio/types'
 import { joinArtists } from '@/lib/utils/format'
 import type { LibraryTrack } from '@/types/api'
-import {
-  INITIAL_PLAYER_STATE,
-  playerReducer,
-} from './player-reducer'
+import { INITIAL_PLAYER_STATE, playerReducer } from './player-reducer'
 
 export interface PlayerProgressContextValue {
   currentTime: number
@@ -84,6 +83,7 @@ export interface PlayerActionsContextValue {
   deleteParametricFilter: (id: string) => void
   setPreamp: (db: number) => void
   setAutoHeadroom: (enabled: boolean) => void
+  setNormalization: (enabled: boolean) => void
   setLimiter: (enabled: boolean) => void
   setBalance: (balance: number) => void
   setMono: (mono: boolean) => void
@@ -91,9 +91,7 @@ export interface PlayerActionsContextValue {
   setVisualizerMode: (mode: VisualizerMode) => void
 }
 
-export interface PlayerContextValue
-  extends PlayerState,
-    PlayerActionsContextValue {}
+export interface PlayerContextValue extends PlayerState, PlayerActionsContextValue {}
 
 export const PlayerStateContext = createContext<PlayerStateContextValue | null>(null)
 export const PlayerProgressContext = createContext<PlayerProgressContextValue | null>(null)
@@ -107,6 +105,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [loadRequest, requestLoad] = useReducer((value: number) => value + 1, 0)
   const engine = useMemo(() => AudioEngine.getInstance(), [])
 
+  const listeningTracker = useRef(new ListeningTracker())
   const stateRef = useRef(state)
   stateRef.current = state
 
@@ -128,20 +127,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [engine])
 
-  const nextAction = useCallback((manual = true) => {
-    const after = playerReducer(stateRef.current, { type: 'NEXT', payload: { manual } })
-    if (after.status === 'paused') engine.pause()
-    else {
-      currentEngineTrackIdRef.current = null
-      requestLoad()
-    }
-    dispatch({ type: 'NEXT', payload: { manual } })
-  }, [engine])
+  const nextAction = useCallback(
+    (manual = true) => {
+      const after = playerReducer(stateRef.current, { type: 'NEXT', payload: { manual } })
+      if (after.status === 'paused') engine.pause()
+      else {
+        currentEngineTrackIdRef.current = null
+        requestLoad()
+      }
+      dispatch({ type: 'NEXT', payload: { manual } })
+    },
+    [engine],
+  )
 
   // 1. Initial State Restoration from LocalStorage
   useEffect(() => {
     const customPresets = loadCustomPresets()
     const history = loadHistory(user?.id)
+    listeningTracker.current.reset()
     const saved = loadPlayerState(user?.id)
 
     if (saved || customPresets.length > 0 || history.length > 0) {
@@ -160,6 +163,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     engine.setCallbacks({
       onTimeUpdate: (currentTime, duration) => {
+        const s = stateRef.current,
+          u = userRef.current
+        if (
+          u &&
+          s.currentTrack &&
+          listeningTracker.current.tick(
+            u.id + ':' + s.currentTrack.id,
+            s.status === 'playing',
+            performance.now(),
+            duration,
+            s.playbackRate,
+          )
+        ) {
+          const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (v) =>
+              v.toString(16).padStart(2, '0'),
+            ).join(''),
+            trackID = s.currentTrack.id
+          void recordPlayback(trackID, id)
+            .catch(() => recordPlayback(trackID, id))
+            .catch(() => {})
+        }
+
         dispatch({
           type: 'SET_CURRENT_TIME',
           payload: { currentTime, duration },
@@ -172,6 +197,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'SET_ERROR', payload: error })
       },
       onTrackEnded: () => {
+        listeningTracker.current.reset()
         const before = stateRef.current
         const after = playerReducer(before, { type: 'NEXT', payload: { manual: false } })
         if (after.status === 'paused') engine.pause()
@@ -182,8 +208,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'NEXT', payload: { manual: false } })
       },
       onNextDeckCrossfadeStart: (streamUrl) => {
+        listeningTracker.current.reset()
         const after = playerReducer(stateRef.current, { type: 'NEXT', payload: { manual: false } })
-        const expected = after.currentTrack ? `/api/v1/library/tracks/${encodeURIComponent(after.currentTrack.id)}/stream` : null
+        const expected = after.currentTrack
+          ? `/api/v1/library/tracks/${encodeURIComponent(after.currentTrack.id)}/stream`
+          : null
         if (after.status !== 'buffering' || expected !== streamUrl) {
           // A boundary or queue edit may arrive while the incoming play promise settles.
           engine.pause()
@@ -211,6 +240,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     engine.setPreamp(state.preamp)
     engine.setAutoHeadroom(state.autoHeadroom)
     engine.setLimiter(state.limiterEnabled)
+    engine.setNormalization(state.normalizationEnabled)
     engine.setBalance(state.balance)
     engine.setMono(state.mono)
   }, [
@@ -225,6 +255,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     state.preamp,
     state.autoHeadroom,
     state.limiterEnabled,
+    state.normalizationEnabled,
     state.balance,
     state.mono,
   ])
@@ -255,9 +286,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Use the same decision as completion: repeat-one, stop-after and sleep timers
     // must never accidentally start a different song during an overlap.
     const after = playerReducer(latest, { type: 'NEXT', payload: { manual: false } })
-    const nextTrack = after.status === 'buffering' && state.repeatMode !== 'track'
-      ? after.currentTrack
-      : null
+    const nextTrack =
+      after.status === 'buffering' && state.repeatMode !== 'track' ? after.currentTrack : null
 
     if (nextTrack) {
       const nextStreamUrl = `/api/v1/library/tracks/${encodeURIComponent(nextTrack.id)}/stream`
@@ -265,7 +295,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const isConsecutiveAlbumTrack =
         Boolean(track.release_id) &&
         track.release_id === nextTrack.release_id &&
-        ((nextTrack.disc_number === track.disc_number && nextTrack.track_number === track.track_number + 1) ||
+        ((nextTrack.disc_number === track.disc_number &&
+          nextTrack.track_number === track.track_number + 1) ||
           (nextTrack.disc_number === track.disc_number + 1 && nextTrack.track_number === 1))
 
       if (state.smartAlbumTransition && isConsecutiveAlbumTrack) {
@@ -290,6 +321,47 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     state.queue,
     state.stopAfter,
     state.sleepTimer,
+  ])
+
+  // Analyze only current and next tracks after explicit opt-in, sequentially.
+  useEffect(() => {
+    if (!state.normalizationEnabled || !user?.id || !state.currentTrack) return
+    const controller = new AbortController()
+    const current = state.currentTrack,
+      next = state.queue[state.queueIndex + 1]
+    dispatch({ type: 'SET_NORMALIZATION_MESSAGE', payload: 'Lautstärke wird gemessen …' })
+    void (async () => {
+      for (const track of [current, next]) {
+        if (!track || controller.signal.aborted) continue
+        try {
+          const measurement = await analyzeLoudness(track.id, controller.signal)
+          if (controller.signal.aborted) return
+          engine.setLoudnessGain(
+            `/api/v1/library/tracks/${encodeURIComponent(track.id)}/stream`,
+            measurement.gain_db,
+          )
+          if (track.id === current.id)
+            dispatch({
+              type: 'SET_NORMALIZATION_MESSAGE',
+              payload: `Aktueller Titel: ${measurement.gain_db.toFixed(1)} dB`,
+            })
+        } catch (error) {
+          if (!controller.signal.aborted && track.id === current.id)
+            dispatch({
+              type: 'SET_NORMALIZATION_MESSAGE',
+              payload: error instanceof Error ? error.message : 'Analyse fehlgeschlagen.',
+            })
+        }
+      }
+    })()
+    return () => controller.abort()
+  }, [
+    engine,
+    state.normalizationEnabled,
+    state.currentTrack?.id,
+    state.queueIndex,
+    state.queue,
+    user?.id,
   ])
 
   // 5. Media Session API Integration
@@ -321,29 +393,56 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
 
     const actionHandlers: [MediaSessionAction, MediaSessionActionHandler][] = [
-      ['play', () => { engine.play(); dispatch({ type: 'SET_STATUS', payload: 'playing' }) }],
-      ['pause', () => { engine.pause(); dispatch({ type: 'SET_STATUS', payload: 'paused' }) }],
+      [
+        'play',
+        () => {
+          engine.play()
+          dispatch({ type: 'SET_STATUS', payload: 'playing' })
+        },
+      ],
+      [
+        'pause',
+        () => {
+          engine.pause()
+          dispatch({ type: 'SET_STATUS', payload: 'paused' })
+        },
+      ],
       ['previoustrack', previousAction],
       ['nexttrack', () => nextAction(true)],
-      ['seekto', (details) => {
-        if (details.seekTime !== undefined) {
-          engine.seek(details.seekTime)
-          dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: details.seekTime } })
-        }
-      }],
-      ['seekbackward', (details) => {
-        const skip = details.seekOffset || 5
-        const newTime = Math.max(0, stateRef.current.currentTime - skip)
-        engine.seek(newTime)
-        dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: newTime } })
-      }],
-      ['seekforward', (details) => {
-        const skip = details.seekOffset || 5
-        const newTime = Math.min(stateRef.current.duration, stateRef.current.currentTime + skip)
-        engine.seek(newTime)
-        dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: newTime } })
-      }],
-      ['stop', () => { engine.pause(); dispatch({ type: 'SET_STATUS', payload: 'paused' }) }],
+      [
+        'seekto',
+        (details) => {
+          if (details.seekTime !== undefined) {
+            engine.seek(details.seekTime)
+            dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: details.seekTime } })
+          }
+        },
+      ],
+      [
+        'seekbackward',
+        (details) => {
+          const skip = details.seekOffset || 5
+          const newTime = Math.max(0, stateRef.current.currentTime - skip)
+          engine.seek(newTime)
+          dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: newTime } })
+        },
+      ],
+      [
+        'seekforward',
+        (details) => {
+          const skip = details.seekOffset || 5
+          const newTime = Math.min(stateRef.current.duration, stateRef.current.currentTime + skip)
+          engine.seek(newTime)
+          dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: newTime } })
+        },
+      ],
+      [
+        'stop',
+        () => {
+          engine.pause()
+          dispatch({ type: 'SET_STATUS', payload: 'paused' })
+        },
+      ],
     ]
 
     for (const [action, handler] of actionHandlers) {
@@ -503,6 +602,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         preamp: s.preamp,
         autoHeadroom: s.autoHeadroom,
         limiterEnabled: s.limiterEnabled,
+        normalizationEnabled: s.normalizationEnabled,
         balance: s.balance,
         mono: s.mono,
         bassBoost: s.bassBoost,
@@ -534,6 +634,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         preamp: s.preamp,
         autoHeadroom: s.autoHeadroom,
         limiterEnabled: s.limiterEnabled,
+        normalizationEnabled: s.normalizationEnabled,
         balance: s.balance,
         mono: s.mono,
         bassBoost: s.bassBoost,
@@ -813,6 +914,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setPreamp: setPreampAction,
       setAutoHeadroom: setAutoHeadroomAction,
       setLimiter: setLimiterAction,
+      setNormalization: (enabled) => dispatch({ type: 'SET_NORMALIZATION', payload: enabled }),
       setBalance: setBalanceAction,
       setMono: setMonoAction,
       setBassBoost: setBassBoostAction,
@@ -905,6 +1007,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     state.preamp,
     state.autoHeadroom,
     state.limiterEnabled,
+    state.normalizationEnabled,
+    state.normalizationMessage,
     state.balance,
     state.mono,
     state.bassBoost,
@@ -925,9 +1029,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     <PlayerActionsContext.Provider value={actionsValue}>
       <PlayerProgressContext.Provider value={progressValue}>
         <PlayerStateContext.Provider value={stateWithoutProgress}>
-          <PlayerContext.Provider value={combinedValue}>
-            {children}
-          </PlayerContext.Provider>
+          <PlayerContext.Provider value={combinedValue}>{children}</PlayerContext.Provider>
         </PlayerStateContext.Provider>
       </PlayerProgressContext.Provider>
     </PlayerActionsContext.Provider>

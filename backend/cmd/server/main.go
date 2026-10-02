@@ -590,6 +590,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	}
 
 	handlerSet, err := handlers.New(handlers.Deps{
+		FFmpegPath:     cfg.Tools.FFmpegPath,
 		Discography:    discographyService,
 		Registry:       registry,
 		Jobs:           manager,

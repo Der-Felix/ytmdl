@@ -38,11 +38,31 @@ func New(opts Options) (*Service, error) {
 }
 
 // CreatePlaylist creates a new user playlist with validation.
-func (s *Service) CreatePlaylist(ctx context.Context, userID, name, description string) (repository.Playlist, error) {
+func (s *Service) CreatePlaylist(ctx context.Context, userID, name, description string, rules ...*repository.SmartRules) (repository.Playlist, error) {
 	if strings.TrimSpace(userID) == "" {
 		return repository.Playlist{}, apperr.New(apperr.CodeUnauthenticated, "Anmeldung erforderlich.")
 	}
-	return s.store.CreatePlaylist(ctx, userID, name, description)
+	var rule *repository.SmartRules
+	if len(rules) > 0 {
+		rule = rules[0]
+	}
+	if rule != nil {
+		if err := rule.Validate(); err != nil {
+			return repository.Playlist{}, err
+		}
+	}
+	p, err := s.store.CreatePlaylist(ctx, userID, name, description)
+	if err != nil {
+		return p, err
+	}
+	if rule != nil {
+		if err = s.store.SetSmartRules(ctx, userID, p.ID, rule); err != nil {
+			_ = s.store.DeletePlaylist(ctx, userID, p.ID)
+			return repository.Playlist{}, err
+		}
+		_, err = s.store.EnrichSmart(ctx, &p)
+	}
+	return p, err
 }
 
 // ListPlaylists lists all playlists owned by the authenticated user.
@@ -50,7 +70,16 @@ func (s *Service) ListPlaylists(ctx context.Context, userID string) ([]repositor
 	if strings.TrimSpace(userID) == "" {
 		return nil, apperr.New(apperr.CodeUnauthenticated, "Anmeldung erforderlich.")
 	}
-	return s.store.ListPlaylistsForUser(ctx, userID)
+	ps, err := s.store.ListPlaylistsForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range ps {
+		if _, err = s.store.EnrichSmart(ctx, &ps[i]); err != nil {
+			return nil, err
+		}
+	}
+	return ps, nil
 }
 
 // GetPlaylist retrieves a user's playlist and its ordered tracks.
@@ -58,7 +87,15 @@ func (s *Service) GetPlaylist(ctx context.Context, userID, playlistID string) (r
 	if strings.TrimSpace(userID) == "" {
 		return repository.PlaylistDetail{}, apperr.New(apperr.CodeUnauthenticated, "Anmeldung erforderlich.")
 	}
-	return s.store.GetPlaylistForUser(ctx, userID, playlistID)
+	p, err := s.store.GetPlaylistForUser(ctx, userID, playlistID)
+	if err != nil {
+		return p, err
+	}
+	ts, err := s.store.EnrichSmart(ctx, &p.Playlist)
+	if p.SmartRules != nil {
+		p.Tracks = ts
+	}
+	return p, err
 }
 
 // UpdatePlaylist updates metadata for a user's playlist.
@@ -139,4 +176,11 @@ func (s *Service) ListFavoriteTrackIDs(ctx context.Context, userID string) ([]st
 		return nil, apperr.New(apperr.CodeUnauthenticated, "Anmeldung erforderlich.")
 	}
 	return s.store.ListFavoriteTrackIDs(ctx, userID)
+}
+
+func (s *Service) SetSmartRules(ctx context.Context, userID, id string, rules *repository.SmartRules) error {
+	return s.store.SetSmartRules(ctx, userID, id, rules)
+}
+func (s *Service) AddTracks(ctx context.Context, userID, id string, ids []string) (repository.PlaylistDetail, error) {
+	return s.store.AddTracks(ctx, userID, id, ids)
 }

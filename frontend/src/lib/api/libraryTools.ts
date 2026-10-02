@@ -1,0 +1,60 @@
+import { request, requestVoid } from './client'
+import type { LibraryTrack } from '@/types/api'
+import type { PlaylistDetail, SmartRules } from '@/types/playlist'
+export interface HistoryTrack extends LibraryTrack {
+  play_count: number
+  last_played_at: string
+}
+export interface DuplicateGroup {
+  key: string
+  count: number
+  tracks: LibraryTrack[]
+}
+export interface MetadataPatch {
+  album?: string
+  album_artist?: string
+  artists?: string[]
+  year?: number
+}
+export const listeningHistory = (sort = 'recent', signal?: AbortSignal) =>
+  request<HistoryTrack[]>('/history', { query: { sort }, signal })
+export const recordPlayback = (track_id: string, event_id: string) =>
+  requestVoid('/history', { method: 'POST', body: { track_id, event_id } })
+export const clearListeningHistory = () => requestVoid('/history', { method: 'DELETE' })
+export const duplicateGroups = (offset = 0, signal?: AbortSignal) =>
+  request<DuplicateGroup[]>('/library/duplicates', {
+    query: { offset },
+    signal,
+  })
+export const updateSelectedMetadata = (track_ids: string[], patch: MetadataPatch) =>
+  requestVoid('/library/tracks/metadata', {
+    method: 'PATCH',
+    body: { track_ids, patch },
+  })
+export const addPlaylistTracks = (id: string, track_ids: string[]) =>
+  request<PlaylistDetail>(`/playlists/${encodeURIComponent(id)}/tracks/bulk`, {
+    method: 'POST',
+    body: { track_ids },
+  })
+export const setPlaylistRules = (id: string, smart_rules: SmartRules | null) =>
+  requestVoid(`/playlists/${encodeURIComponent(id)}/rules`, {
+    method: 'PUT',
+    body: { smart_rules },
+  })
+export async function uploadArtwork(kind: 'artists' | 'releases', id: string, image: File) {
+  const body = new FormData()
+  body.append('image', image)
+  return requestVoid(`/library/${kind}/${encodeURIComponent(id)}/artwork`, {
+    method: 'PUT',
+    body,
+  })
+}
+export const deleteArtwork = (kind: 'artists' | 'releases', id: string) =>
+  requestVoid(`/library/${kind}/${encodeURIComponent(id)}/artwork`, {
+    method: 'DELETE',
+  })
+export const analyzeLoudness = (id: string, signal?: AbortSignal) =>
+  request<{ gain_db: number; integrated_lufs: number; true_peak_db: number }>(
+    `/library/tracks/${encodeURIComponent(id)}/loudness`,
+    { method: 'POST', signal },
+  )
