@@ -9,6 +9,21 @@ export interface DuplicateGroup {
   key: string
   count: number
   tracks: LibraryTrack[]
+  fingerprint: string
+  outcome: '' | 'preferred' | 'distinct'
+  preferred_track_id: string
+}
+export interface DuplicateReview {
+  group_key: string
+  fingerprint: string
+  outcome: 'preferred' | 'distinct'
+  preferred_track_id: string
+}
+export interface DuplicateRemoval {
+  deleted_track_ids: string[]
+  failed_track_id?: string
+  error_code?: string
+  message?: string
 }
 export interface MetadataPatch {
   album?: string
@@ -21,10 +36,27 @@ export const listeningHistory = (sort = 'recent', signal?: AbortSignal) =>
 export const recordPlayback = (track_id: string, event_id: string) =>
   requestVoid('/history', { method: 'POST', body: { track_id, event_id } })
 export const clearListeningHistory = () => requestVoid('/history', { method: 'DELETE' })
-export const duplicateGroups = (offset = 0, signal?: AbortSignal) =>
+export const duplicateGroups = (
+  offset = 0,
+  signal?: AbortSignal,
+  options: { includeReviewed?: boolean; after?: string } = {},
+) =>
   request<DuplicateGroup[]>('/library/duplicates', {
-    query: { offset },
+    query: {
+      offset,
+      review: options.includeReviewed === false ? 'open' : 'all',
+      after: options.after,
+    },
     signal,
+  })
+export const saveDuplicateReview = (review: DuplicateReview) =>
+  requestVoid('/library/duplicates/review', { method: 'POST', body: review })
+export const resetDuplicateReview = (key: string) =>
+  requestVoid(`/library/duplicates/review/${encodeURIComponent(key)}`, { method: 'DELETE' })
+export const removeDuplicateVersions = (review: DuplicateReview, remove_track_ids: string[]) =>
+  request<DuplicateRemoval>('/library/duplicates/remove', {
+    method: 'POST',
+    body: { ...review, remove_track_ids, confirmed: true },
   })
 export const updateSelectedMetadata = (track_ids: string[], patch: MetadataPatch) =>
   requestVoid('/library/tracks/metadata', {

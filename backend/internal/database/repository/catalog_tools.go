@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -266,45 +265,16 @@ func (c *Catalog) ApplyTrackOverride(ctx context.Context, t *music.Track) error 
 }
 
 type DuplicateGroup struct {
-	Key    string               `json:"key"`
-	Count  int                  `json:"count"`
-	Tracks []music.LibraryTrack `json:"tracks"`
+	Key              string               `json:"key"`
+	Count            int                  `json:"count"`
+	Tracks           []music.LibraryTrack `json:"tracks"`
+	Fingerprint      string               `json:"fingerprint"`
+	Outcome          string               `json:"outcome"`
+	PreferredTrackID string               `json:"preferred_track_id"`
 }
 
 func (c *Catalog) DuplicateGroups(ctx context.Context, offset int) ([]DuplicateGroup, error) {
-	rows, err := c.db.QueryContext(ctx, `SELECT lower(btrim(title))||'|'||lower(btrim(CASE WHEN album_artist<>'' THEN album_artist ELSE artists_json::text END)) AS key,count(*),to_json((array_agg(id ORDER BY created_at,id))[1:20]) FROM tracks WHERE EXISTS(SELECT 1 FROM files f WHERE f.track_id=tracks.id) GROUP BY key HAVING count(*)>1 ORDER BY key LIMIT 20 OFFSET $1`, clampOffset(offset))
-	if err != nil {
-		return nil, wrapDB("duplicate candidates", err)
-	}
-	out := []DuplicateGroup{}
-	all := [][]string{}
-	for rows.Next() {
-		var g DuplicateGroup
-		var ids []byte
-		if err = rows.Scan(&g.Key, &g.Count, &ids); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		var list []string
-		if err = json.Unmarshal(ids, &list); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		out = append(out, g)
-		all = append(all, list)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	for i, ids := range all {
-		out[i].Tracks, err = c.TracksByIDs(ctx, ids)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
+	return c.DuplicateGroupsForUser(ctx, "", offset, true, "")
 }
 func (c *Catalog) CustomArtwork(ctx context.Context, kind, id string) ([]byte, time.Time, error) {
 	var data []byte

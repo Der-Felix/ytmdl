@@ -4,11 +4,11 @@ import { Input } from '@/components/ui/input'
 import { ErrorState, ListSkeleton } from '@/components/ui/state-view'
 import { Cover } from '@/components/music/Cover'
 import { ArtworkEditor } from '@/components/music/ArtworkEditor'
-import { TracksTable } from '@/components/music/TracksTable'
+import { DuplicateReviewPanel } from './DuplicateReviewPanel'
 import { usePlayerActions } from '@/hooks/usePlayer'
 import { useAsync } from '@/hooks/useAsync'
 import { libraryArtists, libraryReleases } from '@/lib/api/library'
-import { clearListeningHistory, duplicateGroups, listeningHistory } from '@/lib/api/libraryTools'
+import { clearListeningHistory, listeningHistory } from '@/lib/api/libraryTools'
 import { libraryArtwork } from '@/lib/artwork'
 import { navigate } from '@/lib/router'
 import type { LibraryTrack } from '@/types/api'
@@ -40,7 +40,7 @@ export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
       {tab === 'history' ? (
         <HistoryPanel />
       ) : tab === 'duplicates' ? (
-        <DuplicatesPanel />
+        <DuplicateReviewPanel isAdmin={isAdmin} />
       ) : (
         <ArtworkPanel isAdmin={isAdmin} />
       )}
@@ -126,58 +126,6 @@ function HistoryPanel() {
         ) : (
           <p className="text-sm text-muted-foreground">Noch keine gehörten Titel.</p>
         ))}
-    </div>
-  )
-}
-function DuplicatesPanel() {
-  const [offset, setOffset] = useState(0)
-  const { state, reload } = useAsync((signal) => duplicateGroups(offset, signal), [offset])
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Gleicher Titel und Künstler können auf dieselbe Aufnahme hinweisen. Vergleiche Album, Dauer
-        und Format; Live-, Remix- und Albumversionen können sich unterscheiden.
-      </p>
-      {state.status === 'loading' && <ListSkeleton rows={3} />}{' '}
-      {state.status === 'error' && <ErrorState error={state.error} onRetry={reload} />}{' '}
-      {state.status === 'success' && (
-        <>
-          {state.data.length === 0 && <p>Keine weiteren Kandidaten.</p>}
-          {state.data.map((g) => (
-            <div key={g.key} className="space-y-2">
-              <p className="font-medium">
-                {g.tracks[0]?.title} · {g.count} Versionen
-                {g.count > 20 ? ' (erste 20 angezeigt)' : ''}
-              </p>
-              <TracksTable
-                tracks={g.tracks}
-                sort="title"
-                order="asc"
-                onSortChange={() => {}}
-                onTrackSelect={detail}
-              />
-            </div>
-          ))}
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - 20))}
-            >
-              Zurück
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={state.data.length < 20}
-              onClick={() => setOffset(offset + 20)}
-            >
-              Weitere Kandidaten
-            </Button>
-          </div>
-        </>
-      )}
     </div>
   )
 }

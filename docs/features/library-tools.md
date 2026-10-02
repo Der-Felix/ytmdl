@@ -41,7 +41,31 @@ current page; it does not initiate provider refreshes.
 **Mögliche Duplikate** groups downloaded tracks by normalized title and artist
 credit. This is a review aid, not an audio fingerprint: different album, live or
 remix versions can be intentional. Each page has up to 20 groups, and the first
-20 tracks of each group are shown for comparison. No automatic deletion occurs.
+100 tracks of each group are shown for comparison. No automatic deletion occurs.
+
+The **Wischvergleich** compares two versions at a time. Swipe left to keep the
+incumbent or right to prefer the challenger; buttons and focused-card arrow keys
+provide the same choices. Compare duration, album, year, codec and bitrate.
+Hörproben use a shared start point and pause the main player without replacing its
+queue. Undo is available within an unfinished comparison, or skip a group for
+later. **Alle Versionen behalten** marks intentionally different versions as
+reviewed. Decisions belong to the signed-in user and survive reloads. Changed
+group membership, comparison metadata or file records make the decision stale.
+Cursor pagination prevents reviewing a page from skipping later groups.
+
+Administrators can delete selected losing versions **only after a separate
+explicit confirmation**. The dialog lists every removable version; the winner
+cannot be selected. Deletion removes catalog tracks, audio and unshared lyric
+sidecars, with existing foreign-key cleanup of favorites and playlist memberships
+for all users. It does not transfer memberships or edit subscriptions; a later
+subscription download may restore a removed recording. The server requires a
+matching saved preference and current group snapshot, locks every affected track,
+checks storage and all paths before mutation, and blocks unfinished track/release
+download jobs. Shared files and lyrics referenced by retained tracks are protected.
+Filesystem and database operations cannot be atomic together: a failure stops the
+batch and reports completed track IDs plus the failed item. Reload the group
+before retrying; files partially removed from the failed item may need repair.
+Groups exceeding 100 versions remain available in the table without bulk deletion.
 
 Listening history counts actual playing wall time, excluding pause, buffering,
 seeking and long background callback gaps. A play counts after 30 seconds, or
@@ -73,7 +97,11 @@ library scan is automatically scheduled. The opt-in persists in this browser.
 ## Database upgrade
 
 Migration 0014 adds rules, metadata overrides, artwork, listening data and loudness
-measurements. Existing identities, audio and playlists are preserved. Upgrades
-from schema 8–13 to 14 require a verified backup for schema rollback. Schema 14
-is neutral only when already on 14. The old application can still run with the
-additive tables present, but will not expose these new features.
+measurements. Migration 0015 adds per-user duplicate review decisions. Both are
+additive: installing the feature preserves existing identities, audio and
+playlists and never automatically deletes candidates. Upgrades from schema 8–14
+to 15 require a verified backup for schema rollback. Schema 15 is neutral only
+when already on 15. The old application can still run with the additive tables
+present, but will not expose these new features. Backup restoration is required
+for a full schema rollback; restoring audio deleted by an explicit user action
+also requires a separate media backup.
