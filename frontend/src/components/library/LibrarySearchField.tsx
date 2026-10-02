@@ -16,6 +16,7 @@ import {
 import { useContext } from 'react'
 import { Cover } from '@/components/music/Cover'
 import { PlayerActionsContext, PlayerStateContext } from '@/hooks/usePlayer'
+import { libraryArtwork } from '@/lib/artwork'
 import { librarySearch } from '@/lib/api/library'
 import { paths, useNavigate } from '@/lib/router'
 import { cn } from '@/lib/utils'
@@ -317,6 +318,7 @@ export function LibrarySearchField({
                   >
                     <Cover
                       src={artist.image_url}
+                      fallbackSrc={libraryArtwork('artists', artist.id)}
                       alt=""
                       shape="circle"
                       className="size-9 shrink-0 border border-neutral-700/50"
@@ -352,7 +354,8 @@ export function LibrarySearchField({
                     className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-neutral-800/60 group"
                   >
                     <Cover
-                      src={release.cover_url}
+                      src={libraryArtwork('releases', release.id)}
+                      fallbackSrc={release.cover_url}
                       alt=""
                       shape="square"
                       className="size-9 shrink-0 rounded-md border border-neutral-700/50"
@@ -394,17 +397,25 @@ export function LibrarySearchField({
                           onClick={(e) => handleTrackPlayClick(e, track, idx)}
                           aria-label={isPlaying ? 'Pause' : 'Abspielen'}
                           className={cn(
-                            'size-8 rounded-full flex items-center justify-center shrink-0 transition-colors',
+                            'relative size-9 overflow-hidden rounded-md flex items-center justify-center shrink-0 transition-colors',
                             isPlaying
                               ? 'bg-accent text-neutral-950'
                               : 'bg-neutral-800 text-neutral-300 group-hover:bg-accent group-hover:text-neutral-950',
                           )}
                         >
-                          {isPlaying ? (
-                            <Pause className="size-3.5 fill-current" />
-                          ) : (
-                            <Play className="size-3.5 fill-current ml-0.5" />
-                          )}
+                          <Cover
+                            src={libraryArtwork('tracks', track.id)}
+                            fallbackSrc={track.cover_url}
+                            alt=""
+                            className="absolute inset-0 size-full rounded-md border-0"
+                          />
+                          <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-black/65 text-white">
+                            {isPlaying ? (
+                              <Pause className="size-3.5 fill-current" />
+                            ) : (
+                              <Play className="size-3.5 fill-current ml-0.5" />
+                            )}
+                          </span>
                         </button>
                         <div className="min-w-0 flex-1">
                           <p
