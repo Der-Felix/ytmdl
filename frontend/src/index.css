@@ -379,3 +379,19 @@
         transition-duration: 0.01ms !important;
     }
 }
+
+/* The player owns its panel scroll; lyric updates never move the document. */
+.player-panel { height: min(68dvh, 680px); min-height: 320px; }
+.player-tabs button { min-width: 0; justify-content: center; padding-inline: 0.5rem; }
+.player-tabs svg { flex-shrink: 0; }
+@media (max-width: 639px) {
+  .player-tabs button { gap: 0.25rem; font-size: 0.75rem; }
+  .player-tabs svg, .player-tabs [data-slot="badge"] { display: none; }
+}
+@media (min-width: 1024px) and (min-height: 560px) {
+  .player-page { height: 100dvh; min-height: 0; }
+  .player-grid { height: 100%; min-height: 0; }
+  .player-controls { max-height: 100%; overflow-y: auto; scrollbar-width: thin; }
+  .player-artwork { max-width: clamp(140px, calc(100dvh - 390px), 420px); flex-shrink: 0; }
+  .player-panel { height: 100%; min-height: 0; }
+}

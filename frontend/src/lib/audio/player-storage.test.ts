@@ -41,6 +41,13 @@ describe('player-storage', () => {
     expect(u2?.shuffle).toBe(false)
   })
 
+  it('bounds restored crossfade settings and rejects invalid saved values', () => {
+    for (const [value, expected] of [[99, 12], [-1, 0], [null, 0], ['four', 0], [4, 4]]) {
+      localStorage.setItem('ytmdl.player.v2.user-1.state', JSON.stringify({ crossfadeSeconds: value }))
+      expect(loadPlayerState('user-1')?.crossfadeSeconds).toBe(expected)
+    }
+  })
+
   it('saves and loads custom presets globally', () => {
     const presets: EQPreset[] = [
       { id: 'custom-1', name: 'My Sound', values: [1, 2, 3, 4, 3, 2, 1, 0, -1, -2], isCustom: true },

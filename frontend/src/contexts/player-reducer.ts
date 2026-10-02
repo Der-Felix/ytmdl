@@ -468,7 +468,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     }
 
     case 'SET_CROSSFADE': {
-      return { ...state, crossfadeSeconds: Math.max(0, Math.min(12, action.payload)) }
+      return { ...state, crossfadeSeconds: Number.isFinite(action.payload) ? Math.max(0, Math.min(12, action.payload)) : 0 }
     }
 
     case 'SET_SMART_ALBUM_TRANSITION': {
@@ -648,6 +648,15 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
 
       // Check Stop After options on automatic track completion
       if (!isManual) {
+        if (state.sleepTimer === 'end_of_track') {
+          return { ...state, status: 'paused', sleepTimer: 'off', sleepTimerEndsAt: null }
+        }
+        if (state.sleepTimer === 'end_of_album' && state.currentTrack) {
+          const nextCandidate = state.queue[state.queueIndex + 1]
+          if (!nextCandidate || nextCandidate.release_id !== state.currentTrack.release_id || nextCandidate.album !== state.currentTrack.album) {
+            return { ...state, status: 'paused', sleepTimer: 'off', sleepTimerEndsAt: null }
+          }
+        }
         if (state.stopAfter === 'track') {
           return {
             ...state,
