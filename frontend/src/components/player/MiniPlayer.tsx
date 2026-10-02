@@ -195,7 +195,7 @@ export function MiniPlayer() {
               size="icon"
               onClick={togglePlayPause}
               disabled={isBuffering}
-              className="size-10 sm:size-11 rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/20 hover:scale-105 active:scale-95 transition-all duration-150"
+              className="size-10 sm:size-11 rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition-colors duration-150"
               title={isBuffering ? 'Puffern...' : isPlaying ? 'Pause' : 'Wiedergabe'}
               aria-label={isBuffering ? 'Puffern...' : isPlaying ? 'Pause' : 'Wiedergabe'}
             >
