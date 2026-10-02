@@ -145,6 +145,7 @@ function baseRoutes(): Routes {
     'GET /api/v1/library/artists': () => ({ body: { data: artists, meta: { count: 1, total: 1 } } }),
     'GET /api/v1/library/releases': () => ({ body: { data: releases, meta: { count: 1, total: 1 } } }),
     'GET /api/v1/library/tracks': () => ({ body: { data: tracks, meta: { count: 1, total: 1 } } }),
+    'GET /api/v1/library/genres': () => ({ body: { data: [] } }),
     'GET /api/v1/library/stats': () => ({ body: { data: stats } }),
     'GET /api/v1/library/scan': () => ({ body: { data: scanResult } }),
     'POST /api/v1/library/scan': () => ({ body: { data: scanResult } }),
@@ -354,5 +355,21 @@ describe('Library Page', () => {
     await waitFor(() => {
       expect(screen.queryByText('Keine Titel für „Nonexistent“ mit den ausgewählten Filtern gefunden.')).toBeNull()
     })
+  })
+})
+
+describe('library genre navigation', () => {
+  it('filters on the server, resets pagination and preserves genre across tabs', async () => {
+    setTestURL('/library?view=artists&page=2')
+    stubFetch({ ...baseRoutes(), 'GET /api/v1/library/genres': () => ({ body: { data: ['Hip-Hop'] } }) })
+    renderLibrary()
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Hip-Hop' })).toBeTruthy())
+    fireEvent.change(screen.getByRole('combobox', { name: 'Genre' }), { target: { value: 'genre:Hip-Hop' } })
+    await waitFor(() => expect(calls.some((call) => call.url.includes('/library/artists?') && call.url.includes('genre=Hip-Hop') && !call.url.includes('offset=24'))).toBe(true))
+    expect(window.location.search).not.toContain('page=')
+    fireEvent.click(screen.getByRole('button', { name: /^Titel/ }))
+    await waitFor(() => expect(calls.some((call) => call.url.includes('/library/tracks?') && call.url.includes('genre=Hip-Hop'))).toBe(true))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Genre' }), { target: { value: 'missing' } })
+    await waitFor(() => expect(calls.some((call) => call.url.includes('/library/tracks?') && call.url.includes('genre_missing=true') && !call.url.includes('genre=Hip-Hop'))).toBe(true))
   })
 })

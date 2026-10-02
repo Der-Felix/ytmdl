@@ -1,3 +1,4 @@
+import { libraryArtwork } from '@/lib/artwork'
 import { useState } from 'react'
 import {
   Heart,
@@ -97,7 +98,7 @@ export function MiniPlayer() {
             title="Now Playing öffnen"
           >
             <Cover
-              src={currentTrack.cover_url}
+              src={libraryArtwork('tracks', currentTrack.id)} fallbackSrc={currentTrack.cover_url}
               alt={currentTrack.title}
               shape="square"
               className="size-11 sm:size-14 rounded-xl border border-white/10 shadow-md transition-transform duration-200 group-hover:scale-105"

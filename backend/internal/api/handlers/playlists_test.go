@@ -136,6 +136,7 @@ func setupPlaylistsE2ETest(t *testing.T) (*httptest.Server, *testClient, *testCl
 		Auth:      authService,
 		Database:  db,
 		Playlists: playlistSvc,
+		Catalog:   repository.NewCatalog(db),
 	})
 
 	router, err := api.NewRouter(api.RouterOptions{

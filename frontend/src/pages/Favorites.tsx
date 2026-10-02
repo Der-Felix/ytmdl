@@ -1,3 +1,4 @@
+import { FavoriteArtwork } from '@/components/music/FavoriteArtwork'
 import { useCallback, useMemo, useState } from 'react'
 import {
   Heart,
@@ -46,9 +47,9 @@ export function Favorites() {
   // Filter against favoriteIds so unfavorited tracks vanish or update cleanly
   const rawTracks = state.status === 'success' ? state.data : []
   const tracks = useMemo(() => {
-    if (favoriteIds.size === 0) return rawTracks
+    if (!favorites?.loaded && favoriteIds.size === 0) return rawTracks
     return rawTracks.filter((t) => favoriteIds.has(t.id))
-  }, [rawTracks, favoriteIds])
+  }, [rawTracks, favoriteIds, favorites?.loaded])
 
   // Sorted tracks
   const sortedTracks = useMemo(() => {
@@ -109,9 +110,7 @@ export function Favorites() {
     <div className="space-y-6 pb-28">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end gap-6 p-6 rounded-3xl border border-white/5 bg-gradient-to-b from-rose-500/[0.07] to-white/[0.01]">
-        <div className="size-32 sm:size-40 rounded-2xl bg-gradient-to-br from-rose-950/60 to-neutral-900 border border-rose-500/20 flex items-center justify-center shrink-0 shadow-2xl">
-          <Heart className="size-16 sm:size-20 text-rose-500 fill-rose-500/30" />
-        </div>
+        <FavoriteArtwork tracks={tracks} />
 
         <div className="flex-1 min-w-0 space-y-2">
           <span className="text-[11px] uppercase tracking-wider font-semibold text-rose-400">

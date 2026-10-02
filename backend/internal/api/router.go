@@ -197,6 +197,11 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 
 			authed.Route("/library", func(library chi.Router) {
 				library.Get("/stats", h.LibraryStats)
+				library.Get("/genres", h.LibraryGenres)
+				for _, kind := range []string{"artists", "releases", "tracks"} {
+					library.Get("/"+kind+"/{id}/artwork", h.LibraryArtwork(kind))
+					library.Head("/"+kind+"/{id}/artwork", h.LibraryArtwork(kind))
+				}
 				library.Get("/search", h.LibrarySearch)
 				library.Get("/artists", h.LibraryArtists)
 				library.Get("/artists/{id}", h.LibraryArtistDetail)
@@ -231,6 +236,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					// Destructive library mutations & repairs require Administrator privileges
 					mutating.Group(func(admin chi.Router) {
 						admin.Use(middleware.RequireAdmin)
+						admin.Put("/artists/{id}/genres", h.UpdateArtistGenres)
 						admin.Post("/audits", h.StartLibraryAudit)
 						admin.Post("/audits/{id}/cancel", h.CancelLibraryAudit)
 						admin.Post("/repairs/preview", h.PreviewLibraryRepairs)
