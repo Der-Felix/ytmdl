@@ -64,10 +64,11 @@ class InstallationTests(unittest.TestCase):
             first, second = Path(tmp) / "one", Path(tmp) / "two"
             packager.package(root, first)
             packager.package(root, second)
-            filename = "ytmdl-1.0.0.tar.gz"
+            version = (root / ".release-version").read_text().strip()
+            filename = "ytmdl-" + version + ".tar.gz"
             self.assertEqual((first / filename).read_bytes(), (second / filename).read_bytes())
             with tarfile.open(first / filename) as archive:
-                self.assertEqual(set(archive.getnames()), {"ytmdl-1.0.0/" + name for name in packager.FILES})
+                self.assertEqual(set(archive.getnames()), {"ytmdl-" + version + "/" + name for name in packager.FILES})
 
 
 if __name__ == "__main__":

@@ -41,7 +41,7 @@ current page; it does not initiate provider refreshes.
 **Mögliche Duplikate** groups downloaded tracks by normalized title and artist
 credit. This is a review aid, not an audio fingerprint: different album, live or
 remix versions can be intentional. Each page has up to 20 groups, and the first
-100 tracks of each group are shown for comparison. No automatic deletion occurs.
+100 tracks of each group are shown for comparison. Review never deletes before a user makes a choice.
 
 The **Wischvergleich** compares two versions at a time. Swipe left to keep the
 incumbent or right to prefer the challenger; buttons and focused-card arrow keys
@@ -53,9 +53,13 @@ reviewed. Decisions belong to the signed-in user and survive reloads. Changed
 group membership, comparison metadata or file records make the decision stale.
 Cursor pagination prevents reviewing a page from skipping later groups.
 
-Administrators can delete selected losing versions **only after a separate
-explicit confirmation**. The dialog lists every removable version; the winner
-cannot be selected. Deletion removes catalog tracks, audio and unshared lyric
+Administrators confirm deletion in a separate dialog by default. The dialog
+lists every removable version; the winner cannot be selected. The switch
+**Vor dem Löschen nachfragen** can explicitly disable repeated confirmation for
+this account and browser. In direct mode the final comparison immediately deletes
+all losing versions without a dialog; the screen explains this before selection.
+The setting can be enabled again at any time. Other users and browsers default
+to confirmation. Skipping and **Alle Versionen behalten** never delete. Deletion removes catalog tracks, audio and unshared lyric
 sidecars, with existing foreign-key cleanup of favorites and playlist memberships
 for all users. It does not transfer memberships or edit subscriptions; a later
 subscription download may restore a removed recording. The server requires a
