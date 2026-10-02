@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import { deletionSelection, duplicateSwipe } from './duplicate-review'
+import {
+  deletionSelection,
+  duplicateSwipe,
+  readDuplicateConfirmation,
+  writeDuplicateConfirmation,
+} from './duplicate-review'
 
 describe('duplicate review gestures', () => {
   it('ignores scroll, taps, short and diagonal gestures', () => {
@@ -23,5 +28,20 @@ describe('duplicate review gestures', () => {
       ),
     ).toEqual(['loser'])
     expect(deletionSelection('winner', ['winner', 'loser'], [])).toEqual([])
+  })
+})
+
+describe('confirmation preference isolation', () => {
+  it('defaults to confirmation and remembers direct mode only for the same account', () => {
+    localStorage.clear()
+    expect(readDuplicateConfirmation('first')).toBe(true)
+    writeDuplicateConfirmation('first', false)
+    expect(readDuplicateConfirmation('first')).toBe(false)
+    expect(readDuplicateConfirmation('second')).toBe(true)
+    localStorage.setItem('ytmdl.duplicate-review.second.confirmation', 'corrupt')
+    expect(readDuplicateConfirmation('second')).toBe(true)
+    writeDuplicateConfirmation('first', true)
+    expect(readDuplicateConfirmation('first')).toBe(true)
+    localStorage.clear()
   })
 })

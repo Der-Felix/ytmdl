@@ -1,5 +1,15 @@
 import { useContext, useEffect, useRef, useState, type PointerEvent } from 'react'
-import { ArrowLeft, ArrowRight, Check, Pause, Play, RotateCcw, SkipForward } from 'lucide-react'
+import {
+  Check,
+  Heart,
+  Layers3,
+  Pause,
+  Play,
+  RotateCcw,
+  SkipForward,
+  Sparkles,
+  X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,6 +23,8 @@ import { ErrorState, ListSkeleton } from '@/components/ui/state-view'
 import { Cover } from '@/components/music/Cover'
 import { TracksTable } from '@/components/music/TracksTable'
 import { useAsync } from '@/hooks/useAsync'
+import { AuthContext } from '@/contexts/auth-context'
+import './duplicate-review.css'
 import { PlayerActionsContext, PlayerStateContext } from '@/contexts/PlayerContext'
 import {
   duplicateGroups,
@@ -23,12 +35,26 @@ import {
   type DuplicateReview,
 } from '@/lib/api/libraryTools'
 import { libraryArtwork } from '@/lib/artwork'
-import { deletionSelection, duplicateSwipe } from '@/lib/duplicate-review'
+import {
+  deletionSelection,
+  duplicateSwipe,
+  readDuplicateConfirmation,
+  writeDuplicateConfirmation,
+} from '@/lib/duplicate-review'
 import { formatDuration, formatBytes, joinArtists } from '@/lib/utils/format'
 import { navigate } from '@/lib/router'
 import type { LibraryTrack } from '@/types/api'
 
 export function DuplicateReviewPanel({ isAdmin }: { isAdmin: boolean }) {
+  const auth = useContext(AuthContext)
+  const userID = auth?.user?.id ?? 'default'
+  const [preference, setPreference] = useState(() => ({
+    userID,
+    ask: readDuplicateConfirmation(userID),
+  }))
+  const askBeforeDelete =
+    preference.userID === userID ? preference.ask : readDuplicateConfirmation(userID)
+  const [working, setWorking] = useState(false)
   const [mode, setMode] = useState<'swipe' | 'table'>('swipe')
   const [includeReviewed, setIncludeReviewed] = useState(false)
   const [cursors, setCursors] = useState([''])
@@ -45,10 +71,11 @@ export function DuplicateReviewPanel({ isAdmin }: { isAdmin: boolean }) {
     reload()
   }
   return (
-    <div className="space-y-4">
+    <div className="duplicate-review space-y-5">
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
+          disabled={working}
           variant={mode === 'swipe' ? 'default' : 'outline'}
           aria-pressed={mode === 'swipe'}
           onClick={() => setMode('swipe')}
@@ -57,18 +84,20 @@ export function DuplicateReviewPanel({ isAdmin }: { isAdmin: boolean }) {
         </Button>
         <Button
           size="sm"
+          disabled={working}
           variant={mode === 'table' ? 'default' : 'outline'}
           aria-pressed={mode === 'table'}
           onClick={() => setMode('table')}
         >
           Tabelle
         </Button>
-        <Button size="sm" variant="ghost" onClick={restart}>
+        <Button size="sm" variant="ghost" disabled={working} onClick={restart}>
           Neu laden
         </Button>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <input
             type="checkbox"
+            disabled={working}
             checked={includeReviewed}
             onChange={(e) => {
               setIncludeReviewed(e.target.checked)
@@ -80,11 +109,44 @@ export function DuplicateReviewPanel({ isAdmin }: { isAdmin: boolean }) {
           Erledigte Gruppen anzeigen
         </label>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Gleicher Titel und Künstler sind ein Hinweis, kein Beweis. Höre beide Versionen an und
-        vergleiche Album, Dauer und Format. Live- und Remix-Versionen können absichtlich verschieden
-        sein.
-      </p>
+      <div className="duplicate-review-intro">
+        <div>
+          <span className="duplicate-review-eyebrow">
+            <Layers3 className="size-4" />
+            DEIN SOUND. DEINE VERSION.
+          </span>
+          <h3 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+            Ein Song. Dein Favorit.
+          </h3>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            Cover ansehen, kurz reinhören, entscheiden. Gleicher Titel und Künstler sind nur ein
+            Hinweis: Live- und Remix-Versionen können absichtlich verschieden sein.
+          </p>
+        </div>
+        {isAdmin && (
+          <div className={`duplicate-review-preference ${askBeforeDelete ? '' : 'is-direct'}`}>
+            <label className="flex cursor-pointer items-center gap-3 text-sm font-medium">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={askBeforeDelete}
+                disabled={working}
+                onChange={(e) => {
+                  const ask = e.target.checked
+                  writeDuplicateConfirmation(userID, ask)
+                  setPreference({ userID, ask })
+                }}
+              />
+              Vor dem Löschen nachfragen
+            </label>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {askBeforeDelete
+                ? 'Du wählst nach dem Vergleich aus, welche Versionen gelöscht werden.'
+                : 'Direktmodus: Nach der letzten Auswahl werden alle anderen Versionen samt Dateien und Favoriten-/Playlist-Einträgen für alle Nutzer sofort gelöscht. Nur in diesem Browser und für dein Konto.'}
+            </p>
+          </div>
+        )}
+      </div>
       {state.status === 'loading' && <ListSkeleton rows={3} />}
       {state.status === 'error' && <ErrorState error={state.error} onRetry={reload} />}
       {state.status === 'success' && (
@@ -105,6 +167,8 @@ export function DuplicateReviewPanel({ isAdmin }: { isAdmin: boolean }) {
                   key={`${state.data[index]!.key}:${state.data[index]!.fingerprint}`}
                   group={state.data[index]!}
                   isAdmin={isAdmin}
+                  askBeforeDelete={askBeforeDelete}
+                  onBusyChange={setWorking}
                   position={index + 1}
                   total={state.data.length}
                   onNext={() => setIndex((i) => i + 1)}
@@ -149,7 +213,7 @@ export function DuplicateReviewPanel({ isAdmin }: { isAdmin: boolean }) {
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
-              disabled={page === 0}
+              disabled={working || page === 0}
               onClick={() => {
                 setPage((p) => p - 1)
                 setIndex(0)
@@ -159,7 +223,7 @@ export function DuplicateReviewPanel({ isAdmin }: { isAdmin: boolean }) {
             </Button>
             <Button
               size="sm"
-              disabled={state.data.length < 20}
+              disabled={working || state.data.length < 20}
               onClick={() => {
                 const after = state.data.at(-1)!.key
                 setCursors((prev) => [...prev.slice(0, page + 1), after])
@@ -179,6 +243,8 @@ export function DuplicateReviewPanel({ isAdmin }: { isAdmin: boolean }) {
 function DuplicateComparison({
   group,
   isAdmin,
+  askBeforeDelete,
+  onBusyChange,
   position,
   total,
   onNext,
@@ -186,6 +252,8 @@ function DuplicateComparison({
 }: {
   group: DuplicateGroup
   isAdmin: boolean
+  askBeforeDelete: boolean
+  onBusyChange: (busy: boolean) => void
   position: number
   total: number
   onNext: () => void
@@ -210,6 +278,20 @@ function DuplicateComparison({
   const [selected, setSelected] = useState<string[]>([])
   const [removed, setRemoved] = useState<string[]>([])
   const [message, setMessage] = useState('')
+  const [exitDirection, setExitDirection] = useState<'left' | 'right' | null>(null)
+  const choiceLock = useRef(false)
+  const choiceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (choiceTimer.current) clearTimeout(choiceTimer.current)
+    },
+    [],
+  )
+  const setWorking = (value: boolean) => {
+    busyRef.current = value
+    setBusy(value)
+    onBusyChange(value)
+  }
   const [drag, setDrag] = useState(0)
   const gesture = useRef<{ id: number; x: number; y: number } | null>(null)
   const { pause, removeFromQueue } = useContext(PlayerActionsContext)!
@@ -256,10 +338,30 @@ function DuplicateComparison({
     outcome: result,
     preferred_track_id: result === 'preferred' ? track.id : '',
   })
+  const deleteVersions = async (preferred: LibraryTrack, selection: string[]) => {
+    const ids = deletionSelection(
+      preferred.id,
+      ordered.map((t) => t.id),
+      selection,
+    )
+    const result = await removeDuplicateVersions(review(preferred), ids)
+    setRemoved((prev) => [...prev, ...result.deleted_track_ids])
+    setSelected((prev) => prev.filter((id) => !result.deleted_track_ids.includes(id)))
+    const deleted = new Set(result.deleted_track_ids)
+    for (let i = queue.current.length - 1; i >= 0; i--)
+      if (deleted.has(queue.current[i]!.id)) removeFromQueue(i)
+    setConfirm(false)
+    setMessage(
+      `${result.deleted_track_ids.length} Versionen gelöscht. Die bevorzugte Version bleibt erhalten.`,
+    )
+    if (result.failed_track_id)
+      setError(
+        `${result.deleted_track_ids.length} Versionen wurden gelöscht. ${result.message || 'Eine weitere Version konnte nicht gelöscht werden.'} Bitte die Gruppe neu laden.`,
+      )
+  }
   const save = async (track: LibraryTrack, result: 'preferred' | 'distinct') => {
     if (busyRef.current) return
-    busyRef.current = true
-    setBusy(true)
+    setWorking(true)
     setError(null)
     stopPreview()
     try {
@@ -272,27 +374,39 @@ function DuplicateComparison({
           : 'Alle Versionen bleiben erhalten. Die Gruppe ist erledigt.',
       )
       if (isAdmin && result === 'preferred') {
-        setSelected(ordered.filter((t) => t.id !== track.id).map((t) => t.id))
-        setConfirm(true)
+        const losers = ordered.filter((t) => t.id !== track.id).map((t) => t.id)
+        setSelected(losers)
+        if (askBeforeDelete) setConfirm(true)
+        else await deleteVersions(track, losers)
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Entscheidung konnte nicht gespeichert werden.')
     } finally {
-      busyRef.current = false
-      setBusy(false)
+      setWorking(false)
     }
   }
   const choose = (preferNew: boolean) => {
-    if (busyRef.current || outcome || !canCompare || !challenger) return
+    if (busyRef.current || choiceLock.current || outcome || !canCompare || !challenger) return
     stopPreview()
-    setDrag(0)
+    choiceLock.current = true
+    setExitDirection(preferNew ? 'right' : 'left')
     const next = preferNew ? challenger : winner
-    if (cursor + 1 === ordered.length) void save(next, 'preferred')
-    else {
-      setHistory((prev) => [...prev, { winner, cursor }])
-      setWinner(next)
-      setCursor((c) => c + 1)
-    }
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    choiceTimer.current = setTimeout(
+      () => {
+        choiceTimer.current = null
+        setDrag(0)
+        setExitDirection(null)
+        choiceLock.current = false
+        if (cursor + 1 === ordered.length) void save(next, 'preferred')
+        else {
+          setHistory((prev) => [...prev, { winner, cursor }])
+          setWinner(next)
+          setCursor((c) => c + 1)
+        }
+      },
+      reduceMotion ? 0 : 180,
+    )
   }
   const listen = (track: LibraryTrack) => {
     const element = audio.current
@@ -393,13 +507,27 @@ function DuplicateComparison({
           }
         }}
       />
-      <div className="flex flex-wrap justify-between gap-2">
+      <div className="flex flex-wrap justify-between gap-2 items-center">
         <h3 className="font-medium">
           {group.tracks[0]?.title} · {group.count} Versionen
         </h3>
         <span className="text-xs text-muted-foreground">
           Gruppe {position} von {total} auf dieser Seite
         </span>
+      </div>
+      <div
+        className="duplicate-review-progress"
+        role="progressbar"
+        aria-label="Vergleichsfortschritt"
+        aria-valuemin={0}
+        aria-valuemax={ordered.length - 1}
+        aria-valuenow={outcome ? ordered.length - 1 : cursor - 1}
+      >
+        <span
+          style={{
+            width: `${outcome ? 100 : ((cursor - 1) / Math.max(1, ordered.length - 1)) * 100}%`,
+          }}
+        />
       </div>
       {error && (
         <div role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm">
@@ -425,15 +553,32 @@ function DuplicateComparison({
           </Button>
         </div>
       ) : outcome ? (
-        <div className="space-y-3 rounded-xl border border-primary/25 bg-primary/5 p-5">
-          <p role="status" className="text-sm">
+        <div className="duplicate-review-result space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="duplicate-review-match">
+              <Heart className="size-6" />
+            </span>
+            <div>
+              <p className="duplicate-review-eyebrow">
+                {outcome === 'preferred' ? 'DEIN FAVORIT' : 'BEWUSST VERSCHIEDEN'}
+              </p>
+              <h4 className="text-xl font-semibold">
+                {outcome === 'preferred'
+                  ? 'Die richtige Version für dich.'
+                  : 'Mehr Vielfalt in deiner Bibliothek.'}
+              </h4>
+            </div>
+          </div>
+          <p role="status" aria-live="polite" className="text-sm">
             {message ||
               (outcome === 'preferred'
                 ? 'Bevorzugte Version gespeichert.'
                 : 'Alle Versionen behalten.')}
           </p>
           {outcome === 'preferred' && (
-            <div className="space-y-3">{card(winner, 'Bevorzugte Version')}</div>
+            <div className="duplicate-review-winner space-y-3">
+              {card(winner, 'Bevorzugte Version')}
+            </div>
           )}
           <div className="flex flex-wrap gap-2">
             {isAdmin && outcome === 'preferred' && removed.length === 0 && (
@@ -454,8 +599,7 @@ function DuplicateComparison({
                 disabled={busy}
                 onClick={async () => {
                   if (busyRef.current) return
-                  busyRef.current = true
-                  setBusy(true)
+                  setWorking(true)
                   setError(null)
                   try {
                     await resetDuplicateReview(group.key)
@@ -467,8 +611,7 @@ function DuplicateComparison({
                   } catch (e) {
                     setError(e instanceof Error ? e.message : 'Zurücksetzen fehlgeschlagen.')
                   } finally {
-                    busyRef.current = false
-                    setBusy(false)
+                    setWorking(false)
                   }
                 }}
               >
@@ -476,77 +619,195 @@ function DuplicateComparison({
                 Neu vergleichen
               </Button>
             )}
-            <Button size="sm" variant="default" onClick={nextGroup}>
+            <Button size="sm" variant="default" disabled={busy} onClick={nextGroup}>
               Nächste Gruppe
             </Button>
           </div>
         </div>
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground" aria-live="polite">
             Vergleich {cursor} von {ordered.length - 1}: links behält die bisherige Version, rechts
-            bevorzugt diese neue Version. Wischen speichert zunächst nur die Auswahl.
+            bevorzugt diese neue Version.
+            {!askBeforeDelete && isAdmin
+              ? ' Die letzte Auswahl löscht alle anderen Versionen sofort.'
+              : ' Wischen speichert zunächst nur die Auswahl.'}
           </p>
-          <div className="grid gap-4 md:grid-cols-2 overflow-x-clip py-2">
-            <article className="min-w-0 space-y-4 rounded-2xl border border-border bg-white/[0.02] p-4">
+          <div className="duplicate-review-arena">
+            <article className="duplicate-review-incumbent">
               {card(winner, 'Bisher bevorzugt')}
             </article>
-            <article
-              aria-label="Versionen mit Pfeiltasten vergleichen"
-              tabIndex={0}
-              className="relative min-w-0 space-y-4 rounded-2xl border border-primary/25 bg-white/[0.02] p-4 select-none touch-pan-y focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 motion-reduce:transition-none"
-              style={{ transform: `translateX(${drag}px) rotate(${drag / 35}deg)` }}
-              onKeyDown={(e) => {
-                if (e.target !== e.currentTarget || e.ctrlKey || e.metaKey || e.altKey) return
-                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  choose(e.key === 'ArrowRight')
-                }
-              }}
-              onPointerDown={(e: PointerEvent<HTMLElement>) => {
-                if (
-                  busy ||
-                  e.button !== 0 ||
-                  (e.target as HTMLElement).closest('button,input,select,a')
-                )
-                  return
-                gesture.current = { id: e.pointerId, x: e.clientX, y: e.clientY }
-                e.currentTarget.setPointerCapture(e.pointerId)
-              }}
-              onPointerMove={(e) => {
-                const start = gesture.current
-                if (start?.id === e.pointerId) {
-                  const dx = e.clientX - start.x
-                  const dy = e.clientY - start.y
-                  setDrag(Math.abs(dx) > Math.abs(dy) * 1.3 ? Math.max(-140, Math.min(140, dx)) : 0)
-                }
-              }}
-              onPointerUp={(e) => {
-                const start = gesture.current
-                gesture.current = null
-                setDrag(0)
-                if (e.currentTarget.hasPointerCapture(e.pointerId))
-                  e.currentTarget.releasePointerCapture(e.pointerId)
-                if (!start) return
-                const direction = duplicateSwipe(e.clientX - start.x, e.clientY - start.y)
-                if (direction) choose(direction === 'right')
-              }}
-              onPointerCancel={() => {
-                gesture.current = null
-                setDrag(0)
-              }}
-            >
-              {drag !== 0 && (
-                <p
-                  aria-hidden="true"
-                  className={`absolute right-2 top-2 rounded-md bg-background px-2 py-1 text-xs font-semibold ${drag > 0 ? 'text-success' : 'text-primary'}`}
-                >
-                  {drag > 0 ? 'Diese Version bevorzugen' : 'Bisherige Version behalten'}
-                </p>
-              )}
-              {card(challenger, 'Neue Version · hier wischen')}
-            </article>
+            <div className="duplicate-review-deck">
+              <div
+                className="duplicate-review-stack duplicate-review-stack-back"
+                aria-hidden="true"
+              />
+              <div className="duplicate-review-stack" aria-hidden="true" />
+              <article
+                key={challenger.id}
+                aria-label="Versionen mit Pfeiltasten vergleichen"
+                tabIndex={0}
+                className={`duplicate-review-card ${exitDirection ? `is-exiting-${exitDirection}` : ''} ${cursor > 1 && !exitDirection ? 'is-entering' : ''}`}
+                style={{
+                  transform: `translateX(${drag}px) rotate(${drag / 28}deg)`,
+                }}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget || e.ctrlKey || e.metaKey || e.altKey) return
+                  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                    e.preventDefault()
+                    choose(e.key === 'ArrowRight')
+                  }
+                }}
+                onDragStart={(e) => e.preventDefault()}
+                onPointerDown={(e: PointerEvent<HTMLElement>) => {
+                  if (
+                    busy ||
+                    choiceLock.current ||
+                    e.button !== 0 ||
+                    (e.target as HTMLElement).closest('button,input,select,a')
+                  )
+                    return
+                  gesture.current = { id: e.pointerId, x: e.clientX, y: e.clientY }
+                  e.currentTarget.setPointerCapture(e.pointerId)
+                }}
+                onPointerMove={(e) => {
+                  const start = gesture.current
+                  if (start?.id === e.pointerId) {
+                    const dx = e.clientX - start.x,
+                      dy = e.clientY - start.y
+                    setDrag(
+                      Math.abs(dx) > Math.abs(dy) * 1.3 ? Math.max(-160, Math.min(160, dx)) : 0,
+                    )
+                  }
+                }}
+                onPointerUp={(e) => {
+                  const start = gesture.current
+                  gesture.current = null
+                  if (e.currentTarget.hasPointerCapture(e.pointerId))
+                    e.currentTarget.releasePointerCapture(e.pointerId)
+                  if (!start) return
+                  const direction = duplicateSwipe(e.clientX - start.x, e.clientY - start.y)
+                  if (direction) choose(direction === 'right')
+                  else setDrag(0)
+                }}
+                onPointerCancel={() => {
+                  gesture.current = null
+                  setDrag(0)
+                }}
+              >
+                <div className="duplicate-review-art">
+                  <Cover
+                    src={libraryArtwork('tracks', challenger.id)}
+                    fallbackSrc={challenger.cover_url}
+                    alt={challenger.title}
+                    className="size-full rounded-none border-0"
+                  />
+                  <span className="duplicate-review-card-label">
+                    <Sparkles className="size-3.5" />
+                    Neue Version
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className={`duplicate-review-stamp is-keep ${drag > 0 || exitDirection === 'right' ? 'is-visible' : ''}`}
+                  >
+                    BEHALTEN
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className={`duplicate-review-stamp is-pass ${drag < 0 || exitDirection === 'left' ? 'is-visible' : ''}`}
+                  >
+                    PASST NICHT
+                  </span>
+                  <div className="duplicate-review-art-caption">
+                    <h4 className="text-xl font-semibold break-words">{challenger.title}</h4>
+                    <p className="mt-1 text-sm text-white/80">
+                      {joinArtists(challenger.artists || []) || challenger.album_artist}
+                    </p>
+                  </div>
+                </div>
+                <div className="duplicate-review-card-details">
+                  <p className="font-medium break-words">
+                    {challenger.album || 'Unbekanntes Album'}
+                  </p>
+                  <div className="duplicate-review-chips">
+                    <span>{formatDuration(challenger.duration_ms)}</span>
+                    <span>
+                      {challenger.codec?.toUpperCase() || 'Format unbekannt'}
+                      {challenger.bitrate_kbps
+                        ? ` · ${Math.round(challenger.bitrate_kbps)} kbit/s`
+                        : ''}
+                    </span>
+                    {challenger.year > 0 && <span>{challenger.year}</span>}
+                    {challenger.file_size_bytes && challenger.file_size_bytes > 0 ? (
+                      <span>{formatBytes(challenger.file_size_bytes)}</span>
+                    ) : null}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full"
+                    disabled={busy || exitDirection !== null}
+                    aria-label={`${challenger.album || challenger.title}: ${previewID === challenger.id ? 'Hörprobe stoppen' : 'Hörprobe abspielen'}`}
+                    onClick={() => listen(challenger)}
+                  >
+                    {previewID === challenger.id ? (
+                      <Pause className="size-4" />
+                    ) : (
+                      <Play className="size-4" />
+                    )}
+                    {previewID === challenger.id ? 'Hörprobe stoppen' : 'Hörprobe anhören'}
+                  </Button>
+                </div>
+              </article>
+            </div>
+          </div>
+          <div className="duplicate-review-decisions">
+            <div>
+              <Button
+                aria-label="Bisherige behalten"
+                title="Bisherige behalten · Pfeil links"
+                className="duplicate-review-choice is-pass"
+                variant="ghost"
+                disabled={busy || exitDirection !== null}
+                onClick={() => choose(false)}
+              >
+                <X className="size-7" />
+              </Button>
+              <span>Bisherige behalten</span>
+            </div>
+            <div>
+              <Button
+                aria-label="Auswahl zurück"
+                title="Letzte Auswahl zurücknehmen"
+                className="duplicate-review-undo"
+                variant="ghost"
+                disabled={busy || exitDirection !== null || history.length === 0}
+                onClick={() => {
+                  stopPreview()
+                  const prev = history.at(-1)!
+                  setWinner(prev.winner)
+                  setCursor(prev.cursor)
+                  setHistory((h) => h.slice(0, -1))
+                  setError(null)
+                }}
+              >
+                <RotateCcw className="size-5" />
+              </Button>
+              <span>Zurück</span>
+            </div>
+            <div>
+              <Button
+                aria-label="Diese bevorzugen"
+                title="Diese bevorzugen · Pfeil rechts"
+                className="duplicate-review-choice is-keep"
+                variant="ghost"
+                disabled={busy || exitDirection !== null}
+                onClick={() => choose(true)}
+              >
+                <Heart className="size-7" />
+              </Button>
+              <span>Diese bevorzugen</span>
+            </div>
           </div>
           <label className="flex flex-wrap items-center gap-3 text-sm">
             <span>Hörprobe ab {cuePoint === 0 ? '0:00' : formatDuration(cuePoint * 1000)}</span>
@@ -569,40 +830,21 @@ function DuplicateComparison({
             Hörproben pausieren den Player. Deine Queue bleibt erhalten. Pfeiltasten funktionieren,
             wenn die neue Karte fokussiert ist.
           </p>
-          <div className="flex flex-wrap gap-2">
-            <Button disabled={busy} onClick={() => choose(false)}>
-              <ArrowLeft className="size-4" />
-              Bisherige behalten
-            </Button>
-            <Button variant="default" disabled={busy} onClick={() => choose(true)}>
-              Diese bevorzugen
-              <ArrowRight className="size-4" />
-            </Button>
+          <div className="flex flex-wrap justify-center gap-2">
             <Button
               size="sm"
               variant="ghost"
-              disabled={busy || history.length === 0}
-              onClick={() => {
-                stopPreview()
-                const prev = history.at(-1)!
-                setWinner(prev.winner)
-                setCursor(prev.cursor)
-                setHistory((h) => h.slice(0, -1))
-                setError(null)
-              }}
-            >
-              <RotateCcw className="size-4" />
-              Auswahl zurück
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy}
+              disabled={busy || exitDirection !== null}
               onClick={() => void save(winner, 'distinct')}
             >
               Alle Versionen behalten
             </Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={nextGroup}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy || exitDirection !== null}
+              onClick={nextGroup}
+            >
               <SkipForward className="size-4" />
               Später prüfen
             </Button>
@@ -671,31 +913,11 @@ function DuplicateComparison({
               disabled={busy || selected.length === 0}
               onClick={async () => {
                 if (busyRef.current) return
-                busyRef.current = true
-                setBusy(true)
+                setWorking(true)
                 setError(null)
                 stopPreview()
                 try {
-                  const ids = deletionSelection(
-                    winner.id,
-                    ordered.map((t) => t.id),
-                    selected,
-                  )
-                  const result = await removeDuplicateVersions(review(), ids)
-                  setRemoved((prev) => [...prev, ...result.deleted_track_ids])
-                  setSelected((prev) => prev.filter((id) => !result.deleted_track_ids.includes(id)))
-                  // Remove only successfully deleted versions from this browser's queue.
-                  const deleted = new Set(result.deleted_track_ids)
-                  for (let i = queue.current.length - 1; i >= 0; i--)
-                    if (deleted.has(queue.current[i]!.id)) removeFromQueue(i)
-                  setConfirm(false)
-                  setMessage(
-                    `${result.deleted_track_ids.length} Versionen gelöscht. Die bevorzugte Version bleibt erhalten.`,
-                  )
-                  if (result.failed_track_id)
-                    setError(
-                      `${result.deleted_track_ids.length} Versionen wurden gelöscht. ${result.message || 'Eine weitere Version konnte nicht gelöscht werden.'} Bitte die Gruppe neu laden.`,
-                    )
+                  await deleteVersions(winner, selected)
                 } catch (e) {
                   setError(
                     e instanceof Error
@@ -704,8 +926,7 @@ function DuplicateComparison({
                   )
                   setConfirm(false)
                 } finally {
-                  busyRef.current = false
-                  setBusy(false)
+                  setWorking(false)
                 }
               }}
             >

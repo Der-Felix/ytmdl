@@ -28,6 +28,7 @@ let calls: { path: string; method: string; body: any }[]
 let originalFetch: typeof fetch
 let failSave = false
 beforeEach(() => {
+  localStorage.clear()
   originalFetch = globalThis.fetch
   calls = []
   failSave = false
@@ -69,6 +70,7 @@ describe('Duplicate comparison consent and selection', () => {
   it('protects the preferred version and deletes only explicitly confirmed checkboxes', async () => {
     await setup()
     fireEvent.click(screen.getByRole('button', { name: 'Diese bevorzugen' }))
+    await screen.findByText(/Vergleich 2 von 2/)
     expect(writes()).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: 'Bisherige behalten' }))
     const dialog = await screen.findByRole('dialog')
@@ -87,6 +89,7 @@ describe('Duplicate comparison consent and selection', () => {
   it('canceling the deletion dialog keeps every file and the saved preference', async () => {
     await setup()
     fireEvent.click(screen.getByRole('button', { name: 'Bisherige behalten' }))
+    await screen.findByText(/Vergleich 2 von 2/)
     fireEvent.click(screen.getByRole('button', { name: 'Diese bevorzugen' }))
     const dialog = await screen.findByRole('dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Alle Dateien behalten' }))
@@ -97,6 +100,7 @@ describe('Duplicate comparison consent and selection', () => {
   it('supports undo, skip and keeping distinct versions without deletion', async () => {
     await setup(false)
     fireEvent.click(screen.getByRole('button', { name: 'Diese bevorzugen' }))
+    await screen.findByText(/Vergleich 2 von 2/)
     fireEvent.click(screen.getByRole('button', { name: 'Auswahl zurück' }))
     expect(screen.getByText(/Vergleich 1 von 2/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Alle Versionen behalten' }))
@@ -113,6 +117,7 @@ describe('Duplicate comparison consent and selection', () => {
   it('non-admin preferences never expose a destructive action', async () => {
     await setup(false)
     fireEvent.click(screen.getByRole('button', { name: 'Diese bevorzugen' }))
+    await screen.findByText(/Vergleich 2 von 2/)
     fireEvent.click(screen.getByRole('button', { name: 'Diese bevorzugen' }))
     await screen.findByText('Bevorzugte Version gespeichert. Bisher wurde nichts gelöscht.')
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -123,10 +128,48 @@ describe('Duplicate comparison consent and selection', () => {
     await setup()
     failSave = true
     fireEvent.click(screen.getByRole('button', { name: 'Bisherige behalten' }))
+    await screen.findByText(/Vergleich 2 von 2/)
     fireEvent.click(screen.getByRole('button', { name: 'Bisherige behalten' }))
     await screen.findByText('Gruppe hat sich geändert.')
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(removals()).toHaveLength(0)
     expect(screen.getByRole('button', { name: 'Gruppe neu laden' })).toBeTruthy()
+  })
+  it('direct mode deletes only after the final choice, without opening another dialog', async () => {
+    await setup()
+    const setting = screen.getByRole('switch', { name: 'Vor dem Löschen nachfragen' })
+    expect((setting as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(setting)
+    expect((setting as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByText(/Direktmodus: Nach der letzten Auswahl/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Diese bevorzugen' }))
+    await screen.findByText(/Vergleich 2 von 2/)
+    expect(removals()).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Bisherige behalten' }))
+    await screen.findByText('2 Versionen gelöscht. Die bevorzugte Version bleibt erhalten.')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(removals()).toHaveLength(1)
+    expect(removals()[0]!.body.preferred_track_id).toBe('version-2')
+    expect(removals()[0]!.body.remove_track_ids).toEqual(['version-1', 'version-3'])
+  })
+  it('re-enabling confirmation stops automatic deletion', async () => {
+    await setup()
+    const setting = screen.getByRole('switch', { name: 'Vor dem Löschen nachfragen' })
+    fireEvent.click(setting)
+    fireEvent.click(setting)
+    fireEvent.click(screen.getByRole('button', { name: 'Bisherige behalten' }))
+    await screen.findByText(/Vergleich 2 von 2/)
+    fireEvent.click(screen.getByRole('button', { name: 'Bisherige behalten' }))
+    await screen.findByRole('dialog')
+    expect(removals()).toHaveLength(0)
+  })
+  it('rapid repeated choices cannot skip an undecided version', async () => {
+    await setup()
+    const choose = screen.getByRole('button', { name: 'Diese bevorzugen' })
+    fireEvent.click(choose)
+    fireEvent.click(choose)
+    await screen.findByText(/Vergleich 2 von 2/)
+    expect(writes()).toHaveLength(0)
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

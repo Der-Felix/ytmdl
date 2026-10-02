@@ -91,10 +91,12 @@ networks:
     server = None
     environment = os.environ.copy()
     environment.pop("YTMDL_VERSION", None)
+    expected_schema = max(int(f.name.split("_", 1)[0]) for f in (ROOT / "backend/internal/database/migrations").glob("*.sql"))
     if args.manifest:
         manifest_bytes = Path(args.manifest).read_bytes()
         manifest = json.loads(manifest_bytes)
         assert manifest["release_version"] == args.target
+        assert manifest["target_schema"] == expected_schema, "Manifest/schema contract mismatch."
 
         class ReleaseFixture(BaseHTTPRequestHandler):
             def log_message(self, *values):
@@ -170,7 +172,7 @@ networks:
         stored = run(compose + ["exec", "-T", "backend", "sha256sum", "/data/cookies/" + session_id + ".cookies.txt"]).stdout.decode().split()[0]
         assert stored == hashlib.sha256(cookies).hexdigest(), "Managed cookie checksum changed."
         schema = run(compose + ["exec", "-T", "db", "psql", "-U", "ytmdl", "-d", "ytmdl", "-Atc", "SELECT max(version) FROM schema_migrations"]).stdout.strip()
-        assert schema == b"12", "Schema changed during v1 upgrade."
+        assert schema == str(expected_schema).encode(), "Upgrade did not reach the target schema."
         backups = list((directory / "backups").glob("**/*.dump"))
         assert backups, "Managed update did not create its backup."
         print("PASS:", args.engine, args.source + " -> " + args.target,
