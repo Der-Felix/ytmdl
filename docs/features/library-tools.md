@@ -58,7 +58,9 @@ lists every removable version; the winner cannot be selected. The switch
 **Vor dem Löschen nachfragen** can explicitly disable repeated confirmation for
 this account and browser. In direct mode the final comparison immediately deletes
 all losing versions without a dialog; the screen explains this before selection.
-The setting can be enabled again at any time. Other users and browsers default
+The setting can be changed between decisions. During a card transition or a
+save/removal, confirmation and keep/skip/view controls are locked until the action
+finishes. Other users and browsers default
 to confirmation. Skipping and **Alle Versionen behalten** never delete. Deletion removes catalog tracks, audio and unshared lyric
 sidecars, with existing foreign-key cleanup of favorites and playlist memberships
 for all users. It does not transfer memberships or edit subscriptions; a later

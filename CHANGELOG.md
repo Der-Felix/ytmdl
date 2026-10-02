@@ -1,6 +1,34 @@
 # Changelog
 
-## 1.1.0 — 2026-10-02
+## 1.1.1 — 2026-10-02
+
+### Highlights
+
+- **Complete player and library update:** Responsive player layout, Escape, reliable crossfade, clearer errors, consistent button feedback, genres, local/custom artwork, smart playlists, listening history and optional loudness adjustment.
+- **Swipe duplicate review:** Cover-card comparisons with samples, keyboard controls, undo and a default confirmation dialog. Administrators can explicitly disable repeated confirmation per account/browser; direct mode removes losing versions only after the final choice.
+
+### Fixed
+
+- Lock confirmation, keep-all, skip, reload and view controls throughout the card transition as well as saving/deletion. A second action cannot race a pending choice or change its deletion mode. Preserve keyboard focus and ignore repeated choices until the next card is ready.
+- Replace the unpublished v1.1.0 stable candidate and withdrawn v1.1.0-rc.1; the source version, CLI, installation archive, frontend and documentation now consistently use v1.1.1.
+- Qualify upgrades from v0.28.1 and v1.0.0 with both container engines and guard modes, validating the schema against the release manifest. Stable notes compare the preceding published stable release.
+- **Database Schema:** Migration from schema 12–14 to 15 is additive. Verify a database backup and protect configuration, cookies and media separately. Full schema rollback requires backup restoration; upgrading never automatically removes duplicate candidates.
+
+### Upgrade
+
+Use the checksum-verified v1.1.1 CLI and Compose files. Preserve private
+configuration, mounts, database volume, cookies and proxy settings. Run
+`ytmdlctl update --channel stable --target 1.1.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.1.1`. The fresh installer is only for
+new installations. Replace local test-image pins with the official target first.
+
+### Known Limits
+
+- Duplicate matching uses normalized title and artist credit, not audio fingerprints. Intentional album/live/remix versions can be kept; groups over 100 versions cannot be bulk removed.
+- Deletion is permanent and affects every user's favorites and playlist references. Undo covers unfinished comparisons only. Filesystem/database changes cannot be atomic together; partial removals are reported accurately, and restoring deleted audio requires a separate media backup.
+- Loudness analysis and combined-stream fallback remain opt-in. Provider/network dependencies and the v1 platform boundary still apply; multiday soak and full Safari/iOS support are not claimed.
+
+## 1.1.0 — 2026-10-02 (unreleased)
 
 ### Highlights
 
@@ -32,7 +60,7 @@ Upgrading never automatically removes duplicate candidates or changes audio.
 - Deletion is permanent and affects every user's references. Undo applies only to unfinished comparisons; restoring deleted audio requires a separate media backup. Filesystem/database changes cannot be atomic together, so a failed deletion can leave a partially removed item.
 - Loudness analysis is opt-in and bounded; it does not scan the whole library automatically. Combined-stream fallback remains disabled by default. Provider/network dependencies and the v1 platform support boundary still apply.
 
-## 1.1.0-rc.1 — 2026-10-02
+## 1.1.0-rc.1 — 2026-10-02 (withdrawn)
 
 ### Highlights
 

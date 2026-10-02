@@ -34,12 +34,12 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
-## Upgrade to v1.1.0
+## Upgrade to v1.1.1
 
-Use the checksum-verified **v1.1.0** CLI from the
-[v1.1.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.1.0).
-Run `ytmdlctl update --channel stable --target 1.1.0 --dry-run` before
-`ytmdlctl update --channel stable --target 1.1.0`.
+Use the checksum-verified **v1.1.1** CLI from the
+[v1.1.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.1.1).
+Run `ytmdlctl update --channel stable --target 1.1.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.1.1`.
 
 The v1.1 release adds the new player/library tools and migrates schema 12–14 to
 15. Use the checksum-verified CLI and the Compose files from the selected release.

@@ -78,7 +78,12 @@ class ReleaseNotesTests(unittest.TestCase):
             changelog = Path(tmp) / "CHANGELOG.md"
             changelog.write_text("""# Changelog
 
-## 1.1.0
+## 1.1.1
+### Highlights
+- Protect pending swipe decisions without changing existing recordings.
+- **Database Schema:** Migration to schema 15 requires a verified backup.
+
+## 1.1.0 (unreleased)
 ### Highlights
 - New player and library functionality, preserving existing recordings on upgrade.
 - **Database Schema:** Migration to schema 15 requires a verified backup.
@@ -91,7 +96,7 @@ class ReleaseNotesTests(unittest.TestCase):
 ## 1.1.0-rc.1
 ## 1.0.0
 """)
-            for version, previous in (("1.1.0", "1.0.0"), ("1.1.0-rc.2", "1.1.0-rc.1")):
+            for version, previous in (("1.1.1", "1.0.0"), ("1.1.0", "1.0.0"), ("1.1.0-rc.2", "1.1.0-rc.1")):
                 result = subprocess.run([str(ROOT / "scripts/generate-release-notes.sh"),
                                          "--version", version, "--changelog", str(changelog)],
                                         capture_output=True, text=True, check=True)

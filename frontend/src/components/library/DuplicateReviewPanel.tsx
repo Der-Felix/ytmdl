@@ -397,6 +397,7 @@ function DuplicateComparison({
     if (busyRef.current || choiceLock.current || outcome || !canCompare || !challenger) return
     stopPreview()
     choiceLock.current = true
+    setWorking(true)
     restoreCardFocus.current = document.activeElement === focusedCard.current
     setExitDirection(preferNew ? 'right' : 'left')
     const next = preferNew ? challenger : winner
@@ -407,6 +408,7 @@ function DuplicateComparison({
         setDrag(0)
         setExitDirection(null)
         choiceLock.current = false
+        setWorking(false)
         if (cursor + 1 === ordered.length) void save(next, 'preferred')
         else {
           setHistory((prev) => [...prev, { winner, cursor }])
