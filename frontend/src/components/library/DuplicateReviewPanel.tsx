@@ -293,6 +293,14 @@ function DuplicateComparison({
     onBusyChange(value)
   }
   const [drag, setDrag] = useState(0)
+  const focusedCard = useRef<HTMLElement | null>(null)
+  const restoreCardFocus = useRef(false)
+  useEffect(() => {
+    if (restoreCardFocus.current) {
+      focusedCard.current?.focus({ preventScroll: true })
+      restoreCardFocus.current = false
+    }
+  }, [cursor])
   const gesture = useRef<{ id: number; x: number; y: number } | null>(null)
   const { pause, removeFromQueue } = useContext(PlayerActionsContext)!
   const player = useContext(PlayerStateContext)!
@@ -389,6 +397,7 @@ function DuplicateComparison({
     if (busyRef.current || choiceLock.current || outcome || !canCompare || !challenger) return
     stopPreview()
     choiceLock.current = true
+    restoreCardFocus.current = document.activeElement === focusedCard.current
     setExitDirection(preferNew ? 'right' : 'left')
     const next = preferNew ? challenger : winner
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -645,6 +654,7 @@ function DuplicateComparison({
               <div className="duplicate-review-stack" aria-hidden="true" />
               <article
                 key={challenger.id}
+                ref={focusedCard}
                 aria-label="Versionen mit Pfeiltasten vergleichen"
                 tabIndex={0}
                 className={`duplicate-review-card ${exitDirection ? `is-exiting-${exitDirection}` : ''} ${cursor > 1 && !exitDirection ? 'is-entering' : ''}`}

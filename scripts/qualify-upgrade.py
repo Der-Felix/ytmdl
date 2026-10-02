@@ -191,7 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--engine", choices=("docker", "podman"), default="docker")
     parser.add_argument("--cli", required=True)
     parser.add_argument("--source", default="0.28.1")
-    parser.add_argument("--target", default="1.0.0")
+    parser.add_argument("--target", default=(ROOT / ".release-version").read_text().strip())
     parser.add_argument("--manifest")
     parser.add_argument("--old-cli")
     args = parser.parse_args()
