@@ -2,6 +2,7 @@
 """Safety and packaging checks for the fresh-install boundary."""
 import importlib.util
 from pathlib import Path
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -69,6 +70,35 @@ class InstallationTests(unittest.TestCase):
             self.assertEqual((first / filename).read_bytes(), (second / filename).read_bytes())
             with tarfile.open(first / filename) as archive:
                 self.assertEqual(set(archive.getnames()), {"ytmdl-" + version + "/" + name for name in packager.FILES})
+
+
+class ReleaseNotesTests(unittest.TestCase):
+    def test_stable_changelog_compares_previous_stable_not_the_release_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            changelog = Path(tmp) / "CHANGELOG.md"
+            changelog.write_text("""# Changelog
+
+## 1.1.0
+### Highlights
+- New player and library functionality, preserving existing recordings on upgrade.
+- **Database Schema:** Migration to schema 15 requires a verified backup.
+
+## 1.1.0-rc.2
+### Highlights
+- Qualified release candidate with explicit development-channel update commands.
+- **Database Schema:** Migration to schema 15 requires a verified backup.
+
+## 1.1.0-rc.1
+## 1.0.0
+""")
+            for version, previous in (("1.1.0", "1.0.0"), ("1.1.0-rc.2", "1.1.0-rc.1")):
+                result = subprocess.run([str(ROOT / "scripts/generate-release-notes.sh"),
+                                         "--version", version, "--changelog", str(changelog)],
+                                        capture_output=True, text=True, check=True)
+                self.assertIn("/compare/v" + previous + "...v" + version, result.stdout)
+                self.assertIn("Migration to schema 15 requires a verified backup.", result.stdout)
+                if "-rc." in version:
+                    self.assertIn("update --channel development --target " + version, result.stdout)
 
 
 if __name__ == "__main__":

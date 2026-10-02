@@ -139,7 +139,7 @@ fi
 if [ -z "$PREV_TAG" ] && [ -f "$CHANGELOG" ]; then
   PREV_TAG="$(awk -v ver="${VERSION}" '
     /^## [0-9]/ {
-      if (found && !prev) {
+      if (found && !prev && (ver ~ /-/ || $2 !~ /-/)) {
         prev = $2
         exit
       }
