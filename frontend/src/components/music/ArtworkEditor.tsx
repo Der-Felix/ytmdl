@@ -29,7 +29,7 @@ export function ArtworkEditor({
   }
   return (
     <div className="space-y-2 text-xs">
-      <label className="inline-flex cursor-pointer rounded-md border border-border px-3 py-2 hover:bg-white/5">
+      <label data-slot="button" data-disabled={busy ? '' : undefined} className="inline-flex rounded-md border border-border px-3 py-2 hover:bg-white/5">
         {busy ? 'Speichere …' : 'Eigenes Bild hochladen'}
         <input
           className="sr-only"
