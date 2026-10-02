@@ -41,6 +41,19 @@ const dummyTrack3: LibraryTrack = {
 }
 
 describe('playerReducer', () => {
+  it('stops at the requested track or album boundary before repeat can continue playback', () => {
+    const playing = { ...INITIAL_PLAYER_STATE, currentTrack: dummyTrack1, queue: [dummyTrack1, dummyTrack2, dummyTrack3], queueIndex: 0, repeatMode: 'queue' as const }
+    const trackEnd = playerReducer({ ...playing, sleepTimer: 'end_of_track' }, { type: 'NEXT', payload: { manual: false } })
+    expect(trackEnd.status).toBe('paused')
+    expect(trackEnd.queueIndex).toBe(0)
+    expect(trackEnd.sleepTimer).toBe('off')
+    const withinAlbum = playerReducer({ ...playing, sleepTimer: 'end_of_album' }, { type: 'NEXT', payload: { manual: false } })
+    expect(withinAlbum.queueIndex).toBe(1)
+    const albumEnd = playerReducer({ ...withinAlbum, sleepTimer: 'end_of_album' }, { type: 'NEXT', payload: { manual: false } })
+    expect(albumEnd.queueIndex).toBe(1)
+    expect(albumEnd.status).toBe('paused')
+    expect(albumEnd.sleepTimer).toBe('off')
+  })
   it('handles PLAY_TRACK with single track and custom queue', () => {
     const queue = [dummyTrack1, dummyTrack2, dummyTrack3]
     const state = playerReducer(INITIAL_PLAYER_STATE, {

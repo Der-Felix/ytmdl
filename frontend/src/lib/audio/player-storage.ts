@@ -90,6 +90,10 @@ export function loadPlayerState(
 
 function sanitizePersistedState(state: Partial<PersistedPlayerState>): Partial<PersistedPlayerState> {
   const out = { ...state }
+  if (out.crossfadeSeconds !== undefined) {
+    out.crossfadeSeconds = typeof out.crossfadeSeconds === 'number' && Number.isFinite(out.crossfadeSeconds)
+      ? Math.max(0, Math.min(12, out.crossfadeSeconds)) : 0
+  }
 
   // Sanitize queue: verify each track has valid ID and title
   if (Array.isArray(out.queue)) {
