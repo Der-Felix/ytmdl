@@ -36,6 +36,11 @@ The check is read-only. It never installs, restarts or downgrades anything; inst
 
 ## Upgrade to v1.1.0
 
+Use the checksum-verified **v1.1.0** CLI from the
+[v1.1.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.1.0).
+Run `ytmdlctl update --channel stable --target 1.1.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.1.0`.
+
 The v1.1 release adds the new player/library tools and migrates schema 12–14 to
 15. Use the checksum-verified CLI and the Compose files from the selected release.
 Keep private configuration, proxy settings, mounts, cookies and the database
