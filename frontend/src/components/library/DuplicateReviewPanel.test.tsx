@@ -163,6 +163,25 @@ describe('Duplicate comparison consent and selection', () => {
     await screen.findByRole('dialog')
     expect(removals()).toHaveLength(0)
   })
+  it('locks confirmation and keep/skip actions while a swipe decision is pending', async () => {
+    await setup()
+    const setting = screen.getByRole('switch', { name: 'Vor dem Löschen nachfragen' }) as HTMLInputElement
+    fireEvent.click(setting)
+    fireEvent.click(screen.getByRole('button', { name: 'Diese bevorzugen' }))
+    expect(setting.disabled).toBe(true)
+    for (const name of ['Alle Versionen behalten', 'Später prüfen', 'Tabelle', 'Neu laden']) {
+      const control = screen.getByRole('button', { name, exact: true }) as HTMLButtonElement
+      expect(control.disabled).toBe(true)
+      fireEvent.click(control)
+    }
+    expect(writes()).toHaveLength(0)
+    await screen.findByText(/Vergleich 2 von 2/)
+    expect(setting.disabled).toBe(false)
+    fireEvent.click(setting)
+    fireEvent.click(screen.getByRole('button', { name: 'Bisherige behalten' }))
+    await screen.findByRole('dialog')
+    expect(removals()).toHaveLength(0)
+  })
   it('rapid repeated choices cannot skip an undecided version', async () => {
     await setup()
     const choose = screen.getByRole('button', { name: 'Diese bevorzugen' })
