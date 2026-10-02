@@ -589,7 +589,7 @@ export function NowPlaying() {
                 size="icon"
                 onClick={togglePlayPause}
                 disabled={isBuffering}
-                className="size-13 sm:size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 hover:scale-[1.03] active:scale-[0.97] transition-all duration-150"
+                className="size-13 sm:size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/90 transition-colors duration-150"
                 title={isPlaying ? 'Pause' : 'Wiedergabe'}
                 aria-label={isPlaying ? 'Pause' : 'Wiedergabe'}
               >

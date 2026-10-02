@@ -7,9 +7,7 @@ import {
   Heart,
   InfoIcon,
   ListPlus,
-  Pause,
   Play,
-  Radio,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +21,7 @@ import { useOptionalAuth } from '@/hooks/useAuth'
 import type { MetadataPatch } from '@/lib/api/libraryTools'
 import { BulkMetadataDialog } from './BulkMetadataDialog'
 import { LyricsBadge } from './LyricsBadge'
+import { TrackPlaybackButton } from './TrackPlaybackButton'
 
 interface TracksTableProps {
   tracks: LibraryTrack[]
@@ -193,30 +192,13 @@ export function TracksTable({
                     checked={selection.has(track.id)} onChange={() => toggle(track.id)} />
                 </td>
                 <td className="py-2.5 px-3 text-center font-mono text-xs relative">
-                  <span className={`group-hover:hidden ${isCurrent ? 'hidden' : 'text-neutral-500'}`}>
-                    {track.track_number || '–'}
-                  </span>
-                  {isCurrent && !isPlaying && (
-                    <Radio className="size-3.5 text-primary mx-auto group-hover:hidden" />
-                  )}
-                  {isPlaying && (
-                    <Radio className="size-3.5 text-primary animate-pulse mx-auto group-hover:hidden" />
-                  )}
-                  <button
-                    type="button"
+                  <TrackPlaybackButton
+                    number={track.track_number || '–'}
+                    title={track.title}
+                    isCurrent={isCurrent}
+                    isPlaying={isPlaying}
                     onClick={handlePlayClick}
-                    className={`size-6 items-center justify-center rounded-full bg-primary text-white mx-auto transition-transform hover:scale-110 active:scale-95 ${
-                      isCurrent ? 'flex' : 'hidden group-hover:flex'
-                    }`}
-                    title={isPlaying ? 'Pause' : 'Abspielen'}
-                    aria-label={isPlaying ? 'Pause' : 'Abspielen'}
-                  >
-                    {isPlaying ? (
-                      <Pause className="size-3 fill-current" />
-                    ) : (
-                      <Play className="size-3 fill-current ml-0.5" />
-                    )}
-                  </button>
+                  />
                 </td>
 
                 {showDiscNumber && (
@@ -270,11 +252,7 @@ export function TracksTable({
                 </td>
 
                 <td className="py-2.5 px-2 text-right">
-                  <div className={`flex items-center justify-end gap-1 transition-opacity ${
-                    favorites?.isFavorite(track.id)
-                      ? 'opacity-90 group-hover:opacity-100'
-                      : 'opacity-40 group-hover:opacity-100'
-                  }`}>
+                  <div className="flex items-center justify-end gap-1">
                     {favorites && (
                       <Button
                         variant="ghost"
@@ -306,7 +284,7 @@ export function TracksTable({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-neutral-400 hover:text-primary hover:bg-white/10"
+                      className="h-7 w-7 p-0 text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
                       onClick={(e) => {
                         e.stopPropagation()
                         playNext(track)
@@ -318,7 +296,7 @@ export function TracksTable({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-neutral-400 hover:text-primary hover:bg-white/10"
+                      className="h-7 w-7 p-0 text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
                       onClick={(e) => {
                         e.stopPropagation()
                         addToQueue(track)
@@ -330,7 +308,7 @@ export function TracksTable({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-neutral-400 hover:text-primary hover:bg-white/10"
+                      className="h-7 w-7 p-0 text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
                       onClick={(e) => {
                         e.stopPropagation()
                         setPlaylistTrack(track)

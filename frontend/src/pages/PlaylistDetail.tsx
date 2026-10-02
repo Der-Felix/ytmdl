@@ -7,14 +7,13 @@ import {
   ListMusic,
   ListPlus,
   Loader2,
-  Pause,
   Pencil,
   Play,
-  Radio,
   Shuffle,
   Trash2,
 } from 'lucide-react'
 
+import { TrackPlaybackButton } from '@/components/music/TrackPlaybackButton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -391,36 +390,16 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                   >
                     {/* Position / Play Button */}
                     <td className="py-2.5 px-3 text-center font-mono text-xs relative">
-                      <span
-                        className={`group-hover:hidden ${
-                          isCurrent ? 'hidden' : 'text-neutral-500'
-                        }`}
-                      >
-                        {pt.position}
-                      </span>
-                      {isCurrent && !isPlaying && (
-                        <Radio className="size-3.5 text-primary mx-auto group-hover:hidden" />
-                      )}
-                      {isPlaying && (
-                        <Radio className="size-3.5 text-primary animate-pulse mx-auto group-hover:hidden" />
-                      )}
-                      <button
-                        type="button"
+                      <TrackPlaybackButton
+                        number={pt.position}
+                        title={pt.title}
+                        isCurrent={isCurrent}
+                        isPlaying={isPlaying}
                         onClick={(e) => {
                           e.stopPropagation()
                           handlePlayTrack(pt, index)
                         }}
-                        className={`size-6 items-center justify-center rounded-full bg-primary text-white mx-auto transition-transform hover:scale-110 active:scale-95 ${
-                          isCurrent ? 'flex' : 'hidden group-hover:flex'
-                        }`}
-                        title={isPlaying ? 'Pause' : 'Abspielen'}
-                      >
-                        {isPlaying ? (
-                          <Pause className="size-3 fill-current" />
-                        ) : (
-                          <Play className="size-3 fill-current ml-0.5" />
-                        )}
-                      </button>
+                      />
                     </td>
 
                     {/* Title */}
