@@ -234,6 +234,8 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 
 				library.Group(func(mutating chi.Router) {
 					mutating.Use(middleware.CSRF)
+					mutating.Post("/duplicates/review", h.SaveDuplicateReview)
+					mutating.Delete("/duplicates/review/{key}", h.ResetDuplicateReview)
 					mutating.Post("/tracks/{id}/redownload", h.RedownloadLibraryTrack)
 					mutating.Post("/tracks/{id}/retag", h.RetagLibraryTrack)
 					mutating.Post("/tracks/{id}/loudness", h.AnalyzeTrackLoudness)
@@ -246,6 +248,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					// Destructive library mutations & repairs require Administrator privileges
 					mutating.Group(func(admin chi.Router) {
 						admin.Use(middleware.RequireAdmin)
+						admin.Post("/duplicates/remove", h.RemoveDuplicateVersions)
 						admin.Put("/artists/{id}/genres", h.UpdateArtistGenres)
 						admin.Patch("/tracks/metadata", h.UpdateSelectedMetadata)
 						for _, kind := range []string{"artists", "releases"} {
