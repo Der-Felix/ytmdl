@@ -5,6 +5,10 @@ import { ErrorState, ListSkeleton } from '@/components/ui/state-view'
 import { Cover } from '@/components/music/Cover'
 import { ArtworkEditor } from '@/components/music/ArtworkEditor'
 import { DuplicateReviewPanel } from './DuplicateReviewPanel'
+import { TrashPanel } from './TrashPanel'
+import { HandoffPanel } from './HandoffPanel'
+import { SongRadioPanel } from './SongRadioPanel'
+import { AudioAnalysisPanel } from './AudioAnalysisPanel'
 import { usePlayerActions } from '@/hooks/usePlayer'
 import { useAsync } from '@/hooks/useAsync'
 import { libraryArtists, libraryReleases } from '@/lib/api/library'
@@ -15,7 +19,22 @@ import type { LibraryTrack } from '@/types/api'
 const detail = (track: LibraryTrack) =>
   navigate(`/library?view=tracks&track=${encodeURIComponent(track.id)}`)
 export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
-  const [tab, setTab] = useState('history')
+  const [tab, setTab] = useState(() => {
+    const requested =
+      new URLSearchParams(window.location.search).get('tool') || 'history'
+    return [
+      'history',
+      'radio',
+      'handoff',
+      'duplicates',
+      'artwork',
+      'trash',
+      'audio',
+    ].includes(requested) &&
+      (!['trash', 'audio'].includes(requested) || isAdmin)
+      ? requested
+      : 'history'
+  })
   return (
     <section className="space-y-4 rounded-xl border border-border p-4">
       <h2 className="text-lg font-semibold">Deine Bibliothek</h2>
@@ -23,21 +42,35 @@ export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
         {(
           [
             ['history', 'Hörverlauf'],
+            ['radio', 'Song-Radio'],
+            ['handoff', 'Geräteübergabe'],
             ['duplicates', 'Mögliche Duplikate'],
             ['artwork', 'Cover verwalten'],
+            ['trash', 'Papierkorb'],
+            ['audio', 'Audioerkennung'],
           ] as const
-        ).map(([id, label]) => (
-          <Button
-            key={id}
-            size="sm"
-            variant={tab === id ? 'default' : 'outline'}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </Button>
-        ))}
+        )
+          .filter(([id]) => !['trash', 'audio'].includes(id) || isAdmin)
+          .map(([id, label]) => (
+            <Button
+              key={id}
+              size="sm"
+              variant={tab === id ? 'default' : 'outline'}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </Button>
+          ))}
       </div>
-      {tab === 'history' ? (
+      {tab === 'handoff' ? (
+        <HandoffPanel />
+      ) : tab === 'radio' ? (
+        <SongRadioPanel />
+      ) : tab === 'audio' && isAdmin ? (
+        <AudioAnalysisPanel />
+      ) : tab === 'trash' && isAdmin ? (
+        <TrashPanel />
+      ) : tab === 'history' ? (
         <HistoryPanel />
       ) : tab === 'duplicates' ? (
         <DuplicateReviewPanel isAdmin={isAdmin} />
@@ -48,12 +81,15 @@ export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
   )
 }
 function HistoryPanel() {
- const {playTrack}=usePlayerActions()
+  const { playTrack } = usePlayerActions()
   const [sort, setSort] = useState('recent'),
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
     [confirm, setConfirm] = useState(false)
-  const { state, reload } = useAsync((signal) => listeningHistory(sort, signal), [sort])
+  const { state, reload } = useAsync(
+    (signal) => listeningHistory(sort, signal),
+    [sort],
+  )
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
@@ -74,13 +110,18 @@ function HistoryPanel() {
         <Button size="sm" variant="ghost" onClick={() => void reload()}>
           Aktualisieren
         </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirm(!confirm)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => setConfirm(!confirm)}
+        >
           Verlauf löschen
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
-        Ein Titel zählt nach 30 Sekunden Wiedergabe, bei kurzen Titeln nach der halben Dauer. Dein
-        Verlauf ist auf deinen Geräten verfügbar.
+        Ein Titel zählt nach 30 Sekunden Wiedergabe, bei kurzen Titeln nach der
+        halben Dauer. Dein Verlauf ist auf deinen Geräten verfügbar.
       </p>
       {confirm && (
         <div className="flex flex-wrap gap-2 rounded-md border border-border p-3">
@@ -96,7 +137,9 @@ function HistoryPanel() {
                 setConfirm(false)
                 void reload()
               } catch (e) {
-                setError(e instanceof Error ? e.message : 'Löschen fehlgeschlagen.')
+                setError(
+                  e instanceof Error ? e.message : 'Löschen fehlgeschlagen.',
+                )
               } finally {
                 setBusy(false)
               }
@@ -111,20 +154,50 @@ function HistoryPanel() {
       )}
       {error && <p role="alert">{error}</p>}
       {state.status === 'loading' && <ListSkeleton rows={3} />}{' '}
-      {state.status === 'error' && <ErrorState error={state.error} onRetry={reload} />}{' '}
+      {state.status === 'error' && (
+        <ErrorState error={state.error} onRetry={reload} />
+      )}{' '}
       {state.status === 'success' &&
         (state.data.length ? (
           <>
             <div className="divide-y divide-border">
-              {state.data.map((track,index)=><div key={track.id} className="flex items-center gap-3 py-3">
-                <Cover src={libraryArtwork('tracks',track.id)} fallbackSrc={track.cover_url} alt="" className="size-10 shrink-0" />
-                <button className="min-w-0 flex-1 text-left" onClick={()=>detail(track)}><span className="block truncate text-sm font-medium">{track.title}</span><span className="block truncate text-xs text-muted-foreground">{track.artists?.join(' · ')} · {track.play_count} Wiedergaben · {new Date(track.last_played_at).toLocaleString()}</span></button>
-                <Button size="sm" variant="ghost" aria-label={`${track.title} abspielen`} onClick={()=>playTrack(track,state.data,index)}>Abspielen</Button>
-              </div>)}
+              {state.data.map((track, index) => (
+                <div key={track.id} className="flex items-center gap-3 py-3">
+                  <Cover
+                    src={libraryArtwork('tracks', track.id)}
+                    fallbackSrc={track.cover_url}
+                    alt=""
+                    className="size-10 shrink-0"
+                  />
+                  <button
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => detail(track)}
+                  >
+                    <span className="block truncate text-sm font-medium">
+                      {track.title}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {track.artists?.join(' · ')} · {track.play_count}{' '}
+                      Wiedergaben ·{' '}
+                      {new Date(track.last_played_at).toLocaleString()}
+                    </span>
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`${track.title} abspielen`}
+                    onClick={() => playTrack(track, state.data, index)}
+                  >
+                    Abspielen
+                  </Button>
+                </div>
+              ))}
             </div>
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">Noch keine gehörten Titel.</p>
+          <p className="text-sm text-muted-foreground">
+            Noch keine gehörten Titel.
+          </p>
         ))}
     </div>
   )
@@ -202,7 +275,9 @@ function ArtworkPanel({ isAdmin }: { isAdmin: boolean }) {
         Auf dieser Seite nur fehlende lokale Bilder
       </label>
       {state.status === 'loading' && <ListSkeleton rows={3} />}{' '}
-      {state.status === 'error' && <ErrorState error={state.error} onRetry={reload} />}{' '}
+      {state.status === 'error' && (
+        <ErrorState error={state.error} onRetry={reload} />
+      )}{' '}
       {state.status === 'success' && (
         <>
           <div className="grid gap-3 lg:grid-cols-2">
@@ -222,7 +297,9 @@ function ArtworkPanel({ isAdmin }: { isAdmin: boolean }) {
                   <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{item.label}</p>
                     <p className="text-xs text-muted-foreground mb-2">
-                      {item.missing ? 'Kein lokales Bild vorhanden' : 'Lokales Bild vorhanden'}
+                      {item.missing
+                        ? 'Kein lokales Bild vorhanden'
+                        : 'Lokales Bild vorhanden'}
                     </p>
                     {isAdmin && (
                       <ArtworkEditor

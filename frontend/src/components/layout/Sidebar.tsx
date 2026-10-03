@@ -12,6 +12,7 @@ import {
   ServerCogIcon,
   UserIcon,
   UsersIcon,
+  WifiOff,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -30,6 +31,7 @@ interface NavItem {
 }
 
 const PRIMARY: NavItem[] = [
+  {label:'Offline-Musik',href:'/offline',icon:WifiOff,matches:['offline']},
   {
     label: 'Dashboard',
     href: paths.dashboard(),

@@ -20,12 +20,22 @@ const duplicateCTE = `WITH members AS (
   (SELECT jsonb_agg(jsonb_build_array(f.id,f.path,f.updated_at,f.size_bytes,f.codec,f.bitrate_kbps) ORDER BY f.id) FROM files f WHERE f.track_id=t.id)) AS snapshot
  FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id
  WHERE EXISTS(SELECT 1 FROM files f WHERE f.track_id=t.id)
-), grouped AS (
+), metadata_groups AS (
  SELECT encode(sha256(convert_to(jsonb_build_array(title_key,artist_key)::text,'UTF8')),'hex') AS key,
  count(*) AS count,array_agg(id ORDER BY created_at,id) AS ids,
- encode(sha256(convert_to(jsonb_agg(snapshot ORDER BY id)::text,'UTF8')),'hex') AS fingerprint
+ encode(sha256(convert_to(jsonb_agg(snapshot ORDER BY id)::text,'UTF8')),'hex') AS fingerprint,'metadata'::text AS source
  FROM members GROUP BY title_key,artist_key HAVING count(*)>1
-) `
+), audio_groups AS (
+ SELECT encode(sha256(convert_to(jsonb_build_array('audio',p.first_id,p.second_id)::text,'UTF8')),'hex') AS key,
+ 2::bigint AS count,ARRAY[p.first_id,p.second_id] AS ids,
+ encode(sha256(convert_to(jsonb_build_array(a.snapshot,b.snapshot,p.first_generation,p.second_generation)::text,'UTF8')),'hex') AS fingerprint,'audio'::text AS source
+ FROM audio_duplicate_pairs p JOIN members a ON a.id=p.first_id JOIN members b ON b.id=p.second_id
+ JOIN audio_fingerprints fa ON fa.track_id=p.first_id AND fa.generation=p.first_generation
+ JOIN audio_fingerprints fb ON fb.track_id=p.second_id AND fb.generation=p.second_generation
+ JOIN files af ON af.id=fa.file_id AND af.updated_at=fa.file_updated_at
+ JOIN files bf ON bf.id=fb.file_id AND bf.updated_at=fb.file_updated_at
+ WHERE NOT (a.title_key=b.title_key AND a.artist_key=b.artist_key)
+), grouped AS (SELECT * FROM metadata_groups UNION ALL SELECT * FROM audio_groups) `
 
 type DuplicateReview struct {
 	GroupKey         string `json:"group_key"`
@@ -46,7 +56,7 @@ func (c *Catalog) DuplicateGroupsForUser(ctx context.Context, userID string, off
 	if after != "" && !validDuplicateHash(after) {
 		return nil, apperr.New(apperr.CodeInvalidRequest, "Ungültige nächste Seite.")
 	}
-	rows, err := c.db.QueryContext(ctx, duplicateCTE+`SELECT g.key,g.count,to_json(g.ids[1:100]),g.fingerprint,
+	rows, err := c.db.QueryContext(ctx, duplicateCTE+`SELECT g.key,g.count,to_json(g.ids[1:100]),g.fingerprint,g.source,
  CASE WHEN r.fingerprint=g.fingerprint THEN r.outcome ELSE '' END,COALESCE(r.preferred_track_id,'')
  FROM grouped g LEFT JOIN duplicate_reviews r ON r.user_id=$1 AND r.group_key=g.key
  WHERE ($2 OR r.group_key IS NULL OR r.fingerprint<>g.fingerprint) AND ($4='' OR g.key>$4)
@@ -59,7 +69,7 @@ func (c *Catalog) DuplicateGroupsForUser(ctx context.Context, userID string, off
 	for rows.Next() {
 		var g DuplicateGroup
 		var raw []byte
-		if err = rows.Scan(&g.Key, &g.Count, &raw, &g.Fingerprint, &g.Outcome, &g.PreferredTrackID); err != nil {
+		if err = rows.Scan(&g.Key, &g.Count, &raw, &g.Fingerprint, &g.Source, &g.Outcome, &g.PreferredTrackID); err != nil {
 			rows.Close()
 			return nil, err
 		}

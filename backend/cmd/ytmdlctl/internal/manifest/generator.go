@@ -89,6 +89,12 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 			supportedSources = []int{8, 9, 10}
 		} else if opts.TargetSchema == 12 {
 			supportedSources = []int{8, 9, 10, 11}
+		} else if opts.TargetSchema == 18 {
+			supportedSources = []int{8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
+		} else if opts.TargetSchema == 17 {
+			supportedSources = []int{8, 9, 10, 11, 12, 13, 14, 15, 16}
+		} else if opts.TargetSchema == 16 {
+			supportedSources = []int{8, 9, 10, 11, 12, 13, 14, 15}
 		} else if opts.TargetSchema == 15 {
 			supportedSources = []int{8, 9, 10, 11, 12, 13, 14}
 		} else if opts.TargetSchema == 14 {
@@ -227,6 +233,36 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 				update, rollback = UpdateSchemaNeutral, RollbackSchemaNeutral
 			}
 			upgradePaths = append(upgradePaths, UpgradePath{SourceSchema: source, TargetSchema: 15, UpdateClassification: update, RollbackClassification: rollback})
+		}
+	}
+
+	if len(upgradePaths) == 0 && mVer >= ManifestVersion3 && opts.TargetSchema == 16 {
+		for source := 8; source <= 16; source++ {
+			update, rollback := UpdateSchemaForward, RollbackBackupRestoreRequired
+			if source == 16 {
+				update, rollback = UpdateSchemaNeutral, RollbackSchemaNeutral
+			}
+			upgradePaths = append(upgradePaths, UpgradePath{SourceSchema: source, TargetSchema: 16, UpdateClassification: update, RollbackClassification: rollback})
+		}
+	}
+
+	if len(upgradePaths) == 0 && mVer >= ManifestVersion3 && opts.TargetSchema == 17 {
+		for source := 8; source <= 17; source++ {
+			update, rollback := UpdateSchemaForward, RollbackBackupRestoreRequired
+			if source == 17 {
+				update, rollback = UpdateSchemaNeutral, RollbackSchemaNeutral
+			}
+			upgradePaths = append(upgradePaths, UpgradePath{SourceSchema: source, TargetSchema: 17, UpdateClassification: update, RollbackClassification: rollback})
+		}
+	}
+
+	if len(upgradePaths) == 0 && mVer >= ManifestVersion3 && opts.TargetSchema == 18 {
+		for source := 8; source <= 18; source++ {
+			update, rollback := UpdateSchemaForward, RollbackBackupRestoreRequired
+			if source == 18 {
+				update, rollback = UpdateSchemaNeutral, RollbackSchemaNeutral
+			}
+			upgradePaths = append(upgradePaths, UpgradePath{SourceSchema: source, TargetSchema: 18, UpdateClassification: update, RollbackClassification: rollback})
 		}
 	}
 

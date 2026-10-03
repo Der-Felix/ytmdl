@@ -39,8 +39,9 @@ current page; it does not initiate provider refreshes.
 ## Duplicate candidates and history
 
 **Mögliche Duplikate** groups downloaded tracks by normalized title and artist
-credit. This is a review aid, not an audio fingerprint: different album, live or
-remix versions can be intentional. Each page has up to 20 groups, and the first
+credit. This metadata comparison is a review aid: different album, live or remix versions
+can be intentional. Explicit audio analysis can additionally find similar recordings
+with different names; see Audioerkennung below. Each page has up to 20 groups, and the first
 100 tracks of each group are shown for comparison. Review never deletes before a user makes a choice.
 
 The **Wischvergleich** compares two versions at a time. Swipe left to keep the
@@ -56,21 +57,22 @@ Cursor pagination prevents reviewing a page from skipping later groups.
 Administrators confirm deletion in a separate dialog by default. The dialog
 lists every removable version; the winner cannot be selected. The switch
 **Vor dem Löschen nachfragen** can explicitly disable repeated confirmation for
-this account and browser. In direct mode the final comparison immediately deletes
-all losing versions without a dialog; the screen explains this before selection.
+this account and browser. In direct mode the final comparison immediately moves
+all losing versions to the seven-day trash without a dialog; the screen explains this before selection.
 The setting can be changed between decisions. During a card transition or a
 save/removal, confirmation and keep/skip/view controls are locked until the action
 finishes. Other users and browsers default
-to confirmation. Skipping and **Alle Versionen behalten** never delete. Deletion removes catalog tracks, audio and unshared lyric
-sidecars, with existing foreign-key cleanup of favorites and playlist memberships
-for all users. It does not transfer memberships or edit subscriptions; a later
+to confirmation. Skipping and **Alle Versionen behalten** never delete. Removal hides catalog tracks, audio and unshared lyric
+sidecars from the active library. A journal keeps media and a metadata snapshot
+for seven-day restoration, including favorites and playlist memberships for all
+remaining users. Expiration or explicitly confirmed purge deletes the archive. It does not transfer memberships or edit subscriptions; a later
 subscription download may restore a removed recording. The server requires a
 matching saved preference and current group snapshot, locks every affected track,
 checks storage and all paths before mutation, and blocks unfinished track/release
 download jobs. Shared files and lyrics referenced by retained tracks are protected.
 Filesystem and database operations cannot be atomic together: a failure stops the
 batch and reports completed track IDs plus the failed item. Reload the group
-before retrying; files partially removed from the failed item may need repair.
+before retrying; interrupted journal entries can be recovered from the trash panel.
 Groups exceeding 100 versions remain available in the table without bulk deletion.
 
 Listening history counts actual playing wall time, excluding pause, buffering,
@@ -102,12 +104,121 @@ library scan is automatically scheduled. The opt-in persists in this browser.
 
 ## Database upgrade
 
-Migration 0014 adds rules, metadata overrides, artwork, listening data and loudness
-measurements. Migration 0015 adds per-user duplicate review decisions. Both are
-additive: installing the feature preserves existing identities, audio and
-playlists and never automatically deletes candidates. Upgrades from schema 8–14
-to 15 require a verified backup for schema rollback. Schema 15 is neutral only
-when already on 15. The old application can still run with the additive tables
-present, but will not expose these new features. Backup restoration is required
-for a full schema rollback; restoring audio deleted by an explicit user action
-also requires a separate media backup.
+Migrations 0014–0018 add rules, metadata overrides, artwork, listening data,
+loudness measurements, per-user duplicate review, seven-day trash, fingerprints
+and playback handoff. Schema 18 is additive: upgrading preserves existing
+identities, audio and playlists and never removes candidates automatically.
+Upgrades from supported older schemas require a verified database backup;
+full schema rollback requires restoring it. Protect media separately because
+music files are not contained in the database dump. Previously permanently
+deleted recordings need a separate media backup for restoration.
+
+## Papierkorb
+
+Administratoren finden den Papierkorb unter **Bibliothek → Werkzeuge →
+Papierkorb**. Im Duplikatvergleich entfernte Versionen werden sieben Tage
+aufbewahrt; die Bestätigung vor dem Verschieben kann weiterhin pro Konto und
+Browser ausgeschaltet werden. Die Originaldateien und Lyrics bleiben auf dem
+Bibliotheksspeicher. Danach werden abgelaufene Einträge automatisch endgültig
+entfernt. Ein ausdrücklich bestätigtes endgültiges Löschen ist vorher möglich.
+
+Wiederherstellen erhält die ursprünglichen Titel- und Datei-IDs, eigene
+Metadaten, Favoriten aller noch vorhandenen Konten und Zuordnungen zu noch
+vorhandenen Playlists. Nachbarpositionen erlauben das Zurückholen mehrerer Titel
+in beliebiger Reihenfolge, ohne inzwischen hinzugefügte Titel zu entfernen.
+Vorhandene Dateien werden niemals überschrieben. Inzwischen gelöschte
+Playlists/Konten werden nicht neu angelegt; Hörverlauf und abgeleitete Messungen
+werden nicht wiederhergestellt. Erneut heruntergeladene Aufnahmen können eine
+Wiederherstellung durch Identitäts- oder Dateipfadkonflikte blockieren.
+
+Ein persistentes Journal schützt unterbrochene Datei-/Datenbankaktionen.
+**Unterbrochene Aktionen wiederherstellen** prüft offene Vorgänge; automatische
+Wartung versucht dies ebenfalls. Nicht sicher auflösbare Konflikte bleiben
+sichtbar. Der Papierkorb verwendet atomare, nicht überschreibende Hardlinks auf
+demselben Dateisystem. Speicher ohne Hardlink-Unterstützung lehnt Verschieben
+sicher ab. `.ytmdl-trash` muss auch aus externen Media-Server-Scans ausgeschlossen
+werden; YTMDL überspringt dieses reservierte Verzeichnis bereits.
+
+Bereits endgültig gelöschte Dateien aus älteren Versionen werden nicht
+wiederhergestellt. Der Papierkorb ersetzt kein separates Backup der Medien.
+
+## Audioerkennung für Duplikate
+
+Administratoren finden unter **Bibliothek → Werkzeuge → Audioerkennung**
+einen ausdrücklich gestarteten, abbrechbaren Lauf für 10, 50 oder 100 Titel.
+Chromaprint untersucht maximal 90 Sekunden pro Datei, lokal und ohne externe
+Fingerabdruckdienste. Das offizielle Backend-Image enthält `fpcalc`.
+Bereits gemessene Dateigenerationen werden gespeichert; ein neuer Durchlauf
+setzt mit offenen Titeln fort. Das Verlassen des Bereichs beendet den Lauf.
+
+Ähnliche Aufnahmen mit unterschiedlichen Namen erscheinen im normalen
+Duplikatvergleich als **Ähnliche Audioaufnahme · bitte anhören**. Gleiche
+Namen bleiben im bisherigen Metadatenvergleich. Treffer sind Hinweise:
+Kurze, gleichförmige oder nicht lesbare Dateien können unklar bleiben, und
+Versionen mit identischem Anfang können sich später unterscheiden. Keine
+Analyse löscht Musik oder beeinflusst die Download-Eignung.
+
+Ein Dateiwechsel macht die alte Messung und Entscheidung ungültig. **Analyseindex
+zurücksetzen** entfernt ausschließlich abgeleitete Messungen und Audiotreffer;
+Musik, Favoriten und Playlists bleiben erhalten. Der nächste Lauf prüft erneut.
+
+## Lokales Song-Radio
+
+Unter **Bibliothek → Werkzeuge → Song-Radio** entsteht ein Mix mit bis
+zu 50 verfügbaren lokalen Titeln. Favoriten und Hörverlauf beeinflussen nur
+für dein Konto die Auswahl; ähnliche Künstler und Genres des aktuellen Songs
+können als Ausgangspunkt dienen. Ein Genre lässt sich gezielt auswählen.
+Kürzlich gehörte Titel werden nach hinten gestellt, verschiedene Künstler
+bevorzugt und gleich benannte Versionen eines Künstlers nicht mehrfach gewählt.
+
+**Neuen Mix zusammenstellen** zeigt die Auswahl zuerst. **Titel abspielen**
+ersetzt die Warteschlange; **Zur Warteschlange** hängt den Mix an und lässt die
+aktuelle Wiedergabe weiterlaufen. Es werden keine Provider abgefragt und keine
+neuen Songs heruntergeladen. Für Genres braucht die Bibliothek gepflegte
+Genre-Zuordnungen; ohne Hörverlauf oder Favoriten entsteht ein abwechslungsreicher
+lokaler Startmix.
+
+## Geräteübergabe
+
+**Bibliothek → Werkzeuge → Geräteübergabe** speichert bis zu 500 Titel
+in ihrer aktuellen Reihenfolge, die Position und den Wiederholmodus für 15
+Minuten. **Hier pausieren und übertragen** pausiert das Ausgangsgerät erst,
+wenn der Server die Übergabe angenommen hat. Auf dem Zielgerät mit demselben
+Konto **Aktualisieren**, dann **Übernehmen und abspielen** wählen. Der Player
+setzt Warteschlange und Position gemeinsam; Lautstärke und Klang bleiben lokal.
+
+Es gibt keine Hintergrundüberwachung der Geräte und keine automatische
+Fernsteuerung. Beide Geräte brauchen eine Serververbindung. Ein neuer Eintrag
+ersetzt die vorige Übergabe; fehlende Titel und veraltete Entscheidungen werden
+abgewiesen. Eine Übergabe kann während ihrer Gültigkeit erneut übernommen oder
+bewusst verworfen werden. Sleep-Timer und „Stopp nach …“ werden beim Übernehmen
+ausgeschaltet, damit eine alte lokale Einstellung die neue Sitzung nicht beendet.
+
+## Offline-Playlists im Browser
+
+Unter **Playlists → Playlist öffnen → Diese Playlist offline mitnehmen** zuerst
+**Musik und Metadaten in diesem Browserprofil aufbewahren** bestätigen, dann
+**Offline-Kopie speichern / erneuern** wählen. Das funktioniert auch mit einer
+intelligenten Playlist: gespeichert wird die aktuell angezeigte Auswahl.
+Eine Kopie enthält 1–200 Titel, höchstens 64 MiB pro Audiodatei und insgesamt
+512 MiB einschließlich verfügbarer lokaler Cover. Abbrechen oder ein fehlgeschlagenes
+Erneuern lässt die vorherige vollständige Kopie erhalten. Der Server und die
+ursprüngliche Playlist werden nicht verändert.
+
+**Offline-Musik** in der Seitenleiste beziehungsweise `/offline` zeigt die
+lokalen Kopien. Abspielen verwendet den vorhandenen Player mit Warteschlange,
+Position, Lautstärke und lokalen Klangeinstellungen. **Lokale Kopie entfernen**
+löscht nach Bestätigung ausschließlich den Browserbestand. Server-Favoriten,
+Lyrics, Radio, Hörverlauf und neue Lautstärkemessungen sind dort nicht verfügbar.
+Die Kopie ist an Browserprofil und Serveradresse gebunden; Audio und Metadaten
+bleiben bewusst auch nach dem Abmelden zugänglich. Sie ist kein Serverbackup.
+
+Für einen neuen Start bei geschlossenem Browser ohne Serververbindung ist HTTPS
+und eine erfolgreich vorbereitete App-Hülle erforderlich (localhost gilt ebenfalls
+als sicherer Ursprung). Über eine HTTP-IP-Adresse funktioniert die Wiedergabe nur
+in einer bereits geöffneten App. Der Service Worker speichert nur öffentliche
+App-Dateien, niemals authentifizierte API-Antworten oder Anmeldedaten, und lädt
+keine laufende Wiedergabe zwangsweise neu. Browser können lokalen Speicher bei
+Platzmangel entfernen; **Dauerhafte Aufbewahrung anfragen** verbessert dies nur,
+wenn der Browser zustimmt. Vor dem Verlassen des Netzes einmal `/offline` öffnen
+und die gewünschte Kopie mit abgeschalteter Verbindung testen.

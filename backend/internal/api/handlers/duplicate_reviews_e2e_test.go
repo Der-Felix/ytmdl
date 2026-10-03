@@ -44,3 +44,100 @@ func TestDuplicateReviewAuthenticationCSRFAndExplicitConsent(t *testing.T) {
 		t.Fatal("CSRF-less reset accepted")
 	}
 }
+
+func TestTrashReadWriteAuthorizationAndPermanentConsent(t *testing.T) {
+	srv, admin, user, _ := setupPlaylistsE2ETest(t)
+	res, err := http.Get(srv.URL + "/api/v1/library/trash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatal("anonymous trash access")
+	}
+	res, _, err = user.do(http.MethodGet, "/api/v1/library/trash", nil, false)
+	if err != nil || res.StatusCode != 403 {
+		t.Fatal("private archive exposed to nonadmin")
+	}
+	res, _, err = admin.do(http.MethodGet, "/api/v1/library/trash", nil, false)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatal("admin archive read")
+	}
+	for _, path := range []string{"/api/v1/library/trash/fake/restore", "/api/v1/library/trash/fake/purge", "/api/v1/library/trash/recover"} {
+		res, _, err = admin.do(http.MethodPost, path, map[string]any{}, false)
+		if err != nil || res.StatusCode != 403 {
+			t.Fatal("CSRF-less trash write", path)
+		}
+		res, _, err = user.do(http.MethodPost, path, map[string]any{"confirmed": true}, true)
+		if err != nil || res.StatusCode != 403 {
+			t.Fatal("nonadmin trash write", path)
+		}
+	}
+	res, _, err = admin.do(http.MethodPost, "/api/v1/library/trash/fake/purge", map[string]any{"confirmed": false}, true)
+	if err != nil || res.StatusCode != 400 {
+		t.Fatal("unconfirmed permanent deletion")
+	}
+}
+
+func TestAudioAnalysisAuthorization(t *testing.T) {
+	srv, admin, user, _ := setupPlaylistsE2ETest(t)
+	res, err := http.Get(srv.URL + "/api/v1/library/audio-analysis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatal("anonymous analysis read")
+	}
+	res, _, err = user.do(http.MethodGet, "/api/v1/library/audio-analysis", nil, false)
+	if err != nil || res.StatusCode != 403 {
+		t.Fatal("nonadmin analysis read")
+	}
+	res, _, err = admin.do(http.MethodGet, "/api/v1/library/audio-analysis", nil, false)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatal("admin analysis unavailable")
+	}
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		path := "/api/v1/library/audio-analysis"
+		if method == http.MethodPost {
+			path += "/trk_e2e_1"
+		}
+		res, _, err = user.do(method, path, nil, true)
+		if err != nil || res.StatusCode != 403 {
+			t.Fatal("nonadmin analysis mutation")
+		}
+		res, _, err = admin.do(method, path, nil, false)
+		if err != nil || res.StatusCode != 403 {
+			t.Fatal("CSRF-less analysis mutation")
+		}
+	}
+}
+
+func TestPlaybackHandoffHTTPAuthorizationAndCSRF(t *testing.T) {
+	srv, admin, user, _ := setupPlaylistsE2ETest(t)
+	res, err := http.Get(srv.URL + "/api/v1/playback/handoff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatal("anonymous handoff read")
+	}
+	body := map[string]any{"queue_ids": []string{"trk_e2e_1"}, "queue_index": 0, "position_seconds": 3, "repeat_mode": "off", "source_name": "Fixture"}
+	res, _, err = user.do(http.MethodPost, "/api/v1/playback/handoff", body, false)
+	if err != nil || res.StatusCode != 403 {
+		t.Fatal("CSRF-less handoff write")
+	}
+	res, _, err = user.do(http.MethodPost, "/api/v1/playback/handoff", body, true)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatal("ordinary user handoff blocked")
+	}
+	res, data, err := admin.do(http.MethodGet, "/api/v1/playback/handoff", nil, false)
+	if err != nil || res.StatusCode != 200 || !strings.Contains(string(data), `"data":null`) {
+		t.Fatal("handoff leaked between accounts")
+	}
+	res, _, err = user.do(http.MethodDelete, "/api/v1/playback/handoff", map[string]any{"id": "fake"}, false)
+	if err != nil || res.StatusCode != 403 {
+		t.Fatal("CSRF-less handoff delete")
+	}
+}

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Panel } from '@/components/ui/panel'
 import { useAuth } from '@/hooks/useAuth'
-import { useNavigate } from '@/lib/router'
+import { Link,useNavigate } from '@/lib/router'
 import { errorMessage } from '@/lib/api/client'
 
 export function Login() {
@@ -80,6 +80,7 @@ export function Login() {
   return (
     <div className="flex min-h-[75vh] flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-md space-y-6">
+ <Link href="/offline" className="block rounded-lg border border-border p-3 text-center text-sm hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-ring">Gespeicherte Offline-Musik öffnen</Link>
         <div className="text-center space-y-3">
           <div className="mx-auto flex items-center justify-center">
             <img

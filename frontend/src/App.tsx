@@ -16,6 +16,7 @@ import { LibraryArtist } from '@/pages/LibraryArtist'
 import { LibraryRelease } from '@/pages/LibraryRelease'
 import { Login } from '@/pages/Login'
 import { NotFound } from '@/pages/NotFound'
+import { OfflinePage } from '@/pages/Offline'
 import { NowPlaying } from '@/pages/NowPlaying'
 import { PlaylistDetail } from '@/pages/PlaylistDetail'
 import { Playlists } from '@/pages/Playlists'
@@ -36,6 +37,10 @@ export function AppContent() {
     const totalOpen = (summaryState.data.active_jobs ?? 0) + (summaryState.data.queued_jobs ?? 0)
     return totalOpen > 0 ? totalOpen : undefined
   }, [summaryState])
+
+  // This route reads only explicitly saved browser data, without pretending
+  // an offline browser is authenticated to the server.
+  if(route.name==='offline')return <OfflinePage/>
 
   if (loading) {
     return (

@@ -49,7 +49,7 @@ func (h *Handlers) RemoveDuplicateVersions(w http.ResponseWriter, r *http.Reques
 	validate := func() error {
 		return h.deps.Catalog.ValidateDuplicateRemoval(r.Context(), middleware.UserFromContext(r.Context()).ID, req.DuplicateReview, req.RemoveTrackIDs)
 	}
-	deleted, failed, err := h.deps.LibraryService.RemoveDuplicateTracks(r.Context(), req.PreferredTrackID, req.RemoveTrackIDs, validate)
+	deleted, failed, err := h.deps.LibraryService.MoveDuplicateTracksToTrash(r.Context(), req.PreferredTrackID, req.RemoveTrackIDs, middleware.UserFromContext(r.Context()).ID, validate)
 	if err != nil && failed == "" {
 		response.Error(w, r, err)
 		return

@@ -17,6 +17,20 @@ import (
 // before the first mutation. Filesystem/DB failures can still yield a partial
 // result; callers must report those completed track deletions accurately.
 func (s *Service) RemoveDuplicateTracks(ctx context.Context, winner string, ids []string, validate func() error) (deleted []string, failedID string, err error) {
+	return s.removeDuplicateTracks(ctx, winner, ids, validate, "")
+}
+
+// MoveDuplicateTracksToTrash keeps restorable media and memberships for seven days.
+func (s *Service) MoveDuplicateTracksToTrash(ctx context.Context, winner string, ids []string, userID string, validate func() error) ([]string, string, error) {
+	if userID == "" {
+		return nil, "", apperr.New(apperr.CodeInvalidRequest, "Papierkorb benötigt einen Benutzer.")
+	}
+	if _, err := s.trashStore(); err != nil {
+		return nil, "", err
+	}
+	return s.removeDuplicateTracks(ctx, winner, ids, validate, userID)
+}
+func (s *Service) removeDuplicateTracks(ctx context.Context, winner string, ids []string, validate func() error, trashUser string) (deleted []string, failedID string, err error) {
 	deleted = []string{}
 	if winner == "" || len(ids) == 0 || len(ids) > 99 {
 		return deleted, "", apperr.New(apperr.CodeInvalidRequest, "Ungültige Löschliste.")
@@ -167,6 +181,13 @@ func (s *Service) RemoveDuplicateTracks(ctx context.Context, winner string, ids 
 	}
 	for _, id := range ids {
 		failedID = id
+		if trashUser != "" {
+			if err = s.trashTrackLocked(ctx, root, id, trashUser, files[id], paths, protected); err != nil {
+				return deleted, failedID, err
+			}
+			deleted = append(deleted, id)
+			continue
+		}
 		for _, f := range files[id] {
 			rel := paths[f.ID]
 			if e := root.Remove(rel); e != nil && !errors.Is(e, os.ErrNotExist) {

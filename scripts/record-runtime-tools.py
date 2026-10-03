@@ -29,6 +29,7 @@ if __name__ == "__main__":
         ("yt-dlp", ["yt-dlp", "--version"]),
         ("ffmpeg", ["ffmpeg", "-version"]),
         ("ffprobe", ["ffprobe", "-version"]),
+        ("chromaprint", ["fpcalc", "-version"]),
         ("deno", ["deno", "--version"]),
     )}
     tools["nginx"] = version(args.frontend, ["nginx", "-v"])

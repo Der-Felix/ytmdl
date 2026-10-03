@@ -13,6 +13,7 @@ import { useOptionalAuth } from '@/hooks/useAuth'
 import { ListeningTracker } from '@/lib/audio/listeningTracker'
 import { analyzeLoudness, recordPlayback } from '@/lib/api/libraryTools'
 import { AudioEngine } from '@/lib/audio/engine'
+import { offlineAudioURL, releaseOfflineAudioURLs, trimOfflineAudioURLs } from '@/lib/offline-store'
 import {
   loadCustomPresets,
   loadHistory,
@@ -44,6 +45,12 @@ export type PlayerStateContextValue = Omit<PlayerState, 'currentTime' | 'duratio
 export interface PlayerActionsContextValue {
   engine: AudioEngine
   playTrack: (track: LibraryTrack, queue?: LibraryTrack[], queueIndex?: number) => void
+  resumeSession: (
+    tracks: LibraryTrack[],
+    index: number,
+    position: number,
+    repeatMode: RepeatMode,
+  ) => void
   playAlbum: (tracks: LibraryTrack[], startIndex?: number) => void
   playArtist: (tracks: LibraryTrack[], shuffle?: boolean) => void
   playNext: (track: LibraryTrack) => void
@@ -98,6 +105,9 @@ export const PlayerProgressContext = createContext<PlayerProgressContextValue | 
 export const PlayerActionsContext = createContext<PlayerActionsContextValue | null>(null)
 export const PlayerContext = createContext<PlayerContextValue | null>(null)
 
+function audioKey(track:LibraryTrack){return track.offline_blob_key?'offline:'+track.offline_blob_key:track.id}
+function serverStream(track:LibraryTrack){return `/api/v1/library/tracks/${encodeURIComponent(track.id)}/stream`}
+
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const auth = useOptionalAuth()
   const user = auth?.user ?? null
@@ -114,9 +124,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // Track ID of the currently playing audio on the engine
   const currentEngineTrackIdRef = useRef<string | null>(null)
+  const pendingSourceKeyRef=useRef<string|null>(null)
+  const streamURLsRef=useRef(new Map<string,string>())
+  useEffect(()=>()=>{releaseOfflineAudioURLs()},[])
+
 
   const previousAction = useCallback(() => {
-    if (stateRef.current.currentTime > 3) {
+    if (stateRef.current.currentTime > 3 && stateRef.current.currentTrack && currentEngineTrackIdRef.current===audioKey(stateRef.current.currentTrack)) {
       dispatch({ type: 'PREVIOUS' })
       engine.seek(0)
       engine.play()
@@ -163,11 +177,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     engine.setCallbacks({
       onTimeUpdate: (currentTime, duration) => {
+        if(pendingSourceKeyRef.current)return
         const s = stateRef.current,
           u = userRef.current
         if (
           u &&
           s.currentTrack &&
+          !s.currentTrack.offline_blob_key &&
           listeningTracker.current.tick(
             u.id + ':' + s.currentTrack.id,
             s.status === 'playing',
@@ -185,23 +201,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             .catch(() => {})
         }
 
+        if(s.currentTrack?.offline_blob_key)listeningTracker.current.reset()
         dispatch({
           type: 'SET_CURRENT_TIME',
           payload: { currentTime, duration },
         })
       },
       onStatusChange: (status) => {
+        if(pendingSourceKeyRef.current)return
         dispatch({ type: 'SET_STATUS', payload: status })
       },
       onError: (error) => {
+        if(pendingSourceKeyRef.current)return
         dispatch({ type: 'SET_ERROR', payload: error })
       },
       onTrackEnded: () => {
+        if(pendingSourceKeyRef.current)return
         listeningTracker.current.reset()
         const before = stateRef.current
         const after = playerReducer(before, { type: 'NEXT', payload: { manual: false } })
         if (after.status === 'paused') engine.pause()
-        else if (after.currentTrack?.id === before.currentTrack?.id) {
+        else if (after.currentTrack?.id === before.currentTrack?.id && after.currentTrack?.offline_blob_key===before.currentTrack?.offline_blob_key) {
           engine.seek(0)
           engine.play()
         }
@@ -210,9 +230,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       onNextDeckCrossfadeStart: (streamUrl) => {
         listeningTracker.current.reset()
         const after = playerReducer(stateRef.current, { type: 'NEXT', payload: { manual: false } })
-        const expected = after.currentTrack
-          ? `/api/v1/library/tracks/${encodeURIComponent(after.currentTrack.id)}/stream`
-          : null
+        const expected=after.currentTrack?(after.currentTrack.offline_blob_key?streamURLsRef.current.get(audioKey(after.currentTrack)):serverStream(after.currentTrack)):null
         if (after.status !== 'buffering' || expected !== streamUrl) {
           // A boundary or queue edit may arrive while the incoming play promise settles.
           engine.pause()
@@ -221,7 +239,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           dispatch({ type: 'NEXT', payload: { manual: false } })
           return
         }
-        currentEngineTrackIdRef.current = after.currentTrack!.id
+        currentEngineTrackIdRef.current = audioKey(after.currentTrack!)
         dispatch({ type: 'NEXT', payload: { manual: false } })
         dispatch({ type: 'SET_STATUS', payload: 'playing' })
       },
@@ -260,79 +278,59 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     state.mono,
   ])
 
-  // 4. Load & Play Track when currentTrack or status changes
+  // 4. Load the selected local or server source. Online paths stay synchronous;
+  // stale IndexedDB resolutions cannot take over a newer queue or pause intent.
   useEffect(() => {
-    const track = state.currentTrack
-    const latest = stateRef.current
-    if (!track) {
-      currentEngineTrackIdRef.current = null
-      engine.preloadNext(null)
-      engine.pause()
-      return
-    }
-
-    const streamUrl = `/api/v1/library/tracks/${encodeURIComponent(track.id)}/stream`
-
-    if (currentEngineTrackIdRef.current !== track.id) {
-      currentEngineTrackIdRef.current = track.id
-      if (latest.status === 'playing' || latest.status === 'buffering') {
-        void engine.loadAndPlay(streamUrl, latest.currentTime)
-      } else {
-        engine.load(streamUrl, latest.currentTime)
+    const track=state.currentTrack
+    let canceled=false
+    if(!track){pendingSourceKeyRef.current=null;currentEngineTrackIdRef.current=null;engine.preloadNext(null);engine.pause();return}
+    const key=audioKey(track)
+    const trim=()=>void trimOfflineAudioURLs([engine.getActiveDeckElement().src,engine.getInactiveDeckElement().src])
+    const resolve=(candidate:LibraryTrack)=>candidate.offline_blob_key?offlineAudioURL(candidate.offline_blob_key):Promise.resolve(serverStream(candidate))
+    const load=(url:string)=>{
+      if(canceled)return
+      const latest=stateRef.current
+      if(!latest.currentTrack||audioKey(latest.currentTrack)!==key)return
+      pendingSourceKeyRef.current=null
+      streamURLsRef.current.set(key,url)
+      if(currentEngineTrackIdRef.current!==key){
+        currentEngineTrackIdRef.current=key
+        if(latest.status==='playing'||latest.status==='buffering')void engine.loadAndPlay(url,latest.currentTime)
+        else engine.load(url,latest.currentTime)
       }
-    }
-
-    // Determine & Preload Next Track
-    // Use the same decision as completion: repeat-one, stop-after and sleep timers
-    // must never accidentally start a different song during an overlap.
-    const after = playerReducer(latest, { type: 'NEXT', payload: { manual: false } })
-    const nextTrack =
-      after.status === 'buffering' && state.repeatMode !== 'track' ? after.currentTrack : null
-
-    if (nextTrack) {
-      const nextStreamUrl = `/api/v1/library/tracks/${encodeURIComponent(nextTrack.id)}/stream`
-      // Check Smart Album Transition Bypass
-      const isConsecutiveAlbumTrack =
-        Boolean(track.release_id) &&
-        track.release_id === nextTrack.release_id &&
-        ((nextTrack.disc_number === track.disc_number &&
-          nextTrack.track_number === track.track_number + 1) ||
-          (nextTrack.disc_number === track.disc_number + 1 && nextTrack.track_number === 1))
-
-      if (state.smartAlbumTransition && isConsecutiveAlbumTrack) {
-        // Gapless seamless transition without crossfade
-        engine.setCrossfade(0)
-      } else {
-        engine.setCrossfade(state.crossfadeSeconds)
+      const after=playerReducer(latest,{type:'NEXT',payload:{manual:false}})
+      const nextTrack=after.status==='buffering'&&latest.repeatMode!=='track'?after.currentTrack:null
+      if(!nextTrack){engine.preloadNext(null);trim();return}
+      const isConsecutive=Boolean(track.release_id)&&track.release_id===nextTrack.release_id&&((nextTrack.disc_number===track.disc_number&&nextTrack.track_number===track.track_number+1)||(nextTrack.disc_number===track.disc_number+1&&nextTrack.track_number===1))
+      engine.setCrossfade(latest.smartAlbumTransition&&isConsecutive?0:latest.crossfadeSeconds)
+      const preload=(nextURL:string)=>{
+        if(canceled)return
+        const fresh=playerReducer(stateRef.current,{type:'NEXT',payload:{manual:false}})
+        if(!fresh.currentTrack||audioKey(fresh.currentTrack)!==audioKey(nextTrack)||fresh.status!=='buffering')return
+        streamURLsRef.current.set(audioKey(nextTrack),nextURL)
+        engine.preloadNext(nextURL);trim()
       }
-
-      engine.preloadNext(nextStreamUrl)
-    } else {
-      engine.preloadNext(null)
+      if(nextTrack.offline_blob_key)void resolve(nextTrack).then(preload,()=>{if(!canceled)engine.preloadNext(null)})
+      else preload(serverStream(nextTrack))
     }
-  }, [
-    engine,
-    loadRequest,
-    state.currentTrack,
-    state.queueIndex,
-    state.repeatMode,
-    state.crossfadeSeconds,
-    state.smartAlbumTransition,
-    state.queue,
-    state.stopAfter,
-    state.sleepTimer,
-  ])
+    if(track.offline_blob_key){
+      if(currentEngineTrackIdRef.current!==key){pendingSourceKeyRef.current=key;engine.pause();engine.preloadNext(null)}
+      void resolve(track).then(load,error=>{if(!canceled){pendingSourceKeyRef.current=null;dispatch({type:'SET_ERROR',payload:error instanceof Error?error.message:'Offline-Kopie konnte nicht geladen werden.'});dispatch({type:'SET_STATUS',payload:'error'})}})
+    }else{pendingSourceKeyRef.current=null;load(serverStream(track))}
+    return()=>{canceled=true}
+  },[engine,loadRequest,state.currentTrack,state.queueIndex,state.repeatMode,state.crossfadeSeconds,state.smartAlbumTransition,state.queue,state.stopAfter,state.sleepTimer])
 
   // Analyze only current and next tracks after explicit opt-in, sequentially.
   useEffect(() => {
     if (!state.normalizationEnabled || !user?.id || !state.currentTrack) return
+    if(state.currentTrack.offline_blob_key){dispatch({type:'SET_NORMALIZATION_MESSAGE',payload:'Offline: keine Lautstärkeanalyse auf dem Server.'});return}
     const controller = new AbortController()
     const current = state.currentTrack,
       next = state.queue[state.queueIndex + 1]
     dispatch({ type: 'SET_NORMALIZATION_MESSAGE', payload: 'Lautstärke wird gemessen …' })
     void (async () => {
       for (const track of [current, next]) {
-        if (!track || controller.signal.aborted) continue
+        if (!track || track.offline_blob_key || controller.signal.aborted) continue
         try {
           const measurement = await analyzeLoudness(track.id, controller.signal)
           if (controller.signal.aborted) return
@@ -674,6 +672,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const resumeSession = useCallback(
+    (
+      tracks: LibraryTrack[],
+      index: number,
+      position: number,
+      repeatMode: RepeatMode,
+    ) => {
+      if (
+        !tracks.length ||
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >= tracks.length ||
+        !Number.isFinite(position)
+      )
+        return
+      engine.pause()
+      currentEngineTrackIdRef.current = null
+      requestLoad()
+      dispatch({
+        type: 'RESUME_SESSION',
+        payload: { tracks, index, position, repeatMode },
+      })
+    },
+    [engine],
+  )
+
   const playAlbum = useCallback((tracks: LibraryTrack[], startIndex = 0) => {
     if (tracks.length > 0) {
       currentEngineTrackIdRef.current = null
@@ -728,13 +752,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       engine.pause()
       dispatch({ type: 'SET_STATUS', payload: 'paused' })
     } else {
-      engine.play()
+      const track=stateRef.current.currentTrack
+      if(track&&currentEngineTrackIdRef.current===audioKey(track))engine.play()
       dispatch({ type: 'SET_STATUS', payload: 'playing' })
     }
   }, [engine])
 
   const playAction = useCallback(() => {
-    engine.play()
+    const track=stateRef.current.currentTrack
+    if(track&&currentEngineTrackIdRef.current===audioKey(track))engine.play()
     dispatch({ type: 'SET_STATUS', payload: 'playing' })
   }, [engine])
 
@@ -745,7 +771,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const seekAction = useCallback(
     (seconds: number) => {
-      engine.seek(seconds)
+      if(!pendingSourceKeyRef.current)engine.seek(seconds)
       dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: seconds } })
     },
     [engine],
@@ -874,6 +900,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     () => ({
       engine,
       playTrack,
+      resumeSession,
       playAlbum,
       playArtist,
       playNext: playNextAction,
@@ -923,6 +950,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [
       engine,
       playTrack,
+      resumeSession,
       playAlbum,
       playArtist,
       playNextAction,

@@ -75,7 +75,7 @@ jobs:
           curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
           echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           apt_bounded update -qq
-          apt_bounded install -y -qq --no-install-recommends postgresql-client-18 ffmpeg
+          apt_bounded install -y -qq --no-install-recommends postgresql-client-18 ffmpeg libchromaprint-tools
           echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
       - name: Formatting, vet and build
         working-directory: backend
@@ -97,3 +97,22 @@ jobs:
       - name: Race tests
         working-directory: backend
         run: go test -race -count=1 ./...
+
+  offline-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
+      - name: Build public application shell
+        working-directory: frontend
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: Prepare isolated Chromium and Firefox
+        working-directory: scripts/browser
+        run: |
+          bun install --frozen-lockfile
+          bunx playwright install --with-deps chromium firefox
+      - name: Qualify browser-local copies and offline restart
+        run: bun scripts/browser/qualify-offline.mjs frontend/dist
