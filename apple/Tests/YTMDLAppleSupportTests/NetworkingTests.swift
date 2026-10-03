@@ -1,0 +1,75 @@
+import Foundation
+import Testing
+import YTMDLCore
+@testable import YTMDLAppleSupport
+
+final class FixtureProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let path = request.url!.path
+        var headers = ["Content-Type": "application/json"]
+        let data: String
+        var status = 200
+        if path.hasSuffix("/auth/status") {
+            headers["Set-Cookie"] = "ytmdl_csrf=fixture-csrf; Path=/; Max-Age=3600"
+            data = #"{"data":{"authenticated":false,"setup_required":false}}"#
+        } else if path.hasSuffix("/auth/login") {
+            guard request.value(forHTTPHeaderField: "X-CSRF-Token") == "fixture-csrf" else { fatalError("missing CSRF") }
+            var body = request.httpBody ?? Data()
+            if body.isEmpty, let stream = request.httpBodyStream {
+                stream.open(); defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 1024)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    if count <= 0 { break }
+                    body.append(contentsOf: buffer.prefix(count))
+                }
+            }
+            let object = try? JSONSerialization.jsonObject(with: body) as? [String: String]
+            guard object?["username"] == "fixture_user" else { fatalError("incorrect login payload") }
+            headers["Set-Cookie"] = "ytmdl_session=fixture-session; Path=/; Max-Age=3600; HttpOnly"
+            data = #"{"data":{"id":"fixture","username":"fixture_user","display_name":"Fixture","role":"user"}}"#
+        } else if path.hasSuffix("/library/tracks") {
+            data = #"{"data":[{"id":"a","title":"Track","artists":["Artist"],"album":"Album","duration_ms":3000}],"meta":{"total":1}}"#
+        } else {
+            status = 401
+            data = #"{"error":{"code":"UNAUTHENTICATED","message":"Session expired"}}"#
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        // URLProtocol doesn't automatically insert cookies for synthetic responses.
+        for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: request.url!) { Self.testCookies?.setCookie(cookie) }
+        client?.urlProtocol(self, didLoad: Data(data.utf8)); client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+    nonisolated(unsafe) static var testCookies: HTTPCookieStorage?
+}
+
+@MainActor @Test func loginCSRFEnvelopeExpiryAndLogoutIsolation() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [FixtureProtocol.self]
+    FixtureProtocol.testCookies = configuration.httpCookieStorage
+    defer { FixtureProtocol.testCookies = nil }
+    let client = try APIClient(server: ServerAddress("https://fixture.example"), persist: false, configuration: configuration)
+    defer { client.invalidate() }
+    let user = try await client.login(username: "fixture_user", password: "fixture-only-not-a-real-password")
+    #expect(user.username == "fixture_user")
+    #expect(client.authenticationCookies.contains(where: { $0.name == "ytmdl_session" }))
+    let tracks: [Track] = try await client.get("/library/tracks")
+    #expect(tracks.count == 1); #expect(tracks.first?.duration == 3)
+    do { let _: User = try await client.get("/auth/me"); Issue.record("expired session accepted") }
+    catch let error as PlayerError { #expect(error.localizedDescription.contains("abgelaufen")) }
+    try client.forget(); #expect(client.authenticationCookies.isEmpty)
+}
+
+@MainActor @Test func mutationRequiresCSRFAndArtworkUsesOnlyOrigin() throws {
+    let client = try APIClient(server: ServerAddress("https://fixture.example"), persist: false)
+    defer { client.invalidate() }
+    #expect(throws: PlayerError.self) { try client.request("/favorites/a", method: "PUT") }
+    let artwork = try client.artworkRequest(kind: "artists", id: "a")
+    #expect(artwork.url?.host == "fixture.example")
+    #expect(artwork.url?.path == "/api/v1/library/artists/a/artwork")
+    #expect(client.session.configuration.urlCache == nil)
+    #expect(client.session.configuration.httpCookieStorage !== HTTPCookieStorage.shared)
+}
