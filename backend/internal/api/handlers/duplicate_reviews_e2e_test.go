@@ -78,3 +78,37 @@ func TestTrashReadWriteAuthorizationAndPermanentConsent(t *testing.T) {
 		t.Fatal("unconfirmed permanent deletion")
 	}
 }
+
+func TestAudioAnalysisAuthorization(t *testing.T) {
+	srv, admin, user, _ := setupPlaylistsE2ETest(t)
+	res, err := http.Get(srv.URL + "/api/v1/library/audio-analysis")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatal("anonymous analysis read")
+	}
+	res, _, err = user.do(http.MethodGet, "/api/v1/library/audio-analysis", nil, false)
+	if err != nil || res.StatusCode != 403 {
+		t.Fatal("nonadmin analysis read")
+	}
+	res, _, err = admin.do(http.MethodGet, "/api/v1/library/audio-analysis", nil, false)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatal("admin analysis unavailable")
+	}
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		path := "/api/v1/library/audio-analysis"
+		if method == http.MethodPost {
+			path += "/trk_e2e_1"
+		}
+		res, _, err = user.do(method, path, nil, true)
+		if err != nil || res.StatusCode != 403 {
+			t.Fatal("nonadmin analysis mutation")
+		}
+		res, _, err = admin.do(method, path, nil, false)
+		if err != nil || res.StatusCode != 403 {
+			t.Fatal("CSRF-less analysis mutation")
+		}
+	}
+}

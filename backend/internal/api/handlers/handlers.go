@@ -75,11 +75,13 @@ type Deps struct {
 type Handlers struct {
 	deps Deps
 
-	loudnessMu   sync.Mutex
-	loudnessBusy bool
-	healthMu     sync.Mutex
-	healthCache  map[string]checkResult
-	healthCached time.Time
+	fingerprintMu   sync.Mutex
+	fingerprintBusy bool
+	loudnessMu      sync.Mutex
+	loudnessBusy    bool
+	healthMu        sync.Mutex
+	healthCache     map[string]checkResult
+	healthCached    time.Time
 }
 
 // New builds the handler set.

@@ -75,7 +75,7 @@ jobs:
           curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
           echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           apt_bounded update -qq
-          apt_bounded install -y -qq --no-install-recommends postgresql-client-18 ffmpeg
+          apt_bounded install -y -qq --no-install-recommends postgresql-client-18 ffmpeg libchromaprint-tools
           echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
       - name: Formatting, vet and build
         working-directory: backend

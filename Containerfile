@@ -24,6 +24,7 @@ FROM docker.io/library/alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50
 RUN apk add --no-cache \
       ca-certificates \
       ffmpeg \
+      chromaprint \
       yt-dlp && \
     addgroup -S -g 10001 musicdl && \
     adduser -S -D -H -u 10001 -G musicdl musicdl && \

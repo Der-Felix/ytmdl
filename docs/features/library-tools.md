@@ -141,3 +141,23 @@ werden; YTMDL überspringt dieses reservierte Verzeichnis bereits.
 
 Bereits endgültig gelöschte Dateien aus älteren Versionen werden nicht
 wiederhergestellt. Der Papierkorb ersetzt kein separates Backup der Medien.
+
+## Audioerkennung für Duplikate
+
+Administratoren finden unter **Bibliothek → Deine Bibliothek → Audioerkennung**
+einen ausdrücklich gestarteten, abbrechbaren Lauf für 10, 50 oder 100 Titel.
+Chromaprint untersucht maximal 90 Sekunden pro Datei, lokal und ohne externe
+Fingerabdruckdienste. Das offizielle Backend-Image enthält `fpcalc`.
+Bereits gemessene Dateigenerationen werden gespeichert; ein neuer Durchlauf
+setzt mit offenen Titeln fort. Das Verlassen des Bereichs beendet den Lauf.
+
+Ähnliche Aufnahmen mit unterschiedlichen Namen erscheinen im normalen
+Duplikatvergleich als **Ähnliche Audioaufnahme · bitte anhören**. Gleiche
+Namen bleiben im bisherigen Metadatenvergleich. Treffer sind Hinweise:
+Kurze, gleichförmige oder nicht lesbare Dateien können unklar bleiben, und
+Versionen mit identischem Anfang können sich später unterscheiden. Keine
+Analyse löscht Musik oder beeinflusst die Download-Eignung.
+
+Ein Dateiwechsel macht die alte Messung und Entscheidung ungültig. **Analyseindex
+zurücksetzen** entfernt ausschließlich abgeleitete Messungen und Audiotreffer;
+Musik, Favoriten und Playlists bleiben erhalten. Der nächste Lauf prüft erneut.
