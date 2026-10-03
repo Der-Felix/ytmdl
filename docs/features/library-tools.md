@@ -193,3 +193,32 @@ ersetzt die vorige Übergabe; fehlende Titel und veraltete Entscheidungen werden
 abgewiesen. Eine Übergabe kann während ihrer Gültigkeit erneut übernommen oder
 bewusst verworfen werden. Sleep-Timer und „Stopp nach …“ werden beim Übernehmen
 ausgeschaltet, damit eine alte lokale Einstellung die neue Sitzung nicht beendet.
+
+## Offline-Playlists im Browser
+
+Unter **Playlists → Playlist öffnen → Diese Playlist offline mitnehmen** zuerst
+**Musik und Metadaten in diesem Browserprofil aufbewahren** bestätigen, dann
+**Offline-Kopie speichern / erneuern** wählen. Das funktioniert auch mit einer
+intelligenten Playlist: gespeichert wird die aktuell angezeigte Auswahl.
+Eine Kopie enthält 1–200 Titel, höchstens 64 MiB pro Audiodatei und insgesamt
+512 MiB einschließlich verfügbarer lokaler Cover. Abbrechen oder ein fehlgeschlagenes
+Erneuern lässt die vorherige vollständige Kopie erhalten. Der Server und die
+ursprüngliche Playlist werden nicht verändert.
+
+**Offline-Musik** in der Seitenleiste beziehungsweise `/offline` zeigt die
+lokalen Kopien. Abspielen verwendet den vorhandenen Player mit Warteschlange,
+Position, Lautstärke und lokalen Klangeinstellungen. **Lokale Kopie entfernen**
+löscht nach Bestätigung ausschließlich den Browserbestand. Server-Favoriten,
+Lyrics, Radio, Hörverlauf und neue Lautstärkemessungen sind dort nicht verfügbar.
+Die Kopie ist an Browserprofil und Serveradresse gebunden; Audio und Metadaten
+bleiben bewusst auch nach dem Abmelden zugänglich. Sie ist kein Serverbackup.
+
+Für einen neuen Start bei geschlossenem Browser ohne Serververbindung ist HTTPS
+und eine erfolgreich vorbereitete App-Hülle erforderlich (localhost gilt ebenfalls
+als sicherer Ursprung). Über eine HTTP-IP-Adresse funktioniert die Wiedergabe nur
+in einer bereits geöffneten App. Der Service Worker speichert nur öffentliche
+App-Dateien, niemals authentifizierte API-Antworten oder Anmeldedaten, und lädt
+keine laufende Wiedergabe zwangsweise neu. Browser können lokalen Speicher bei
+Platzmangel entfernen; **Dauerhafte Aufbewahrung anfragen** verbessert dies nur,
+wenn der Browser zustimmt. Vor dem Verlassen des Netzes einmal `/offline` öffnen
+und die gewünschte Kopie mit abgeschalteter Verbindung testen.

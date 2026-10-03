@@ -103,6 +103,7 @@ export type Route =
   | { name: 'profile' }
   | { name: 'users' }
   | { name: 'player' }
+  | { name: 'offline' }
   | { name: 'discover'; query: string }
   | { name: 'artist'; id: string; provider?: string }
   | { name: 'release'; id: string; provider?: string }
@@ -128,6 +129,9 @@ export function matchRoute(location: Location): Route {
   const [first, second, third] = segments
 
   switch (first) {
+    case 'offline':
+      if(segments.length===1)return {name:'offline'}
+      break
     case 'player':
       if (segments.length === 1) return { name: 'player' }
       break
