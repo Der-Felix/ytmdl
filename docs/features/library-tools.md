@@ -56,21 +56,22 @@ Cursor pagination prevents reviewing a page from skipping later groups.
 Administrators confirm deletion in a separate dialog by default. The dialog
 lists every removable version; the winner cannot be selected. The switch
 **Vor dem Löschen nachfragen** can explicitly disable repeated confirmation for
-this account and browser. In direct mode the final comparison immediately deletes
-all losing versions without a dialog; the screen explains this before selection.
+this account and browser. In direct mode the final comparison immediately moves
+all losing versions to the seven-day trash without a dialog; the screen explains this before selection.
 The setting can be changed between decisions. During a card transition or a
 save/removal, confirmation and keep/skip/view controls are locked until the action
 finishes. Other users and browsers default
-to confirmation. Skipping and **Alle Versionen behalten** never delete. Deletion removes catalog tracks, audio and unshared lyric
-sidecars, with existing foreign-key cleanup of favorites and playlist memberships
-for all users. It does not transfer memberships or edit subscriptions; a later
+to confirmation. Skipping and **Alle Versionen behalten** never delete. Removal hides catalog tracks, audio and unshared lyric
+sidecars from the active library. A journal keeps media and a metadata snapshot
+for seven-day restoration, including favorites and playlist memberships for all
+remaining users. Expiration or explicitly confirmed purge deletes the archive. It does not transfer memberships or edit subscriptions; a later
 subscription download may restore a removed recording. The server requires a
 matching saved preference and current group snapshot, locks every affected track,
 checks storage and all paths before mutation, and blocks unfinished track/release
 download jobs. Shared files and lyrics referenced by retained tracks are protected.
 Filesystem and database operations cannot be atomic together: a failure stops the
 batch and reports completed track IDs plus the failed item. Reload the group
-before retrying; files partially removed from the failed item may need repair.
+before retrying; interrupted journal entries can be recovered from the trash panel.
 Groups exceeding 100 versions remain available in the table without bulk deletion.
 
 Listening history counts actual playing wall time, excluding pause, buffering,
@@ -111,3 +112,32 @@ when already on 15. The old application can still run with the additive tables
 present, but will not expose these new features. Backup restoration is required
 for a full schema rollback; restoring audio deleted by an explicit user action
 also requires a separate media backup.
+
+## Papierkorb
+
+Administratoren finden den Papierkorb unter **Bibliothek → Deine Bibliothek →
+Papierkorb**. Im Duplikatvergleich entfernte Versionen werden sieben Tage
+aufbewahrt; die Bestätigung vor dem Verschieben kann weiterhin pro Konto und
+Browser ausgeschaltet werden. Die Originaldateien und Lyrics bleiben auf dem
+Bibliotheksspeicher. Danach werden abgelaufene Einträge automatisch endgültig
+entfernt. Ein ausdrücklich bestätigtes endgültiges Löschen ist vorher möglich.
+
+Wiederherstellen erhält die ursprünglichen Titel- und Datei-IDs, eigene
+Metadaten, Favoriten aller noch vorhandenen Konten und Zuordnungen zu noch
+vorhandenen Playlists. Nachbarpositionen erlauben das Zurückholen mehrerer Titel
+in beliebiger Reihenfolge, ohne inzwischen hinzugefügte Titel zu entfernen.
+Vorhandene Dateien werden niemals überschrieben. Inzwischen gelöschte
+Playlists/Konten werden nicht neu angelegt; Hörverlauf und abgeleitete Messungen
+werden nicht wiederhergestellt. Erneut heruntergeladene Aufnahmen können eine
+Wiederherstellung durch Identitäts- oder Dateipfadkonflikte blockieren.
+
+Ein persistentes Journal schützt unterbrochene Datei-/Datenbankaktionen.
+**Unterbrochene Aktionen wiederherstellen** prüft offene Vorgänge; automatische
+Wartung versucht dies ebenfalls. Nicht sicher auflösbare Konflikte bleiben
+sichtbar. Der Papierkorb verwendet atomare, nicht überschreibende Hardlinks auf
+demselben Dateisystem. Speicher ohne Hardlink-Unterstützung lehnt Verschieben
+sicher ab. `.ytmdl-trash` muss auch aus externen Media-Server-Scans ausgeschlossen
+werden; YTMDL überspringt dieses reservierte Verzeichnis bereits.
+
+Bereits endgültig gelöschte Dateien aus älteren Versionen werden nicht
+wiederhergestellt. Der Papierkorb ersetzt kein separates Backup der Medien.

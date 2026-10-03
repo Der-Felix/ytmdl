@@ -207,6 +207,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				library.Get("/stats", h.LibraryStats)
 				library.Get("/genres", h.LibraryGenres)
 				library.Get("/duplicates", h.DuplicateGroups)
+				library.With(middleware.RequireAdmin).Get("/trash", h.LibraryTrash)
 				for _, kind := range []string{"artists", "releases", "tracks"} {
 					library.Get("/"+kind+"/{id}/artwork", h.LibraryArtwork(kind))
 					library.Head("/"+kind+"/{id}/artwork", h.LibraryArtwork(kind))
@@ -249,6 +250,9 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					mutating.Group(func(admin chi.Router) {
 						admin.Use(middleware.RequireAdmin)
 						admin.Post("/duplicates/remove", h.RemoveDuplicateVersions)
+						admin.Post("/trash/{id}/restore", h.RestoreLibraryTrash)
+						admin.Post("/trash/{id}/purge", h.PurgeLibraryTrash)
+						admin.Post("/trash/recover", h.RecoverLibraryTrash)
 						admin.Put("/artists/{id}/genres", h.UpdateArtistGenres)
 						admin.Patch("/tracks/metadata", h.UpdateSelectedMetadata)
 						for _, kind := range []string{"artists", "releases"} {

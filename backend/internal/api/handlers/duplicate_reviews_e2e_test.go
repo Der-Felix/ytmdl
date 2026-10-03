@@ -44,3 +44,37 @@ func TestDuplicateReviewAuthenticationCSRFAndExplicitConsent(t *testing.T) {
 		t.Fatal("CSRF-less reset accepted")
 	}
 }
+
+func TestTrashReadWriteAuthorizationAndPermanentConsent(t *testing.T) {
+	srv, admin, user, _ := setupPlaylistsE2ETest(t)
+	res, err := http.Get(srv.URL + "/api/v1/library/trash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatal("anonymous trash access")
+	}
+	res, _, err = user.do(http.MethodGet, "/api/v1/library/trash", nil, false)
+	if err != nil || res.StatusCode != 403 {
+		t.Fatal("private archive exposed to nonadmin")
+	}
+	res, _, err = admin.do(http.MethodGet, "/api/v1/library/trash", nil, false)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatal("admin archive read")
+	}
+	for _, path := range []string{"/api/v1/library/trash/fake/restore", "/api/v1/library/trash/fake/purge", "/api/v1/library/trash/recover"} {
+		res, _, err = admin.do(http.MethodPost, path, map[string]any{}, false)
+		if err != nil || res.StatusCode != 403 {
+			t.Fatal("CSRF-less trash write", path)
+		}
+		res, _, err = user.do(http.MethodPost, path, map[string]any{"confirmed": true}, true)
+		if err != nil || res.StatusCode != 403 {
+			t.Fatal("nonadmin trash write", path)
+		}
+	}
+	res, _, err = admin.do(http.MethodPost, "/api/v1/library/trash/fake/purge", map[string]any{"confirmed": false}, true)
+	if err != nil || res.StatusCode != 400 {
+		t.Fatal("unconfirmed permanent deletion")
+	}
+}
