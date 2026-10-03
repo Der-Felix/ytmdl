@@ -564,6 +564,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		return nil, err
 	}
 
+	libraryService.StartTrashMaintenance()
 	updateService := update.NewService(update.Config{
 		Enabled:       cfg.Update.Enabled,
 		Repository:    cfg.Update.Repository,

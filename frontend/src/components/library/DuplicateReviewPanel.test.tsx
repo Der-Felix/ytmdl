@@ -81,7 +81,7 @@ describe('Duplicate comparison consent and selection', () => {
       within(dialog).queryByRole('checkbox', { name: 'Album 2 zum Löschen auswählen' }),
     ).toBeNull()
     fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Album 3 zum Löschen auswählen' }))
-    fireEvent.click(within(dialog).getByRole('button', { name: '1 Versionen endgültig löschen' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '1 Versionen in den Papierkorb' }))
     await waitFor(() => expect(removals()).toHaveLength(1))
     expect(removals()[0]!.body.remove_track_ids).toEqual(['version-1'])
     expect(removals()[0]!.body.confirmed).toBe(true)
@@ -146,7 +146,7 @@ describe('Duplicate comparison consent and selection', () => {
     await screen.findByText(/Vergleich 2 von 2/)
     expect(removals()).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: 'Bisherige behalten' }))
-    await screen.findByText('2 Versionen gelöscht. Die bevorzugte Version bleibt erhalten.')
+    await screen.findByText('2 Versionen im Papierkorb. Die bevorzugte Version bleibt erhalten.')
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(removals()).toHaveLength(1)
     expect(removals()[0]!.body.preferred_track_id).toBe('version-2')

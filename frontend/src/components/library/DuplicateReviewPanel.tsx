@@ -141,8 +141,8 @@ export function DuplicateReviewPanel({ isAdmin }: { isAdmin: boolean }) {
             </label>
             <p className="mt-2 text-xs text-muted-foreground">
               {askBeforeDelete
-                ? 'Du wählst nach dem Vergleich aus, welche Versionen gelöscht werden.'
-                : 'Direktmodus: Nach der letzten Auswahl werden alle anderen Versionen samt Dateien und Favoriten-/Playlist-Einträgen für alle Nutzer sofort gelöscht. Nur in diesem Browser und für dein Konto.'}
+                ? 'Du wählst nach dem Vergleich aus, welche Versionen in den Papierkorb kommen.'
+                : 'Direktmodus: Nach der letzten Auswahl werden alle anderen Versionen samt Dateien und Favoriten-/Playlist-Einträgen für alle Nutzer in den Papierkorb verschoben und nach sieben Tagen endgültig gelöscht. Wiederherstellen ist bis dahin möglich. Nur in diesem Browser und für dein Konto.'}
             </p>
           </div>
         )}
@@ -360,11 +360,11 @@ function DuplicateComparison({
       if (deleted.has(queue.current[i]!.id)) removeFromQueue(i)
     setConfirm(false)
     setMessage(
-      `${result.deleted_track_ids.length} Versionen gelöscht. Die bevorzugte Version bleibt erhalten.`,
+      `${result.deleted_track_ids.length} Versionen im Papierkorb. Die bevorzugte Version bleibt erhalten.`,
     )
     if (result.failed_track_id)
       setError(
-        `${result.deleted_track_ids.length} Versionen wurden gelöscht. ${result.message || 'Eine weitere Version konnte nicht gelöscht werden.'} Bitte die Gruppe neu laden.`,
+        `${result.deleted_track_ids.length} Versionen wurden in den Papierkorb verschoben. ${result.message || 'Eine weitere Version konnte nicht gelöscht werden.'} Bitte die Gruppe neu laden.`,
       )
   }
   const save = async (track: LibraryTrack, result: 'preferred' | 'distinct') => {
@@ -871,10 +871,10 @@ function DuplicateComparison({
       >
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Andere Versionen wirklich löschen?</DialogTitle>
+            <DialogTitle>Andere Versionen in den Papierkorb?</DialogTitle>
             <DialogDescription>
               Die bevorzugte Version bleibt erhalten. Ausgewählte Titel, Audiodateien und zugehörige
-              Favoriten-/Playlist-Einträge werden für alle Nutzer entfernt. Abonnements können Titel
+              Favoriten-/Playlist-Einträge werden für alle Nutzer entfernt und für eine Wiederherstellung sieben Tage aufbewahrt. Die Dateien bleiben im Papierkorb. Abonnements können Titel
               später erneut herunterladen.
             </DialogDescription>
           </DialogHeader>
@@ -942,7 +942,7 @@ function DuplicateComparison({
                 }
               }}
             >
-              {busy ? 'Verarbeite …' : `${selected.length} Versionen endgültig löschen`}
+              {busy ? 'Verarbeite …' : `${selected.length} Versionen in den Papierkorb`}
             </Button>
           </DialogFooter>
         </DialogContent>

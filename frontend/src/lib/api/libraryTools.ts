@@ -35,7 +35,8 @@ export const listeningHistory = (sort = 'recent', signal?: AbortSignal) =>
   request<HistoryTrack[]>('/history', { query: { sort }, signal })
 export const recordPlayback = (track_id: string, event_id: string) =>
   requestVoid('/history', { method: 'POST', body: { track_id, event_id } })
-export const clearListeningHistory = () => requestVoid('/history', { method: 'DELETE' })
+export const clearListeningHistory = () =>
+  requestVoid('/history', { method: 'DELETE' })
 export const duplicateGroups = (
   offset = 0,
   signal?: AbortSignal,
@@ -52,13 +53,21 @@ export const duplicateGroups = (
 export const saveDuplicateReview = (review: DuplicateReview) =>
   requestVoid('/library/duplicates/review', { method: 'POST', body: review })
 export const resetDuplicateReview = (key: string) =>
-  requestVoid(`/library/duplicates/review/${encodeURIComponent(key)}`, { method: 'DELETE' })
-export const removeDuplicateVersions = (review: DuplicateReview, remove_track_ids: string[]) =>
+  requestVoid(`/library/duplicates/review/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+export const removeDuplicateVersions = (
+  review: DuplicateReview,
+  remove_track_ids: string[],
+) =>
   request<DuplicateRemoval>('/library/duplicates/remove', {
     method: 'POST',
     body: { ...review, remove_track_ids, confirmed: true },
   })
-export const updateSelectedMetadata = (track_ids: string[], patch: MetadataPatch) =>
+export const updateSelectedMetadata = (
+  track_ids: string[],
+  patch: MetadataPatch,
+) =>
   requestVoid('/library/tracks/metadata', {
     method: 'PATCH',
     body: { track_ids, patch },
@@ -73,7 +82,11 @@ export const setPlaylistRules = (id: string, smart_rules: SmartRules | null) =>
     method: 'PUT',
     body: { smart_rules },
   })
-export async function uploadArtwork(kind: 'artists' | 'releases', id: string, image: File) {
+export async function uploadArtwork(
+  kind: 'artists' | 'releases',
+  id: string,
+  image: File,
+) {
   const body = new FormData()
   body.append('image', image)
   return requestVoid(`/library/${kind}/${encodeURIComponent(id)}/artwork`, {
@@ -90,3 +103,24 @@ export const analyzeLoudness = (id: string, signal?: AbortSignal) =>
     `/library/tracks/${encodeURIComponent(id)}/loudness`,
     { method: 'POST', signal },
   )
+export interface TrashEntry {
+  id: string
+  track_id: string
+  title: string
+  created_at: string
+  expires_at: string
+  state: 'preparing' | 'ready' | 'restoring' | 'purging'
+}
+export const libraryTrash = (offset = 0, signal?: AbortSignal) =>
+  request<TrashEntry[]>('/library/trash', { query: { offset }, signal })
+export const restoreTrash = (id: string) =>
+  requestVoid(`/library/trash/${encodeURIComponent(id)}/restore`, {
+    method: 'POST',
+  })
+export const purgeTrash = (id: string) =>
+  requestVoid(`/library/trash/${encodeURIComponent(id)}/purge`, {
+    method: 'POST',
+    body: { confirmed: true },
+  })
+export const recoverTrash = () =>
+  requestVoid('/library/trash/recover', { method: 'POST' })
