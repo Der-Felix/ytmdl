@@ -39,6 +39,7 @@ import {
 import { Link, useNavigate, paths } from '@/lib/router'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
 import { SmartRuleEditor } from '@/components/music/SmartRuleEditor'
+import { OfflineSavePanel } from '@/components/music/OfflineSavePanel'
 import { setPlaylistRules } from '@/lib/api/libraryTools'
 import type { SmartRules } from '@/types/playlist'
 import type { PlaylistTrack } from '@/types/playlist'
@@ -343,6 +344,8 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
           </div>
         </div>
       </div>
+
+      <OfflineSavePanel playlist={playlist}/>
 
       {/* Track List */}
       {tracks.length === 0 ? (
