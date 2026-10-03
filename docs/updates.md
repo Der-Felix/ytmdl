@@ -34,6 +34,26 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.2.0
+
+Use the checksum-verified **v1.2.0** CLI from the
+[v1.2.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.2.0).
+Run `ytmdlctl update --channel stable --target 1.2.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.2.0`.
+
+Additive migrations 0016–0018 add duplicate trash, audio fingerprints and device
+handoff, reaching schema 18. Song radio and browser-local offline copies need no
+additional schema. The release qualifies v0.28.1, v1.0.0 and v1.1.1 sources with
+Docker and rootless Podman, both with a verified storage guard and an explicitly
+disabled guard. Missing or mismatched configured storage still blocks updates.
+Preserve private configuration, proxy settings, mounts, cookies and the database
+volume. Verify a database backup and protect music separately. Full schema
+rollback requires restoring the backup; a database dump does not contain audio.
+The upgrade never removes songs or automatically starts audio analysis.
+
+See [library tools](features/library-tools.md) for the new menu locations,
+seven-day trash scope and offline HTTPS/browser-storage limits.
+
 ## Upgrade to v1.1.1
 
 Use the checksum-verified **v1.1.1** CLI from the

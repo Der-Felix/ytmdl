@@ -39,8 +39,9 @@ current page; it does not initiate provider refreshes.
 ## Duplicate candidates and history
 
 **Mögliche Duplikate** groups downloaded tracks by normalized title and artist
-credit. This is a review aid, not an audio fingerprint: different album, live or
-remix versions can be intentional. Each page has up to 20 groups, and the first
+credit. This metadata comparison is a review aid: different album, live or remix versions
+can be intentional. Explicit audio analysis can additionally find similar recordings
+with different names; see Audioerkennung below. Each page has up to 20 groups, and the first
 100 tracks of each group are shown for comparison. Review never deletes before a user makes a choice.
 
 The **Wischvergleich** compares two versions at a time. Swipe left to keep the
@@ -103,19 +104,18 @@ library scan is automatically scheduled. The opt-in persists in this browser.
 
 ## Database upgrade
 
-Migration 0014 adds rules, metadata overrides, artwork, listening data and loudness
-measurements. Migration 0015 adds per-user duplicate review decisions. Both are
-additive: installing the feature preserves existing identities, audio and
-playlists and never automatically deletes candidates. Upgrades from schema 8–14
-to 15 require a verified backup for schema rollback. Schema 15 is neutral only
-when already on 15. The old application can still run with the additive tables
-present, but will not expose these new features. Backup restoration is required
-for a full schema rollback; restoring audio deleted by an explicit user action
-also requires a separate media backup.
+Migrations 0014–0018 add rules, metadata overrides, artwork, listening data,
+loudness measurements, per-user duplicate review, seven-day trash, fingerprints
+and playback handoff. Schema 18 is additive: upgrading preserves existing
+identities, audio and playlists and never removes candidates automatically.
+Upgrades from supported older schemas require a verified database backup;
+full schema rollback requires restoring it. Protect media separately because
+music files are not contained in the database dump. Previously permanently
+deleted recordings need a separate media backup for restoration.
 
 ## Papierkorb
 
-Administratoren finden den Papierkorb unter **Bibliothek → Deine Bibliothek →
+Administratoren finden den Papierkorb unter **Bibliothek → Werkzeuge →
 Papierkorb**. Im Duplikatvergleich entfernte Versionen werden sieben Tage
 aufbewahrt; die Bestätigung vor dem Verschieben kann weiterhin pro Konto und
 Browser ausgeschaltet werden. Die Originaldateien und Lyrics bleiben auf dem
@@ -144,7 +144,7 @@ wiederhergestellt. Der Papierkorb ersetzt kein separates Backup der Medien.
 
 ## Audioerkennung für Duplikate
 
-Administratoren finden unter **Bibliothek → Deine Bibliothek → Audioerkennung**
+Administratoren finden unter **Bibliothek → Werkzeuge → Audioerkennung**
 einen ausdrücklich gestarteten, abbrechbaren Lauf für 10, 50 oder 100 Titel.
 Chromaprint untersucht maximal 90 Sekunden pro Datei, lokal und ohne externe
 Fingerabdruckdienste. Das offizielle Backend-Image enthält `fpcalc`.
@@ -164,7 +164,7 @@ Musik, Favoriten und Playlists bleiben erhalten. Der nächste Lauf prüft erneut
 
 ## Lokales Song-Radio
 
-Unter **Bibliothek → Deine Bibliothek → Song-Radio** entsteht ein Mix mit bis
+Unter **Bibliothek → Werkzeuge → Song-Radio** entsteht ein Mix mit bis
 zu 50 verfügbaren lokalen Titeln. Favoriten und Hörverlauf beeinflussen nur
 für dein Konto die Auswahl; ähnliche Künstler und Genres des aktuellen Songs
 können als Ausgangspunkt dienen. Ein Genre lässt sich gezielt auswählen.
@@ -180,7 +180,7 @@ lokaler Startmix.
 
 ## Geräteübergabe
 
-**Bibliothek → Deine Bibliothek → Geräteübergabe** speichert bis zu 500 Titel
+**Bibliothek → Werkzeuge → Geräteübergabe** speichert bis zu 500 Titel
 in ihrer aktuellen Reihenfolge, die Position und den Wiederholmodus für 15
 Minuten. **Hier pausieren und übertragen** pausiert das Ausgangsgerät erst,
 wenn der Server die Übergabe angenommen hat. Auf dem Zielgerät mit demselben
