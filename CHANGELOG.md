@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.2.0 — 2026-10-03
+
+### Highlights
+
+- **Seven-day duplicate trash:** Removed alternative recordings retain audio, lyrics, metadata, favorites and playlist membership for restoration. Default confirmation and the explicit direct-removal setting remain available; permanent purge always requires a separate confirmation.
+- **Local audio duplicate detection:** Explicitly run bounded Chromaprint analysis to find similar recordings with different names. Compare and listen before choosing; no automatic deletion or provider requests.
+- **Personal song radio:** Preview a varied mix of up to 50 available local songs using your favorites, listening history, current song and optional artist genre. Play it or append without interrupting the current track.
+- **Explicit device handoff:** Save up to 500 queued tracks, the current position and repeat mode for 15 minutes. Take over with the same account on another device; local volume and sound settings stay local.
+- **Browser-local offline playlists:** Explicitly save a complete playlist copy with local covers, then play, seek and advance without server connectivity. Failed, oversized or canceled refreshes preserve the previous complete copy. Removing a copy affects only this browser.
+
+### Changes
+
+- Protect trash operations with a persistent journal, confined paths, non-overwriting same-filesystem moves and recoverable interruptions. Restore original identities and ordering around surviving neighbors without overwriting newer files or resurrecting deleted accounts/playlists.
+- Ship Chromaprint in both backend image architectures. Audio matching is generation-bound, duration-aware and conservative; ambiguous recordings remain eligible for ordinary playback/downloads and never affect provider health.
+- Prevent stale device handoffs and asynchronous offline sources from overriding newer queue selections. Pausing while a local source is loading remains paused.
+- Cache only the public application shell in the offline service worker; authenticated API replies and credentials are never cached. New application versions do not force a reload during playback.
+- Qualify current v1.1.1 upgrades as well as v0.28.1 and v1.0.0 with Docker, rootless Podman and both storage guard modes. Exercise offline copies, cancellation, atomic refresh, real audio and offline restart in Chromium and Firefox.
+- **Database Schema:** Additive migrations 0016–0018 reach schema 18. Upgrades from older supported schemas require a verified database backup; full schema rollback requires restoring that backup. Media, configuration and cookies require separate protection. Upgrade itself never removes songs.
+
+### Upgrade from v1.1.1
+
+Use the checksum-verified v1.2.0 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.2.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.2.0`. The fresh installer is only for
+new installations. Protect the media separately; the database dump does not
+contain music files. Full schema rollback requires restoring the verified backup.
+
+### Known Limits
+
+- The seven-day trash applies to alternative versions removed by the duplicate review. Other existing delete actions remain permanent. Previously deleted media cannot be recovered. Trash needs hardlink support on the same filesystem and must be excluded from external media-server scans. It is not a media backup.
+- Fingerprints inspect at most the first 90 seconds. Short or uniform audio can be inconclusive; versions sharing the same opening can differ later. Audio similarity is a listening aid and never proves an entire recording is identical. Analysis starts only on request; no background library-wide scan is scheduled.
+- Radio uses available local music and existing artist genre assignments. Handoff requires both devices to reach the server; it is explicit, expires after 15 minutes and does not monitor or remotely control devices.
+- Offline copies are limited to 200 songs, 64 MiB per audio file and 512 MiB per copy. They belong to this browser profile and server address, remain accessible after logout, and can be evicted by the browser. Server favorites, lyrics, radio, listening history and new loudness measurements are unavailable in the offline view.
+- A new offline start requires HTTPS (or localhost) and a prepared public shell. HTTP IP installations support offline playback only in an already opened app. Independent Safari/iOS qualification, multiday soak and a security audit are not claimed. Provider dependencies and opt-in combined-stream fallback remain as before.
+
 ## 1.1.1 — 2026-10-02
 
 ### Highlights

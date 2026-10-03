@@ -106,7 +106,7 @@ Python 3 and Docker (or add `--engine podman`):
 python3 scripts/smoke-release-containers.py \
   --backend ytmdl-backend:release-smoke \
   --frontend ytmdl-frontend:release-smoke \
-  --version 1.1.1
+  --version 1.2.0
 ```
 
 The test creates uniquely named networks, disposable PostgreSQL 18,
@@ -138,7 +138,9 @@ login and playback. It does not measure real provider throughput.
 
 Before publication, the release workflow scans both immutable image architectures,
 records SBOMs and runtime tool versions, exercises ARM64 runtime under QEMU, and
-performs real v0.28.1 upgrades for both engines and both storage guard modes.
+performs real v0.28.1, v1.0.0 and v1.1.1 upgrades for both engines and both storage
+guard modes. Chromium and Firefox also qualify explicit offline copies, failed/
+canceled renewal, byte bounds, real local playback and offline restart.
 Only then does it publish the checked draft and promote immutable images to
 `latest`. Release assets include `qualification.json`, full scan reports and
 SPDX inventories; every asset is covered by `SHA256SUMS`. Manual verify-only runs

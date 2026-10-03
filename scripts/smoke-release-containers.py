@@ -130,7 +130,8 @@ def smoke(args):
         check(port.isdigit(), "Frontend port could not be determined.")
         base = "http://127.0.0.1:" + port
         wait_for(healthy, "Stack did not serve the expected healthy release.")
-        print("PASS: release images start and serve the expected version", flush=True)
+        engine("exec", backend, "fpcalc", "-version")
+        print("PASS: release images start with Chromaprint and serve the expected version", flush=True)
 
         request("/api/v1/auth/status")
         status, _ = json_request("/api/v1/auth/setup", {
