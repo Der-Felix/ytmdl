@@ -207,6 +207,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				library.Get("/stats", h.LibraryStats)
 				library.Get("/genres", h.LibraryGenres)
 				library.Get("/duplicates", h.DuplicateGroups)
+				library.Get("/radio", h.LocalRadio)
 				library.With(middleware.RequireAdmin).Get("/audio-analysis", h.AudioAnalysisStatus)
 				library.With(middleware.RequireAdmin).Get("/trash", h.LibraryTrash)
 				for _, kind := range []string{"artists", "releases", "tracks"} {
