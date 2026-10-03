@@ -14,6 +14,17 @@ import Testing
     #expect(throws: PlayerError.self) { try server.endpoint("//evil.example/%2e%2e") }
 }
 
+@Test func selectedTrackBeyondQueueLimitStartsTheCorrectWindow() {
+    let tracks = (0..<1100).map { Track(id: String($0), title: String($0), artists: [], album: "", durationMs: 100) }
+    var queue = PlaybackQueue()
+    queue.replace(tracks, start: 555)
+    #expect(queue.tracks.count == 500)
+    #expect(queue.current?.id == "555")
+    let advanced = queue.next(repeatAll: false)
+    #expect(advanced)
+    #expect(queue.current?.id == "556")
+}
+
 @Test func decodesRealServerEnvelopes() throws {
     let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
     let raw = Data(#"{"data":[{"id":"a","title":"Test","artists":["Artist"],"album":"Album","duration_ms":150000,"codec":"opus"}],"meta":{"total":109223}}"#.utf8)
@@ -29,5 +40,6 @@ import Testing
     #expect(queue.current == b); let didAdvance = queue.next(repeatAll: false); #expect(!didAdvance); #expect(queue.current == b)
     let didRepeat = queue.next(repeatAll: true); #expect(didRepeat); #expect(queue.current == a)
     queue.replace([]); queue.previous(); #expect(queue.current == nil); let emptyAdvance = queue.next(repeatAll: true); #expect(!emptyAdvance)
-    queue.replace(Array(repeating: a, count: 600), start: 599); #expect(queue.tracks.count == 500); #expect(queue.index == 0)
+    queue.replace(Array(repeating: a, count: 600)); #expect(queue.tracks.count == 500)
+    queue.replace(Array(repeating: a, count: 600), start: 599); #expect(queue.tracks.count == 1); #expect(queue.current == a)
 }

@@ -125,7 +125,12 @@ public struct PlaybackQueue: Equatable, Sendable {
     public var current: Track? { tracks.indices.contains(index) ? tracks[index] : nil }
     public init() {}
     public mutating func replace(_ tracks: [Track], start: Int = 0) {
-        self.tracks = Array(tracks.prefix(500)); index = self.tracks.indices.contains(start) ? start : 0
+        let selected = tracks.indices.contains(start) ? start : 0
+        // Large artist/favorites lists must still play the selected track.
+        // Begin a new bounded window when selection falls beyond the first 500.
+        let lowerBound = selected >= 500 ? selected : 0
+        self.tracks = Array(tracks.dropFirst(lowerBound).prefix(500))
+        index = selected - lowerBound
     }
     public mutating func append(_ track: Track) { if tracks.count < 500 { tracks.append(track) } }
     public mutating func next(repeatAll: Bool) -> Bool {
