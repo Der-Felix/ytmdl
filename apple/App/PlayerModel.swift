@@ -60,7 +60,8 @@ import UIKit
     func select(_ index: Int) { queue.select(index); loadCurrent() }
     func shuffle() { queue.shuffleUpcoming() }
     func next() {
-        if queue.next(repeatAll: repeatAll) { loadCurrent() } else { pause() }
+        if queue.next(repeatAll: repeatAll) { loadCurrent() }
+        else { pause(); seek(0) }
     }
     func previous() {
         if position > 3 { seek(0) } else { queue.previous(); loadCurrent() }

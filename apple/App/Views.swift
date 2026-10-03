@@ -312,7 +312,7 @@ struct CollectionView: View {
             case .favorites:
                 result = try await client.get("/library/tracks", query: [.init(name: "favorite", value: "true"), .init(name: "limit", value: "100"), .init(name: "offset", value: String(offset))])
             case .release(let release):
-                result = try await client.get("/library/tracks", query: [.init(name: "release_id", value: release.id), .init(name: "limit", value: "100"), .init(name: "offset", value: String(offset))])
+                result = try await client.get("/library/tracks", query: [.init(name: "release_id", value: release.id), .init(name: "sort", value: "track_number"), .init(name: "order", value: "asc"), .init(name: "limit", value: "100"), .init(name: "offset", value: String(offset))])
             case .artist(let artist):
                 result = try await client.get("/library/tracks", query: [.init(name: "artist_id", value: artist.id), .init(name: "limit", value: "100"), .init(name: "offset", value: String(offset))])
             case .playlist(let playlist):
