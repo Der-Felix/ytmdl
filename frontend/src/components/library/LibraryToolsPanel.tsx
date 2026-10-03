@@ -6,6 +6,7 @@ import { Cover } from '@/components/music/Cover'
 import { ArtworkEditor } from '@/components/music/ArtworkEditor'
 import { DuplicateReviewPanel } from './DuplicateReviewPanel'
 import { TrashPanel } from './TrashPanel'
+import { SongRadioPanel } from './SongRadioPanel'
 import { AudioAnalysisPanel } from './AudioAnalysisPanel'
 import { usePlayerActions } from '@/hooks/usePlayer'
 import { useAsync } from '@/hooks/useAsync'
@@ -25,6 +26,7 @@ export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
         {(
           [
             ['history', 'Hörverlauf'],
+            ['radio', 'Song-Radio'],
             ['duplicates', 'Mögliche Duplikate'],
             ['artwork', 'Cover verwalten'],
             ['trash', 'Papierkorb'],
@@ -43,7 +45,9 @@ export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
             </Button>
           ))}
       </div>
-      {tab === 'audio' && isAdmin ? (
+      {tab === 'radio' ? (
+        <SongRadioPanel />
+      ) : tab === 'audio' && isAdmin ? (
         <AudioAnalysisPanel />
       ) : tab === 'trash' && isAdmin ? (
         <TrashPanel />

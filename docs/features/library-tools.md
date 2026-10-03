@@ -161,3 +161,19 @@ Analyse löscht Musik oder beeinflusst die Download-Eignung.
 Ein Dateiwechsel macht die alte Messung und Entscheidung ungültig. **Analyseindex
 zurücksetzen** entfernt ausschließlich abgeleitete Messungen und Audiotreffer;
 Musik, Favoriten und Playlists bleiben erhalten. Der nächste Lauf prüft erneut.
+
+## Lokales Song-Radio
+
+Unter **Bibliothek → Deine Bibliothek → Song-Radio** entsteht ein Mix mit bis
+zu 50 verfügbaren lokalen Titeln. Favoriten und Hörverlauf beeinflussen nur
+für dein Konto die Auswahl; ähnliche Künstler und Genres des aktuellen Songs
+können als Ausgangspunkt dienen. Ein Genre lässt sich gezielt auswählen.
+Kürzlich gehörte Titel werden nach hinten gestellt, verschiedene Künstler
+bevorzugt und gleich benannte Versionen eines Künstlers nicht mehrfach gewählt.
+
+**Neuen Mix zusammenstellen** zeigt die Auswahl zuerst. **Titel abspielen**
+ersetzt die Warteschlange; **Zur Warteschlange** hängt den Mix an und lässt die
+aktuelle Wiedergabe weiterlaufen. Es werden keine Provider abgefragt und keine
+neuen Songs heruntergeladen. Für Genres braucht die Bibliothek gepflegte
+Genre-Zuordnungen; ohne Hörverlauf oder Favoriten entsteht ein abwechslungsreicher
+lokaler Startmix.

@@ -142,3 +142,14 @@ export const analyzeAudioFingerprint = (id: string, signal?: AbortSignal) =>
   )
 export const resetAudioAnalysis = () =>
   requestVoid('/library/audio-analysis', { method: 'DELETE' })
+
+export const localRadio = (
+  seed?: string,
+  genre?: string,
+  nonce?: string,
+  signal?: AbortSignal,
+) =>
+  request<LibraryTrack[]>('/library/radio', {
+    query: { seed, genre, nonce },
+    signal,
+  })
