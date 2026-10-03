@@ -82,6 +82,8 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				preAuth.Use(middleware.CSRF)
 				preAuth.Post("/setup", h.Setup)
 				preAuth.Post("/login", h.Login)
+				preAuth.Post("/device", h.StartDevice)
+				preAuth.Post("/device/poll", h.PollDevice)
 			})
 
 			// Authenticated auth routes
@@ -92,6 +94,8 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				authed.Group(func(mutating chi.Router) {
 					mutating.Use(middleware.CSRF)
 					mutating.Post("/logout", h.Logout)
+					mutating.Post("/device/preview", h.PreviewDevice)
+					mutating.Post("/device/confirm", h.ConfirmDevice)
 				})
 			})
 		})

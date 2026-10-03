@@ -131,6 +131,14 @@ Full documentation, configuration guides, and architecture references are availa
 
 ---
 
+## Native Apple Client Preview
+
+The [native Apple client](apple/README.md) is a separate 0.1.0 review build for
+iPhone, iPad, Mac and Apple TV, requiring OS 27 and Xcode 27. It focuses on the
+existing music library and playback. Device-code sign-in requires the backend
+routes described in its setup guide. Distribution signing and physical-device
+qualification are still required; this is not an App Store release.
+
 ## Container Distribution
 
 Official container images are published to the GitHub Container Registry (GHCR) with multi-architecture support for `linux/amd64` and `linux/arm64`.

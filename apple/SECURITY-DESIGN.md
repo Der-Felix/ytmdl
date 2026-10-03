@@ -1,0 +1,115 @@
+# Apple client security and design decisions
+
+Research date: 2026-10-04. Guidance comes from Apple's documentation and the
+device-authorization RFC; Xcode 27's bundled SwiftUI skills are implementation
+references. No unreviewed community skill was installed.
+
+## Credentials and transport
+
+The user enters an existing server origin. HTTPS is mandatory in Release.
+Debug allows explicit local HTTP only for literal private/loopback IPv4 or
+localhost; names resembling IP addresses do not qualify. Userinfo, query
+strings, fragments and base paths are rejected. Certificate validation is the
+system default. There is no trust-all delegate or `NSAllowsArbitraryLoads`.
+The local-network purpose string explains connecting to the user's server.
+
+The existing server cookie session and double-submit CSRF mechanism remain in
+use; the client does not invent an auth bypass. Passwords are used once and
+cleared from the input. Only session/CSRF cookies are persisted in Keychain,
+scoped to the exact server origin, nonsynchronizable and device-only, accessible
+after first unlock to support background playback. Secrets are not kept in
+UserDefaults, URLs, logs, fixture screenshots or the project. Ephemeral sessions
+avoid the shared cookie jar and persistent response caches. API/artwork redirects
+are rejected. Audio assets receive origin-scoped cookies using the public
+AVURLAsset cookie API; backend stream routes must serve audio directly without
+cross-origin redirects. User-selected server origins are trusted for the user's
+media. Servers should never return cookie-domain settings outside their origin.
+
+Logout attempts server revocation and clears local cookies/keychain state even
+if the network request fails. If the server is offline, remotely revoking that
+session is still necessary through an online device's session list; local
+forgetting does not falsely claim successful remote revocation.
+
+References:
+- [Keychain services](https://developer.apple.com/documentation/security/keychain-services)
+- [App Transport Security](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapptransportsecurity)
+- [Local network privacy](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)
+- [AVURLAsset cookies](https://developer.apple.com/documentation/avfoundation/avurlassethttpcookieskey)
+
+## Device code authorization
+
+This is a cookie-session pairing flow inspired by RFC 8628, **not an OAuth
+implementation**. The TV retains a separate 256-bit secret in memory. Its
+displayed human code has 40 bits of entropy, is formatted `ABCD-EFGH`, expires
+after five minutes and never substitutes for the secret at exchange. Only
+SHA-256 hashes are retained in the backend process. A restart expires all
+pending grants. Completed sessions use the existing PostgreSQL session storage.
+
+Preview and confirmation require authentication and CSRF. Short-code queries
+use POST bodies; no raw device secrets occur in paths or query strings.
+Confirmation is explicit, shows the requesting device name and warns against
+approving unsolicited codes. Preview/confirm attempts are limited to ten per
+account per five minutes. Grant creation is limited to ten per client IP per
+five minutes. Admission, approval and consumption are atomic. Pending grants
+are capped at 128; each admission-key map is capped at 1024 and expiry-pruned.
+Polling uses a five-second minimum and backs off on excess requests.
+
+The granting session and enabled user are rechecked at exchange. Codes cannot
+be reassigned or replayed. Exchange creates a separate revocable session and
+returns it only as an HttpOnly cookie, never as JSON. All pairing responses are
+`Cache-Control: no-store`. Approval grants ordinary account permissions; the
+current implementation does not claim player-only authorization scopes.
+
+[RFC 8628](https://www.rfc-editor.org/rfc/rfc8628) supplies the security principles
+for expiring codes, authorization on a second device and polling backoff. TLS
+is required for normal deployments; the explicitly chosen local HTTP Debug
+mode has no transport secrecy and must not be exposed to the internet.
+
+## Layout, accessibility and native behavior
+
+Use system TabView/NavigationSplitView/List/Menu/Picker/Slider and focus behavior.
+Album art remains content; translucent materials are reserved for player
+controls/navigation. Adaptive grids, scrollable player content and bounded cover
+sizes address the original proportions problem. SF Symbols, semantic fonts,
+text wrapping, VoiceOver labels and clear button targets are used. Do not force
+focus changes as content loads. No automatic animation loop, hover motion or
+custom cursor is added. TV has system remote focus and discrete seek buttons.
+Accessibility and large text need physical-device review, especially long names.
+
+Audio interruption and unplugging output pause playback. SDK 27's new inactive
+audio-session notification is used. Resume is explicit. Pending async playback
+loads respect pause and selection changes; stale results cannot start another
+song. A failed codec/stream is not reported as successful playback.
+
+References:
+- [Human Interface Guidelines](https://developer.apple.com/design/human-interface-guidelines)
+- [Layout](https://developer.apple.com/design/human-interface-guidelines/layout)
+- [Materials](https://developer.apple.com/design/human-interface-guidelines/materials)
+- [Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
+- [Focus and selection](https://developer.apple.com/design/human-interface-guidelines/focus-and-selection)
+- [Media playback configuration](https://developer.apple.com/documentation/avfoundation/configuring-your-app-for-media-playback)
+
+## Privacy and distribution
+
+No tracking, advertising or analytics dependencies are present. The privacy
+manifest declares the app's own UserDefaults usage (CA92.1). It is not a privacy
+policy or an assertion that the user's server processes no personal data:
+accounts, favorites, playlists, session/IP metadata and requested audio remain
+on the configured server. Store privacy answers must reflect the actual service
+and deployment, not blindly copy a 'no data collected' label.
+
+Before public distribution, provide a real privacy policy/support contact,
+correct store data disclosures, signing and final icons. Provide a reachable
+reviewer server/account with authorized sample media. No account creation is
+included; the operator provisions accounts. If registration is added later,
+evaluate Apple's account-deletion requirements at the same time.
+
+The native client does not contact YouTube or initiate provider downloads.
+However, separating a player from the downloader does not guarantee acceptance:
+media rights and service usage still need review. Do not hide functionality from
+reviewers or use TestFlight to evade App Review. This project does not claim
+Apple endorsement or preapproval.
+
+[App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)
+are the source for completeness, privacy, intellectual-property and media
+requirements, including sections 2.1, 4.2, 5.1 and 5.2.3.

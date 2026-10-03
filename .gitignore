@@ -29,6 +29,10 @@ compose.ghcr.override.yaml
 *.webm
 
 # Build artefacts
+/apple/.build/
+/apple/.swiftpm/
+**/xcuserdata/
+**/*.xcuserstate
 /bin/
 /out/
 /dist/
