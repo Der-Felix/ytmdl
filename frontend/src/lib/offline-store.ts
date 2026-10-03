@@ -151,7 +151,10 @@ export async function saveOfflinePlaylist(
   signal = AbortSignal.any([signal, AbortSignal.timeout(60 * 60 * 1000)])
   await pruneOfflineStaging()
   const db = await open(),
-    batch = crypto.randomUUID(),
+    // getRandomValues also works on HTTP IP origins; randomUUID does not.
+    batch = Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
+      n.toString(16).padStart(2, '0'),
+    ).join(''),
     keys: string[] = []
   let bytes = 0,
     committed = false

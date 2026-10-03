@@ -437,6 +437,56 @@ try {
       assert.equal(removed.audio, 0)
       assert.equal(unexpectedMutations, 0)
       assert.deepEqual(errors, [])
+      step = 'http-capabilities'
+      const httpContext = await browser.newContext()
+      await httpContext.addInitScript(() => {
+        Object.defineProperty(window, 'isSecureContext', { value: false })
+        Object.defineProperty(crypto, 'randomUUID', { value: undefined })
+        const Native = window.Audio
+        window.__offlineAudio = []
+        window.Audio = class extends Native {
+          constructor(...args) {
+            super(...args)
+            window.__offlineAudio.push(this)
+          }
+        }
+        window.EventSource = class {
+          addEventListener() {}
+          close() {}
+        }
+      })
+      const httpPage = await httpContext.newPage()
+      await httpPage.goto(base + '/playlists/' + playlist.id)
+      await httpPage
+        .getByLabel('Musik und Metadaten in diesem Browserprofil aufbewahren.')
+        .check()
+      await httpPage
+        .getByRole('button', {
+          name: 'Offline-Kopie speichern / erneuern',
+          exact: true,
+        })
+        .click()
+      await httpPage
+        .getByText(/Über diese HTTP-Adresse bleibt Offline-Wiedergabe/)
+        .waitFor()
+      assert.equal(
+        await httpPage.evaluate(
+          async () => (await navigator.serviceWorker.getRegistrations()).length,
+        ),
+        0,
+      )
+      await httpPage
+        .getByRole('link', { name: 'Offline-Musik öffnen', exact: true })
+        .click()
+      await httpPage
+        .getByRole('button', { name: 'Offline abspielen', exact: true })
+        .click()
+      await httpPage.waitForFunction(() =>
+        window.__offlineAudio.some(
+          (a) => a.src.startsWith('blob:') && !a.paused && a.currentTime > 0.1,
+        ),
+      )
+      await httpContext.close()
       reports.push({
         browser: name,
         explicitConsent: true,
@@ -445,6 +495,7 @@ try {
         sizeBound: true,
         realBlobPlayback: true,
         pauseDuringSourceLoad: true,
+        httpCapabilityFallback: true,
         staleSourceIgnored: true,
         offlineReload: true,
         nextTrack: true,
