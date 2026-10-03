@@ -177,3 +177,19 @@ aktuelle Wiedergabe weiterlaufen. Es werden keine Provider abgefragt und keine
 neuen Songs heruntergeladen. Für Genres braucht die Bibliothek gepflegte
 Genre-Zuordnungen; ohne Hörverlauf oder Favoriten entsteht ein abwechslungsreicher
 lokaler Startmix.
+
+## Geräteübergabe
+
+**Bibliothek → Deine Bibliothek → Geräteübergabe** speichert bis zu 500 Titel
+in ihrer aktuellen Reihenfolge, die Position und den Wiederholmodus für 15
+Minuten. **Hier pausieren und übertragen** pausiert das Ausgangsgerät erst,
+wenn der Server die Übergabe angenommen hat. Auf dem Zielgerät mit demselben
+Konto **Aktualisieren**, dann **Übernehmen und abspielen** wählen. Der Player
+setzt Warteschlange und Position gemeinsam; Lautstärke und Klang bleiben lokal.
+
+Es gibt keine Hintergrundüberwachung der Geräte und keine automatische
+Fernsteuerung. Beide Geräte brauchen eine Serververbindung. Ein neuer Eintrag
+ersetzt die vorige Übergabe; fehlende Titel und veraltete Entscheidungen werden
+abgewiesen. Eine Übergabe kann während ihrer Gültigkeit erneut übernommen oder
+bewusst verworfen werden. Sleep-Timer und „Stopp nach …“ werden beim Übernehmen
+ausgeschaltet, damit eine alte lokale Einstellung die neue Sitzung nicht beendet.

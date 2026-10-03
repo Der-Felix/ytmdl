@@ -186,9 +186,12 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 			})
 
 			authed.Get("/history", h.ListeningHistory)
+			authed.Get("/playback/handoff", h.GetPlaybackHandoff)
 			authed.Group(func(m chi.Router) {
 				m.Use(middleware.CSRF)
 				m.Post("/history", h.RecordPlayback)
+				m.Post("/playback/handoff", h.SavePlaybackHandoff)
+				m.Delete("/playback/handoff", h.DeletePlaybackHandoff)
 				m.Delete("/history", h.ClearListeningHistory)
 			})
 			authed.Route("/favorites", func(favorites chi.Router) {

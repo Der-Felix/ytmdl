@@ -10,6 +10,8 @@ import {
   ListMusic,
   Maximize2,
   Mic2,
+  MonitorSmartphone,
+  Radio,
   Minimize2,
   MoreHorizontal,
   Music2,
@@ -392,6 +394,16 @@ export function NowPlaying() {
         </Link>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost" size="icon-sm" aria-label="Song-Radio" title="Song-Radio"
+            onClick={() => navigate('/library?view=tools&tool=radio')}
+            className="size-8 rounded-xl bg-white/[0.04] text-neutral-400 hover:bg-white/[0.08] hover:text-white border border-white/5"
+          ><Radio className="size-4" /></Button>
+          <Button
+            variant="ghost" size="icon-sm" aria-label="Geräteübergabe" title="Geräteübergabe"
+            onClick={() => navigate('/library?view=tools&tool=handoff')}
+            className="size-8 rounded-xl bg-white/[0.04] text-neutral-400 hover:bg-white/[0.08] hover:text-white border border-white/5"
+          ><MonitorSmartphone className="size-4" /></Button>
           {/* Visualizer Menu Button */}
           <div className="relative">
             <Button

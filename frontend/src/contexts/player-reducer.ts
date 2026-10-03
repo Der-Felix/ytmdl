@@ -14,6 +14,7 @@ import type {
 import type { LibraryTrack } from '@/types/api'
 
 export type PlayerAction =
+  | {type:'RESUME_SESSION';payload:{tracks:LibraryTrack[];index:number;position:number;repeatMode:RepeatMode}}
   | {
       type: 'PLAY_TRACK'
       payload: { track: LibraryTrack; queue?: LibraryTrack[]; queueIndex?: number }
@@ -137,6 +138,41 @@ function trackDurationSeconds(track: LibraryTrack | null | undefined): number {
 
 export function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
   switch (action.type) {
+    case 'RESUME_SESSION': {
+      const { tracks, index, position, repeatMode } = action.payload
+      if (
+        !tracks.length ||
+        index < 0 ||
+        index >= tracks.length ||
+        !Number.isInteger(index) ||
+        !Number.isFinite(position)
+      )
+        return state
+      const track = tracks[index]!,
+        duration = trackDurationSeconds(track)
+      return {
+        ...state,
+        currentTrack: track,
+        queue: [...tracks],
+        originalQueue: [...tracks],
+        queueIndex: index,
+        shuffle: false,
+        repeatMode,
+        status: 'buffering',
+        currentTime: Math.max(
+          0,
+          duration
+            ? Math.min(position, Math.max(0, duration - 0.25))
+            : position,
+        ),
+        duration,
+        sleepTimer: 'off',
+        sleepTimerEndsAt: null,
+        stopAfter: 'none',
+        error: null,
+        history: pushHistory(state.history, track),
+      }
+    }
     case 'PLAY_TRACK': {
       const { track, queue, queueIndex } = action.payload
       const newQueue = queue && queue.length > 0 ? [...queue] : [track]
