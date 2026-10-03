@@ -6,6 +6,7 @@ export interface HistoryTrack extends LibraryTrack {
   last_played_at: string
 }
 export interface DuplicateGroup {
+  source?: 'metadata' | 'audio'
   key: string
   count: number
   tracks: LibraryTrack[]
@@ -124,3 +125,20 @@ export const purgeTrash = (id: string) =>
   })
 export const recoverTrash = () =>
   requestVoid('/library/trash/recover', { method: 'POST' })
+
+export interface AudioAnalysisStatus {
+  pending: number
+  ready: number
+  inconclusive: number
+  failed: number
+  next_ids: string[]
+}
+export const audioAnalysisStatus = (signal?: AbortSignal) =>
+  request<AudioAnalysisStatus>('/library/audio-analysis', { signal })
+export const analyzeAudioFingerprint = (id: string, signal?: AbortSignal) =>
+  request<{ state: string }>(
+    `/library/audio-analysis/${encodeURIComponent(id)}`,
+    { method: 'POST', signal },
+  )
+export const resetAudioAnalysis = () =>
+  requestVoid('/library/audio-analysis', { method: 'DELETE' })

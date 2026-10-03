@@ -6,6 +6,7 @@ import { Cover } from '@/components/music/Cover'
 import { ArtworkEditor } from '@/components/music/ArtworkEditor'
 import { DuplicateReviewPanel } from './DuplicateReviewPanel'
 import { TrashPanel } from './TrashPanel'
+import { AudioAnalysisPanel } from './AudioAnalysisPanel'
 import { usePlayerActions } from '@/hooks/usePlayer'
 import { useAsync } from '@/hooks/useAsync'
 import { libraryArtists, libraryReleases } from '@/lib/api/library'
@@ -27,9 +28,10 @@ export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
             ['duplicates', 'Mögliche Duplikate'],
             ['artwork', 'Cover verwalten'],
             ['trash', 'Papierkorb'],
+            ['audio', 'Audioerkennung'],
           ] as const
         )
-          .filter(([id]) => id !== 'trash' || isAdmin)
+          .filter(([id]) => !['trash', 'audio'].includes(id) || isAdmin)
           .map(([id, label]) => (
             <Button
               key={id}
@@ -41,7 +43,9 @@ export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
             </Button>
           ))}
       </div>
-      {tab === 'trash' && isAdmin ? (
+      {tab === 'audio' && isAdmin ? (
+        <AudioAnalysisPanel />
+      ) : tab === 'trash' && isAdmin ? (
         <TrashPanel />
       ) : tab === 'history' ? (
         <HistoryPanel />

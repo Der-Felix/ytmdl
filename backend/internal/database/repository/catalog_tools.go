@@ -265,6 +265,7 @@ func (c *Catalog) ApplyTrackOverride(ctx context.Context, t *music.Track) error 
 }
 
 type DuplicateGroup struct {
+	Source           string               `json:"source"`
 	Key              string               `json:"key"`
 	Count            int                  `json:"count"`
 	Tracks           []music.LibraryTrack `json:"tracks"`

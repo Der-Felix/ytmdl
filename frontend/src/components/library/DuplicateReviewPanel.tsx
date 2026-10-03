@@ -520,6 +520,7 @@ function DuplicateComparison({
       />
       <div className="flex flex-wrap justify-between gap-2 items-center">
         <h3 className="font-medium">
+ {group.source==='audio'&&<span className="block text-xs text-primary">Ähnliche Audioaufnahme · bitte anhören</span>}
           {group.tracks[0]?.title} · {group.count} Versionen
         </h3>
         <span className="text-xs text-muted-foreground">
@@ -641,7 +642,7 @@ function DuplicateComparison({
             Vergleich {cursor} von {ordered.length - 1}: links behält die bisherige Version, rechts
             bevorzugt diese neue Version.
             {!askBeforeDelete && isAdmin
-              ? ' Die letzte Auswahl löscht alle anderen Versionen sofort.'
+              ? ' Die letzte Auswahl verschiebt alle anderen Versionen sofort in den Papierkorb.'
               : ' Wischen speichert zunächst nur die Auswahl.'}
           </p>
           <div className="duplicate-review-arena">
