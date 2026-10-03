@@ -276,6 +276,44 @@ try {
       const initial = await snapshot(page)
       assert.equal(initial.playlists.length, 1)
       assert.equal(initial.audio, 2)
+      step = 'cancel-final-publish'
+      await page.evaluate(() => {
+        const getKey = IDBObjectStore.prototype.getKey
+        let armed = true
+        IDBObjectStore.prototype.getKey = function (...args) {
+          const request = getKey.apply(this, args)
+          if (
+            !armed ||
+            this.name !== 'audio' ||
+            this.transaction.mode !== 'readwrite'
+          )
+            return request
+          armed = false
+          IDBObjectStore.prototype.getKey = getKey
+          return new Proxy(request, {
+            get(target, property) {
+              const value = Reflect.get(target, property, target)
+              return typeof value === 'function' ? value.bind(target) : value
+            },
+            set(target, property, value) {
+              if (property === 'onsuccess') {
+                target.onsuccess = (event) => {
+                  const cancel = [...document.querySelectorAll('button')].find(
+                    (b) => b.textContent.trim() === 'Abbrechen',
+                  )
+                  cancel.click()
+                  value(event)
+                }
+                return true
+              }
+              return Reflect.set(target, property, value, target)
+            },
+          })
+        }
+      })
+      await copy.click()
+      await page.getByText(/Speichern abgebrochen/).waitFor()
+      assert.deepEqual(await snapshot(page), initial)
       step = 'failed-refresh'
       mode = 'failed'
       await copy.click()
@@ -491,6 +529,7 @@ try {
         browser: name,
         explicitConsent: true,
         atomicRefresh: true,
+        cancelFinalPublish: true,
         cancelPreserves: true,
         sizeBound: true,
         realBlobPlayback: true,

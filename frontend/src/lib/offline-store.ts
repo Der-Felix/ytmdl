@@ -250,27 +250,42 @@ export async function saveOfflinePlaylist(
     }
     const tx = db.transaction(['audio', 'playlists'], 'readwrite'),
       done = completion(tx)
-    const previous = await read<OfflinePlaylist | undefined>(
-      tx.objectStore('playlists').get(value.key),
-    )
-    const present = await Promise.all(
-      keys.map((key) => read(tx.objectStore('audio').getKey(key))),
-    )
-    if (present.some((key) => !key)) {
-      tx.abort()
-      await done
-      throw new Error(
-        'Eine vorbereitete Datei fehlt. Die bisherige Offline-Kopie bleibt erhalten.',
-      )
+    // Keep explicit cancellation effective until the atomic publish completes.
+    const abortCommit = () => {
+      try {
+        tx.abort()
+      } catch {
+        /* Already committed. */
+      }
     }
+    signal.addEventListener('abort', abortCommit, { once: true })
+    try {
+      signal.throwIfAborted()
+      const previous = await read<OfflinePlaylist | undefined>(
+        tx.objectStore('playlists').get(value.key),
+      )
+      const present = await Promise.all(
+        keys.map((key) => read(tx.objectStore('audio').getKey(key))),
+      )
+      signal.throwIfAborted()
+      if (present.some((key) => !key)) {
+        tx.abort()
+        await done
+        throw new Error(
+          'Eine vorbereitete Datei fehlt. Die bisherige Offline-Kopie bleibt erhalten.',
+        )
+      }
 
-    tx.objectStore('playlists').put(value)
-    for (const old of previous?.tracks || [])
-      if (old.offline_blob_key)
-        tx.objectStore('audio').delete(old.offline_blob_key)
-    await done
-    committed = true
-    return value
+      tx.objectStore('playlists').put(value)
+      for (const old of previous?.tracks || [])
+        if (old.offline_blob_key)
+          tx.objectStore('audio').delete(old.offline_blob_key)
+      await done
+      committed = true
+      return value
+    } finally {
+      signal.removeEventListener('abort', abortCommit)
+    }
   } catch (e) {
     if (!committed && keys.length) {
       try {
