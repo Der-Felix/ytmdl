@@ -6,6 +6,7 @@ import { Cover } from '@/components/music/Cover'
 import { ArtworkEditor } from '@/components/music/ArtworkEditor'
 import { DuplicateReviewPanel } from './DuplicateReviewPanel'
 import { TrashPanel } from './TrashPanel'
+import { HandoffPanel } from './HandoffPanel'
 import { SongRadioPanel } from './SongRadioPanel'
 import { AudioAnalysisPanel } from './AudioAnalysisPanel'
 import { usePlayerActions } from '@/hooks/usePlayer'
@@ -18,7 +19,22 @@ import type { LibraryTrack } from '@/types/api'
 const detail = (track: LibraryTrack) =>
   navigate(`/library?view=tracks&track=${encodeURIComponent(track.id)}`)
 export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
-  const [tab, setTab] = useState('history')
+  const [tab, setTab] = useState(() => {
+    const requested =
+      new URLSearchParams(window.location.search).get('tool') || 'history'
+    return [
+      'history',
+      'radio',
+      'handoff',
+      'duplicates',
+      'artwork',
+      'trash',
+      'audio',
+    ].includes(requested) &&
+      (!['trash', 'audio'].includes(requested) || isAdmin)
+      ? requested
+      : 'history'
+  })
   return (
     <section className="space-y-4 rounded-xl border border-border p-4">
       <h2 className="text-lg font-semibold">Deine Bibliothek</h2>
@@ -27,6 +43,7 @@ export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
           [
             ['history', 'Hörverlauf'],
             ['radio', 'Song-Radio'],
+            ['handoff', 'Geräteübergabe'],
             ['duplicates', 'Mögliche Duplikate'],
             ['artwork', 'Cover verwalten'],
             ['trash', 'Papierkorb'],
@@ -45,7 +62,9 @@ export function LibraryToolsPanel({ isAdmin }: { isAdmin: boolean }) {
             </Button>
           ))}
       </div>
-      {tab === 'radio' ? (
+      {tab === 'handoff' ? (
+        <HandoffPanel />
+      ) : tab === 'radio' ? (
         <SongRadioPanel />
       ) : tab === 'audio' && isAdmin ? (
         <AudioAnalysisPanel />

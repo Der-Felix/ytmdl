@@ -153,3 +153,31 @@ export const localRadio = (
     query: { seed, genre, nonce },
     signal,
   })
+
+export interface PlaybackHandoff {
+  id: string
+  queue: LibraryTrack[]
+  queue_ids: string[]
+  queue_index: number
+  position_seconds: number
+  repeat_mode: 'off' | 'queue' | 'track'
+  source_name: string
+  created_at: string
+  expires_at: string
+}
+export const getPlaybackHandoff = (signal?: AbortSignal) =>
+  request<PlaybackHandoff | null>('/playback/handoff', { signal })
+export const savePlaybackHandoff = (
+  body: Pick<
+    PlaybackHandoff,
+    | 'queue_ids'
+    | 'queue_index'
+    | 'position_seconds'
+    | 'repeat_mode'
+    | 'source_name'
+  >,
+  signal?: AbortSignal,
+) =>
+  request<{ id: string }>('/playback/handoff', { method: 'POST', body, signal })
+export const deletePlaybackHandoff = (id: string) =>
+  requestVoid('/playback/handoff', { method: 'DELETE', body: { id } })

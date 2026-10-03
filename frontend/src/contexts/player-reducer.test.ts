@@ -762,3 +762,55 @@ describe('playerReducer', () => {
     assertQueueInvariant(state)
   })
 })
+
+
+it('resumes a handoff atomically without changing local sound settings', () => {
+  const before = {
+    ...INITIAL_PLAYER_STATE,
+    volume: 0.3,
+    preamp: -4,
+    normalizationEnabled: true,
+    sleepTimer: '30min' as const,
+    sleepTimerEndsAt: 123,
+    stopAfter: 'track' as const,
+  }
+  const state = playerReducer(before, {
+    type: 'RESUME_SESSION',
+    payload: {
+      tracks: [dummyTrack1, dummyTrack2],
+      index: 1,
+      position: 23.5,
+      repeatMode: 'queue',
+    },
+  })
+  expect(state.currentTrack?.id).toBe(dummyTrack2.id)
+  expect(state.queueIndex).toBe(1)
+  expect(state.currentTime).toBe(23.5)
+  expect(state.status).toBe('buffering')
+  expect(state.volume).toBe(0.3)
+  expect(state.preamp).toBe(-4)
+  expect(state.normalizationEnabled).toBe(true)
+  expect(state.sleepTimer).toBe('off')
+  expect(state.stopAfter).toBe('none')
+  expect(state.repeatMode).toBe('queue')
+  const invalid = playerReducer(state, {
+    type: 'RESUME_SESSION',
+    payload: {
+      tracks: [dummyTrack1],
+      index: 1,
+      position: NaN,
+      repeatMode: 'off',
+    },
+  })
+  expect(invalid).toBe(state)
+  const bounded = playerReducer(state, {
+    type: 'RESUME_SESSION',
+    payload: {
+      tracks: [dummyTrack1],
+      index: 0,
+      position: 10000,
+      repeatMode: 'off',
+    },
+  })
+  expect(bounded.currentTime).toBe(179.75)
+})

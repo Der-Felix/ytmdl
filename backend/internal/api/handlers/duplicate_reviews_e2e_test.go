@@ -112,3 +112,32 @@ func TestAudioAnalysisAuthorization(t *testing.T) {
 		}
 	}
 }
+
+func TestPlaybackHandoffHTTPAuthorizationAndCSRF(t *testing.T) {
+	srv, admin, user, _ := setupPlaylistsE2ETest(t)
+	res, err := http.Get(srv.URL + "/api/v1/playback/handoff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatal("anonymous handoff read")
+	}
+	body := map[string]any{"queue_ids": []string{"trk_e2e_1"}, "queue_index": 0, "position_seconds": 3, "repeat_mode": "off", "source_name": "Fixture"}
+	res, _, err = user.do(http.MethodPost, "/api/v1/playback/handoff", body, false)
+	if err != nil || res.StatusCode != 403 {
+		t.Fatal("CSRF-less handoff write")
+	}
+	res, _, err = user.do(http.MethodPost, "/api/v1/playback/handoff", body, true)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatal("ordinary user handoff blocked")
+	}
+	res, data, err := admin.do(http.MethodGet, "/api/v1/playback/handoff", nil, false)
+	if err != nil || res.StatusCode != 200 || !strings.Contains(string(data), `"data":null`) {
+		t.Fatal("handoff leaked between accounts")
+	}
+	res, _, err = user.do(http.MethodDelete, "/api/v1/playback/handoff", map[string]any{"id": "fake"}, false)
+	if err != nil || res.StatusCode != 403 {
+		t.Fatal("CSRF-less handoff delete")
+	}
+}

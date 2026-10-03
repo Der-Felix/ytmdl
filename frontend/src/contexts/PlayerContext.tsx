@@ -44,6 +44,12 @@ export type PlayerStateContextValue = Omit<PlayerState, 'currentTime' | 'duratio
 export interface PlayerActionsContextValue {
   engine: AudioEngine
   playTrack: (track: LibraryTrack, queue?: LibraryTrack[], queueIndex?: number) => void
+  resumeSession: (
+    tracks: LibraryTrack[],
+    index: number,
+    position: number,
+    repeatMode: RepeatMode,
+  ) => void
   playAlbum: (tracks: LibraryTrack[], startIndex?: number) => void
   playArtist: (tracks: LibraryTrack[], shuffle?: boolean) => void
   playNext: (track: LibraryTrack) => void
@@ -674,6 +680,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const resumeSession = useCallback(
+    (
+      tracks: LibraryTrack[],
+      index: number,
+      position: number,
+      repeatMode: RepeatMode,
+    ) => {
+      if (
+        !tracks.length ||
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >= tracks.length ||
+        !Number.isFinite(position)
+      )
+        return
+      engine.pause()
+      currentEngineTrackIdRef.current = null
+      requestLoad()
+      dispatch({
+        type: 'RESUME_SESSION',
+        payload: { tracks, index, position, repeatMode },
+      })
+    },
+    [engine],
+  )
+
   const playAlbum = useCallback((tracks: LibraryTrack[], startIndex = 0) => {
     if (tracks.length > 0) {
       currentEngineTrackIdRef.current = null
@@ -874,6 +906,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     () => ({
       engine,
       playTrack,
+      resumeSession,
       playAlbum,
       playArtist,
       playNext: playNextAction,
@@ -923,6 +956,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [
       engine,
       playTrack,
+      resumeSession,
       playAlbum,
       playArtist,
       playNextAction,
