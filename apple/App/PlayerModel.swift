@@ -15,6 +15,8 @@ import UIKit
     private(set) var volume: Double = 1
     private(set) var isMuted = false
     @ObservationIgnored private let volumePreferences: UserDefaults
+    @ObservationIgnored var onTrackPlayed: ((Track) -> Void)?
+    @ObservationIgnored private var recordedGeneration: UUID?
     var repeatAll = false
     var error: String?
     var lyrics = ""
@@ -52,6 +54,9 @@ import UIKit
                 let value = time.seconds
                 if value.isFinite { self.position = max(0, value) }
                 self.isPlaying = self.audio.rate > 0
+                if self.isPlaying, self.position >= 1, self.recordedGeneration != self.generation, let track = self.current {
+                    self.recordedGeneration = self.generation; self.onTrackPlayed?(track)
+                }
                 self.updateNowPlaying()
             }
         }

@@ -6,6 +6,20 @@ struct SettingsView: View {
     var model: AppModel
     @State private var signingOut = false
     @AppStorage("appearance") private var appearance = "dark"
+    #if os(macOS)
+    @AppStorage("desktopTheme") private var themeName = "rose"
+    @AppStorage("desktopTextSize") private var textSize = "large"
+    @AppStorage("desktopCoverSize") private var coverSize = 260.0
+    @AppStorage("desktopStartView") private var startView = "Start"
+    @AppStorage("homeShowFavorites") private var showFavorites = true
+    @AppStorage("homeShowArtists") private var showArtists = true
+    @AppStorage("homeShowPlaylists") private var showPlaylists = true
+    @AppStorage("homeShowRecent") private var showRecent = true
+    @Environment(\.desktopTheme) private var theme
+    @Environment(\.desktopAccent) private var accent
+    @Environment(\.colorScheme) private var scheme
+    @State private var settingsTab = "Darstellung"
+    #endif
     var body: some View {
         Group {
             #if os(macOS)
@@ -43,52 +57,149 @@ struct SettingsView: View {
     }
     #if os(macOS)
     private var desktopSettings: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Text("Mach es dir bequem.").font(.system(size: 32, weight: .bold))
-                Text("Wiedergabe, Darstellung und dein Server an einem Ort.").foregroundStyle(.secondary)
-                settingsCard("Wiedergabe", icon: "speaker.wave.2") {
-                    HStack {
-                        Text("App-Lautstärke")
-                        Spacer()
-                        DesktopVolumeControl(player: model.player)
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Deine App").desktopScaledFont(30, weight: .bold)
+                Text("Themes, Lesbarkeit, Startseite und Wiedergabe.").desktopScaledFont(18).foregroundStyle(.secondary)
+            }
+            ScrollView(.horizontal) {
+                HStack(spacing: 12) {
+                    ForEach(["Darstellung", "Startseite", "Wiedergabe", "Konto"], id: \.self) { tab in
+                        Button { settingsTab = tab } label: {
+                            Text(tab).desktopScaledFont(18, weight: .semibold).padding(.horizontal, 18).padding(.vertical, 14)
+                                .background(settingsTab == tab ? accent.opacity(0.18) : theme.surface(scheme), in: RoundedRectangle(cornerRadius: 14))
+                        }.buttonStyle(DesktopHoverStyle()).accessibilityAddTraits(settingsTab == tab ? .isSelected : [])
                     }
-                    Text("Die Lautstärke gilt für YTMDL. Die Systemlautstärke stellst du weiterhin am Mac ein.")
-                        .font(.system(size: 15)).foregroundStyle(.secondary)
                 }
-                settingsCard("Darstellung", icon: "circle.lefthalf.filled") {
-                    Picker("Erscheinungsbild", selection: $appearance) {
-                        Text("System").tag("system"); Text("Dunkel").tag("dark"); Text("Hell").tag("light")
-                    }.pickerStyle(.segmented).controlSize(.large).labelsHidden().frame(maxWidth: 420)
-                }
-                settingsCard("Verbindung", icon: "network") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(model.user?.displayName ?? "").font(.system(size: 20, weight: .semibold))
-                        Text(model.client?.server.url.absoluteString ?? "").foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    switch settingsTab {
+                    case "Darstellung": appearanceSettings
+                    case "Startseite": homeSettings
+                    case "Wiedergabe": playbackSettings
+                    default: accountSettings
                     }
-                    if model.client?.server.isSecure == false {
-                        Label("Lokaler HTTP-Test: Verbindung ohne Verschlüsselung", systemImage: "exclamationmark.shield").font(.system(size: 15)).foregroundStyle(.orange)
-                    }
-                    Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
-                        .buttonStyle(.bordered).controlSize(.large).disabled(model.connecting)
-                }
-                settingsCard("Anderes Gerät anmelden", icon: "appletv") {
-                    ConfirmDeviceView(model: model).textFieldStyle(.roundedBorder).controlSize(.large).frame(maxWidth: 570, alignment: .leading)
-                }
-                settingsCard("Konto & Datenschutz", icon: "lock.shield") {
-                    if let url = model.client?.server.url.appendingPathComponent("profile") {
-                        Link("Profil & Sicherheit im Web öffnen", destination: url)
-                    }
-                    Text("Nur dein YTMDL-Server. Keine Werbung, keine Analyse-SDKs. Deine Sitzung bleibt im Schlüsselbund dieses Geräts.")
-                        .foregroundStyle(.secondary)
-                    Button("Abmelden", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { signingOut = true }
-                        .buttonStyle(.bordered).controlSize(.large)
-                }
-                Text("⌘F Suche · Leertaste Wiedergabe/Pause · ⌘← / ⌘→ Titel wechseln · Esc Player verlassen")
-                    .font(.system(size: 15)).foregroundStyle(.secondary)
-                Text(appVersion).font(.system(size: 14)).foregroundStyle(.secondary)
-            }.font(.system(size: 17)).padding(36).frame(maxWidth: 920, alignment: .leading).frame(maxWidth: .infinity, alignment: .top)
+                    Text(appVersion).desktopScaledFont(14).foregroundStyle(.secondary)
+                }.padding(.bottom, 24)
+            }
+        }.desktopScaledFont(18).padding(32).frame(maxWidth: 1120, alignment: .leading).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        #if DEBUG
+        .task {
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("--fixture-server"), ["127.0.0.1", "localhost"].contains(model.client?.server.url.host ?? ""),
+               let index = args.firstIndex(of: "--fixture-settings-tab"), args.indices.contains(index + 1),
+               ["Darstellung", "Startseite", "Wiedergabe", "Konto"].contains(args[index + 1]) { settingsTab = args[index + 1] }
         }
+        #endif
+    }
+    private var appearanceSettings: some View {
+        VStack(spacing: 24) {
+            settingsCard("Dein Theme", icon: "paintpalette") {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 350), spacing: 18)], spacing: 18) {
+                    ForEach(DesktopTheme.allCases) { option in
+                        Button { themeName = option.rawValue } label: {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack(spacing: 8) {
+                                    RoundedRectangle(cornerRadius: 6).fill(option.accent(scheme)).frame(width: 24)
+                                    VStack(alignment: .leading, spacing: 9) {
+                                        Capsule().fill(option.accent(scheme)).frame(width: 65, height: 9)
+                                        HStack(spacing: 8) { ForEach(0..<3) { _ in RoundedRectangle(cornerRadius: 5).fill(option.accent(scheme).opacity(0.35)).frame(height: 33) } }
+                                    }
+                                }.padding(14).frame(height: 100).background(option.background(scheme), in: RoundedRectangle(cornerRadius: 12))
+                                HStack {
+                                    Text(option.name).desktopScaledFont(18, weight: .semibold).foregroundStyle(.primary)
+                                    Spacer()
+                                    if themeName == option.rawValue { Image(systemName: "checkmark.circle.fill").foregroundStyle(accent) }
+                                }
+                            }.padding(12).background(themeName == option.rawValue ? accent.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 16))
+                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(themeName == option.rawValue ? accent : Color.primary.opacity(0.12), lineWidth: themeName == option.rawValue ? 2 : 1))
+                        }.buttonStyle(DesktopHoverStyle(radius: 16)).accessibilityLabel("Theme \(option.name)").accessibilityAddTraits(themeName == option.rawValue ? .isSelected : [])
+                    }
+                }
+                Picker("Helligkeit", selection: $appearance) {
+                    Text("System").tag("system"); Text("Dunkel").tag("dark"); Text("Hell").tag("light")
+                }.pickerStyle(.segmented).controlSize(.large).frame(maxWidth: 480)
+            }
+            settingsCard("Schrift & Cover", icon: "textformat.size") {
+                Picker("Schriftgröße", selection: $textSize) {
+                    ForEach(DesktopTextSize.allCases) { Text($0.name).tag($0.rawValue) }
+                }.pickerStyle(.segmented).controlSize(.large).frame(maxWidth: 580)
+                Text("Die Schriftgröße gilt auch für die Seitenleiste. Änderungen sind sofort sichtbar.").desktopScaledFont(16).foregroundStyle(.secondary)
+                HStack {
+                    Text("Cover in der Bibliothek")
+                    Spacer()
+                    Text("\(Int(coverSize.isFinite ? coverSize : 260)) pt").monospacedDigit().foregroundStyle(.secondary)
+                }
+                Slider(value: $coverSize, in: 220...340, step: 20).accessibilityLabel("Covergröße in der Bibliothek")
+                Text("Größere Cover zeigen weniger Alben pro Reihe.").desktopScaledFont(16).foregroundStyle(.secondary)
+            }
+        }
+    }
+    private var homeSettings: some View {
+        VStack(spacing: 24) {
+            settingsCard("Beim Öffnen", icon: "house") {
+                Picker("Startansicht", selection: $startView) {
+                    ForEach([Destination.home, .library, .favorites, .player]) { Text($0.rawValue).tag($0.rawValue) }
+                }.pickerStyle(.menu).controlSize(.large).frame(maxWidth: 440, alignment: .leading)
+                Text("Diese Ansicht öffnet sich beim nächsten App-Start nach der Anmeldung.").desktopScaledFont(16).foregroundStyle(.secondary)
+            }
+            settingsCard("Dein Musik-Feed", icon: "rectangle.grid.1x2") {
+                Toggle("Zuletzt gehört", isOn: $showRecent)
+                Toggle("Lieblingstitel", isOn: $showFavorites)
+                Toggle("Playlists", isOn: $showPlaylists)
+                Toggle("Künstler aus deiner Sammlung", isOn: $showArtists)
+                Text("Neue Alben und die schnellen Einstiege bleiben auf der Startseite sichtbar.").desktopScaledFont(16).foregroundStyle(.secondary)
+            }
+        }
+    }
+    private var playbackSettings: some View {
+        VStack(spacing: 24) {
+            settingsCard("Wiedergabe", icon: "speaker.wave.2") {
+                ViewThatFits(in: .horizontal) {
+                    HStack { Text("App-Lautstärke").fixedSize(); Spacer(); DesktopVolumeControl(player: model.player).frame(width: 260) }
+                    VStack(alignment: .leading, spacing: 12) { Text("App-Lautstärke"); DesktopVolumeControl(player: model.player) }
+                }
+                Toggle("Warteschlange wiederholen", isOn: Binding(get: { model.player.repeatAll }, set: { model.player.repeatAll = $0 }))
+                Text("Die Systemlautstärke stellst du am Mac ein. AirPlay findest du im Player und in der Wiedergabeleiste.").desktopScaledFont(16).foregroundStyle(.secondary)
+            }
+            settingsCard("Lokaler Hörverlauf", icon: "clock.arrow.circlepath") {
+                Toggle("Gehörte Titel auf diesem Mac merken", isOn: Binding(get: { model.listeningHistory.enabled }, set: { model.listeningHistory.setEnabled($0) }))
+                Text("Bis zu 40 Titel, getrennt nach Server und Konto. Ausgeschaltet werden keine neuen Titel gespeichert; dein bisheriger Verlauf bleibt erhalten und kann gelöscht werden.").desktopScaledFont(16).foregroundStyle(.secondary)
+                Button("Hörverlauf löschen", systemImage: "trash", role: .destructive) { model.listeningHistory.clear() }
+                    .buttonStyle(.bordered).controlSize(.large).disabled(model.listeningHistory.tracks.isEmpty)
+            }
+            settingsCard("Tastenkürzel", icon: "keyboard") {
+                shortcut("Suche", keys: "⌘F")
+                shortcut("Wiedergabe / Pause", keys: "Leertaste")
+                shortcut("Vorheriger / nächster Titel", keys: "⌘← / ⌘→")
+                shortcut("Lautstärke", keys: "⌘↑ / ⌘↓")
+                shortcut("Stummschalten", keys: "⇧⌘M")
+                shortcut("Player verlassen", keys: "Esc")
+            }
+        }
+    }
+    private var accountSettings: some View {
+        VStack(spacing: 24) {
+            settingsCard("Verbindung", icon: "network") {
+                Text(model.user?.displayName ?? "").desktopScaledFont(22, weight: .semibold)
+                Text(model.client?.server.url.absoluteString ?? "").foregroundStyle(.secondary).textSelection(.enabled)
+                if model.client?.server.isSecure == false { Label("Lokaler HTTP-Test: Verbindung ohne Verschlüsselung", systemImage: "exclamationmark.shield").desktopScaledFont(16).foregroundStyle(.orange) }
+                Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
+                    .buttonStyle(.bordered).controlSize(.large).disabled(model.connecting)
+            }
+            settingsCard("Anderes Gerät anmelden", icon: "appletv") {
+                ConfirmDeviceView(model: model).textFieldStyle(.roundedBorder).controlSize(.large).frame(maxWidth: 650, alignment: .leading)
+            }
+            settingsCard("Konto & Datenschutz", icon: "lock.shield") {
+                if let url = model.client?.server.url.appendingPathComponent("profile") { Link("Profil & Sicherheit im Web öffnen", destination: url) }
+                Text("Nur dein YTMDL-Server. Keine Werbung, keine Analyse-SDKs. Deine Sitzung bleibt im Schlüsselbund dieses Geräts; Hörverlauf und Darstellungseinstellungen bleiben lokal.").foregroundStyle(.secondary)
+                Button("Abmelden", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { signingOut = true }.buttonStyle(.bordered).controlSize(.large)
+            }
+        }
+    }
+    private func shortcut(_ title: String, keys: String) -> some View {
+        HStack { Text(title); Spacer(); Text(keys).monospaced().foregroundStyle(.secondary) }
     }
     private var appVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
@@ -97,10 +208,10 @@ struct SettingsView: View {
     }
     private func settingsCard<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            Label(title, systemImage: icon).font(.system(size: 21, weight: .semibold))
+            Label(title, systemImage: icon).desktopScaledFont(21, weight: .semibold)
             content()
         }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 20))
+            .background(theme.surface(scheme), in: RoundedRectangle(cornerRadius: 20))
     }
     #endif
 

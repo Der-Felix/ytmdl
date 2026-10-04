@@ -38,6 +38,21 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   listening area and grows the cover up to 680 points; queue/lyrics stay in a
   bounded independently scrolling pane. Small windows stack the panes and
   transport rows. Escape returns to the library.
+- Mac opens on **Start** by default: recently added albums, favorite tracks,
+  playlists, artists and recently played tracks, with quick links to search and
+  collections. Settings can choose a different launch page and hide feed sections.
+  The larger grouped sidebar keeps Settings accessible below its scrolling list.
+- Six Mac themes (Rose, Ocean, Forest, Amber, Lavender and Graphite) change
+  backgrounds, surfaces and accents in light/dark/system appearance. Three text
+  sizes also apply to navigation; the default is Large. Album cover size is
+  adjustable from 220 to 340 points. **Settings → Darstellung** contains these
+  controls; **Startseite**, **Wiedergabe** and **Konto** group the other options.
+- Mac recent listening records at most 40 track metadata entries after playback
+  begins. History stays in local preferences, separately scoped to server and
+  account; it neither syncs to the server nor stores offline audio. It can be
+  disabled or cleared in **Settings → Wiedergabe**. Disabling retains earlier
+  entries, while logout removes them from the current view. Test fixtures never
+  persist listening history.
 - Mac volume and mute control AVPlayer output and persist across app launches;
   moving the volume slider unmutes. Device/system volume remains separate.
   ⌘↑/⌘↓ adjust app volume; ⇧⌘M toggles mute. Mac Settings use top-aligned cards

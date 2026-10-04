@@ -20,6 +20,13 @@ import YTMDLCore
     var moreReleases = false
     var device: DeviceStart?
     var player = PlayerModel()
+    var listeningHistory = ListeningHistory()
+    private var persistsSession = true
+    init() {
+        #if os(macOS)
+        player.onTrackPlayed = { [weak self] track in self?.listeningHistory.record(track) }
+        #endif
+    }
     private var generation = UUID()
     private var catalogGeneration = UUID()
 
@@ -30,7 +37,8 @@ import YTMDLCore
         #endif
         let address = try ServerAddress(text, allowLocalHTTP: allowHTTP)
         let replacement = try APIClient(server: address, persist: persist)
-        client?.invalidate(); client = replacement; player.stop()
+        client?.invalidate(); client = replacement; player.stop(); persistsSession = persist
+        listeningHistory.configure(server: nil, userID: nil, persist: false)
         generation = UUID(); catalogGeneration = UUID(); clearLibrary(); user = nil; connecting = false; busy = false
         if persist { UserDefaults.standard.set(text, forKey: "serverAddress") }
     }
@@ -41,6 +49,7 @@ import YTMDLCore
             let status: AuthStatus = try await client.get("/auth/status")
             guard self.generation == generation else { return false }
             user = status.user
+            listeningHistory.configure(server: client.server, userID: user?.id, persist: persistsSession)
             if status.authenticated { await loadLibrary() }
             return self.generation == generation
         } catch {
@@ -55,7 +64,9 @@ import YTMDLCore
         do {
             let result = try await client.login(username: username, password: password)
             guard self.generation == generation else { return }
-            user = result; await loadLibrary()
+            user = result
+            listeningHistory.configure(server: client.server, userID: result.id, persist: persistsSession)
+            await loadLibrary()
         } catch { if self.generation == generation { report(error) } }
     }
     func loadLibrary() async {
@@ -119,7 +130,7 @@ import YTMDLCore
         do { try client.forget() } catch { report(error) }
         client.invalidate(); self.client = nil; user = nil; generation = UUID(); clearLibrary(); player.stop()
     }
-    private func clearLibrary() { query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil }
+    private func clearLibrary() { listeningHistory.configure(server: nil, userID: nil, persist: false); query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil }
     func report(_ failure: Error) {
         if failure is CancellationError { return }
         if let transport = failure as? URLError, transport.code == .cancelled { return }

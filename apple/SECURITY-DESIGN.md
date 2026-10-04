@@ -98,6 +98,13 @@ accounts, favorites, playlists, session/IP metadata and requested audio remain
 on the configured server. Store privacy answers must reflect the actual service
 and deployment, not blindly copy a 'no data collected' label.
 
+Mac listening history is enabled by default and stores only metadata for up to
+40 played tracks in the app's local preferences. Keys are scoped to the server
+origin and authenticated account; this does not encrypt the metadata. It is not
+sent to the server or another device. Settings allow stopping new recording and
+clearing the current account's history. Disabling preserves earlier entries;
+logout clears the in-memory view. Fixture sessions do not persist history.
+
 Before public distribution, provide a real privacy policy/support contact,
 correct store data disclosures, signing and final icons. Provide a reachable
 reviewer server/account with authorized sample media. No account creation is

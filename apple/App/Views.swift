@@ -4,16 +4,25 @@ import CoreImage.CIFilterBuiltins
 import YTMDLCore
 
 enum Destination: String, CaseIterable, Identifiable {
-    case library = "Bibliothek", artists = "Künstler", search = "Suche", favorites = "Favoriten", playlists = "Playlists", player = "Player", settings = "Einstellungen"
+    case home = "Start", library = "Bibliothek", artists = "Künstler", search = "Suche", favorites = "Favoriten", playlists = "Playlists", player = "Player", settings = "Einstellungen"
     var id: String { rawValue }
     var icon: String {
-        switch self { case .library: "square.stack"; case .artists: "person.2"; case .search: "magnifyingglass"; case .favorites: "heart"; case .playlists: "music.note.list"; case .player: "play.circle"; case .settings: "gearshape" }
+        switch self { case .home: "house.fill"; case .library: "square.stack"; case .artists: "person.2"; case .search: "magnifyingglass"; case .favorites: "heart"; case .playlists: "music.note.list"; case .player: "play.circle"; case .settings: "gearshape" }
     }
 }
 
 struct RootView: View {
     @Bindable var model: AppModel
+    #if os(macOS)
+    @State private var destination: Destination? = Destination(rawValue: UserDefaults.standard.string(forKey: "desktopStartView") ?? "Start") ?? .home
+    @AppStorage("desktopTheme") private var themeName = "rose"
+    @AppStorage("desktopTextSize") private var textSize = "large"
+    @Environment(\.colorScheme) private var colorScheme
+    private var selectedTheme: DesktopTheme { DesktopTheme(rawValue: themeName) ?? .rose }
+    private var accent: Color { selectedTheme.accent(colorScheme) }
+    #else
     @State private var destination: Destination? = .library
+    #endif
     @State private var expandedPlayer = false
     #if os(macOS)
     @FocusState private var searchFocused: Bool
@@ -62,6 +71,12 @@ struct RootView: View {
         .onPlayPauseCommand { model.player.toggle() }
         #endif
         .preferredColorScheme(appearance == "system" ? nil : appearance == "light" ? .light : .dark)
+        #if os(macOS)
+        .environment(\.desktopTheme, selectedTheme)
+        .environment(\.desktopAccent, accent)
+        .environment(\.desktopTextScale, (DesktopTextSize(rawValue: textSize) ?? .large).scale)
+        .tint(accent)
+        #endif
         #if DEBUG
         .task {
             await model.loadFixtureIfRequested()
@@ -83,19 +98,21 @@ struct RootView: View {
     }
     private var splitView: some View {
         NavigationSplitView {
-            List(Destination.allCases, selection: $destination) { item in
-                #if os(macOS)
-                Label { Text(item.rawValue) } icon: { Image(systemName: item.icon).foregroundStyle(.pink) }
-                    .font(.system(size: 17, weight: .medium)).padding(.vertical, 9).tag(item)
-                #else
+            #if os(macOS)
+            desktopSidebar.navigationTitle("YTMDL")
+                .navigationSplitViewColumnWidth(min: 220, ideal: 320, max: 420)
+            #else
+            List(Destination.allCases.filter { $0 != .home }, selection: $destination) { item in
                 Label(item.rawValue, systemImage: item.icon).tag(item)
-                #endif
-            }
-                .navigationTitle("YTMDL")
-                .navigationSplitViewColumnWidth(min: 180, ideal: 230, max: 280)
+            }.navigationTitle("YTMDL").navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+            #endif
         } detail: {
             NavigationStack {
-                content(destination ?? .library).safeAreaInset(edge: .bottom) {
+                content(destination ?? .library)
+                    #if os(macOS)
+                    .background(selectedTheme.background(colorScheme))
+                    #endif
+                    .safeAreaInset(edge: .bottom) {
                     #if os(macOS)
                     if destination != .player { miniPlayer }
                     #else
@@ -122,6 +139,12 @@ struct RootView: View {
     }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {
+        case .home:
+            #if os(macOS)
+            DesktopHomeView(model: model) { self.destination = $0; if $0 == .search { searchFocused = true } }
+            #else
+            LibraryView(model: model)
+            #endif
         case .library: LibraryView(model: model)
         case .artists: ArtistListView(model: model)
         case .search: SearchView(model: model)
@@ -141,7 +164,7 @@ struct RootView: View {
                     HStack(spacing: 12) {
                         ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 46, height: 46)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(track.title).font(desktopFont(18, fallback: .headline, weight: .semibold)).lineLimit(1)
+                            Text(track.title).desktopScaledFont(18, weight: .semibold, fallback: .headline).lineLimit(1)
                             Text(track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -154,22 +177,68 @@ struct RootView: View {
         }
     }
     #if os(macOS)
+    private var desktopSidebar: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    HStack(spacing: 16) {
+                        Image(systemName: "waveform.circle.fill").desktopScaledFont(36).foregroundStyle(accent)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("YTMDL").desktopScaledFont(28, weight: .bold)
+                            Text("Deine Musik").desktopScaledFont(16).foregroundStyle(.secondary)
+                        }
+                    }.padding(.top, 16).padding(.bottom, 8)
+                    sidebarGroup("FÜR DICH", items: [.home, .search, .favorites, .playlists])
+                    sidebarGroup("DEINE SAMMLUNG", items: [.library, .artists])
+                    sidebarGroup("WIEDERGABE", items: [.player])
+                }.padding(18)
+            }
+            Divider()
+            sidebarGroup("", items: [.settings]).padding(.horizontal, 18).padding(.top, 8)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Angemeldet als").desktopScaledFont(14).foregroundStyle(.secondary)
+                Text(model.user?.displayName ?? "").desktopScaledFont(18, weight: .semibold).lineLimit(1)
+            }.padding(.horizontal, 30).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
+        }.background(selectedTheme.surface(colorScheme))
+    }
+    private func sidebarGroup(_ title: String, items: [Destination]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !title.isEmpty { Text(title).desktopScaledFont(12, weight: .semibold).tracking(1.5).foregroundStyle(.secondary).padding(.horizontal, 12) }
+            ForEach(items) { item in
+                Button {
+                    destination = item
+                    if item == .search { searchFocused = true }
+                } label: {
+                    HStack(spacing: 18) {
+                        Image(systemName: item.icon).desktopScaledFont(23).foregroundStyle(accent).frame(width: 32)
+                        Text(item.rawValue).desktopScaledFont(22, weight: destination == item ? .semibold : .medium).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }.padding(.horizontal, 14).padding(.vertical, 16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(destination == item ? accent.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 14))
+                        .contentShape(RoundedRectangle(cornerRadius: 14))
+                }.buttonStyle(DesktopHoverStyle()).accessibilityAddTraits(destination == item ? .isSelected : [])
+            }
+        }
+    }
     private var desktopHeader: some View {
         GeometryReader { geometry in
             if geometry.size.width >= 1050 {
                 ZStack {
-                    Text((destination ?? .library).rawValue).font(.system(size: 28, weight: .bold))
+                    Text((destination ?? .library).rawValue).desktopScaledFont(28, weight: .bold)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     desktopSearchField.frame(width: 500)
                 }.padding(.horizontal, 28).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if geometry.size.width < 650 {
+                desktopSearchField.padding(.horizontal, 20).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HStack(spacing: 24) {
-                    Text((destination ?? .library).rawValue).font(.system(size: 28, weight: .bold)).lineLimit(1)
+                    Text((destination ?? .library).rawValue).desktopScaledFont(28, weight: .bold).lineLimit(1)
                     Spacer(minLength: 8)
                     desktopSearchField.frame(maxWidth: 500)
                 }.padding(.horizontal, 28).frame(maxHeight: .infinity)
             }
-        }.frame(height: 82).background(.bar)
+        }.frame(height: 82).background(selectedTheme.surface(colorScheme))
             .onChange(of: model.query) { if !model.query.isEmpty { destination = .search } }
             .onChange(of: searchFocused) { if searchFocused { destination = .search } }
     }
@@ -183,8 +252,9 @@ struct RootView: View {
                 Button("Suche leeren", systemImage: "xmark.circle.fill") { model.query = ""; searchFocused = true }
                     .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
             }
-        }.font(.system(size: 17)).padding(.horizontal, 16).padding(.vertical, 13)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
+        }.desktopScaledFont(17).padding(.horizontal, 16).padding(.vertical, 13)
+            .background(selectedTheme.background(colorScheme), in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.14)))
     }
     private func desktopMiniPlayer(_ track: Track) -> some View {
         DesktopTransportBar(model: model, track: track) { destination = .player }
@@ -203,7 +273,7 @@ struct ConnectView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                Image(systemName: "waveform.circle.fill").font(.system(size: 72)).foregroundStyle(.pink).accessibilityHidden(true)
+                Image(systemName: "waveform.circle.fill").desktopScaledFont(72).foregroundStyle(.pink).accessibilityHidden(true)
                 Text("Deine Musik.\nDein Server.").font(.largeTitle.bold())
                 Text("Verbinde YTMDL mit deiner bestehenden Musikbibliothek.").foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 12) {
@@ -284,14 +354,15 @@ struct ArtworkView: View {
 
 struct LibraryView: View {
     @Bindable var model: AppModel
+    @AppStorage("desktopCoverSize") private var coverSize = 260.0
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 #if os(macOS)
                 HStack(alignment: .center, spacing: 16) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Deine Alben").font(.system(size: 30, weight: .bold))
-                        Text("Musik aus deiner Bibliothek").font(.system(size: 17)).foregroundStyle(.secondary)
+                        Text("Deine Alben").desktopScaledFont(30, weight: .bold)
+                        Text("Musik aus deiner Bibliothek").desktopScaledFont(17).foregroundStyle(.secondary)
                     }
                     Spacer()
                     genrePicker.frame(maxWidth: 200)
@@ -306,13 +377,13 @@ struct LibraryView: View {
                 #endif
                 if model.connecting && model.releases.isEmpty { ProgressView("Bibliothek wird geladen …") }
                 else if model.releases.isEmpty { ContentUnavailableView("Noch keine Alben", systemImage: "square.stack", description: Text("Musik im Web hinzufügen oder einen anderen Genre-Filter wählen.")) }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: cardMinimum, maximum: 280), spacing: 20)], spacing: 24) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: cardMinimum, maximum: max(280, cardMinimum + 40)), spacing: 20)], spacing: 24) {
                     ForEach(model.releases) { release in
                         NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 ArtworkView(model: model, kind: "releases", id: release.id)
-                                Text(release.title).font(desktopFont(18, fallback: .headline, weight: .semibold)).foregroundStyle(.primary).lineLimit(2)
-                                Text(release.artists.joined(separator: " · ")).font(desktopFont(16, fallback: .subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                                Text(release.title).desktopScaledFont(18, weight: .semibold, fallback: .headline).foregroundStyle(.primary).lineLimit(2)
+                                Text(release.artists.joined(separator: " · ")).desktopScaledFont(16, fallback: .subheadline).foregroundStyle(.secondary).lineLimit(1)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(.plain)
                     }
@@ -337,7 +408,7 @@ struct LibraryView: View {
         #if os(tvOS)
         240
         #elseif os(macOS)
-        220
+        coverSize.isFinite ? min(340, max(220, coverSize)) : 260
         #else
         145
         #endif
@@ -368,8 +439,8 @@ struct ArtistListView: View {
                         NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
                             VStack(spacing: 10) {
                                 ArtworkView(model: model, kind: "artists", id: artist.id).clipShape(Circle())
-                                Text(artist.name).font(.system(size: 18, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
-                                Text("\(artist.trackCount ?? 0) Titel").font(.system(size: 16)).foregroundStyle(.secondary)
+                                Text(artist.name).desktopScaledFont(18, weight: .semibold).foregroundStyle(.primary).lineLimit(1)
+                                Text("\(artist.trackCount ?? 0) Titel").desktopScaledFont(16).foregroundStyle(.secondary)
                             }.padding(8).frame(maxWidth: .infinity)
                         }.buttonStyle(.plain)
                     }
@@ -436,7 +507,7 @@ struct CollectionView: View {
             }
         }
         #if os(macOS)
-        .font(.system(size: 17)).listStyle(.plain).padding(.horizontal, 24)
+        .desktopScaledFont(17).listStyle(.plain).scrollContentBackground(.hidden).padding(.horizontal, 24)
             .frame(maxWidth: 1400).frame(maxWidth: .infinity)
         #endif
         .navigationTitle(kind.title).task { if tracks.isEmpty { await load() } }
@@ -474,10 +545,10 @@ struct TrackRow: View {
                 HStack(spacing: 14) {
                     ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 52, height: 52)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(track.title).font(desktopFont(18, fallback: .headline, weight: .semibold)).lineLimit(1)
-                        Text(track.artistText).font(desktopFont(16, fallback: .subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                        Text(track.title).desktopScaledFont(18, weight: .semibold, fallback: .headline).lineLimit(1)
+                        Text(track.artistText).desktopScaledFont(16, fallback: .subheadline).foregroundStyle(.secondary).lineLimit(1)
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                    Text(formatTime(track.duration)).font(desktopFont(15, fallback: .caption).monospacedDigit()).foregroundStyle(.secondary)
+                    Text(formatTime(track.duration)).desktopScaledFont(15, fallback: .caption).monospacedDigit().foregroundStyle(.secondary)
                 }.contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
             Menu {
@@ -546,38 +617,38 @@ struct SearchView: View {
     private var desktopResults: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                if busy { ProgressView("Suche …").font(.system(size: 17)) }
-                if let failure { Text(failure).font(.system(size: 17)).foregroundStyle(.secondary) }
+                if busy { ProgressView("Suche …").desktopScaledFont(17) }
+                if let failure { Text(failure).desktopScaledFont(17).foregroundStyle(.secondary) }
                 if let results {
                     if !results.artists.isEmpty {
-                        Text("Künstler").font(.system(size: 25, weight: .bold))
+                        Text("Künstler").desktopScaledFont(25, weight: .bold)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 240), spacing: 24)], spacing: 24) {
                             ForEach(results.artists) { artist in
                                 NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
                                     VStack(spacing: 12) {
                                         ArtworkView(model: model, kind: "artists", id: artist.id).clipShape(Circle())
-                                        Text(artist.name).font(.system(size: 19, weight: .semibold)).foregroundStyle(.primary)
+                                        Text(artist.name).desktopScaledFont(19, weight: .semibold).foregroundStyle(.primary)
                                     }.padding(12)
                                 }.buttonStyle(.plain)
                             }
                         }
                     }
                     if !results.releases.isEmpty {
-                        Text("Alben").font(.system(size: 25, weight: .bold))
+                        Text("Alben").desktopScaledFont(25, weight: .bold)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 24)], spacing: 24) {
                             ForEach(results.releases) { release in
                                 NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
                                     VStack(alignment: .leading, spacing: 10) {
                                         ArtworkView(model: model, kind: "releases", id: release.id)
-                                        Text(release.title).font(.system(size: 18, weight: .semibold)).foregroundStyle(.primary)
-                                        Text(release.artists.joined(separator: " · ")).font(.system(size: 16)).foregroundStyle(.secondary)
+                                        Text(release.title).desktopScaledFont(18, weight: .semibold).foregroundStyle(.primary)
+                                        Text(release.artists.joined(separator: " · ")).desktopScaledFont(16).foregroundStyle(.secondary)
                                     }
                                 }.buttonStyle(.plain)
                             }
                         }
                     }
                     if !results.tracks.isEmpty {
-                        Text("Titel").font(.system(size: 25, weight: .bold))
+                        Text("Titel").desktopScaledFont(25, weight: .bold)
                         LazyVStack(spacing: 12) {
                             ForEach(results.tracks) { track in
                                 TrackRow(model: model, track: track) {
@@ -589,19 +660,19 @@ struct SearchView: View {
                     if results.artists.isEmpty && results.releases.isEmpty && results.tracks.isEmpty { ContentUnavailableView.search(text: query) }
                 } else if !busy && failure == nil {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Was möchtest du hören?").font(.system(size: 34, weight: .bold))
+                        Text("Was möchtest du hören?").desktopScaledFont(34, weight: .bold)
                         Text("Suche oben nach einem Titel, Album oder Künstler. ⌘F bringt dich direkt ins Suchfeld.")
-                            .font(.system(size: 18)).foregroundStyle(.secondary)
+                            .desktopScaledFont(18).foregroundStyle(.secondary)
                     }.padding(.vertical, 20)
                     if !model.releases.isEmpty {
-                        Text("Aus deiner Bibliothek").font(.system(size: 24, weight: .semibold))
+                        Text("Aus deiner Bibliothek").desktopScaledFont(24, weight: .semibold)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 280), spacing: 24)], spacing: 24) {
                             ForEach(Array(model.releases.prefix(8))) { release in
                                 NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
                                     VStack(alignment: .leading, spacing: 10) {
                                         ArtworkView(model: model, kind: "releases", id: release.id)
-                                        Text(release.title).font(.system(size: 18, weight: .semibold)).foregroundStyle(.primary)
-                                        Text(release.artists.joined(separator: " · ")).font(.system(size: 16)).foregroundStyle(.secondary)
+                                        Text(release.title).desktopScaledFont(18, weight: .semibold).foregroundStyle(.primary)
+                                        Text(release.artists.joined(separator: " · ")).desktopScaledFont(16).foregroundStyle(.secondary)
                                     }
                                 }.buttonStyle(.plain)
                             }
@@ -622,12 +693,12 @@ struct PlaylistListView: View {
             if model.playlists.isEmpty { ContentUnavailableView("Noch keine Playlists", systemImage: "music.note.list", description: Text("Playlists im Web anlegen. Sie erscheinen hier nach dem Aktualisieren.")) }
             ForEach(model.playlists) { playlist in
                 NavigationLink { CollectionView(model: model, kind: .playlist(playlist)) } label: {
-                    VStack(alignment: .leading, spacing: 8) { Text(playlist.name).font(desktopFont(20, fallback: .headline, weight: .semibold)); Text("\(playlist.trackCount) Titel · \(formatTime(Double(playlist.durationMs)/1000))").font(desktopFont(16, fallback: .body)).foregroundStyle(.secondary) }.padding(.vertical, 14)
+                    VStack(alignment: .leading, spacing: 8) { Text(playlist.name).desktopScaledFont(20, weight: .semibold, fallback: .headline); Text("\(playlist.trackCount) Titel · \(formatTime(Double(playlist.durationMs)/1000))").desktopScaledFont(16, fallback: .body).foregroundStyle(.secondary) }.padding(.vertical, 14)
                 }
             }
         }
         #if os(macOS)
-        .listStyle(.plain).padding(24).frame(maxWidth: 1400).frame(maxWidth: .infinity)
+        .listStyle(.plain).scrollContentBackground(.hidden).padding(24).frame(maxWidth: 1400).frame(maxWidth: .infinity)
         #endif
         .navigationTitle("Playlists")
         .toolbar { ToolbarItem { Button("Aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } } } }
@@ -758,8 +829,8 @@ struct NowPlayingView: View {
                         HStack(spacing: 12) {
                             ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 48, height: 48)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(track.title).font(desktopFont(18, fallback: .headline, weight: .semibold)).lineLimit(1)
-                                Text(track.artistText).font(desktopFont(16, fallback: .subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                                Text(track.title).desktopScaledFont(18, weight: .semibold, fallback: .headline).lineLimit(1)
+                                Text(track.artistText).desktopScaledFont(16, fallback: .subheadline).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer(minLength: 8)
                             if model.player.queue.index == index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink) }
@@ -798,12 +869,4 @@ func formatTime(_ seconds: Double) -> String {
 }
 func cleanLyrics(_ content: String) -> String {
     content.replacingOccurrences(of: #"\[\d{1,3}:\d{2}(?:\.\d{1,3})?\]"#, with: "", options: .regularExpression)
-}
-
-func desktopFont(_ size: CGFloat, fallback: Font, weight: Font.Weight = .regular) -> Font {
-    #if os(macOS)
-    .system(size: size, weight: weight)
-    #else
-    fallback
-    #endif
 }

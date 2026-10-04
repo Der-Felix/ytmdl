@@ -3,6 +3,25 @@ import AVKit
 import YTMDLCore
 
 #if os(macOS)
+struct DesktopHoverStyle: ButtonStyle {
+    var radius: CGFloat = 14
+    func makeBody(configuration: Configuration) -> some View {
+        DesktopHoverSurface(configuration: configuration, radius: radius)
+    }
+}
+private struct DesktopHoverSurface: View {
+    let configuration: ButtonStyleConfiguration
+    let radius: CGFloat
+    @State private var hovered = false
+    var body: some View {
+        configuration.label
+            .background(Color.primary.opacity(configuration.isPressed ? 0.10 : hovered ? 0.05 : 0), in: RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.primary.opacity(hovered ? 0.12 : 0)))
+            .contentShape(RoundedRectangle(cornerRadius: radius))
+            .onHover { hovered = $0 }
+            .animation(.easeOut(duration: 0.15), value: hovered)
+    }
+}
 /// Shared controls keep the listening page and persistent transport consistent.
 struct DesktopControlStyle: ButtonStyle {
     var prominent = false
@@ -11,13 +30,14 @@ struct DesktopControlStyle: ButtonStyle {
     }
 }
 private struct DesktopControlSurface: View {
+    @Environment(\.desktopTheme) private var theme
     let configuration: ButtonStyleConfiguration
     let prominent: Bool
     @State private var hovered = false
     var body: some View {
         configuration.label
             .foregroundStyle(prominent ? Color.white : Color.primary)
-            .background(prominent ? Color.pink : Color.primary.opacity(hovered ? 0.1 : 0), in: Circle())
+            .background(prominent ? theme.accent : Color.primary.opacity(hovered ? 0.1 : 0), in: Circle())
             .opacity(configuration.isPressed ? 0.7 : 1)
             .contentShape(Circle()).onHover { hovered = $0 }
     }
@@ -28,7 +48,7 @@ struct DesktopVolumeControl: View {
         HStack(spacing: 10) {
             Button { player.toggleMute() } label: {
                 Image(systemName: player.isMuted || player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.system(size: 18)).frame(width: 36, height: 36)
+                    .desktopScaledFont(18).frame(width: 36, height: 36)
             }.buttonStyle(DesktopControlStyle())
                 .accessibilityLabel(player.isMuted ? "Ton einschalten" : "Stummschalten")
                 .help(player.isMuted ? "Ton einschalten" : "Stummschalten")
@@ -36,11 +56,12 @@ struct DesktopVolumeControl: View {
                 .accessibilityLabel("App-Lautstärke").accessibilityValue("\(Int(player.volume * 100)) Prozent")
                 .help("Lautstärke von YTMDL")
             Text(player.isMuted ? "Aus" : "\(Int(player.volume * 100)) %")
-                .font(.system(size: 13).monospacedDigit()).foregroundStyle(.secondary).frame(width: 42)
+                .desktopScaledFont(13).monospacedDigit().foregroundStyle(.secondary).frame(width: 52)
         }.frame(minWidth: 160, maxWidth: 260)
     }
 }
 struct DesktopPlaybackControls: View {
+    @Environment(\.desktopAccent) private var accent
     var player: PlayerModel
     var large = false
     private var target: CGFloat { large ? 52 : 38 }
@@ -52,7 +73,7 @@ struct DesktopPlaybackControls: View {
                 .accessibilityLabel("Vorheriger Titel").help("Vorheriger Titel")
             Button { player.toggle() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: large ? 30 : 19, weight: .semibold))
+                    .desktopScaledFont(large ? 30 : 19, weight: .semibold)
                     .frame(width: large ? 76 : 46, height: large ? 76 : 46)
             }.buttonStyle(DesktopControlStyle(prominent: true))
                 .accessibilityLabel(player.isPlaying ? "Pause" : "Abspielen")
@@ -60,27 +81,29 @@ struct DesktopPlaybackControls: View {
             Button { player.next() } label: { Image(systemName: "forward.end.fill").frame(width: target, height: target) }
                 .accessibilityLabel("Nächster Titel").help("Nächster Titel")
             Button { player.repeatAll.toggle() } label: {
-                Image(systemName: "repeat").foregroundStyle(player.repeatAll ? Color.pink : .primary).frame(width: target, height: target)
+                Image(systemName: "repeat").foregroundStyle(player.repeatAll ? accent : .primary).frame(width: target, height: target)
             }.accessibilityLabel(player.repeatAll ? "Wiederholen ausschalten" : "Warteschlange wiederholen")
                 .accessibilityValue(player.repeatAll ? "Ein" : "Aus").help("Warteschlange wiederholen")
-        }.font(.system(size: large ? 21 : 16)).buttonStyle(DesktopControlStyle())
+        }.desktopScaledFont(large ? 21 : 16).buttonStyle(DesktopControlStyle())
     }
 }
 struct DesktopSeekControl: View {
     var player: PlayerModel
     var body: some View {
         HStack(spacing: 12) {
-            Text(formatTime(player.position)).accessibilityIdentifier("playbackElapsed").frame(width: 44)
+            Text(formatTime(player.position)).accessibilityIdentifier("playbackElapsed").frame(width: 60)
             Slider(value: Binding(get: { min(player.position, player.duration) }, set: { player.seek($0) }), in: 0...max(1, player.duration))
                 .accessibilityLabel("Wiedergabeposition").disabled(player.current == nil)
-            Text(formatTime(player.duration)).frame(width: 44)
-        }.font(.system(size: 14).monospacedDigit()).foregroundStyle(.secondary)
+            Text(formatTime(player.duration)).frame(width: 60)
+        }.desktopScaledFont(14).monospacedDigit().foregroundStyle(.secondary)
     }
 }
 struct DesktopTransportBar: View {
     var model: AppModel
     var track: Track
     var openPlayer: () -> Void
+    @Environment(\.desktopTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
         GeometryReader { geometry in
             if geometry.size.width >= 800 {
@@ -96,7 +119,7 @@ struct DesktopTransportBar: View {
                 }.padding(16)
             }
         }.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { barWidth = $0 }
-            .frame(height: barHeight).background(.bar).overlay(alignment: .top) { Divider() }
+            .frame(height: barHeight).background(theme.surface(scheme)).overlay(alignment: .top) { Divider() }
     }
     // The container switches to two rows before either side can crowd transport.
     @State private var barWidth: CGFloat = 1000
@@ -106,8 +129,8 @@ struct DesktopTransportBar: View {
             HStack(spacing: 14) {
                 ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 60, height: 60)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(track.title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
-                    Text(track.artistText).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(track.title).desktopScaledFont(17, weight: .semibold).lineLimit(1)
+                    Text(track.artistText).desktopScaledFont(15).foregroundStyle(.secondary).lineLimit(1)
                 }
             }.contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel("Player öffnen: \(track.title)")
@@ -124,6 +147,7 @@ struct DesktopTransportBar: View {
 }
 
 struct DesktopListeningView: View {
+    @Environment(\.desktopAccent) private var accent
     var model: AppModel
     var size: CGSize
     @State private var tab = 0
@@ -159,13 +183,13 @@ struct DesktopListeningView: View {
                 .shadow(color: .black.opacity(0.22), radius: 20, y: 12)
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(track.title).font(.system(size: 30, weight: .bold)).lineLimit(2)
-                    Text(track.artistText).font(.system(size: 20)).foregroundStyle(.secondary).lineLimit(2)
-                    if !track.album.isEmpty && track.album != track.title { Text(track.album).font(.system(size: 16)).foregroundStyle(.secondary).lineLimit(1) }
+                    Text(track.title).desktopScaledFont(30, weight: .bold).lineLimit(2)
+                    Text(track.artistText).desktopScaledFont(20).foregroundStyle(.secondary).lineLimit(2)
+                    if !track.album.isEmpty && track.album != track.title { Text(track.album).desktopScaledFont(16).foregroundStyle(.secondary).lineLimit(1) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Button { Task { await model.toggleFavorite(track) } } label: {
                     Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart")
-                        .font(.system(size: 23)).foregroundStyle(.pink).frame(width: 48, height: 48)
+                        .desktopScaledFont(23).foregroundStyle(accent).frame(width: 48, height: 48)
                 }.buttonStyle(DesktopControlStyle()).accessibilityLabel("Favorit umschalten")
             }
             DesktopSeekControl(player: model.player)
@@ -176,7 +200,7 @@ struct DesktopListeningView: View {
             }
             if model.player.loading { ProgressView("Titel wird geladen …") }
             if let error = model.player.error {
-                Text(error).font(.system(size: 16)).foregroundStyle(.secondary)
+                Text(error).desktopScaledFont(16).foregroundStyle(.secondary)
                 Button("Erneut versuchen") { model.player.resume() }.buttonStyle(.bordered)
             }
         }.padding(.horizontal, 4).padding(.bottom, 12)
@@ -188,7 +212,7 @@ struct DesktopListeningView: View {
                 panelTab("Lyrics", value: 1)
                 Spacer(minLength: 0)
             }
-            if tab == 0 { Text("\(model.player.queue.tracks.count) Titel in dieser Sitzung").font(.system(size: 15)).foregroundStyle(.secondary) }
+            if tab == 0 { Text("\(model.player.queue.tracks.count) Titel in dieser Sitzung").desktopScaledFont(15).foregroundStyle(.secondary) }
             ScrollView {
                 if tab == 0 {
                     LazyVStack(spacing: 10) {
@@ -197,18 +221,18 @@ struct DesktopListeningView: View {
                                 HStack(spacing: 14) {
                                     ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 56, height: 56)
                                     VStack(alignment: .leading, spacing: 5) {
-                                        Text(track.title).font(.system(size: 18, weight: .semibold)).lineLimit(1)
-                                        Text(track.artistText).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(track.title).desktopScaledFont(18, weight: .semibold).lineLimit(1)
+                                        Text(track.artistText).desktopScaledFont(15).foregroundStyle(.secondary).lineLimit(1)
                                     }.frame(maxWidth: .infinity, alignment: .leading)
-                                    if model.player.queue.index == index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink) }
-                                }.padding(12).background(model.player.queue.index == index ? Color.pink.opacity(0.12) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 16))
+                                    if model.player.queue.index == index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(accent) }
+                                }.padding(12).background(model.player.queue.index == index ? accent.opacity(0.12) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 16))
                                     .contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
                         }
                     }
                 } else {
                     Text(model.player.lyrics.isEmpty ? "Lyrics werden geladen …" : cleanLyrics(model.player.lyrics))
-                        .font(.system(size: 24)).lineSpacing(14).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        .desktopScaledFont(24).lineSpacing(14).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }.padding(24).frame(height: max(360, min(850, size.height - 64)))
@@ -216,9 +240,9 @@ struct DesktopListeningView: View {
     }
     private func panelTab(_ title: String, value: Int) -> some View {
         Button { tab = value } label: {
-            Text(title).font(.system(size: 18, weight: .semibold)).padding(.horizontal, 14).padding(.vertical, 12)
-                .background(tab == value ? Color.pink.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 12))
-                .foregroundStyle(tab == value ? Color.pink : .primary)
+            Text(title).desktopScaledFont(18, weight: .semibold).padding(.horizontal, 14).padding(.vertical, 12)
+                .background(tab == value ? accent.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(tab == value ? accent : .primary)
         }.buttonStyle(.plain).accessibilityAddTraits(tab == value ? .isSelected : [])
     }
 }

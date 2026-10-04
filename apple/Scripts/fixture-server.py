@@ -87,7 +87,15 @@ class Handler(BaseHTTPRequestHandler):
         if path.endswith('/library/search'): return self.response({'artists':ARTISTS,'releases':RELEASES[:2],'tracks':TRACKS[:2]})
         if path.endswith('/library/releases'): return self.response(RELEASES if int(query.get('offset',['0'])[0])==0 else [])
         if path.endswith('/library/artists'): return self.response(ARTISTS if int(query.get('offset',['0'])[0])==0 else [])
-        if path.endswith('/library/tracks'): return self.response(TRACKS if int(query.get('offset',['0'])[0])==0 else [])
+        if path.endswith('/library/tracks'):
+            tracks = TRACKS
+            if query.get('favorite', ['false'])[0] == 'true': tracks = [t for t in tracks if t['id'] in ['t0', 't1']]
+            if 'release_id' in query: tracks = [t for t in tracks if 'r'+t['id'][1:] == query['release_id'][0]]
+            if 'artist_id' in query:
+                artist = 'Nordlicht' if query['artist_id'][0] == 'a0' else 'Mira'
+                tracks = [t for t in tracks if artist in t['artists']]
+            offset = int(query.get('offset', ['0'])[0]); limit = int(query.get('limit', ['100'])[0])
+            return self.response(tracks[offset:offset+limit])
         if path.endswith('/playlists/p0'): return self.response({'tracks':TRACKS})
         if path.endswith('/playlists'): return self.response([{'id':'p0','name':'Abends unterwegs','track_count':6,'duration_ms':180000}])
         self.response({},404)

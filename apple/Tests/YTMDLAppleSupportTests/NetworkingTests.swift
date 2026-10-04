@@ -163,3 +163,50 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     player.stop()
 }
 #endif
+
+@MainActor @Test func listeningHistoryIsBoundedDeduplicatedAndScopedToAccountAndOrigin() throws {
+    let suite = "org.ytmdl.tests.history.\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let store = ListeningHistory(preferences: preferences)
+    let first = try ServerAddress("https://fixture.example")
+    store.configure(server: first, userID: "alice", persist: true)
+    for index in 0..<45 { store.record(Track(id: "t\(index)", title: "Fixture", artists: [], album: "", durationMs: 1000)) }
+    #expect(store.tracks.count == 40 && store.tracks.first?.id == "t44")
+    store.record(store.tracks[5])
+    #expect(store.tracks.count == 40 && store.tracks.first?.id == "t39")
+    let restored = ListeningHistory(preferences: preferences)
+    restored.configure(server: try ServerAddress("https://fixture.example/"), userID: "alice", persist: true)
+    #expect(restored.tracks == store.tracks)
+    restored.configure(server: first, userID: "bob", persist: true)
+    #expect(restored.tracks.isEmpty)
+    restored.configure(server: try ServerAddress("https://other.fixture.example"), userID: "alice", persist: true)
+    #expect(restored.tracks.isEmpty)
+    restored.configure(server: first, userID: "alice", persist: true)
+    #expect(restored.tracks.count == 40)
+    restored.clear()
+    let cleared = ListeningHistory(preferences: preferences)
+    cleared.configure(server: first, userID: "alice", persist: true)
+    #expect(cleared.tracks.isEmpty)
+}
+@MainActor @Test func listeningHistoryCanStopRecordingAndFixturesNeverPersist() throws {
+    let suite = "org.ytmdl.tests.history.\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let store = ListeningHistory(preferences: preferences)
+    let server = try ServerAddress("https://fixture.example")
+    let track = Track(id: "one", title: "Fixture", artists: [], album: "", durationMs: 1000)
+    store.configure(server: server, userID: "alice", persist: false)
+    store.record(track)
+    #expect(store.tracks.count == 1)
+    let restored = ListeningHistory(preferences: preferences)
+    restored.configure(server: server, userID: "alice", persist: true)
+    #expect(restored.tracks.isEmpty)
+    store.setEnabled(false); store.record(Track(id: "two", title: "Fixture", artists: [], album: "", durationMs: 1000))
+    #expect(store.tracks.count == 1)
+    #expect(!ListeningHistory(preferences: preferences).enabled)
+    store.configure(server: nil, userID: nil, persist: false)
+    #expect(store.tracks.isEmpty)
+    store.setEnabled(true); store.record(track)
+    #expect(store.tracks.isEmpty)
+}
