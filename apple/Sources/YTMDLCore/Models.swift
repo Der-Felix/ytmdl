@@ -67,6 +67,7 @@ public struct DevicePreview: Decodable, Sendable { public let deviceName: String
 
 public enum PlayerError: LocalizedError, Equatable {
     case invalidServer, insecureServer, insecureConsent, invalidID, badResponse
+    case csrfUnavailable, secureCookieRequiresHTTPS, invalidCredentials, responseTooLarge
     case server(status: Int, code: String, message: String)
     public var errorDescription: String? {
         switch self {
@@ -74,7 +75,11 @@ public enum PlayerError: LocalizedError, Equatable {
         case .insecureServer: "Bitte eine HTTPS-Adresse verwenden. HTTP ist nur im Entwicklungsbuild für lokale Adressen möglich."
         case .insecureConsent: "Für diesen lokalen HTTP-Test bitte die unverschlüsselte Verbindung ausdrücklich erlauben."
         case .invalidID: "Dieser Bibliothekseintrag hat keine gültige ID."
-        case .badResponse: "Der Server hat eine unerwartete Antwort gesendet."
+        case .badResponse: "Die Antwort des Servers ist ungültig. Bitte Server-Adresse und Server-Version prüfen."
+        case .csrfUnavailable: "Das Sicherheitscookie für die Anmeldung fehlt. Bitte den Server erneut verbinden und die Anmeldung wiederholen."
+        case .secureCookieRequiresHTTPS: "Der Server verlangt eine verschlüsselte Anmeldung. Bitte seine HTTPS-Adresse verwenden."
+        case .invalidCredentials: "Benutzername oder Passwort ist falsch. Bitte die Eingaben prüfen."
+        case .responseTooLarge: "Die Server-Antwort ist zu groß für die App. Bitte Server-Version und Seitengröße prüfen."
         case let .server(status, code, message):
             status == 401 ? "Deine Sitzung ist abgelaufen. Bitte erneut anmelden." : "\(message) (\(code))"
         }

@@ -31,11 +31,7 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
         session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         if persist, let data = try SessionVault.read(server.url.absoluteString) {
             for value in try JSONDecoder().decode([StoredCookie].self, from: data) {
-                guard ["ytmdl_session", "ytmdl_csrf"].contains(value.name), value.expiresAt.map({ $0 > Date() }) ?? false else { continue }
-                var properties: [HTTPCookiePropertyKey: Any] = [.name: value.name, .value: value.value,
-                    .domain: server.url.host!, .path: "/", .expires: value.expiresAt!, .secure: server.isSecure ? "TRUE" : "FALSE"]
-                properties[.originURL] = server.url
-                if let cookie = HTTPCookie(properties: properties) { cookies.setCookie(cookie) }
+                if let cookie = value.cookie(for: server) { cookies.setCookie(cookie) }
             }
         }
     }
@@ -45,7 +41,7 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     }
     private func saveCookies() throws {
         guard persist else { return }
-        let stored = authenticationCookies.map { StoredCookie(name: $0.name, value: $0.value, expiresAt: $0.expiresDate) }
+        let stored = authenticationCookies.map { StoredCookie(name: $0.name, value: $0.value, expiresAt: $0.expiresDate, secure: $0.isSecure) }
         try SessionVault.write(JSONEncoder().encode(stored), origin: server.url.absoluteString)
     }
     func request(_ path: String, method: String = "GET", body: [String: String]? = nil, query: [URLQueryItem] = []) throws -> URLRequest {
@@ -54,7 +50,8 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if method != "GET" && method != "HEAD" {
-            guard let csrf = authenticationCookies.first(where: { $0.name == "ytmdl_csrf" }) else { throw PlayerError.badResponse }
+            guard let csrf = authenticationCookies.first(where: { $0.name == "ytmdl_csrf" }) else { throw PlayerError.csrfUnavailable }
+            guard server.isSecure || !csrf.isSecure else { throw PlayerError.secureCookieRequiresHTTPS }
             request.setValue(csrf.value, forHTTPHeaderField: "X-CSRF-Token")
         }
         if let body {
@@ -65,7 +62,21 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     }
     private func perform(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, data.count <= 8 * 1024 * 1024 else { throw PlayerError.badResponse }
+        guard let http = response as? HTTPURLResponse else { throw PlayerError.badResponse }
+        guard data.count <= 8 * 1024 * 1024 else { throw PlayerError.responseTooLarge }
+        // Adopt same-origin auth cookies before the next CSRF request, including
+        // transports that do not update their cookie storage automatically.
+        let headers = http.allHeaderFields.reduce(into: [String: String]()) { fields, item in
+            if let name = item.key as? String, let value = item.value as? String { fields[name] = value }
+        }
+        if let url = request.url {
+            let host = server.url.host!.lowercased()
+            for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: url) {
+                let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                guard ["ytmdl_session", "ytmdl_csrf"].contains(cookie.name), domain == host else { continue }
+                cookies.setCookie(cookie)
+            }
+        }
         if !(200..<300).contains(http.statusCode) {
             struct Failure: Decodable { let error: Detail; struct Detail: Decodable { let code: String; let message: String } }
             let failure = try? decoder.decode(Failure.self, from: data)
@@ -88,7 +99,13 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     }
     func login(username: String, password: String) async throws -> User {
         let _: AuthStatus = try await get("/auth/status")
-        return try await send("/auth/login", body: ["username": username, "password": password])
+        do {
+            return try await send("/auth/login", body: ["username": username, "password": password])
+        } catch PlayerError.server(_, "INVALID_CREDENTIALS", _) {
+            throw PlayerError.invalidCredentials
+        } catch PlayerError.server(_, "CSRF_INVALID", _) {
+            throw PlayerError.csrfUnavailable
+        }
     }
     func forget() throws {
         for cookie in cookies.cookies ?? [] { cookies.deleteCookie(cookie) }

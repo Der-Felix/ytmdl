@@ -34,15 +34,19 @@ import YTMDLCore
         generation = UUID(); catalogGeneration = UUID(); clearLibrary(); user = nil; connecting = false; busy = false
         if persist { UserDefaults.standard.set(text, forKey: "serverAddress") }
     }
-    func restore() async {
-        guard let client else { return }
+    @discardableResult func restore() async -> Bool {
+        guard let client else { return false }
         let generation = generation
         do {
             let status: AuthStatus = try await client.get("/auth/status")
-            guard self.generation == generation else { return }
+            guard self.generation == generation else { return false }
             user = status.user
             if status.authenticated { await loadLibrary() }
-        } catch { if self.generation == generation { report(error) } }
+            return self.generation == generation
+        } catch {
+            if self.generation == generation { report(error) }
+            return false
+        }
     }
     func login(username: String, password: String) async {
         guard let client else { return }

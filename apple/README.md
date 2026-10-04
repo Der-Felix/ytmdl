@@ -23,7 +23,10 @@ deployment; pending code requests are invalidated by a backend restart.
 Debug builds offer an explicit local HTTP switch for literal RFC1918 IPv4 or
 loopback addresses. This transmits credentials and music without encryption;
 use it only for an intentional local development test. HTTP consent is not
-remembered. Release builds reject HTTP, regardless of the switch's state.
+remembered. Restored HTTP cookies omit the Secure property; HTTPS cookies and
+explicitly secure cookies retain it. Authentication response cookies are
+adopted before building the next CSRF request. Failed server checks keep the
+login form locked, and invalid credentials have their own error message. Release builds reject HTTP, regardless of the switch's state.
 The app does not disable certificate verification or enable arbitrary ATS loads.
 
 ## Listening and layout

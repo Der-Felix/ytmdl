@@ -167,6 +167,7 @@ struct ConnectView: View {
     @State private var password = ""
     @State private var allowHTTP = false
     @State private var connected = false
+    @State private var checkingServer = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -184,11 +185,15 @@ struct ConnectView: View {
                     if allowHTTP { Text("Nur im vertrauenswürdigen lokalen Netz: Anmeldung und Musik werden unverschlüsselt übertragen. Für den regulären Betrieb HTTPS verwenden.").font(.caption).foregroundStyle(.secondary) }
                     #endif
                     Button("Server verbinden", systemImage: "network") {
+                        checkingServer = true; connected = false
+                        let origin = address; let localHTTP = allowHTTP
                         Task {
-                            do { try model.connect(address, localHTTP: allowHTTP); await model.restore(); connected = true }
+                            defer { checkingServer = false }
+                            do { try model.connect(origin, localHTTP: localHTTP); connected = await model.restore() }
                             catch { model.report(error) }
                         }
-                    }.buttonStyle(.borderedProminent).disabled(model.busy || address.isEmpty)
+                    }.buttonStyle(.borderedProminent).disabled(model.busy || checkingServer || address.isEmpty)
+                    if checkingServer { ProgressView("Server wird geprüft …") }
                 }
                 #if !os(tvOS)
                 .textFieldStyle(.roundedBorder)
@@ -204,9 +209,9 @@ struct ConnectView: View {
                             #endif
                         SecureField("Passwort", text: $password).textContentType(.password)
                         Button("Anmelden", systemImage: "person.crop.circle") {
-                            let secret = password; password = ""
-                            Task { await model.login(username: username, password: secret) }
-                        }.buttonStyle(.borderedProminent).disabled(model.busy || username.isEmpty || password.isEmpty)
+                            let loginName = username; let secret = password; password = ""
+                            Task { await model.login(username: loginName, password: secret) }
+                        }.buttonStyle(.borderedProminent).disabled(model.busy || checkingServer || username.isEmpty || password.isEmpty)
                         if model.busy { ProgressView("Anmeldung läuft …") }
                     }.textFieldStyle(.roundedBorder)
                     #endif
@@ -214,9 +219,13 @@ struct ConnectView: View {
                 Text("Keine Analyse- oder Werbe-SDKs. Sitzungen bleiben im Schlüsselbund dieses Geräts.").font(.footnote).foregroundStyle(.secondary)
             }.padding(32).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }
+        .onChange(of: address) { _, _ in connected = false; password = "" }
+        .onChange(of: allowHTTP) { _, _ in connected = false; password = "" }
         .task {
             if address.hasPrefix("https://") {
-                do { try model.connect(address, localHTTP: false); await model.restore(); connected = true }
+                checkingServer = true
+                defer { checkingServer = false }
+                do { try model.connect(address, localHTTP: false); connected = await model.restore() }
                 catch { model.report(error) }
             }
         }
