@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.1.0, build 16
+# Apple app handoff — preview 0.1.0, build 18
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -35,7 +35,7 @@ Build commands, fixtures, device requirements and codec limits are in
 [README.md](README.md). Authentication, local HTTP consent, privacy and Apple
 review requirements are in [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
 
-Build 16 uses a unified listening card
+Build 18 uses a unified listening card
 and a right-hand queue/options area. Artwork is capped at 520 points, with
 transport near the bottom and flexible space beneath metadata. Known library
 duration takes precedence over unreliable stream estimates for seeking and
@@ -44,9 +44,16 @@ AirPlay and big transport controls sit beneath it. Queue menus address
 occurrences by index, preserve the playing occurrence and invalidate prefetch
 when order changes. Removing from the queue never deletes media.
 
-Queue/lyrics/sound and playback options share one right-hand surface with a
-subtle divider. Queue height grows to keep options aligned at the bottom;
-shorter windows scroll. Sidebar and sign-in use the original repository logo,
+Queue/lyrics/sound and playback options share one right-hand surface. Underlined
+tabs and transparent queue rows reduce competing surfaces; only the playing
+occurrence is tinted. Playback options use matching single-line menu rows for
+EQ, timer and speed. Visualizer choices and transition protection live in named
+popovers opened by their adjustment buttons, with aligned fields and persistent
+preferences. EQ headroom is also reachable in the EQ menu and detailed sound
+settings. The sound tab uses the complete panel without a duplicate options footer.
+Queue height grows to keep compact options aligned at the bottom; shorter
+windows scroll. Player overlays suppress the underlying toolbar's Escape shortcut
+so their close action runs first; a later Escape returns to the library. Sidebar and sign-in use the original repository logo,
 and Mac/iOS icons are generated from it by `Scripts/generate-icons.swift`.
 
 The optional Visualizer now uses a Hann-windowed 2048-point real FFT (Accelerate)

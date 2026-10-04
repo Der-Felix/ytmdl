@@ -44,6 +44,11 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   height to align the options with the listening card’s bottom edge. Transport sits near the bottom
   of the listening card, with flexible space beneath the title. Small windows stack artwork and
   context above a persistent compact transport. Panels scroll independently.
+  Compact playback options use aligned rows without nested tool tiles. The
+  adjustment button beside **Visualizer** opens all its display choices; the
+  adjustment button beside crossfade opens album transition protection. EQ
+  headroom lives in the EQ menu and detailed sound settings. Popovers close with
+  Escape before the player navigation shortcut runs.
   EQ profiles, headroom, crossfade, speed and sleep timer remain accessible;
   the **Klang** tab exposes all ten EQ bands and detailed playback settings.
   The queue can be filtered without changing order. Each occurrence has actions
@@ -59,7 +64,8 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   (mirrored bars with falling peaks), **Säulen**, **Orbit**, **Ringe**,
   **Lichtpunkte** and **Frequenzband**. The four rings aggregate frequency ranges;
   the filled envelope represents frequency, not a PCM waveform. Under **Player →
-  Wiedergabe-Optionen** or detailed sound settings, choose beneath-cover placement,
+  Wiedergabe** using the adjustment button beside Visualizer, or in detailed sound
+  settings, choose beneath-cover placement,
   a cover overlay or a cover-free view on the music-color background. Intensity,
   overlay opacity, peak markers and cover/theme colors are configurable and
   persist locally. Disabling the visualizer restores the normal cover.

@@ -26,6 +26,7 @@ struct RootView: View {
     @State private var expandedPlayer = false
     #if os(macOS)
     @FocusState private var searchFocused: Bool
+    @State private var playerOverlayOpen = false
     #endif
     @AppStorage("appearance") private var appearance = "dark"
     #if os(iOS)
@@ -77,6 +78,7 @@ struct RootView: View {
         .environment(\.desktopButtonAccent, selectedTheme.accent)
         .environment(\.desktopTextScale, (DesktopTextSize(rawValue: textSize) ?? .large).scale)
         .tint(accent)
+        .onPreferenceChange(PlayerOverlayPreferenceKey.self) { playerOverlayOpen = $0 }
         .onChange(of: model.query) { if !model.query.isEmpty { destination = .search } }
         .onChange(of: searchFocused) { if searchFocused { destination = .search } }
         #endif
@@ -134,7 +136,7 @@ struct RootView: View {
                     if destination == .player {
                         ToolbarItem(placement: .navigation) {
                             Button("Zurück zur Bibliothek", systemImage: "chevron.left") { destination = .library }
-                                .keyboardShortcut(.cancelAction)
+                                .keyboardShortcut(playerOverlayOpen ? nil : .cancelAction)
                         }
                     }
                 }

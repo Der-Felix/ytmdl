@@ -3,6 +3,12 @@ import AVKit
 import YTMDLCore
 
 #if os(macOS)
+/// An open player overlay owns Escape before the underlying navigation toolbar.
+struct PlayerOverlayPreferenceKey: PreferenceKey {
+    static var defaultValue: Bool { false }
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
 enum PlayerVisualizerStyle: String, CaseIterable, Identifiable {
     case bars, columns, orbit = "curve", rings, dots, ribbon
     var id: String { rawValue }
@@ -40,25 +46,54 @@ struct VisualizerPreferences: View {
     @AppStorage("playerVisualizerPeaks") private var peaks = true
     @AppStorage("playerVisualizerCoverColors") private var coverColors = true
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Stil", selection: $style) {
-                ForEach(PlayerVisualizerStyle.allCases) { Text($0.name).tag($0.rawValue) }
-            }.pickerStyle(.menu)
-            Picker("Darstellung", selection: $placement) {
-                ForEach(PlayerVisualizerPlacement.allCases) { Text($0.name).tag($0.rawValue) }
-            }.pickerStyle(.menu)
-            HStack { Text("Intensität"); Slider(value: $intensity, in: 0.5...2, step: 0.1).accessibilityLabel("Visualizer-Intensität"); Text(String(format: "%g×", intensity)).monospacedDigit().frame(width: 42) }
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 16) {
+                fieldLabel("Stil")
+                Menu {
+                    Picker("Visualizer-Stil", selection: $style) {
+                        ForEach(PlayerVisualizerStyle.allCases) { Text($0.name).tag($0.rawValue) }
+                    }
+                } label: { selectionLabel((PlayerVisualizerStyle(rawValue: style) ?? .bars).name) }
+                    .menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer-Stil")
+            }
+            HStack(spacing: 16) {
+                fieldLabel("Darstellung")
+                Menu {
+                    Picker("Visualizer-Darstellung", selection: $placement) {
+                        ForEach(PlayerVisualizerPlacement.allCases) { Text($0.name).tag($0.rawValue) }
+                    }
+                } label: { selectionLabel((PlayerVisualizerPlacement(rawValue: placement) ?? .below).name) }
+                    .menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer-Darstellung")
+            }
+            Divider()
+            VStack(spacing: 8) {
+                HStack { Text("Intensität"); Spacer(); Text(String(format: "%g×", intensity)).monospacedDigit().foregroundStyle(.secondary) }
+                Slider(value: $intensity, in: 0.5...2, step: 0.1).accessibilityLabel("Visualizer-Intensität")
+            }
             if placement == PlayerVisualizerPlacement.overlay.rawValue {
-                HStack { Text("Deckkraft"); Slider(value: $opacity, in: 0.35...1, step: 0.05).accessibilityLabel("Deckkraft auf dem Cover"); Text("\(Int(opacity * 100)) %").monospacedDigit().frame(width: 42) }
+                VStack(spacing: 8) {
+                    HStack { Text("Deckkraft"); Spacer(); Text("\(Int(opacity * 100)) %").monospacedDigit().foregroundStyle(.secondary) }
+                    Slider(value: $opacity, in: 0.35...1, step: 0.05).accessibilityLabel("Deckkraft auf dem Cover")
+                }
             }
             if [.bars, .columns, .orbit].contains(PlayerVisualizerStyle(rawValue: style) ?? .bars) {
                 Toggle(isOn: $peaks) { Text("Spitzen anzeigen").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch)
             }
-            Toggle(isOn: $coverColors) { Text("Farben aus dem Cover").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch)
-            Text(placement == PlayerVisualizerPlacement.background.rawValue ? "Musikfarben und Visualizer ohne Cover. Titel und Steuerung bleiben sichtbar." : "Alle Stile reagieren auf die gemessenen Frequenzen deiner Musik.")
-                .font(.caption).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity, alignment: .leading)
+            Toggle(isOn: $coverColors) { Text("Coverfarben verwenden").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch)
+        }.desktopScaledFont(15).frame(maxWidth: .infinity, alignment: .leading)
     }
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title).foregroundStyle(.secondary).frame(width: 100, alignment: .leading)
+    }
+    private func selectionLabel(_ value: String) -> some View {
+        HStack(spacing: 12) {
+            Text(value).lineLimit(1)
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.down").font(.caption).foregroundStyle(.secondary)
+        }.padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 36)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+
 }
 
 /// Instantaneous frequency data; there is no time history or simulated waveform.
@@ -338,7 +373,9 @@ struct DesktopListeningView: View {
     @State private var queueFilter = ""
     @State private var expandedArtwork = false
     @State private var expandedVisualizer = false
-    @State private var optionsHeight: CGFloat = 480
+    @State private var optionsHeight: CGFloat = 390
+    @State private var visualizerSettingsOpen = false
+    @State private var transitionSettingsOpen = false
     var body: some View {
         Group {
             if let track = model.player.current {
@@ -372,6 +409,7 @@ struct DesktopListeningView: View {
             }
         }
         .background(playerBackground)
+        .preference(key: PlayerOverlayPreferenceKey.self, value: visualizerSettingsOpen || transitionSettingsOpen || expandedArtwork || expandedVisualizer)
         .environment(\.desktopAccent, playerAccent)
         .environment(\.desktopButtonAccent, playerButtonAccent)
         .tint(playerAccent)
@@ -568,60 +606,117 @@ struct DesktopListeningView: View {
     }
     private func contextPanel(queueHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
-            queuePanel.frame(height: queueHeight)
-            Divider().padding(.horizontal, 24)
-            listeningOptions
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { optionsHeight = $0 }
+            queuePanel.frame(height: tab == 2 ? max(queueHeight, size.height - 48) : queueHeight)
+            if tab != 2 {
+                Divider().padding(.horizontal, 24)
+                listeningOptions
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { optionsHeight = $0 }
+            }
         }.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
     }
     private var listeningOptions: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("Wiedergabe-Optionen", systemImage: "slider.horizontal.3").desktopScaledFont(20, weight: .semibold)
-            Toggle(isOn: Binding(get: { model.player.visualizationEnabled }, set: { model.player.setVisualization($0) })) {
-                Label("Visualizer", systemImage: "waveform").frame(maxWidth: .infinity, alignment: .leading)
-            }.toggleStyle(.switch)
-            if model.player.visualizationEnabled {
-                VisualizerPreferences()
-                Button { expandedVisualizer = true } label: { Label("Visualizer vergrößern", systemImage: "arrow.up.left.and.arrow.down.right") }
-                    .buttonStyle(DesktopHoverStyle(radius: 8))
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Wiedergabe").desktopScaledFont(18, weight: .semibold)
+            HStack(spacing: 12) {
+                Image(systemName: "waveform").foregroundStyle(.secondary).frame(width: 22)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Visualizer")
+                    Text(model.player.visualizationEnabled ? "\(selectedVisualizerStyle.name) · \(selectedVisualizerPlacement.name)" : "Aus")
+                        .desktopScaledFont(13).foregroundStyle(.secondary).lineLimit(2)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Button { visualizerSettingsOpen.toggle() } label: {
+                    Image(systemName: "slider.horizontal.3").frame(width: 36, height: 36)
+                }.buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer anpassen").help("Visualizer anpassen")
+                    .popover(isPresented: $visualizerSettingsOpen, arrowEdge: .leading) { visualizerSettingsPopover }
+                Toggle("Visualizer", isOn: Binding(get: { model.player.visualizationEnabled }, set: { model.player.setVisualization($0) }))
+                    .labelsHidden().toggleStyle(.switch).fixedSize()
             }
-            eqMenu
-            Toggle(isOn: Binding(get: { model.player.equalizer.headroom }, set: { model.player.equalizer.setHeadroom($0) })) {
-                Label("Automatischer EQ-Pegelschutz", systemImage: "checkmark.shield").frame(maxWidth: .infinity, alignment: .leading)
-            }.toggleStyle(.switch).disabled(!model.player.equalizer.enabled)
-            ViewThatFits(in: .horizontal) {
+            Menu { equalizerMenuItems } label: {
+                optionValueRow("Equalizer", value: model.player.equalizer.enabled ? (EqualizerPreset(rawValue: model.player.equalizer.preset)?.name ?? "Eigener Klang") : "Aus", icon: "slider.vertical.3")
+            }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 8))
+                .accessibilityLabel("Equalizer-Profil wählen")
+            Divider()
+            VStack(spacing: 8) {
                 HStack(spacing: 12) {
-                    Label("Überblendung", systemImage: "shuffle").fixedSize()
-                    crossfadeSlider.frame(minWidth: 120)
-                    crossfadeValue
+                    optionTitle("Überblendung", icon: "shuffle")
+                    Spacer(minLength: 8)
+                    crossfadeValue.foregroundStyle(.secondary)
+                    Button { transitionSettingsOpen.toggle() } label: {
+                        Image(systemName: "slider.horizontal.3").frame(width: 36, height: 36)
+                    }.buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Übergänge anpassen").help("Übergänge anpassen")
+                        .popover(isPresented: $transitionSettingsOpen, arrowEdge: .leading) { transitionSettingsPopover }
                 }
-                VStack(spacing: 8) {
-                    HStack { Label("Überblendung", systemImage: "shuffle"); Spacer(); crossfadeValue }
-                    crossfadeSlider
+                crossfadeSlider
+            }
+            Divider()
+            Menu {
+                ForEach(SleepMode.allCases) { mode in Button(mode.name) { model.player.setSleepMode(mode) } }
+            } label: { optionValueRow("Sleep-Timer", value: model.player.sleepMode.name, icon: "moon.zzz") }
+                .menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 8))
+            Menu {
+                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
+                    Button(String(format: "%g×", speed)) { model.player.setPlaybackRate(speed) }
                 }
-            }
-            Toggle(isOn: Binding(get: { model.player.smartAlbumTransition }, set: { model.player.setSmartAlbumTransition($0) })) {
-                Text("Albentitel ohne Überblendung").frame(maxWidth: .infinity, alignment: .leading)
-            }.toggleStyle(.switch)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { timerMenu.frame(minWidth: 170); speedMenu.frame(minWidth: 150) }
-                VStack(spacing: 12) { timerMenu; speedMenu }
-            }
+            } label: { optionValueRow("Tempo", value: String(format: "%g×", model.player.playbackRate), icon: "speedometer") }
+                .menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 8))
             HStack {
-                Button { model.player.seek(model.player.position - 10) } label: { playerActionLabel("−10 s", icon: "gobackward.10") }
-                Spacer(minLength: 0)
-                Button { model.player.seek(model.player.position + 10) } label: { playerActionLabel("+10 s", icon: "goforward.10") }
-            }.buttonStyle(DesktopHoverStyle(radius: 12))
-            if let soundError = model.player.soundError { Text(soundError).foregroundStyle(.secondary) }
+                Button { model.player.seek(model.player.position - 10) } label: { Label("−10 s", systemImage: "gobackward.10").padding(8) }
+                Spacer()
+                if model.player.visualizationEnabled {
+                    Button { expandedVisualizer = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 36, height: 36) }
+                        .accessibilityLabel("Visualizer vergrößern").help("Visualizer vergrößern")
+                }
+                Spacer()
+                Button { model.player.seek(model.player.position + 10) } label: { Label("+10 s", systemImage: "goforward.10").padding(8) }
+            }.buttonStyle(DesktopHoverStyle(radius: 8)).foregroundStyle(.secondary)
+            if let soundError = model.player.soundError { Text(soundError).desktopScaledFont(13).foregroundStyle(.secondary) }
             if model.player.visualizationEnabled && model.player.equalizerFormat == 2 {
-                Text("Der Visualizer unterstützt dieses Ausgabeformat nicht. Die Musik läuft weiter.").foregroundStyle(.secondary)
+                Text("Der Visualizer unterstützt dieses Ausgabeformat nicht. Die Musik läuft weiter.").desktopScaledFont(13).foregroundStyle(.secondary)
             }
             if let deadline = model.player.sleepDeadline {
-                Text("Stoppt um \(deadline.formatted(date: .omitted, time: .shortened))").foregroundStyle(.secondary)
+                Text("Stoppt um \(deadline.formatted(date: .omitted, time: .shortened))").desktopScaledFont(13).foregroundStyle(.secondary)
             }
-        }.desktopScaledFont(16).padding(24).frame(maxWidth: .infinity, alignment: .leading)
-
+        }.desktopScaledFont(15).padding(24).frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func optionTitle(_ title: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).foregroundStyle(.secondary).frame(width: 22)
+            Text(title).lineLimit(1)
+        }
+    }
+    private func optionValueRow(_ title: String, value: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            optionTitle(title, icon: icon)
+            Spacer(minLength: 8)
+            Text(value).foregroundStyle(.secondary).lineLimit(1)
+            Image(systemName: "chevron.down").font(.caption).foregroundStyle(.tertiary)
+        }.frame(maxWidth: .infinity, minHeight: 36).contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+    private var visualizerSettingsPopover: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Text("Visualizer anpassen").desktopScaledFont(19, weight: .semibold)
+                Spacer()
+                Button { visualizerSettingsOpen = false } label: { Image(systemName: "xmark").frame(width: 32, height: 32) }
+                    .buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer-Einstellungen schließen").keyboardShortcut(.cancelAction)
+            }
+            ScrollView { VisualizerPreferences().padding(.vertical, 2) }.scrollIndicators(.automatic)
+                .frame(height: visualizerPlacement == PlayerVisualizerPlacement.overlay.rawValue ? 340 : 260)
+        }.padding(24).frame(width: 390).tint(playerAccent)
+    }
+    private var transitionSettingsPopover: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Text("Übergänge").desktopScaledFont(19, weight: .semibold)
+                Spacer()
+                Button { transitionSettingsOpen = false } label: { Image(systemName: "xmark").frame(width: 32, height: 32) }
+                    .buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Übergangs-Einstellungen schließen").keyboardShortcut(.cancelAction)
+            }
+            Toggle("Albentitel ohne Überblendung", isOn: Binding(get: { model.player.smartAlbumTransition }, set: { model.player.setSmartAlbumTransition($0) })).toggleStyle(.switch)
+            Text("Benachbarte Titel desselben Albums bleiben ohne Überlappung. Die eingestellte Überblendung gilt für andere Titel.")
+                .desktopScaledFont(13).foregroundStyle(.secondary)
+        }.desktopScaledFont(15).padding(24).frame(width: 390).tint(playerAccent)
     }
     private var crossfadeSlider: some View {
         Slider(value: Binding(get: { model.player.crossfadeSeconds }, set: { model.player.setCrossfade($0) }), in: 0...12, step: 1)
@@ -680,8 +775,7 @@ struct DesktopListeningView: View {
             speedMenu
         }
     }
-    private var eqMenu: some View {
-        Menu {
+    @ViewBuilder private var equalizerMenuItems: some View {
             Toggle("Equalizer aktivieren", isOn: Binding(get: { model.player.equalizer.enabled }, set: { model.player.equalizer.setEnabled($0) }))
             Divider()
             ForEach(EqualizerPreset.allCases) { preset in
@@ -689,7 +783,12 @@ struct DesktopListeningView: View {
             }
             Divider()
             Button("Alle Frequenzbänder anzeigen") { tab = 2 }
-        } label: {
+            Divider()
+            Toggle("Automatischer EQ-Pegelschutz", isOn: Binding(get: { model.player.equalizer.headroom }, set: { model.player.equalizer.setHeadroom($0) }))
+                .disabled(!model.player.equalizer.enabled)
+    }
+    private var eqMenu: some View {
+        Menu { equalizerMenuItems } label: {
             toolLabel("Equalizer", value: model.player.equalizer.enabled ? (EqualizerPreset(rawValue: model.player.equalizer.preset)?.name ?? "Eigener Klang") : "Aus", icon: "slider.vertical.3")
         }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 14))
     }
@@ -747,7 +846,7 @@ struct DesktopListeningView: View {
         }
     }
     private var queuePanel: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 panelTab("Warteschlange", value: 0)
                 panelTab("Lyrics", value: 1)
@@ -772,19 +871,20 @@ struct DesktopListeningView: View {
             }
             ScrollView {
                 if tab == 0 {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 2) {
                         ForEach(Array(model.player.queue.tracks.enumerated()).filter { queueFilter.isEmpty || $0.element.title.localizedCaseInsensitiveContains(queueFilter) || $0.element.artistText.localizedCaseInsensitiveContains(queueFilter) }, id: \.offset) { index, track in
                             HStack(spacing: 4) {
                                 Button { model.player.select(index) } label: {
                                     HStack(spacing: 12) {
-                                        ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 52, height: 52)
+                                        ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 44, height: 44)
                                         VStack(alignment: .leading, spacing: 5) {
-                                            Text(track.title).desktopScaledFont(17, weight: .semibold).lineLimit(1)
-                                            Text(track.artistText).desktopScaledFont(14).foregroundStyle(.secondary).lineLimit(1)
+                                            Text(track.title).desktopScaledFont(15, weight: .medium).lineLimit(1)
+                                                .foregroundStyle(model.player.queue.index == index ? playerAccent : Color.primary)
+                                            Text(track.artistText).desktopScaledFont(13).foregroundStyle(.secondary).lineLimit(1)
                                         }.frame(maxWidth: .infinity, alignment: .leading)
                                         if model.player.queue.index == index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(playerAccent) }
-                                    }.padding(10).contentShape(Rectangle())
-                                }.buttonStyle(DesktopHoverStyle(radius: 14)).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
+                                    }.padding(8).contentShape(Rectangle())
+                                }.buttonStyle(DesktopHoverStyle(radius: 10)).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
                                 Menu {
                                     Button("Jetzt abspielen") { model.player.select(index) }
                                     Button("Als Nächstes abspielen") { model.player.playNextInQueue(index) }.disabled(index <= model.player.queue.index + 1)
@@ -796,7 +896,7 @@ struct DesktopListeningView: View {
                                     .menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle())
                                     .accessibilityLabel("Aktionen für \(track.title)")
                             }.padding(.trailing, 6)
-                                .background(model.player.queue.index == index ? playerAccent.opacity(0.15) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 16))
+                                .background(model.player.queue.index == index ? playerAccent.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 10))
                         }
                     }
                 } else if tab == 2 {
@@ -816,11 +916,11 @@ struct DesktopListeningView: View {
     }
     private func panelTab(_ title: String, value: Int) -> some View {
         Button { tab = value } label: {
-            Text(title).desktopScaledFont(18, weight: .semibold).lineLimit(1).minimumScaleFactor(0.75)
-                .padding(.horizontal, 10).padding(.vertical, 12)
-                .background(tab == value ? playerAccent.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 12))
-                .foregroundStyle(tab == value ? playerAccent : .primary)
-        }.buttonStyle(DesktopHoverStyle(radius: 12)).accessibilityAddTraits(tab == value ? .isSelected : [])
+            Text(title).desktopScaledFont(16, weight: .semibold).lineLimit(1).minimumScaleFactor(0.8)
+                .padding(.horizontal, 8).padding(.vertical, 12)
+                .foregroundStyle(tab == value ? playerAccent : .secondary)
+                .overlay(alignment: .bottom) { Capsule().fill(tab == value ? playerAccent : .clear).frame(height: 2).padding(.horizontal, 8) }
+        }.buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityAddTraits(tab == value ? .isSelected : [])
     }
 }
 #endif
