@@ -160,42 +160,32 @@ struct DesktopListeningView: View {
     var size: CGSize
     @State private var tab = 0
     @State private var queueFilter = ""
+    @State private var expandedArtwork = false
     var body: some View {
         Group {
             if let track = model.player.current {
-                if size.width >= 1600 {
-                    let available = size.width - 112
-                    let artworkWidth = min(480, available * 0.27)
-                    let contextWidth = min(600, available * 0.28)
-                    let controlWidth = available - artworkWidth - contextWidth
+                if size.width >= 1000 {
+                    let available = size.width - 72
+                    let contextWidth = max(380, min(600, available * 0.34))
                     HStack(alignment: .top, spacing: 24) {
                         ScrollView {
-                            artworkCard(track, cover: max(240, min(420, artworkWidth - 8, size.height - 210)))
-                        }.scrollIndicators(.hidden).frame(width: artworkWidth)
+                            listeningCard(track, cover: max(220, min(460, (available - contextWidth) * 0.7, size.height - 400)))
+                                .frame(minHeight: max(0, size.height - 48))
+                        }.scrollIndicators(.hidden).frame(maxWidth: .infinity)
                         ScrollView {
-                            playbackCard(track, expanded: true)
-                        }.scrollIndicators(.hidden).frame(width: controlWidth)
-                        queuePanel.frame(width: contextWidth)
-                    }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if size.width >= 850 {
-                    let available = size.width - 80
-                    let contextWidth = max(340, min(560, available * 0.44))
-                    let artworkWidth = available - contextWidth
-                    VStack(spacing: 0) {
-                        HStack(alignment: .top, spacing: 24) {
-                            ScrollView {
-                                artworkCard(track, cover: max(200, min(420, artworkWidth - 8, size.height - 460)))
-                            }.scrollIndicators(.hidden).frame(width: artworkWidth)
-                            queuePanel
-                        }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
-                        playbackDock(track)
-                    }
+                            VStack(spacing: 16) {
+                                queuePanel.frame(height: max(300, min(620, size.height - 550)))
+                                listeningOptions
+                            }
+                        }.scrollIndicators(.hidden).frame(width: contextWidth)
+                    }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     VStack(spacing: 0) {
                         ScrollView {
                             VStack(spacing: 24) {
                                 artworkCard(track, cover: max(180, min(320, size.width - 56, size.height - 440)))
-                                queuePanel.frame(height: 540)
+                                queuePanel.frame(height: 500)
+                                listeningOptions
                             }.padding(24).frame(maxWidth: 720).frame(maxWidth: .infinity)
                         }
                         playbackDock(track, compact: true)
@@ -210,6 +200,15 @@ struct DesktopListeningView: View {
         .environment(\.desktopAccent, playerAccent)
         .environment(\.desktopButtonAccent, playerButtonAccent)
         .tint(playerAccent)
+        .sheet(isPresented: $expandedArtwork) {
+            VStack(spacing: 20) {
+                if let track = model.player.current {
+                    ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 520, height: 520)
+                    Text(track.title).font(.title2).multilineTextAlignment(.center).lineLimit(2)
+                }
+                Button("Schließen") { expandedArtwork = false }.keyboardShortcut(.cancelAction)
+            }.padding(28)
+        }
         #if DEBUG
         .task {
             let args = ProcessInfo.processInfo.arguments
@@ -248,6 +247,7 @@ struct DesktopListeningView: View {
             ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: cover, height: cover)
                 .shadow(color: .black.opacity(0.22), radius: 20, y: 12)
                 .frame(maxWidth: .infinity)
+            if model.player.visualizationEnabled { audioMeter.frame(height: 48) }
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(track.title).desktopScaledFont(32, weight: .bold).lineLimit(3)
@@ -261,56 +261,115 @@ struct DesktopListeningView: View {
             }
         }.padding(.horizontal, 4).padding(.bottom, 8)
     }
-    private func playbackCard(_ track: Track, expanded: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: expanded ? 18 : 28) {
-            Text("Wiedergabe").desktopScaledFont(26, weight: .bold)
+    private func listeningCard(_ track: Track, cover: CGFloat) -> some View {
+        VStack(spacing: 22) {
+            Spacer(minLength: 0)
+            ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: cover, height: cover)
+                .overlay(alignment: .topTrailing) {
+                    Button { expandedArtwork = true } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.title3)
+                            .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    }.buttonStyle(DesktopHoverStyle(radius: 10)).padding(12)
+                        .accessibilityLabel("Cover vergrößern")
+                }
+                .overlay(alignment: .bottom) {
+                    if model.player.visualizationEnabled {
+                        audioMeter.frame(height: 56).padding(16)
+                            .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .shadow(color: .black.opacity(0.24), radius: 20, y: 12)
+            HStack(alignment: .top, spacing: 12) {
+                Spacer().frame(width: 88)
+                VStack(spacing: 10) {
+                    Text(track.title).desktopScaledFont(32, weight: .bold).multilineTextAlignment(.center).lineLimit(3)
+                    Text(track.artistText).desktopScaledFont(23).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
+                }.frame(maxWidth: .infinity)
+                HStack(spacing: 4) {
+                    Button { Task { await model.toggleFavorite(track) } } label: {
+                        Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart")
+                            .desktopScaledFont(26).foregroundStyle(playerAccent).frame(width: 44, height: 44)
+                    }.buttonStyle(DesktopControlStyle()).accessibilityLabel("Favorit umschalten")
+                    Menu {
+                        Button("Titel und Künstler kopieren") { copyTrack(track) }
+                        Button("Cover vergrößern") { expandedArtwork = true }
+                        Button("Lyrics anzeigen") { tab = 1 }
+                        Divider()
+                        Button("Kommende Titel aus Warteschlange entfernen") { model.player.clearUpcoming() }
+                            .disabled(model.player.queue.index + 1 >= model.player.queue.tracks.count)
+                    } label: { Image(systemName: "ellipsis").desktopScaledFont(23).frame(width: 44, height: 44) }
+                        .menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle())
+                        .accessibilityLabel("Aktionen für den aktuellen Titel")
+                }
+            }
+            DesktopSeekControl(player: model.player)
             ViewThatFits(in: .horizontal) {
                 DesktopPlaybackControls(player: model.player, large: true)
                 DesktopPlaybackControls(player: model.player)
             }.frame(maxWidth: .infinity)
-            DesktopSeekControl(player: model.player)
-            HStack(spacing: 16) {
-                DesktopVolumeControl(player: model.player, expanded: expanded)
-                Spacer(minLength: 0)
+            HStack(spacing: 20) {
+                DesktopVolumeControl(player: model.player, expanded: true)
                 AirPlayPicker().frame(width: 44, height: 44).accessibilityLabel("Audioausgabe wählen")
             }
             playbackStatus(track)
-            Divider()
-            if expanded {
-                Text("Equalizer").desktopScaledFont(24, weight: .semibold)
-                EqualizerControls(player: model.player, inline: true)
-                Divider()
-                HStack {
-                    Text("Überblendung").desktopScaledFont(22, weight: .semibold)
-                    Spacer()
-                    Text(model.player.crossfadeSeconds == 0 ? "Aus" : "\(Int(model.player.crossfadeSeconds)) s").desktopScaledFont(19).monospacedDigit().foregroundStyle(.secondary)
-                }
-                Slider(value: Binding(get: { model.player.crossfadeSeconds }, set: { model.player.setCrossfade($0) }), in: 0...12, step: 1)
-                    .accessibilityLabel("Überblendung zwischen Titeln")
-                Toggle("Albentitel ohne Überblendung", isOn: Binding(get: { model.player.smartAlbumTransition }, set: { model.player.setSmartAlbumTransition($0) })).desktopScaledFont(17)
-                HStack(spacing: 14) { timerMenu; speedMenu }
-                Button { tab = 1 } label: { playerActionLabel("Lyrics anzeigen", icon: "text.quote") }.buttonStyle(DesktopHoverStyle(radius: 12))
-            } else {
-                Text("Dein Klang").desktopScaledFont(22, weight: .semibold)
-                quickTools
-                HStack(spacing: 12) {
-                    Button { tab = 2 } label: { playerActionLabel("Equalizer", icon: "slider.vertical.3") }
-                    Button { tab = 1 } label: { playerActionLabel("Lyrics", icon: "text.quote") }
-                }.buttonStyle(DesktopHoverStyle(radius: 12))
-            }
-            Divider()
-            HStack {
-                Button { model.player.seek(model.player.position - 10) } label: { playerActionLabel("−10 s", icon: "gobackward.10") }
-                Spacer(minLength: 8)
-                Button { model.player.seek(model.player.position + 10) } label: { playerActionLabel("+10 s", icon: "goforward.10") }
-            }.buttonStyle(DesktopHoverStyle(radius: 12))
-            if let deadline = model.player.sleepDeadline {
-                Label("Stoppt um \(deadline.formatted(date: .omitted, time: .shortened))", systemImage: "moon.zzz").desktopScaledFont(16).foregroundStyle(.secondary)
-            }
             playbackError
-        }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+        }.padding(28).frame(maxWidth: .infinity)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
+    }
+    private var audioMeter: some View {
+        Canvas { context, size in
+            let levels = model.player.levelHistory
+            let width = size.width / 48
+            for (index, level) in levels.enumerated() {
+                let height = max(1, level * size.height)
+                let rect = CGRect(x: Double(48 - levels.count + index) * width, y: size.height - height, width: max(1, width - 3), height: height)
+                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(playerAccent))
+            }
+        }.accessibilityLabel("Audiopegel-Verlauf")
+            .help("Gemessener Audiopegel-Verlauf; keine Frequenzanalyse")
+    }
+    private var listeningOptions: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Wiedergabe-Optionen", systemImage: "slider.horizontal.3").desktopScaledFont(20, weight: .semibold)
+            Toggle(isOn: Binding(get: { model.player.visualizationEnabled }, set: { model.player.setVisualization($0) })) {
+                Label("Pegel-Visualisierung", systemImage: "waveform").frame(maxWidth: .infinity, alignment: .leading)
+            }.toggleStyle(.switch)
+            eqMenu
+            Toggle(isOn: Binding(get: { model.player.equalizer.headroom }, set: { model.player.equalizer.setHeadroom($0) })) {
+                Label("Automatischer EQ-Pegelschutz", systemImage: "checkmark.shield").frame(maxWidth: .infinity, alignment: .leading)
+            }.toggleStyle(.switch).disabled(!model.player.equalizer.enabled)
+            HStack(spacing: 12) {
+                Label("Überblendung", systemImage: "shuffle")
+                Slider(value: Binding(get: { model.player.crossfadeSeconds }, set: { model.player.setCrossfade($0) }), in: 0...12, step: 1)
+                    .accessibilityLabel("Überblendung zwischen Titeln")
+                Text("\(Int(model.player.crossfadeSeconds)) s").monospacedDigit().frame(width: 36)
+            }
+            Toggle(isOn: Binding(get: { model.player.smartAlbumTransition }, set: { model.player.setSmartAlbumTransition($0) })) {
+                Text("Albentitel ohne Überblendung").frame(maxWidth: .infinity, alignment: .leading)
+            }.toggleStyle(.switch)
+            HStack(spacing: 12) { timerMenu; speedMenu }
+            HStack {
+                Button { model.player.seek(model.player.position - 10) } label: { playerActionLabel("−10 s", icon: "gobackward.10") }
+                Spacer(minLength: 0)
+                Button { model.player.seek(model.player.position + 10) } label: { playerActionLabel("+10 s", icon: "goforward.10") }
+            }.buttonStyle(DesktopHoverStyle(radius: 12))
+            if let soundError = model.player.soundError { Text(soundError).foregroundStyle(.secondary) }
+            if model.player.visualizationEnabled && model.player.equalizerFormat == 2 {
+                Text("Die Pegelanzeige unterstützt dieses Ausgabeformat nicht. Die Musik läuft weiter.").foregroundStyle(.secondary)
+            }
+            if let deadline = model.player.sleepDeadline {
+                Text("Stoppt um \(deadline.formatted(date: .omitted, time: .shortened))").foregroundStyle(.secondary)
+            }
+        }.desktopScaledFont(16).padding(24).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
+            .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
+    }
+    private func copyTrack(_ track: Track) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("\(track.artistText) – \(track.title)", forType: .string)
     }
     private func playerActionLabel(_ title: String, icon: String) -> some View {
         Label(title, systemImage: icon).desktopScaledFont(17, weight: .medium)
@@ -348,14 +407,6 @@ struct DesktopListeningView: View {
         HStack(spacing: 12) {
             DesktopVolumeControl(player: model.player)
             AirPlayPicker().frame(width: 40, height: 40).accessibilityLabel("Audioausgabe wählen")
-        }
-    }
-    private var quickTools: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-            eqMenu
-            fadeMenu
-            timerMenu
-            speedMenu
         }
     }
     private var compactTools: some View {
@@ -460,17 +511,29 @@ struct DesktopListeningView: View {
                 if tab == 0 {
                     LazyVStack(spacing: 10) {
                         ForEach(Array(model.player.queue.tracks.enumerated()).filter { queueFilter.isEmpty || $0.element.title.localizedCaseInsensitiveContains(queueFilter) || $0.element.artistText.localizedCaseInsensitiveContains(queueFilter) }, id: \.offset) { index, track in
-                            Button { model.player.select(index) } label: {
-                                HStack(spacing: 14) {
-                                    ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 56, height: 56)
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(track.title).desktopScaledFont(18, weight: .semibold).lineLimit(1)
-                                        Text(track.artistText).desktopScaledFont(15).foregroundStyle(.secondary).lineLimit(1)
-                                    }.frame(maxWidth: .infinity, alignment: .leading)
-                                    if model.player.queue.index == index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(playerAccent) }
-                                }.padding(12).background(model.player.queue.index == index ? playerAccent.opacity(0.12) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 16))
-                                    .contentShape(Rectangle())
-                            }.buttonStyle(DesktopHoverStyle(radius: 16)).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
+                            HStack(spacing: 4) {
+                                Button { model.player.select(index) } label: {
+                                    HStack(spacing: 12) {
+                                        ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 52, height: 52)
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(track.title).desktopScaledFont(17, weight: .semibold).lineLimit(1)
+                                            Text(track.artistText).desktopScaledFont(14).foregroundStyle(.secondary).lineLimit(1)
+                                        }.frame(maxWidth: .infinity, alignment: .leading)
+                                        if model.player.queue.index == index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(playerAccent) }
+                                    }.padding(10).contentShape(Rectangle())
+                                }.buttonStyle(DesktopHoverStyle(radius: 14)).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
+                                Menu {
+                                    Button("Jetzt abspielen") { model.player.select(index) }
+                                    Button("Als Nächstes abspielen") { model.player.playNextInQueue(index) }.disabled(index <= model.player.queue.index + 1)
+                                    Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen") { Task { await model.toggleFavorite(track) } }
+                                    Button("Titel und Künstler kopieren") { copyTrack(track) }
+                                    Divider()
+                                    Button("Aus Warteschlange entfernen") { model.player.removeFromQueue(index) }.disabled(index == model.player.queue.index)
+                                } label: { Image(systemName: "ellipsis").desktopScaledFont(20).frame(width: 40, height: 44) }
+                                    .menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle())
+                                    .accessibilityLabel("Aktionen für \(track.title)")
+                            }.padding(.trailing, 6)
+                                .background(model.player.queue.index == index ? playerAccent.opacity(0.15) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 16))
                         }
                     }
                 } else if tab == 2 {
@@ -478,6 +541,7 @@ struct DesktopListeningView: View {
                         EqualizerControls(player: model.player)
                         Divider()
                         PlaybackOptions(player: model.player)
+                        Text("Titel-Normalisierung benötigt verlässliche Lautheitswerte pro Titel und ist noch nicht verfügbar. Der EQ-Pegelschutz gleicht nur Verstärkungen durch den Equalizer aus.").desktopScaledFont(15).foregroundStyle(.secondary)
                     }
                 } else {
                     Text(model.player.lyrics.isEmpty ? "Lyrics werden geladen …" : cleanLyrics(model.player.lyrics))

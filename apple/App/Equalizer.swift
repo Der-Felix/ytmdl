@@ -26,6 +26,7 @@ final class EqualizerParameters: @unchecked Sendable {
     let high = Atomic<UInt64>(0)
     let frames = Atomic<UInt64>(0)
     let format = Atomic<Int>(0) // 0: awaiting audio, 1: supported, 2: bypassed format
+    let meterRMS = Atomic<UInt64>(0)
     let inputEnergy = Atomic<UInt64>(0)
     let outputEnergy = Atomic<UInt64>(0)
     init() { publish(gains: Array(repeating: 0, count: 10), enabled: false, preamp: 0, headroom: true) }
@@ -183,9 +184,8 @@ private final class EqualizerTapState {
         guard supported else { return }
         kernel.refresh(parameters)
         if discontinuity { kernel.reset() }
-        guard kernel.enabled else { parameters.frames.wrappingAdd(UInt64(frames), ordering: .relaxed); return }
         let list = UnsafeMutableAudioBufferListPointer(buffers)
-        var channelBase = 0, inputEnergy = 0.0, outputEnergy = 0.0
+        var channelBase = 0, sampleCount = 0, inputEnergy = 0.0, outputEnergy = 0.0
         for buffer in list {
             guard let data = buffer.mData else { continue }
             let channels = Int(buffer.mNumberChannels)
@@ -204,13 +204,14 @@ private final class EqualizerTapState {
                     else if format.mBitsPerChannel == 16 { data.assumingMemoryBound(to: Int16.self)[index] = Int16(min(32767, max(-32768, output * 32768))) }
                     else { data.assumingMemoryBound(to: Int32.self)[index] = Int32(min(2147483647, max(-2147483648, output * 2147483648))) }
                 }
-                inputEnergy += input * input; outputEnergy += output * output
+                inputEnergy += input * input; outputEnergy += output * output; sampleCount += 1
             }
             channelBase += channels
         }
         parameters.inputEnergy.store(inputEnergy.bitPattern, ordering: .relaxed)
         parameters.outputEnergy.store(outputEnergy.bitPattern, ordering: .relaxed)
-        parameters.frames.wrappingAdd(UInt64(frames), ordering: .relaxed)
+        parameters.meterRMS.store((sqrt(outputEnergy / Double(max(1, sampleCount)))).bitPattern, ordering: .relaxed)
+        parameters.frames.wrappingAdd(UInt64(frames), ordering: .releasing)
     }
 }
 

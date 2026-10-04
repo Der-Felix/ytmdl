@@ -43,3 +43,27 @@ import Testing
     queue.replace(Array(repeating: a, count: 600)); #expect(queue.tracks.count == 500)
     queue.replace(Array(repeating: a, count: 600), start: 599); #expect(queue.tracks.count == 1); #expect(queue.current == a)
 }
+
+@Test func queueEditsPreserveCurrentOccurrenceAndDuplicateEntries() {
+    let a = Track(id: "a", title: "A", artists: [], album: "", durationMs: 100)
+    let b = Track(id: "b", title: "B", artists: [], album: "", durationMs: 100)
+    let c = Track(id: "c", title: "C", artists: [], album: "", durationMs: 100)
+    var queue = PlaybackQueue()
+    queue.replace([a, b, a, c], start: 1)
+    let currentRemoval = queue.remove(at: 1), negativeRemoval = queue.remove(at: -1), invalidRemoval = queue.remove(at: 99)
+    #expect(!currentRemoval && !negativeRemoval && !invalidRemoval)
+    let moved = queue.playNext(at: 3)
+    #expect(moved && queue.tracks == [a, b, c, a] && queue.current == b)
+    let earlierRemoved = queue.remove(at: 0)
+    #expect(earlierRemoved && queue.index == 0 && queue.current == b)
+    let cleared = queue.clearUpcoming()
+    #expect(cleared && queue.tracks == [b])
+    let noUpcoming = queue.clearUpcoming(), noMove = queue.playNext(at: 0)
+    #expect(!noUpcoming && !noMove)
+    queue.replace([a, b, a], start: 0)
+    let duplicateRemoved = queue.remove(at: 2)
+    #expect(duplicateRemoved && queue.tracks == [a, b] && queue.current == a)
+    queue.replace([])
+    let emptyClear = queue.clearUpcoming(), emptyRemove = queue.remove(at: 0), emptyMove = queue.playNext(at: 0)
+    #expect(!emptyClear && !emptyRemove && !emptyMove)
+}

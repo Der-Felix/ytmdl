@@ -138,6 +138,23 @@ public struct PlaybackQueue: Equatable, Sendable {
         index = selected - lowerBound
     }
     public mutating func append(_ track: Track) { if tracks.count < 500 { tracks.append(track) } }
+    /// Address queue occurrences by position, so duplicate IDs remain independent.
+    @discardableResult public mutating func remove(at position: Int) -> Bool {
+        guard tracks.indices.contains(position), position != index else { return false }
+        tracks.remove(at: position)
+        if position < index { index -= 1 }
+        return true
+    }
+    @discardableResult public mutating func playNext(at position: Int) -> Bool {
+        guard position > index + 1, tracks.indices.contains(position) else { return false }
+        tracks.insert(tracks.remove(at: position), at: index + 1)
+        return true
+    }
+    @discardableResult public mutating func clearUpcoming() -> Bool {
+        guard index + 1 < tracks.count else { return false }
+        tracks.removeSubrange((index + 1)...)
+        return true
+    }
     public mutating func next(repeatAll: Bool) -> Bool {
         if index + 1 < tracks.count { index += 1; return true }
         if repeatAll && !tracks.isEmpty { index = 0; return true }

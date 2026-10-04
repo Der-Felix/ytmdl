@@ -231,3 +231,64 @@ private func syntheticWave(in folder: URL, seconds: Double = 6) throws -> URL {
     try await waitUntil { player.position < 0.5 && player.isPlaying }
     #expect(player.current?.id == "b" && a.currentItem == nil)
 }
+
+@MainActor @Test func visualizationMetersActualAudioAndBypassesDisabledEqualizer() async throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let url = try syntheticWave(in: folder), suite = "org.ytmdl.tests.meter.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let audio = AVPlayer(), client = try fixtureClient()
+    let player = PlayerModel(volumePreferences: defaults, audio: audio, itemFactory: { _, _ in AVPlayerItem(url: url) })
+    defer { player.stop(); client.invalidate() }
+    player.setVolume(0.001)
+    player.equalizer.select(.bass)
+    player.play([Track(id: "one", title: "Fixture", artists: [], album: "", durationMs: 6000)], client: client)
+    try await waitUntil { player.isPlaying }
+    #expect(audio.currentItem?.audioMix == nil)
+    player.setVisualization(true)
+    try await waitUntil { player.position > 0.5 && player.levelHistory.contains { $0 > 0.05 } }
+    let params = player.equalizer.parameters
+    let rms = Double(bitPattern: params.meterRMS.load(ordering: .relaxed))
+    #expect(abs(rms - 0.1 * player.volume / sqrt(2)) < 0.000003)
+    let input = Double(bitPattern: params.inputEnergy.load(ordering: .relaxed))
+    let output = Double(bitPattern: params.outputEnergy.load(ordering: .relaxed))
+    #expect(input == output && !player.equalizer.enabled)
+    player.pause()
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(player.levelHistory.last == 0)
+    let liveMix = audio.currentItem?.audioMix
+    player.equalizer.setEnabled(true)
+    player.setVisualization(false)
+    #expect(audio.currentItem?.audioMix === liveMix && player.levelHistory.isEmpty)
+    player.equalizer.setEnabled(false)
+    #expect(audio.currentItem?.audioMix == nil)
+    #expect(!PlayerModel(volumePreferences: defaults).visualizationEnabled)
+}
+
+@MainActor @Test func queueEditsReplacePrefetchWithoutInterruptingCurrentAudio() async throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let url = try syntheticWave(in: folder, seconds: 10), suite = "org.ytmdl.tests.queue-edit.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let audio = AVPlayer(), standby = AVPlayer(), client = try fixtureClient()
+    let player = PlayerModel(volumePreferences: defaults, audio: audio, standby: standby, itemFactory: { _, _ in AVPlayerItem(url: url) })
+    defer { player.stop(); client.invalidate() }
+    player.setVolume(0.001)
+    let tracks = ["a", "b", "c"].map { Track(id: $0, title: $0, artists: [], album: "", durationMs: 10000) }
+    player.play(tracks, client: client)
+    try await waitUntil { player.isPlaying && player.preparedTrackID == "b" }
+    let currentItem = audio.currentItem
+    player.playNextInQueue(2)
+    #expect(player.preparedTrackID == "c" && player.current?.id == "a" && audio.currentItem === currentItem)
+    player.removeFromQueue(1)
+    #expect(player.preparedTrackID == "b" && player.current?.id == "a" && audio.currentItem === currentItem)
+    player.removeFromQueue(0)
+    #expect(player.queue.tracks.count == 2)
+    player.clearUpcoming()
+    #expect(player.queue.tracks == [tracks[0]] && standby.currentItem == nil && player.preparedTrackID == nil)
+    #expect(audio.currentItem === currentItem && player.isPlaying)
+}

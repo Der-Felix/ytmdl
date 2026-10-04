@@ -4,6 +4,8 @@ Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The first
 review build is **0.1.0** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
 
+See [HANDOFF.md](HANDOFF.md) for the code map, current behavior and open work.
+
 ## Open and run
 
 Open `apple/YTMDL.xcodeproj` in Xcode 27. Choose `YTMDL-iOS`,
@@ -35,14 +37,23 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 - iPad/Mac sidebar navigation and adaptive album grids. Mac has readable album,
   artist and track labels, search (⌘F) in the single window toolbar, and a centered
   transport bar with seeking, app volume, mute and AirPlay. The full player uses
-  three columns on large windows: artwork capped at 420 points, a wider
-  playback/tools panel and queue/lyrics/sound. Medium windows place transport
-  and tools in a bottom dock;
-  small windows stack artwork and context above a persistent compact transport.
-  Large windows expose all ten EQ bands and the crossfade slider directly in
-  the wider tools panel. EQ profiles, speed and sleep timer remain accessible.
-  The queue can be filtered by title or artist without changing playback order.
-  Escape returns to the library.
+  two areas on large windows: a unified listening card with a centered cover
+  capped at 460 points and large transport/volume controls; queue/lyrics/sound
+  above compact playback options on the right. Small windows stack artwork and
+  context above a persistent compact transport. Panels scroll independently.
+  EQ profiles, headroom, crossfade, speed and sleep timer remain accessible;
+  the **Klang** tab exposes all ten EQ bands and detailed playback settings.
+  The queue can be filtered without changing order. Each occurrence has actions
+  to play now/next, toggle favorites, copy metadata or remove it from the queue.
+  The current occurrence cannot be removed; clearing upcoming entries never
+  deletes library files. Escape returns to the library; expanded artwork closes
+  with Escape first.
+- Optional **Pegel-Visualisierung** shows a bounded 48-sample history of measured
+  decoded-audio RMS level including AVPlayer gain. It is a level history, not a frequency
+  spectrum. It defaults to off, persists on the device and meters samples even
+  with EQ bypassed. Pause adds silence; disabling it clears the display. During
+  a crossfade the shared meter reflects callbacks from either title, not a
+  measured final output mix. Formats the tap cannot decode retain normal audio.
 - Mac opens on **Start** by default: recently added albums, favorite tracks,
   playlists, artists and recently played tracks, with quick links to search and
   collections. Settings can choose a different launch page and hide feed sections.
@@ -71,7 +82,7 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   persistent custom tuning, preamp (−12 to +6 dB), bypass and optional headroom
   compensation. The OS 27 AVPlayer mixed-output processing tap filters decoded
   PCM; unsupported output formats or attachment failure leave audio playing
-  without EQ and show a message. When EQ is off, no processing tap is attached.
+  without EQ and show a message. When both EQ and visualization are off, no processing tap is attached.
 - **Mac Settings → Wiedergabe**: crossfade from 0 to 12 seconds (off by default),
   next-track preparation, fast start, 0.5–2× speed with pitch correction when
   speed differs from 1×, and a sleep timer (15/30/60 minutes, track or album end).
@@ -154,7 +165,8 @@ authenticate to a production host. `--fixture-server` is accepted only in Debug
 and only for literal loopback; its cookies are not saved to the keychain.
 
 Audio regression tests use generated PCM files and actual AVPlayers to verify
-EQ response, bypass, live activation, crossfade gain/position, pause/seek/stop,
+EQ response, bypass, live activation, real RMS metering with EQ bypassed,
+queue occurrence edits and prefetch invalidation, crossfade gain/position, pause/seek/stop,
 repeat and timer boundaries. Palette and session-invalidation tests use isolated
 images/sessions. Local compressed-stream probes are loopback-only. These checks
 are not measurements of production network start latency.

@@ -32,6 +32,9 @@ enum SleepMode: String, CaseIterable, Identifiable {
     private(set) var sleepMode = SleepMode.off
     private(set) var sleepDeadline: Date?
     private(set) var startupMilliseconds: Double?
+    private(set) var visualizationEnabled = false
+    private(set) var levelHistory: [Double] = []
+    @ObservationIgnored private var meteredFrames: UInt64 = 0
     private(set) var equalizerFormat = 0
     private(set) var artwork: CGImage?
     private(set) var artworkPalette: ArtworkPalette?
@@ -90,7 +93,8 @@ enum SleepMode: String, CaseIterable, Identifiable {
         isMuted = volumePreferences.bool(forKey: "playerMuted")
         #endif
         configure(audio); configure(standby); applyVolume()
-        equalizer.onEnabledChange = { [weak self] enabled in self?.updateEqualizerAttachment(enabled) }
+        visualizationEnabled = volumePreferences.bool(forKey: "playerVisualization")
+        equalizer.onEnabledChange = { [weak self] _ in self?.updateEqualizerAttachment() }
         setupCommands()
         #if os(iOS) || os(tvOS)
         interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.pause() } }
@@ -148,6 +152,25 @@ enum SleepMode: String, CaseIterable, Identifiable {
     func append(_ track: Track, client: APIClient) { self.client = client; queue.append(track); prepareNext() }
     func select(_ index: Int) { guard queue.tracks.indices.contains(index) else { return }; queue.select(index); loadCurrent() }
     func shuffle() { queue.shuffleUpcoming(); cancelPrepared(); prepareNext() }
+    func removeFromQueue(_ index: Int) {
+        guard queue.remove(at: index) else { return }
+        cancelPrepared(); prepareNext()
+    }
+    func playNextInQueue(_ index: Int) {
+        guard queue.playNext(at: index) else { return }
+        cancelPrepared(); prepareNext()
+    }
+    func clearUpcoming() {
+        guard queue.clearUpcoming() else { return }
+        cancelPrepared(); prepareNext()
+    }
+    func setVisualization(_ value: Bool) {
+        guard visualizationEnabled != value else { return }
+        visualizationEnabled = value; levelHistory = []
+        meteredFrames = equalizer.parameters.frames.load(ordering: .acquiring)
+        volumePreferences.set(value, forKey: "playerVisualization")
+        updateEqualizerAttachment()
+    }
     func next() {
         if promotePrepared() { return }
         if queue.next(repeatAll: repeatAll) { loadCurrent() } else { cancelPrepared(); pause(); seek(0) }
@@ -183,7 +206,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         generation = UUID(); loadTask?.cancel(); lyricsTask?.cancel(); artworkTask?.cancel(); sleepTask?.cancel()
         removeItemObservers(); cancelPrepared(); pause(); audio.replaceCurrentItem(with: nil)
         queue.replace([]); position = 0; loading = false; error = nil; soundError = nil; lyrics = ""; client = nil
-        artwork = nil; artworkPalette = nil; sleepMode = .off; sleepDeadline = nil; startupMilliseconds = nil
+        artwork = nil; artworkPalette = nil; levelHistory = []; sleepMode = .off; sleepDeadline = nil; startupMilliseconds = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         #if os(iOS) || os(tvOS)
         AVAudioSession.sharedInstance().deactivate(options: .notifyOthersOnDeactivation) { _, _ in }
@@ -200,23 +223,30 @@ enum SleepMode: String, CaseIterable, Identifiable {
         item.preferredForwardBufferDuration = fastStart ? 5 : 20
         // Pitch correction adds latency and is only needed at a changed speed.
         item.audioTimePitchAlgorithm = playbackRate == 1 ? .varispeed : .spectral
-        if equalizer.enabled { attachSound(to: item) }
+        if equalizer.enabled || visualizationEnabled { attachSound(to: item) }
         return item
     }
     private func attachSound(to item: AVPlayerItem) {
         do { try attachEqualizer(to: item, parameters: equalizer.parameters) }
         catch { soundError = "Die Klangverarbeitung konnte nicht gestartet werden. Der Titel wird ohne Equalizer abgespielt." }
     }
-    private func updateEqualizerAttachment(_ enabled: Bool) {
-        soundError = nil; equalizerFormat = 0; equalizer.parameters.format.store(0, ordering: .releasing)
+    private func updateEqualizerAttachment() {
+        let needsTap = equalizer.enabled || visualizationEnabled
+        if !needsTap {
+            soundError = nil; equalizerFormat = 0; equalizer.parameters.format.store(0, ordering: .releasing)
+        }
         for item in [audio.currentItem, standby.currentItem].compactMap({ $0 }) {
-            if enabled { attachSound(to: item) } else { item.audioMix = nil }
+            if needsTap {
+                // EQ changes already reach the callback atomically. Keep a live
+                // meter's tap rather than rebuilding the audio graph on toggles.
+                if item.audioMix == nil { soundError = nil; attachSound(to: item) }
+            } else { item.audioMix = nil }
         }
     }
     private func loadCurrent() {
         loadTask?.cancel(); removeItemObservers(); cancelPrepared(); generation = UUID()
         prefetchAfter = .now
-        audio.pause(); audio.replaceCurrentItem(with: nil); isPlaying = false; position = 0; error = nil; soundError = nil
+        audio.pause(); audio.replaceCurrentItem(with: nil); isPlaying = false; position = 0; levelHistory = []; meteredFrames = equalizer.parameters.frames.load(ordering: .acquiring); error = nil; soundError = nil
         guard let current, let client else { loading = false; return }
         loading = true; wantsPlayback = true; startedAt = .now; startupMilliseconds = nil
         let token = generation
@@ -267,6 +297,16 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     private func tick() {
         equalizerFormat = equalizer.parameters.format.load(ordering: .acquiring)
+        // The OS mixed-output tap includes AVPlayer gain; this is a level
+        // history, not an FFT or a calibrated measurement of speaker output.
+        if visualizationEnabled {
+            let frames = equalizer.parameters.frames.load(ordering: .acquiring)
+            let rms = Double(bitPattern: equalizer.parameters.meterRMS.load(ordering: .relaxed))
+            let level = isPlaying && frames != meteredFrames && rms.isFinite ? min(1, max(0, (20 * log10(max(1e-6, rms)) + 96) / 96)) : 0
+            meteredFrames = frames
+            levelHistory.append(level)
+            if levelHistory.count > 48 { levelHistory.removeFirst(levelHistory.count - 48) }
+        }
         let value = audio.currentTime().seconds
         if value.isFinite { position = max(0, value) }
         updatePlaybackState()

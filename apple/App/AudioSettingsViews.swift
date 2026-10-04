@@ -78,6 +78,8 @@ struct PlaybackOptions: View {
             Toggle("Albentitel ohne Überblendung", isOn: Binding(get: { player.smartAlbumTransition }, set: { player.setSmartAlbumTransition($0) }))
             Text("Benachbarte Titel desselben Albums und derselben Künstler bleiben ohne Überlappung. Kurze Titel werden höchstens zur Hälfte überblendet.")
                 .desktopScaledFont(15).foregroundStyle(.secondary)
+            Toggle("Audiopegel visualisieren", isOn: Binding(get: { player.visualizationEnabled }, set: { player.setVisualization($0) }))
+            Text("Zeigt einen Verlauf des gemessenen Audiopegels. Ohne EQ und Visualisierung entfällt die Audioverarbeitung.").desktopScaledFont(15).foregroundStyle(.secondary)
             Toggle("Nächsten Titel vorladen", isOn: Binding(get: { player.preloadEnabled }, set: { player.setPreload($0) }))
             Text("Puffert nur den nächsten Titel. Eine aktive Überblendung braucht dieses Vorladen ebenfalls. Es entstehen keine dauerhaften Offline-Kopien.").desktopScaledFont(15).foregroundStyle(.secondary)
             Toggle("Schneller Abspielstart", isOn: Binding(get: { player.fastStart }, set: { player.setFastStart($0) }))
