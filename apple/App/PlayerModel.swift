@@ -34,6 +34,12 @@ enum SleepMode: String, CaseIterable, Identifiable {
     private(set) var startupMilliseconds: Double?
     private(set) var visualizationEnabled = false
     private(set) var levelHistory: [Double] = []
+    private(set) var spectrumLevels = Array(repeating: 0.0, count: 32)
+    private(set) var spectrumPeaks = Array(repeating: 0.0, count: 32)
+    @ObservationIgnored private var visualizerTask: Task<Void, Never>?
+    @ObservationIgnored private var spectrumSequence: UInt64 = 0
+    @ObservationIgnored private var spectrumReceivedAt = ContinuousClock.now
+    @ObservationIgnored private var spectrumTarget = Array(repeating: 0.0, count: 32)
     @ObservationIgnored private var meteredFrames: UInt64 = 0
     private(set) var equalizerFormat = 0
     private(set) var artwork: CGImage?
@@ -99,6 +105,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         #endif
         configure(audio); configure(standby); applyVolume()
         visualizationEnabled = volumePreferences.bool(forKey: "playerVisualization")
+        equalizer.parameters.visualizationEnabled.store(visualizationEnabled, ordering: .releasing)
         equalizer.onEnabledChange = { [weak self] _ in self?.updateEqualizerAttachment() }
         setupCommands()
         #if os(iOS) || os(tvOS)
@@ -172,9 +179,43 @@ enum SleepMode: String, CaseIterable, Identifiable {
     func setVisualization(_ value: Bool) {
         guard visualizationEnabled != value else { return }
         visualizationEnabled = value; levelHistory = []
+        equalizer.parameters.visualizationEnabled.store(value, ordering: .releasing)
+        resetSpectrum()
         meteredFrames = equalizer.parameters.frames.load(ordering: .acquiring)
         volumePreferences.set(value, forKey: "playerVisualization")
         updateEqualizerAttachment()
+        if value { ensureVisualizerTask() } else { visualizerTask?.cancel(); visualizerTask = nil }
+    }
+    private func resetSpectrum() {
+        spectrumLevels = Array(repeating: 0, count: 32); spectrumPeaks = spectrumLevels; spectrumTarget = spectrumLevels
+        spectrumSequence = equalizer.parameters.spectrum.sequence.load(ordering: .acquiring)
+    }
+    private func ensureVisualizerTask() {
+        guard visualizationEnabled, current != nil, visualizerTask == nil else { return }
+        visualizerTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard self != nil else { break }
+                self?.updateSpectrum()
+                do { try await Task.sleep(for: .milliseconds(33)) } catch { break }
+            }
+        }
+    }
+    private func updateSpectrum() {
+        let snapshot = equalizer.parameters.spectrum
+        let sequence = snapshot.sequence.load(ordering: .acquiring)
+        if sequence != spectrumSequence {
+            spectrumTarget = snapshot.read(); spectrumSequence = sequence; spectrumReceivedAt = .now
+        }
+        let fresh = isPlaying && spectrumReceivedAt.duration(to: .now) < .milliseconds(250)
+        var levels = spectrumLevels, peaks = spectrumPeaks
+        for band in levels.indices {
+            let target = fresh ? spectrumTarget[band] : 0
+            levels[band] += (target - levels[band]) * (target > levels[band] ? 0.65 : 0.18)
+            if levels[band] < 0.001 { levels[band] = 0 }
+            peaks[band] = max(levels[band], max(0, peaks[band] - 0.012))
+        }
+        if levels != spectrumLevels { spectrumLevels = levels }
+        if peaks != spectrumPeaks { spectrumPeaks = peaks }
     }
     func next() {
         if promotePrepared() { return }
@@ -208,6 +249,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         position = target; updateNowPlaying()
     }
     func stop() {
+        visualizerTask?.cancel(); visualizerTask = nil; resetSpectrum()
         generation = UUID(); loadTask?.cancel(); lyricsTask?.cancel(); artworkTask?.cancel(); sleepTask?.cancel()
         removeItemObservers(); cancelPrepared(); pause(); audio.replaceCurrentItem(with: nil)
         queue.replace([]); position = 0; loading = false; error = nil; soundError = nil; lyrics = ""; client = nil
@@ -274,6 +316,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     private func observeCurrent() {
         guard let item = audio.currentItem else { return }
+        resetSpectrum(); ensureVisualizerTask()
         let token = generation
         statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             let failed = item.status == .failed

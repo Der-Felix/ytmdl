@@ -39,7 +39,8 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   transport bar with seeking, app volume, mute and AirPlay. The full player uses
   two areas on large windows: a unified listening card with a centered cover
   capped at 520 points and large transport/volume controls; queue/lyrics/sound
-  above compact playback options on the right. The queue grows with the window
+  and playback options in one continuous right-hand panel, divided by a subtle
+  rule rather than two floating cards. The queue grows with the window
   height to align the options with the listening card’s bottom edge. Transport sits near the bottom
   of the listening card, with flexible space beneath the title. Small windows stack artwork and
   context above a persistent compact transport. Panels scroll independently.
@@ -53,14 +54,21 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 - The original repository logo appears in the sidebar and connection screen.
   Mac/iOS app icons use that same artwork; regenerate them with
   `swift apple/Scripts/generate-icons.swift` from the repository root.
-- Optional **Visualizer** offers bars or a curve beneath track metadata and a
-  separate large live view with playback/pause and Escape to close. The style
-  persists on the device. Both views show a bounded 48-sample history of measured
-  decoded-audio RMS level including AVPlayer gain. It is a level history, not a frequency
-  spectrum. It defaults to off, persists on the device and meters samples even
-  with EQ bypassed. Pause adds silence; disabling it clears the display. During
-  a crossfade the shared meter reflects callbacks from either title, not a
-  measured final output mix. Formats the tap cannot decode retain normal audio.
+- Optional **Visualizer** uses a real 2048-sample Hann-windowed FFT with Apple
+  Accelerate. It displays 32 logarithmic frequency bands as **Spektrum** (mirrored
+  bars with falling peaks) or **Orbit** (radial bands), with cover-derived colors.
+  Frequency is shown instead of a scrolling volume history. The larger live view
+  includes pause/play and closes with Escape. Style and activation persist on the
+  device; it defaults to off. Audio-callback storage is preallocated and FFT work
+  is gated by activation. Main-actor attack/release and peak decay update around
+  30 Hz, stop on teardown and decay to silence on pause/stall. With EQ bypassed,
+  samples remain unchanged; with both features off there is no processing tap.
+  Analysis uses the first decoded channel including AVPlayer gain, not a
+  calibrated final speaker signal. During crossfade the shared display receives
+  either title's tap results rather than an FFT of their final mixed output.
+  Unsupported PCM retains ordinary playback. No microphone access is used.
+  Implementation references: Apple's [windowing guidance](https://developer.apple.com/documentation/accelerate/reducing-spectral-leakage-with-windowing)
+  and [audio processing taps](https://developer.apple.com/documentation/MediaToolbox/MTAudioProcessingTap).
 - Mac opens on **Start** by default: recently added albums, favorite tracks,
   playlists, artists and recently played tracks, with quick links to search and
   collections. Settings can choose a different launch page and hide feed sections.

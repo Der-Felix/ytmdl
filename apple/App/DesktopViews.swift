@@ -4,44 +4,53 @@ import YTMDLCore
 
 #if os(macOS)
 enum PlayerVisualizerStyle: String, CaseIterable, Identifiable {
-    case bars, curve
+    case bars, orbit = "curve" // Preserve the existing device preference.
     var id: String { rawValue }
-    var name: String { self == .bars ? "Balken" : "Kurve" }
+    var name: String { self == .bars ? "Spektrum" : "Orbit" }
 }
 
-/// Both presentations draw the same measured RMS history, never invented FFT bins.
-struct AudioLevelVisualizer: View {
+/// Instantaneous logarithmic frequency bands, with attack/release and falling peaks.
+struct AudioSpectrumVisualizer: View {
     var player: PlayerModel
     var style: PlayerVisualizerStyle
     var accent: Color
     var body: some View {
+        let levels = player.spectrumLevels
+        let peaks = player.spectrumPeaks
         Canvas { context, size in
-            let levels = player.levelHistory
-            let step = size.width / 48
-            let bottom = size.height - 2
-            var curve = Path()
-            for (index, level) in levels.enumerated() {
-                let x = CGFloat(48 - levels.count + index) * step + step / 2
-                let height = max(2, min(1, max(0, level)) * bottom)
-                if style == .bars {
-                    let rect = CGRect(x: x - step * 0.33, y: bottom - height, width: max(1, step * 0.66), height: height)
-                    context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .linearGradient(Gradient(colors: [accent, accent.opacity(0.30)]), startPoint: .zero, endPoint: CGPoint(x: 0, y: bottom)))
-                } else {
-                    let point = CGPoint(x: x, y: bottom - height)
-                    if index == 0 { curve.move(to: point) } else { curve.addLine(to: point) }
+            let step = size.width / CGFloat(levels.count)
+            if style == .bars {
+                let middle = size.height * 0.5, maximum = size.height * 0.46
+                for (index, level) in levels.enumerated() {
+                    let x = (CGFloat(index) + 0.5) * step
+                    let height = max(2, level * maximum), width = max(2, step * 0.62)
+                    let rect = CGRect(x: x - width / 2, y: middle - height, width: width, height: height * 2)
+                    context.fill(Path(roundedRect: rect, cornerRadius: min(4, width / 2)), with: .linearGradient(Gradient(colors: [accent.mix(with: .white, by: 0.38), accent, accent.opacity(0.25)]), startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: size.height)))
+                    let peak = peaks[index] * maximum
+                    if peak > 3 {
+                        context.fill(Path(roundedRect: CGRect(x: x - width / 2, y: middle - peak - 4, width: width, height: 2), cornerRadius: 1), with: .color(accent.opacity(0.75)))
+                    }
+                }
+            } else {
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let limit = min(size.width, size.height) * 0.46
+                let radius = limit * 0.42
+                let energy = levels.prefix(8).reduce(0, +) / 8
+                let halo = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+                context.fill(Path(ellipseIn: halo), with: .radialGradient(Gradient(colors: [accent.opacity(0.08 + energy * 0.15), .clear]), center: center, startRadius: 0, endRadius: radius))
+                context.stroke(Path(ellipseIn: halo), with: .color(accent.opacity(0.3)), lineWidth: 1)
+                for (index, level) in levels.enumerated() {
+                    let angle = Double(index) / Double(levels.count) * 2 * Double.pi - Double.pi / 2
+                    let outer = radius + 3 + level * (limit - radius)
+                    var ray = Path()
+                    ray.move(to: CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius))
+                    ray.addLine(to: CGPoint(x: center.x + cos(angle) * outer, y: center.y + sin(angle) * outer))
+                    context.stroke(ray, with: .color(accent.mix(with: .white, by: 0.25)), style: StrokeStyle(lineWidth: max(2, min(8, radius * 0.045)), lineCap: .round))
                 }
             }
-            if style == .curve, !levels.isEmpty {
-                context.stroke(curve, with: .color(accent), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                var fill = curve
-                fill.addLine(to: CGPoint(x: size.width - step / 2, y: bottom))
-                fill.addLine(to: CGPoint(x: CGFloat(48 - levels.count) * step + step / 2, y: bottom))
-                fill.closeSubpath()
-                context.fill(fill, with: .linearGradient(Gradient(colors: [accent.opacity(0.24), .clear]), startPoint: .zero, endPoint: CGPoint(x: 0, y: bottom)))
-            }
-        }.accessibilityLabel("Gemessener Audiopegel-Verlauf")
+        }.accessibilityLabel("Live-Musikspektrum")
             .accessibilityValue(player.isPlaying ? "Wiedergabe läuft" : "Pausiert")
-            .help("Audiopegel der letzten 4,8 Sekunden einschließlich App-Lautstärke; keine Frequenzanalyse")
+            .help("32 gemessene Frequenzbänder: Bass bis Höhen; ohne Mikrofonaufnahme")
     }
 }
 
@@ -214,13 +223,11 @@ struct DesktopListeningView: View {
                     let contextWidth = max(380, min(600, available * 0.34))
                     HStack(alignment: .top, spacing: 24) {
                         ScrollView {
-                            listeningCard(track, cover: max(220, min(520, (available - contextWidth) * 0.7, size.height - (model.player.visualizationEnabled ? 690 : 560))))
+                            listeningCard(track, cover: max(220, min(520, (available - contextWidth) * 0.7, size.height - (model.player.visualizationEnabled ? selectedVisualizerStyle == .orbit ? 780 : 706 : 560))))
                         }.scrollIndicators(.hidden).frame(maxWidth: .infinity)
                         ScrollView {
-                            VStack(spacing: 16) {
-                                queuePanel.frame(height: max(300, size.height - 48 - optionsHeight - 16))
-                                listeningOptions
-                                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { optionsHeight = $0 }
+                            VStack(spacing: 0) {
+                                contextPanel(queueHeight: max(300, size.height - 48 - optionsHeight - 1))
                             }
                         }.scrollIndicators(.hidden).frame(width: contextWidth)
                     }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -229,8 +236,7 @@ struct DesktopListeningView: View {
                         ScrollView {
                             VStack(spacing: 24) {
                                 artworkCard(track, cover: max(180, min(320, size.width - 56, size.height - 440)))
-                                queuePanel.frame(height: 500)
-                                listeningOptions
+                                contextPanel(queueHeight: 500)
                             }.padding(24).frame(maxWidth: 720).frame(maxWidth: .infinity)
                         }
                         playbackDock(track, compact: true)
@@ -378,7 +384,7 @@ struct DesktopListeningView: View {
                     Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 36, height: 32)
                 }.buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer vergrößern")
             }.foregroundStyle(.secondary)
-            AudioLevelVisualizer(player: model.player, style: selectedVisualizerStyle, accent: playerAccent).frame(height: 84)
+            AudioSpectrumVisualizer(player: model.player, style: selectedVisualizerStyle, accent: playerAccent).frame(height: selectedVisualizerStyle == .orbit ? 170 : 100)
         }.frame(maxWidth: 680)
     }
     private var visualizerSheet: some View {
@@ -393,16 +399,25 @@ struct DesktopListeningView: View {
                 Text(model.player.current?.title ?? "Deine Musik").font(.title.bold()).multilineTextAlignment(.center).lineLimit(2)
                 Text(model.player.current?.artistText ?? "").font(.title3).foregroundStyle(.secondary)
             }
-            AudioLevelVisualizer(player: model.player, style: selectedVisualizerStyle, accent: playerAccent)
+            AudioSpectrumVisualizer(player: model.player, style: selectedVisualizerStyle, accent: playerAccent)
                 .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.vertical, 16)
             HStack(spacing: 24) {
                 Button { model.player.toggle() } label: {
                     Label(model.player.isPlaybackRequested ? "Pause" : "Abspielen", systemImage: model.player.isPlaybackRequested ? "pause.fill" : "play.fill")
                 }.controlSize(.large)
-                Text(model.player.equalizerFormat == 2 ? "Dieses Ausgabeformat kann nicht visualisiert werden." : "Gemessener Audiopegel · 4,8 Sekunden Verlauf").foregroundStyle(.secondary)
+                Text(model.player.equalizerFormat == 2 ? "Dieses Ausgabeformat kann nicht visualisiert werden." : "Live-Frequenzanalyse · 32 Bänder").foregroundStyle(.secondary)
             }
         }.padding(32).frame(minWidth: 680, idealWidth: 960, minHeight: 480, idealHeight: 620)
             .background(playerBackground).tint(playerAccent)
+    }
+    private func contextPanel(queueHeight: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            queuePanel.frame(height: queueHeight)
+            Divider().padding(.horizontal, 24)
+            listeningOptions
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { optionsHeight = $0 }
+        }.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
+            .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
     }
     private var listeningOptions: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -447,14 +462,13 @@ struct DesktopListeningView: View {
             }.buttonStyle(DesktopHoverStyle(radius: 12))
             if let soundError = model.player.soundError { Text(soundError).foregroundStyle(.secondary) }
             if model.player.visualizationEnabled && model.player.equalizerFormat == 2 {
-                Text("Die Pegelanzeige unterstützt dieses Ausgabeformat nicht. Die Musik läuft weiter.").foregroundStyle(.secondary)
+                Text("Der Visualizer unterstützt dieses Ausgabeformat nicht. Die Musik läuft weiter.").foregroundStyle(.secondary)
             }
             if let deadline = model.player.sleepDeadline {
                 Text("Stoppt um \(deadline.formatted(date: .omitted, time: .shortened))").foregroundStyle(.secondary)
             }
         }.desktopScaledFont(16).padding(24).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
-            .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
+
     }
     private var crossfadeSlider: some View {
         Slider(value: Binding(get: { model.player.crossfadeSeconds }, set: { model.player.setCrossfade($0) }), in: 0...12, step: 1)
@@ -645,8 +659,7 @@ struct DesktopListeningView: View {
                 }
             }
         }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
-            .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
+
     }
     private func panelTab(_ title: String, value: Int) -> some View {
         Button { tab = value } label: {

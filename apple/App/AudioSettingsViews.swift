@@ -85,7 +85,7 @@ struct PlaybackOptions: View {
                     ForEach(PlayerVisualizerStyle.allCases) { Text($0.name).tag($0.rawValue) }
                 }.pickerStyle(.segmented)
             }
-            Text("Balken oder Kurve zeigen den gemessenen Audiopegel-Verlauf. Im Player lässt sich die Anzeige vergrößern. Ohne EQ und Visualizer entfällt die Audioverarbeitung.").desktopScaledFont(15).foregroundStyle(.secondary)
+            Text("Spektrum oder Orbit reagieren auf die Frequenzen der laufenden Musik. Im Player lässt sich die Anzeige vergrößern. Ohne EQ und Visualizer entfällt die Audioverarbeitung.").desktopScaledFont(15).foregroundStyle(.secondary)
             Toggle("Nächsten Titel vorladen", isOn: Binding(get: { player.preloadEnabled }, set: { player.setPreload($0) }))
             Text("Puffert nur den nächsten Titel. Eine aktive Überblendung braucht dieses Vorladen ebenfalls. Es entstehen keine dauerhaften Offline-Kopien.").desktopScaledFont(15).foregroundStyle(.secondary)
             Toggle("Schneller Abspielstart", isOn: Binding(get: { player.fastStart }, set: { player.setFastStart($0) }))

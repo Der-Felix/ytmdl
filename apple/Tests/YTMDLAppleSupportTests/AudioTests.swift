@@ -5,6 +5,30 @@ import Testing
 import YTMDLCore
 @testable import YTMDLAppleSupport
 
+@Test func spectrumSeparatesBassAndTrebleAndHandlesSilenceAndDiscontinuity() {
+    let analyzer = AudioSpectrumAnalyzer(), snapshot = SpectrumSnapshot()
+    analyzer.prepare(sampleRate: 48000)
+    func tone(_ frequency: Double) -> [Double] {
+        analyzer.reset()
+        for frame in 0..<AudioSpectrumAnalyzer.count * 3 {
+            analyzer.append(0.25 * sin(2 * .pi * frequency * Double(frame) / 48000), to: snapshot)
+        }
+        return snapshot.read()
+    }
+    let bass = tone(125), treble = tone(8000)
+    let bassBand = bass.indices.max { bass[$0] < bass[$1] }!
+    let trebleBand = treble.indices.max { treble[$0] < treble[$1] }!
+    #expect(bassBand < 10 && trebleBand > 24)
+    #expect(bass[bassBand] > 0.8 && treble[trebleBand] > 0.8)
+    #expect(bass[trebleBand] < 0.1 && treble[bassBand] < 0.1)
+    for _ in 0..<AudioSpectrumAnalyzer.count { analyzer.append(0, to: snapshot) }
+    #expect(snapshot.read().allSatisfy { $0 == 0 })
+    for _ in 0..<100 { analyzer.append(0.8, to: snapshot) }
+    analyzer.reset()
+    for _ in 0..<AudioSpectrumAnalyzer.count { analyzer.append(.nan, to: snapshot) }
+    #expect(snapshot.read().allSatisfy { $0 == 0 })
+}
+
 @Test func equalizerNeutralBypassFrequencyResponseAndChannelIsolation() {
     let parameters = EqualizerParameters(), kernel = EqualizerKernel()
     kernel.prepare(rate: 48000, channels: 2)
@@ -249,6 +273,10 @@ private func syntheticWave(in folder: URL, seconds: Double = 6) throws -> URL {
     #expect(audio.currentItem?.audioMix == nil)
     player.setVisualization(true)
     try await waitUntil { player.position > 0.5 && player.levelHistory.contains { $0 > 0.05 } }
+    try await waitUntil { player.spectrumLevels.max()! > 0.01 }
+    let bands = player.spectrumLevels
+    let strongest = bands.indices.max { bands[$0] < bands[$1] }!
+    #expect((14...18).contains(strongest)) // Synthetic 1 kHz tone, logarithmic spacing.
     let params = player.equalizer.parameters
     let rms = Double(bitPattern: params.meterRMS.load(ordering: .relaxed))
     #expect(abs(rms - 0.1 * player.volume / sqrt(2)) < 0.000003)
@@ -258,10 +286,16 @@ private func syntheticWave(in folder: URL, seconds: Double = 6) throws -> URL {
     player.pause()
     try await Task.sleep(for: .milliseconds(300))
     #expect(player.levelHistory.last == 0)
+    try await waitUntil { player.spectrumLevels.allSatisfy { $0 == 0 } && player.spectrumPeaks.allSatisfy { $0 == 0 } }
     let liveMix = audio.currentItem?.audioMix
     player.equalizer.setEnabled(true)
     player.setVisualization(false)
     #expect(audio.currentItem?.audioMix === liveMix && player.levelHistory.isEmpty)
+    #expect(player.spectrumLevels.allSatisfy { $0 == 0 } && player.spectrumPeaks.allSatisfy { $0 == 0 })
+    player.resume()
+    let spectrumSequence = params.spectrum.sequence.load(ordering: .acquiring)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(params.spectrum.sequence.load(ordering: .acquiring) == spectrumSequence)
     player.equalizer.setEnabled(false)
     #expect(audio.currentItem?.audioMix == nil)
     #expect(!PlayerModel(volumePreferences: defaults).visualizationEnabled)
