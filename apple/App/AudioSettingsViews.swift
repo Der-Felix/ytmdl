@@ -3,36 +3,60 @@ import SwiftUI
 #if os(macOS)
 struct EqualizerControls: View {
     var player: PlayerModel
+    var inline = false
     @Environment(\.desktopAccent) private var accent
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Toggle("Equalizer aktivieren", isOn: Binding(get: { player.equalizer.enabled }, set: { player.equalizer.setEnabled($0) }))
-            HStack {
-                Picker("Klangprofil", selection: Binding(get: { player.equalizer.preset }, set: { if let preset = EqualizerPreset(rawValue: $0) { player.equalizer.select(preset) } })) {
-                    ForEach(EqualizerPreset.allCases) { Text($0.name).tag($0.rawValue) }
-                    if player.equalizer.preset == "custom" { Text("Eigener Klang").tag("custom") }
-                }.controlSize(.large)
-                Button("Zurücksetzen", systemImage: "arrow.counterclockwise") { player.equalizer.select(.flat); player.equalizer.setPreamp(0) }
-                    .labelStyle(.iconOnly).buttonStyle(.bordered).help("Alle Frequenzbänder und Vorverstärkung auf 0 dB")
+            if inline {
+                HStack(spacing: 16) {
+                    Text("Klangprofil").desktopScaledFont(19)
+                    Menu {
+                        ForEach(EqualizerPreset.allCases) { preset in
+                            Button(preset.name) { player.equalizer.select(preset) }
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(EqualizerPreset(rawValue: player.equalizer.preset)?.name ?? "Eigener Klang")
+                            Image(systemName: "chevron.down")
+                        }.desktopScaledFont(18, weight: .medium).padding(.horizontal, 16).frame(height: 44)
+                            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                    }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 12)).accessibilityLabel("Klangprofil wählen")
+                    Spacer(minLength: 0)
+                    Button { player.equalizer.select(.flat); player.equalizer.setPreamp(0) } label: {
+                        Image(systemName: "arrow.counterclockwise").desktopScaledFont(20).frame(width: 44, height: 44)
+                    }.buttonStyle(DesktopControlStyle()).accessibilityLabel("Equalizer zurücksetzen").help("Alle Frequenzbänder und Vorverstärkung auf 0 dB")
+                }
+            } else {
+                HStack {
+                    Picker("Klangprofil", selection: Binding(get: { player.equalizer.preset }, set: { if let preset = EqualizerPreset(rawValue: $0) { player.equalizer.select(preset) } })) {
+                        ForEach(EqualizerPreset.allCases) { Text($0.name).tag($0.rawValue) }
+                        if player.equalizer.preset == "custom" { Text("Eigener Klang").tag("custom") }
+                    }.controlSize(.large)
+                    Button("Zurücksetzen", systemImage: "arrow.counterclockwise") { player.equalizer.select(.flat); player.equalizer.setPreamp(0) }
+                        .labelStyle(.iconOnly).buttonStyle(.bordered).help("Alle Frequenzbänder und Vorverstärkung auf 0 dB")
+                }
             }
             ScrollView(.horizontal) {
                 HStack(spacing: 12) {
                     ForEach(0..<10) { band in
                         VStack(spacing: 12) {
-                            Text(String(format: "%+.1f", player.equalizer.gains[band])).desktopScaledFont(14).monospacedDigit().foregroundStyle(.secondary)
+                            Text(String(format: "%+.1f", player.equalizer.gains[band])).desktopScaledFont(inline ? 16 : 14).monospacedDigit().foregroundStyle(.secondary)
                             Slider(value: Binding(get: { player.equalizer.gains[band] }, set: { player.equalizer.setGain($0, band: band) }), in: -12...12, step: 0.5)
-                                .frame(width: 150).rotationEffect(.degrees(-90)).frame(width: 30, height: 150)
+                                .frame(width: inline ? 180 : 150).rotationEffect(.degrees(-90)).frame(width: 30, height: inline ? 180 : 150)
                                 .accessibilityLabel("\(EqualizerModel.frequencies[band]) Hertz").accessibilityValue("\(player.equalizer.gains[band]) Dezibel")
-                            Text(frequency(band)).desktopScaledFont(14, weight: .medium)
-                        }.frame(width: 54)
+                            Text(frequency(band)).desktopScaledFont(inline ? 16 : 14, weight: .medium)
+                        }.frame(width: inline ? 64 : 54)
                     }
                 }.padding(.horizontal, 4).padding(.vertical, 12)
             }
             HStack { Text("Vorverstärkung"); Spacer(); Text(String(format: "%+.1f dB", player.equalizer.preamp)).monospacedDigit().foregroundStyle(.secondary) }
             Slider(value: Binding(get: { player.equalizer.preamp }, set: { player.equalizer.setPreamp($0) }), in: -12...6, step: 0.5).accessibilityLabel("Vorverstärkung")
             Toggle("Automatischer Pegelschutz", isOn: Binding(get: { player.equalizer.headroom }, set: { player.equalizer.setHeadroom($0) }))
-            Text("Gleicht angehobene Frequenzen mit zusätzlichem Headroom aus. Ist der Equalizer ausgeschaltet, läuft die Wiedergabe im Bypass; deine Werte bleiben gespeichert.")
-                .desktopScaledFont(15).foregroundStyle(.secondary)
+            if !inline {
+                Text("Gleicht angehobene Frequenzen mit zusätzlichem Headroom aus. Ist der Equalizer ausgeschaltet, läuft die Wiedergabe im Bypass; deine Werte bleiben gespeichert.")
+                    .desktopScaledFont(15).foregroundStyle(.secondary)
+            }
             if let soundError = player.soundError { Text(soundError).desktopScaledFont(15).foregroundStyle(.secondary) }
             if player.equalizer.enabled && player.equalizerFormat == 2 {
                 Text("Das Ausgabeformat unterstützt diesen Equalizer nicht. Die Wiedergabe läuft im Bypass.").desktopScaledFont(15).foregroundStyle(.secondary)

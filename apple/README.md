@@ -35,13 +35,14 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 - iPad/Mac sidebar navigation and adaptive album grids. Mac has readable album,
   artist and track labels, search (⌘F) in the single window toolbar, and a centered
   transport bar with seeking, app volume, mute and AirPlay. The full player uses
-  three columns on large windows: artwork up to 1,000 points, playback/tools and
-  queue/lyrics/sound. Medium windows place transport and tools in a bottom dock;
+  three columns on large windows: artwork capped at 420 points, a wider
+  playback/tools panel and queue/lyrics/sound. Medium windows place transport
+  and tools in a bottom dock;
   small windows stack artwork and context above a persistent compact transport.
-  EQ profiles, crossfade, speed and sleep timer are directly available in the
-  player. The queue can be
-  filtered by title or artist without changing playback order. Escape returns
-  to the library.
+  Large windows expose all ten EQ bands and the crossfade slider directly in
+  the wider tools panel. EQ profiles, speed and sleep timer remain accessible.
+  The queue can be filtered by title or artist without changing playback order.
+  Escape returns to the library.
 - Mac opens on **Start** by default: recently added albums, favorite tracks,
   playlists, artists and recently played tracks, with quick links to search and
   collections. Settings can choose a different launch page and hide feed sections.
