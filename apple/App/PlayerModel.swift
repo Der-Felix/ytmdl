@@ -2,10 +2,18 @@ import AVFoundation
 import Foundation
 import MediaPlayer
 import Observation
+import CoreGraphics
 import YTMDLCore
 #if os(tvOS)
 import UIKit
 #endif
+
+enum SleepMode: String, CaseIterable, Identifiable {
+    case off, minutes15, minutes30, minutes60, endOfTrack, endOfAlbum
+    var id: String { rawValue }
+    var name: String { switch self { case .off: "Aus"; case .minutes15: "15 Minuten"; case .minutes30: "30 Minuten"; case .minutes60: "60 Minuten"; case .endOfTrack: "Nach diesem Titel"; case .endOfAlbum: "Nach diesem Album" } }
+    var minutes: Double? { switch self { case .minutes15: 15; case .minutes30: 30; case .minutes60: 60; default: nil } }
+}
 
 @MainActor @Observable final class PlayerModel {
     private(set) var queue = PlaybackQueue()
@@ -14,172 +22,372 @@ import UIKit
     private(set) var position: Double = 0
     private(set) var volume: Double = 1
     private(set) var isMuted = false
+    private(set) var crossfadeSeconds: Double = 0
+    private(set) var smartAlbumTransition = true
+    private(set) var preloadEnabled = true
+    private(set) var fastStart = true
+    private(set) var playbackRate: Double = 1
+    private(set) var isCrossfading = false
+    private(set) var repeatOne = false
+    private(set) var sleepMode = SleepMode.off
+    private(set) var sleepDeadline: Date?
+    private(set) var startupMilliseconds: Double?
+    private(set) var equalizerFormat = 0
+    private(set) var artwork: CGImage?
+    private(set) var artworkPalette: ArtworkPalette?
+    let equalizer: EqualizerModel
+    var repeatAll = false { didSet { cancelPrepared(); prepareNext() } }
+    var error: String?
+    var soundError: String?
+    var lyrics = ""
+    var current: Track? { queue.current }
+    var duration: Double {
+        if let item = audio.currentItem { let value = item.duration.seconds; if value.isFinite && value > 0 { return value } }
+        return current?.duration ?? 0
+    }
+    var isPlaybackRequested: Bool { wantsPlayback }
+    var preparedTrackID: String? { pendingID }
     @ObservationIgnored private let volumePreferences: UserDefaults
     @ObservationIgnored var onTrackPlayed: ((Track) -> Void)?
     @ObservationIgnored private var recordedGeneration: UUID?
-    var repeatAll = false
-    var error: String?
-    var lyrics = ""
-    var current: Track? { queue.current }
-    var duration: Double { current?.duration ?? 0 }
-    @ObservationIgnored private let audio: AVPlayer
+    @ObservationIgnored private var audio: AVPlayer
+    @ObservationIgnored private var standby: AVPlayer
+    @ObservationIgnored private var pendingID: String?
+    @ObservationIgnored private var fadeStart: Double?
+    @ObservationIgnored private var fadeDuration: Double = 0
+    @ObservationIgnored private var fadeFraction: Double = 0
     @ObservationIgnored private var client: APIClient?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var lyricsTask: Task<Void, Never>?
+    @ObservationIgnored private var artworkTask: Task<Void, Never>?
+    @ObservationIgnored private var sleepTask: Task<Void, Never>?
     @ObservationIgnored private var observer: Any?
+    @ObservationIgnored private var fadeObserver: Any?
+    @ObservationIgnored private var prefetchAfter = ContinuousClock.now
     @ObservationIgnored private var endObserver: NSObjectProtocol?
     @ObservationIgnored private var failureObserver: NSObjectProtocol?
     @ObservationIgnored private var interruptionObserver: NSObjectProtocol?
     @ObservationIgnored private var routeObserver: NSObjectProtocol?
     @ObservationIgnored private var statusObserver: NSKeyValueObservation?
+    @ObservationIgnored private var timeObserver: NSKeyValueObservation?
     @ObservationIgnored private var generation = UUID()
-    @ObservationIgnored private var wantsPlayback = false
+    private var wantsPlayback = false
+    @ObservationIgnored private var startedAt: ContinuousClock.Instant?
+    @ObservationIgnored private var lastNowPlaying = Date.distantPast
     @ObservationIgnored private var commands: [(MPRemoteCommand, Any)] = []
+    @ObservationIgnored private let itemFactory: ((Track, APIClient) throws -> AVPlayerItem)?
 
-    init(volumePreferences: UserDefaults = .standard, audio: AVPlayer = AVPlayer()) {
-        self.audio = audio
-        self.volumePreferences = volumePreferences
+    init(volumePreferences: UserDefaults = .standard, audio: AVPlayer = AVPlayer(), standby: AVPlayer = AVPlayer(), itemFactory: ((Track, APIClient) throws -> AVPlayerItem)? = nil) {
+        self.audio = audio; self.standby = standby; self.volumePreferences = volumePreferences; self.itemFactory = itemFactory
+        equalizer = EqualizerModel(preferences: volumePreferences)
+        if let value = volumePreferences.object(forKey: "crossfadeSeconds") as? Double, value.isFinite { crossfadeSeconds = min(12, max(0, value)) }
+        smartAlbumTransition = volumePreferences.object(forKey: "smartAlbumTransition") as? Bool ?? true
+        preloadEnabled = volumePreferences.object(forKey: "preloadNextTrack") as? Bool ?? true
+        fastStart = volumePreferences.object(forKey: "fastPlaybackStart") as? Bool ?? true
+        if let value = volumePreferences.object(forKey: "playbackRate") as? Double, value.isFinite { playbackRate = min(2, max(0.5, value)) }
         #if os(macOS)
-        if let saved = volumePreferences.object(forKey: "playerVolume") as? Double, saved.isFinite {
-            volume = min(1, max(0, saved))
-        }
+        if let saved = volumePreferences.object(forKey: "playerVolume") as? Double, saved.isFinite { volume = min(1, max(0, saved)) }
         isMuted = volumePreferences.bool(forKey: "playerMuted")
-        audio.volume = Float(volume)
-        audio.isMuted = isMuted
         #endif
-        audio.automaticallyWaitsToMinimizeStalling = true
-        observer = audio.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
-            Task { @MainActor in
-                guard let self else { return }
-                let value = time.seconds
-                if value.isFinite { self.position = max(0, value) }
-                self.isPlaying = self.audio.rate > 0
-                if self.isPlaying, self.position >= 1, self.recordedGeneration != self.generation, let track = self.current {
-                    self.recordedGeneration = self.generation; self.onTrackPlayed?(track)
-                }
-                self.updateNowPlaying()
-            }
-        }
+        configure(audio); configure(standby); applyVolume()
+        equalizer.onEnabledChange = { [weak self] enabled in self?.updateEqualizerAttachment(enabled) }
         setupCommands()
         #if os(iOS) || os(tvOS)
-        interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.pause() }
-        }
+        interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.pause() } }
         routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
             let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { Task { @MainActor in self?.pause() } }
         }
         #endif
     }
-    /// App output level; leaves the device's system volume unchanged.
+    private func configure(_ player: AVPlayer) { player.automaticallyWaitsToMinimizeStalling = !fastStart }
     func setVolume(_ value: Double) {
-        guard value.isFinite else { return }
-        volume = min(1, max(0, value))
-        audio.volume = Float(volume)
-        // Moving the slider is an explicit request to hear this level.
-        isMuted = false; audio.isMuted = false
+        guard value.isFinite else { return }; volume = min(1, max(0, value)); isMuted = false; applyVolume()
         #if os(macOS)
-        volumePreferences.set(volume, forKey: "playerVolume")
-        volumePreferences.set(false, forKey: "playerMuted")
+        volumePreferences.set(volume, forKey: "playerVolume"); volumePreferences.set(false, forKey: "playerMuted")
         #endif
     }
     func toggleMute() {
-        isMuted.toggle(); audio.isMuted = isMuted
+        isMuted.toggle(); applyVolume()
         #if os(macOS)
         volumePreferences.set(isMuted, forKey: "playerMuted")
         #endif
     }
-    func play(_ tracks: [Track], start: Int = 0, client: APIClient) {
-        self.client = client; queue.replace(tracks, start: start); loadCurrent()
+    func setCrossfade(_ seconds: Double) {
+        guard seconds.isFinite else { return }; crossfadeSeconds = min(12, max(0, seconds))
+        volumePreferences.set(crossfadeSeconds, forKey: "crossfadeSeconds")
+        cancelPrepared(); prepareNext()
     }
-    func append(_ track: Track, client: APIClient) { self.client = client; queue.append(track) }
-    func select(_ index: Int) { queue.select(index); loadCurrent() }
-    func shuffle() { queue.shuffleUpcoming() }
+    func setSmartAlbumTransition(_ enabled: Bool) { smartAlbumTransition = enabled; volumePreferences.set(enabled, forKey: "smartAlbumTransition"); cancelPrepared(); prepareNext() }
+    func setPreload(_ enabled: Bool) { preloadEnabled = enabled; volumePreferences.set(enabled, forKey: "preloadNextTrack"); cancelPrepared(); prepareNext() }
+    func setFastStart(_ enabled: Bool) {
+        fastStart = enabled; volumePreferences.set(enabled, forKey: "fastPlaybackStart"); configure(audio); configure(standby)
+        audio.currentItem?.preferredForwardBufferDuration = enabled ? 5 : 20
+    }
+    func setPlaybackRate(_ value: Double) {
+        guard value.isFinite else { return }; playbackRate = min(2, max(0.5, value)); volumePreferences.set(playbackRate, forKey: "playbackRate")
+        for item in [audio.currentItem, standby.currentItem].compactMap({ $0 }) {
+            item.audioTimePitchAlgorithm = playbackRate == 1 ? .varispeed : .spectral
+        }
+        if wantsPlayback { audio.rate = Float(playbackRate); if isCrossfading { standby.rate = Float(playbackRate) } }
+        updateNowPlaying()
+    }
+    func setRepeatOne(_ enabled: Bool) { repeatOne = enabled; cancelPrepared(); prepareNext() }
+    func setSleepMode(_ mode: SleepMode) {
+        sleepTask?.cancel(); sleepMode = mode; sleepDeadline = mode.minutes.map { Date().addingTimeInterval($0 * 60) }
+        cancelPrepared(); prepareNext()
+        if let deadline = sleepDeadline {
+            sleepTask = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow))); try Task.checkCancellation() }
+                catch { return }
+                self?.pause(); self?.cancelPrepared(); self?.sleepMode = .off; self?.sleepDeadline = nil
+            }
+        }
+    }
+    func play(_ tracks: [Track], start: Int = 0, client: APIClient) { self.client = client; queue.replace(tracks, start: start); loadCurrent() }
+    func append(_ track: Track, client: APIClient) { self.client = client; queue.append(track); prepareNext() }
+    func select(_ index: Int) { guard queue.tracks.indices.contains(index) else { return }; queue.select(index); loadCurrent() }
+    func shuffle() { queue.shuffleUpcoming(); cancelPrepared(); prepareNext() }
     func next() {
-        if queue.next(repeatAll: repeatAll) { loadCurrent() }
-        else { pause(); seek(0) }
+        if promotePrepared() { return }
+        if queue.next(repeatAll: repeatAll) { loadCurrent() } else { cancelPrepared(); pause(); seek(0) }
     }
-    func previous() {
-        if position > 3 { seek(0) } else { queue.previous(); loadCurrent() }
-    }
+    func previous() { if position > 3 { seek(0) } else { queue.previous(); loadCurrent() } }
     func toggle() { wantsPlayback ? pause() : resume() }
-    func pause() { wantsPlayback = false; audio.pause(); isPlaying = false; updateNowPlaying() }
+    func pause() { wantsPlayback = false; audio.pause(); standby.pause(); isPlaying = false; loading = false; updateNowPlaying() }
     func resume() {
         guard current != nil else { return }
+        if error != nil || audio.currentItem == nil { loadCurrent(); return }
         wantsPlayback = true
-        if error != nil || (audio.currentItem == nil && !loading) { loadCurrent(); return }
-        guard !loading else { return }
-        let generation = generation
+        let token = generation
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                try await activateAudio()
-                guard self.generation == generation, self.wantsPlayback else { return }
-                audio.play(); isPlaying = true; updateNowPlaying()
-            } catch { if self.generation == generation { self.error = "Die Audioausgabe konnte nicht aktiviert werden." } }
+                try await activateAudio(); try Task.checkCancellation()
+                guard self.generation == token, self.wantsPlayback else { return }
+                self.start(audio); if isCrossfading { self.start(standby) }; updateNowPlaying()
+            } catch is CancellationError { }
+            catch { if generation == token { self.error = "Die Audioausgabe konnte nicht aktiviert werden."; pause() } }
         }
     }
     func seek(_ seconds: Double) {
         guard seconds.isFinite, current != nil else { return }
+        cancelPrepared()
+        // Do not create a new incoming stream for every slider drag event.
+        prefetchAfter = .now.advanced(by: .milliseconds(200))
         let target = min(max(0, seconds), max(0, duration))
         audio.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         position = target; updateNowPlaying()
     }
     func stop() {
-        generation = UUID(); loadTask?.cancel(); lyricsTask?.cancel(); removeItemObservers()
-        pause(); audio.replaceCurrentItem(with: nil); queue.replace([]); position = 0; loading = false
-        error = nil; lyrics = ""; client = nil; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        generation = UUID(); loadTask?.cancel(); lyricsTask?.cancel(); artworkTask?.cancel(); sleepTask?.cancel()
+        removeItemObservers(); cancelPrepared(); pause(); audio.replaceCurrentItem(with: nil)
+        queue.replace([]); position = 0; loading = false; error = nil; soundError = nil; lyrics = ""; client = nil
+        artwork = nil; artworkPalette = nil; sleepMode = .off; sleepDeadline = nil; startupMilliseconds = nil
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         #if os(iOS) || os(tvOS)
         AVAudioSession.sharedInstance().deactivate(options: .notifyOthersOnDeactivation) { _, _ in }
         #endif
     }
+    private func makeItem(_ track: Track, client: APIClient) throws -> AVPlayerItem {
+        let item: AVPlayerItem
+        if let itemFactory { item = try itemFactory(track, client) }
+        else {
+            let path = try client.server.itemPath("tracks", id: track.id, suffix: "/stream")
+            let asset = AVURLAsset(url: try client.server.endpoint(path), options: [AVURLAssetHTTPCookiesKey: client.authenticationCookies])
+            item = AVPlayerItem(asset: asset)
+        }
+        item.preferredForwardBufferDuration = fastStart ? 5 : 20
+        // Pitch correction adds latency and is only needed at a changed speed.
+        item.audioTimePitchAlgorithm = playbackRate == 1 ? .varispeed : .spectral
+        if equalizer.enabled { attachSound(to: item) }
+        return item
+    }
+    private func attachSound(to item: AVPlayerItem) {
+        do { try attachEqualizer(to: item, parameters: equalizer.parameters) }
+        catch { soundError = "Die Klangverarbeitung konnte nicht gestartet werden. Der Titel wird ohne Equalizer abgespielt." }
+    }
+    private func updateEqualizerAttachment(_ enabled: Bool) {
+        soundError = nil; equalizerFormat = 0; equalizer.parameters.format.store(0, ordering: .releasing)
+        for item in [audio.currentItem, standby.currentItem].compactMap({ $0 }) {
+            if enabled { attachSound(to: item) } else { item.audioMix = nil }
+        }
+    }
     private func loadCurrent() {
-        loadTask?.cancel(); lyricsTask?.cancel(); removeItemObservers()
-        generation = UUID(); let generation = generation
-        audio.pause(); audio.replaceCurrentItem(with: nil); isPlaying = false; position = 0; error = nil; lyrics = ""
+        loadTask?.cancel(); removeItemObservers(); cancelPrepared(); generation = UUID()
+        prefetchAfter = .now
+        audio.pause(); audio.replaceCurrentItem(with: nil); isPlaying = false; position = 0; error = nil; soundError = nil
         guard let current, let client else { loading = false; return }
-        loading = true; wantsPlayback = true
-        loadTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let path = try client.server.itemPath("tracks", id: current.id, suffix: "/stream")
-                let asset = AVURLAsset(url: try client.server.endpoint(path), options: [AVURLAssetHTTPCookiesKey: client.authenticationCookies])
-                let playable = try await asset.load(.isPlayable)
-                try Task.checkCancellation()
-                guard self.generation == generation else { return }
-                guard playable else { self.failPlayback(); return }
-                let item = AVPlayerItem(asset: asset)
-                self.audio.replaceCurrentItem(with: item)
-                self.statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-                    let failed = item.status == .failed
-                    if failed { Task { @MainActor in guard self?.generation == generation else { return }; self?.failPlayback() } }
+        loading = true; wantsPlayback = true; startedAt = .now; startupMilliseconds = nil
+        let token = generation
+        do {
+            audio.replaceCurrentItem(with: try makeItem(current, client: client)); observeCurrent()
+            loadTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await activateAudio(); try Task.checkCancellation()
+                    guard generation == token, wantsPlayback else { return }
+                    start(audio)
+                } catch is CancellationError { }
+                catch { if generation == token { failPlayback() } }
+            }
+        } catch { failPlayback() }
+        loadDetails(current, client: client)
+    }
+    private func start(_ player: AVPlayer) {
+        if fastStart { player.playImmediately(atRate: Float(playbackRate)) } else { player.rate = Float(playbackRate) }
+    }
+    private func observeCurrent() {
+        guard let item = audio.currentItem else { return }
+        let token = generation
+        statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            let failed = item.status == .failed
+            if failed { Task { @MainActor in guard self?.generation == token else { return }; self?.failPlayback() } }
+        }
+        timeObserver = audio.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] _, _ in
+            Task { @MainActor in guard self?.generation == token else { return }; self?.updatePlaybackState() }
+        }
+        observer = audio.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] _ in
+            Task { @MainActor in guard let self, self.generation == token else { return }; self.tick() }
+        }
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
+            Task { @MainActor in guard self?.generation == token else { return }; self?.didFinish() }
+        }
+        failureObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
+            Task { @MainActor in guard self?.generation == token else { return }; self?.failPlayback() }
+        }
+    }
+    private func updatePlaybackState() {
+        isPlaying = audio.timeControlStatus == .playing
+        loading = wantsPlayback && !isPlaying && error == nil
+        if isCrossfading, wantsPlayback {
+            if !isPlaying { standby.pause() }
+            else if standby.rate == 0, standby.currentItem?.status == .readyToPlay { start(standby) }
+        }
+    }
+    private func tick() {
+        equalizerFormat = equalizer.parameters.format.load(ordering: .acquiring)
+        let value = audio.currentTime().seconds
+        if value.isFinite { position = max(0, value) }
+        updatePlaybackState()
+        if isPlaying, position > 0, startupMilliseconds == nil, let startedAt {
+            let elapsed = startedAt.duration(to: .now).components
+            startupMilliseconds = Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15
+        }
+        if isPlaying, position >= 1, recordedGeneration != generation, let current {
+            recordedGeneration = generation; onTrackPlayed?(current)
+        }
+        if let sleepDeadline, Date() >= sleepDeadline { pause(); setSleepMode(.off); return }
+        if isPlaying { prepareNext(); updateFade() }
+        if Date().timeIntervalSince(lastNowPlaying) >= 0.5 { updateNowPlaying() }
+    }
+    private var upcomingIndex: Int? {
+        if queue.index + 1 < queue.tracks.count { return queue.index + 1 }
+        return repeatAll && !queue.tracks.isEmpty ? 0 : nil
+    }
+    private func sameAlbum(_ a: Track, _ b: Track) -> Bool { !a.album.isEmpty && a.album == b.album && a.artists == b.artists }
+    private var shouldStopAtBoundary: Bool {
+        if sleepMode == .endOfTrack { return true }
+        if sleepMode == .endOfAlbum {
+            if queue.index + 1 >= queue.tracks.count { return true }
+            guard let current, let index = upcomingIndex else { return true }
+            return !sameAlbum(current, queue.tracks[index])
+        }
+        return false
+    }
+    private func prepareNext() {
+        guard wantsPlayback, ContinuousClock.now >= prefetchAfter, (preloadEnabled || crossfadeSeconds > 0), !repeatOne, !shouldStopAtBoundary, let client, let index = upcomingIndex else { return }
+        let next = queue.tracks[index]
+        guard pendingID != next.id else { return }
+        cancelPrepared(); pendingID = next.id
+        do {
+            let item = try makeItem(next, client: client); item.preferredForwardBufferDuration = 3
+            standby.replaceCurrentItem(with: item)
+        } catch { /* A failed prefetch must not interrupt the current title. */ }
+    }
+    private func updateFade(playhead: Double? = nil) {
+        if standby.currentItem?.status == .failed {
+            removeFadeObserver(); standby.pause(); fadeStart = nil; fadeFraction = 0; isCrossfading = false; applyVolume(); return
+        }
+        guard crossfadeSeconds > 0, !shouldStopAtBoundary, !repeatOne, let current, let index = upcomingIndex,
+              pendingID == queue.tracks[index].id, standby.currentItem?.status == .readyToPlay else { return }
+        if smartAlbumTransition && sameAlbum(current, queue.tracks[index]) { return }
+        let time = playhead ?? position
+        guard time.isFinite else { return }
+        let remaining = duration - time
+        // Keep at least half of each short track outside the overlap.
+        let preparedDuration = standby.currentItem?.duration.seconds ?? 0
+        let nextDuration = preparedDuration.isFinite && preparedDuration > 0 ? preparedDuration : queue.tracks[index].duration
+        let window = min(crossfadeSeconds * playbackRate, duration / 2, nextDuration / 2)
+        guard remaining <= window, window > 0, remaining > 0 else { return }
+        if !isCrossfading { isCrossfading = true; fadeDuration = max(0.1, remaining); start(standby) }
+        if fadeObserver == nil {
+            let token = generation
+            // Gain changes run at 50 Hz; the rest of the UI still ticks at 10 Hz.
+            fadeObserver = audio.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.02, preferredTimescale: 600), queue: .main) { [weak self] time in
+                Task { @MainActor in
+                    guard let self, self.generation == token, self.isCrossfading, self.wantsPlayback, self.isPlaying else { return }
+                    self.updateFade(playhead: time.seconds)
                 }
-                self.endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
-                    Task { @MainActor in guard self?.generation == generation else { return }; self?.next() }
-                }
-                self.failureObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
-                    Task { @MainActor in guard self?.generation == generation else { return }; self?.failPlayback() }
-                }
-                if self.wantsPlayback { try await self.activateAudio() }
-                guard self.generation == generation else { return }
-                self.loading = false
-                if self.wantsPlayback { self.audio.play() }
-                self.updateNowPlaying()
-            } catch is CancellationError { }
-            catch {
-                guard self.generation == generation else { return }
-                self.failPlayback()
             }
         }
+        guard standby.timeControlStatus == .playing else {
+            fadeFraction = 0; fadeStart = nil; applyVolume(); return
+        }
+        if fadeStart == nil { fadeStart = time; fadeDuration = max(0.1, duration - time) }
+        fadeFraction = min(1, max(0, (time - fadeStart!) / fadeDuration))
+        applyVolume()
+    }
+    private func applyVolume() {
+        audio.volume = Float(volume * (1 - fadeFraction)); standby.volume = Float(volume * fadeFraction)
+        audio.isMuted = isMuted; standby.isMuted = isMuted
+    }
+    @discardableResult private func promotePrepared() -> Bool {
+        guard let index = upcomingIndex, pendingID == queue.tracks[index].id, standby.currentItem?.status == .readyToPlay else { return false }
+        let play = wantsPlayback
+        removeItemObservers(); audio.pause(); audio.replaceCurrentItem(with: nil)
+        let previous = audio; audio = standby; standby = previous
+        _ = queue.next(repeatAll: repeatAll); generation = UUID(); pendingID = nil; fadeStart = nil; fadeFraction = 0; isCrossfading = false
+        position = max(0, audio.currentTime().seconds.isFinite ? audio.currentTime().seconds : 0)
+        error = nil; loading = true; startedAt = .now; startupMilliseconds = nil
+        applyVolume(); observeCurrent()
+        if play { start(audio) } else { audio.pause() }
+        if let current, let client { loadDetails(current, client: client) }
+        return true
+    }
+    private func cancelPrepared() {
+        removeFadeObserver()
+        standby.pause(); standby.replaceCurrentItem(with: nil); pendingID = nil
+        fadeStart = nil; fadeFraction = 0; isCrossfading = false; applyVolume()
+    }
+    private func didFinish() {
+        if shouldStopAtBoundary { pause(); setSleepMode(.off); cancelPrepared(); seek(0); return }
+        if repeatOne { seek(0); resume(); return }
+        next()
+    }
+    private func loadDetails(_ track: Track, client: APIClient) {
+        lyricsTask?.cancel(); artworkTask?.cancel(); lyrics = ""; artwork = nil; artworkPalette = nil
+        let token = generation
         lyricsTask = Task { [weak self] in
             do {
-                let lyrics: Lyrics = try await client.get(client.server.itemPath("tracks", id: current.id, suffix: "/lyrics"))
-                guard self?.generation == generation else { return }
-                self?.lyrics = lyrics.content ?? "Für diesen Titel sind keine Lyrics gespeichert."
-            } catch {
-                guard self?.generation == generation else { return }
-                self?.lyrics = "Lyrics konnten nicht geladen werden."
-            }
+                try Task.checkCancellation()
+                let result: Lyrics = try await client.get(client.server.itemPath("tracks", id: track.id, suffix: "/lyrics"))
+                try Task.checkCancellation(); guard self?.generation == token else { return }
+                self?.lyrics = result.content ?? "Für diesen Titel sind keine Lyrics gespeichert."
+            } catch { if self?.generation == token, !Task.isCancelled { self?.lyrics = "Lyrics konnten nicht geladen werden." } }
+        }
+        artworkTask = Task { [weak self] in
+            do {
+                try Task.checkCancellation()
+                let (data, response) = try await client.session.data(for: client.artworkRequest(kind: "tracks", id: track.id))
+                try Task.checkCancellation()
+                guard (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 8 * 1024 * 1024 else { return }
+                let result = await Task.detached(priority: .utility) { () -> (CGImage?, ArtworkPalette?) in
+                    let image = ArtworkPalette.thumbnail(data); return (image, image.flatMap(ArtworkPalette.extract))
+                }.value
+                try Task.checkCancellation(); guard self?.generation == token else { return }
+                self?.artwork = result.0; self?.artworkPalette = result.1
+            } catch { /* Keep the selected theme and the normal artwork placeholder. */ }
         }
     }
     private func activateAudio() async throws {
@@ -190,14 +398,19 @@ import UIKit
         #endif
     }
     private func failPlayback() {
-        pause(); loading = false
-        error = "Dieser Titel konnte nicht abgespielt werden. Bitte Verbindung und Audioformat prüfen. Opus in Ogg/WebM kann auf Apple-Geräten eine kompatible Wiedergabevariante benötigen."
+        pause(); cancelPrepared(); loading = false
+        error = "Dieser Titel konnte nicht abgespielt werden. Bitte Verbindung und Audioformat prüfen. Erneut versuchen startet nur diesen Titel."
     }
     private func removeItemObservers() {
-        statusObserver?.invalidate(); statusObserver = nil
+        removeFadeObserver()
+        if let observer { audio.removeTimeObserver(observer) }; observer = nil
+        statusObserver?.invalidate(); statusObserver = nil; timeObserver?.invalidate(); timeObserver = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         endObserver = nil; failureObserver = nil
+    }
+    private func removeFadeObserver() {
+        if let fadeObserver { audio.removeTimeObserver(fadeObserver) }; fadeObserver = nil
     }
     private func setupCommands() {
         let center = MPRemoteCommandCenter.shared()
@@ -225,12 +438,13 @@ import UIKit
         commands.append((center.changePlaybackPositionCommand, token))
     }
     private func updateNowPlaying() {
+        lastNowPlaying = Date()
         guard let current else { return }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: current.title, MPMediaItemPropertyArtist: current.artistText,
             MPMediaItemPropertyAlbumTitle: current.album, MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? playbackRate : 0.0,
         ]
         #if os(macOS)
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused

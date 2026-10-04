@@ -120,3 +120,21 @@ Apple endorsement or preapproval.
 [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)
 are the source for completeness, privacy, intellectual-property and media
 requirements, including sections 2.1, 4.2, 5.1 and 5.2.3.
+
+## Native listening processing
+
+Mac cover palettes are computed from bounded thumbnails of authenticated
+same-origin artwork. Cover/lyric tasks are cancelled on track changes and
+logout; invalidated API clients reject late requests before creating a network
+task or persisting response cookies. No extracted colors leave the device.
+
+EQ runs on decoded PCM using the OS 27 mixed-output AVPlayer tap. The direct
+path has no tap while EQ is disabled. A prepared incoming AVPlayer uses the same
+origin and session cookies as the current stream. Crossfade and next-track
+buffering retain at most one incoming title and create no persistent offline
+library. Stop, seek, logout and timer boundaries cancel incoming playback.
+Audio settings are local device preferences; active sleep timers are ephemeral.
+
+See [Apple’s streaming/audio guidance](https://developer.apple.com/streaming/Whats-new-HLS.pdf)
+for the OS 27 mixed-output tap. This does not change the existing transport,
+codec, account-permission or physical-device qualification boundaries.

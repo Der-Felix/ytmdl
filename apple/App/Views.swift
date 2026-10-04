@@ -74,6 +74,7 @@ struct RootView: View {
         #if os(macOS)
         .environment(\.desktopTheme, selectedTheme)
         .environment(\.desktopAccent, accent)
+        .environment(\.desktopButtonAccent, selectedTheme.accent)
         .environment(\.desktopTextScale, (DesktopTextSize(rawValue: textSize) ?? .large).scale)
         .tint(accent)
         #endif
@@ -100,7 +101,7 @@ struct RootView: View {
         NavigationSplitView {
             #if os(macOS)
             desktopSidebar.navigationTitle("YTMDL")
-                .navigationSplitViewColumnWidth(min: 220, ideal: 320, max: 420)
+                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 440)
             #else
             List(Destination.allCases.filter { $0 != .home }, selection: $destination) { item in
                 Label(item.rawValue, systemImage: item.icon).tag(item)
@@ -340,7 +341,9 @@ struct ArtworkView: View {
     var id: String
     var body: some View {
         Group {
-            if let client = model.client, let request = try? client.artworkRequest(kind: kind, id: id) {
+            if kind == "tracks", model.player.current?.id == id, let image = model.player.artwork {
+                Image(decorative: image, scale: 1).resizable().scaledToFill()
+            } else if let client = model.client, let request = try? client.artworkRequest(kind: kind, id: id) {
                 AsyncImage(request: request) { image in image.resizable().scaledToFill() } placeholder: { placeholder }
                     .asyncImageURLSession(client.session)
             } else { placeholder }

@@ -62,9 +62,11 @@ enum DesktopTextSize: String, CaseIterable, Identifiable {
 }
 private struct DesktopThemeKey: EnvironmentKey { static let defaultValue = DesktopTheme.rose }
 private struct DesktopAccentKey: EnvironmentKey { static let defaultValue = Color.pink }
+private struct DesktopButtonAccentKey: EnvironmentKey { static let defaultValue = DesktopTheme.rose.accent }
 private struct DesktopTextScaleKey: EnvironmentKey { static let defaultValue: CGFloat = 1 }
 extension EnvironmentValues {
     var desktopAccent: Color { get { self[DesktopAccentKey.self] } set { self[DesktopAccentKey.self] = newValue } }
+    var desktopButtonAccent: Color { get { self[DesktopButtonAccentKey.self] } set { self[DesktopButtonAccentKey.self] = newValue } }
     var desktopTheme: DesktopTheme { get { self[DesktopThemeKey.self] } set { self[DesktopThemeKey.self] = newValue } }
     var desktopTextScale: CGFloat { get { self[DesktopTextScaleKey.self] } set { self[DesktopTextScaleKey.self] = newValue } }
 }

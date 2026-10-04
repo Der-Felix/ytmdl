@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage("homeShowArtists") private var showArtists = true
     @AppStorage("homeShowPlaylists") private var showPlaylists = true
     @AppStorage("homeShowRecent") private var showRecent = true
+    @AppStorage("playerCoverColors") private var coverColors = true
     @Environment(\.desktopTheme) private var theme
     @Environment(\.desktopAccent) private var accent
     @Environment(\.colorScheme) private var scheme
@@ -64,7 +65,7 @@ struct SettingsView: View {
             }
             ScrollView(.horizontal) {
                 HStack(spacing: 12) {
-                    ForEach(["Darstellung", "Startseite", "Wiedergabe", "Konto"], id: \.self) { tab in
+                    ForEach(["Darstellung", "Startseite", "Wiedergabe", "Klang", "Konto"], id: \.self) { tab in
                         Button { settingsTab = tab } label: {
                             Text(tab).desktopScaledFont(18, weight: .semibold).padding(.horizontal, 18).padding(.vertical, 14)
                                 .background(settingsTab == tab ? accent.opacity(0.18) : theme.surface(scheme), in: RoundedRectangle(cornerRadius: 14))
@@ -78,6 +79,7 @@ struct SettingsView: View {
                     case "Darstellung": appearanceSettings
                     case "Startseite": homeSettings
                     case "Wiedergabe": playbackSettings
+                    case "Klang": settingsCard("Equalizer & Klang", icon: "slider.vertical.3") { EqualizerControls(player: model.player) }
                     default: accountSettings
                     }
                     Text(appVersion).desktopScaledFont(14).foregroundStyle(.secondary)
@@ -89,7 +91,7 @@ struct SettingsView: View {
             let args = ProcessInfo.processInfo.arguments
             if args.contains("--fixture-server"), ["127.0.0.1", "localhost"].contains(model.client?.server.url.host ?? ""),
                let index = args.firstIndex(of: "--fixture-settings-tab"), args.indices.contains(index + 1),
-               ["Darstellung", "Startseite", "Wiedergabe", "Konto"].contains(args[index + 1]) { settingsTab = args[index + 1] }
+               ["Darstellung", "Startseite", "Wiedergabe", "Klang", "Konto"].contains(args[index + 1]) { settingsTab = args[index + 1] }
         }
         #endif
     }
@@ -122,6 +124,7 @@ struct SettingsView: View {
                 }.pickerStyle(.segmented).controlSize(.large).frame(maxWidth: 480)
             }
             settingsCard("Schrift & Cover", icon: "textformat.size") {
+                Toggle("Player-Farben aus dem aktuellen Cover", isOn: $coverColors)
                 Picker("Schriftgröße", selection: $textSize) {
                     ForEach(DesktopTextSize.allCases) { Text($0.name).tag($0.rawValue) }
                 }.pickerStyle(.segmented).controlSize(.large).frame(maxWidth: 580)
@@ -169,6 +172,7 @@ struct SettingsView: View {
                 Button("Hörverlauf löschen", systemImage: "trash", role: .destructive) { model.listeningHistory.clear() }
                     .buttonStyle(.bordered).controlSize(.large).disabled(model.listeningHistory.tracks.isEmpty)
             }
+            settingsCard("Übergänge & Timer", icon: "waveform") { PlaybackOptions(player: model.player) }
             settingsCard("Tastenkürzel", icon: "keyboard") {
                 shortcut("Suche", keys: "⌘F")
                 shortcut("Wiedergabe / Pause", keys: "Leertaste")

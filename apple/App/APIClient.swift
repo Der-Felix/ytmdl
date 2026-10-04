@@ -19,6 +19,7 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     private let decoder: JSONDecoder
     private let persist: Bool
     private let cookies: HTTPCookieStorage
+    private var valid = true
     init(server: ServerAddress, persist: Bool = true, configuration: URLSessionConfiguration = .ephemeral) throws {
         self.server = server; self.persist = persist
         configuration.urlCache = nil
@@ -35,7 +36,7 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
             }
         }
     }
-    func invalidate() { session.invalidateAndCancel() }
+    func invalidate() { valid = false; session.invalidateAndCancel() }
     var authenticationCookies: [HTTPCookie] {
         (cookies.cookies(for: server.url) ?? []).filter { ["ytmdl_session", "ytmdl_csrf"].contains($0.name) }
     }
@@ -45,6 +46,7 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
         try SessionVault.write(JSONEncoder().encode(stored), origin: server.url.absoluteString)
     }
     func request(_ path: String, method: String = "GET", body: [String: String]? = nil, query: [URLQueryItem] = []) throws -> URLRequest {
+        guard valid else { throw CancellationError() }
         var request = URLRequest(url: try server.endpoint(path, query: query))
         request.httpMethod = method
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -61,7 +63,11 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
         return request
     }
     private func perform(_ request: URLRequest) async throws -> Data {
+        try Task.checkCancellation()
+        guard valid else { throw CancellationError() }
         let (data, response) = try await session.data(for: request)
+        try Task.checkCancellation()
+        guard valid else { throw CancellationError() }
         guard let http = response as? HTTPURLResponse else { throw PlayerError.badResponse }
         guard data.count <= 8 * 1024 * 1024 else { throw PlayerError.responseTooLarge }
         // Adopt same-origin auth cookies before the next CSRF request, including
