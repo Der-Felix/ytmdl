@@ -87,6 +87,18 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   Unsupported PCM retains ordinary playback. No microphone access is used.
   Implementation references: Apple's [windowing guidance](https://developer.apple.com/documentation/accelerate/reducing-spectral-leakage-with-windowing)
   and [audio processing taps](https://developer.apple.com/documentation/MediaToolbox/MTAudioProcessingTap).
+- Mac **Playlists** uses adaptive collection cards, a name filter and optional
+  A–Z sorting. Cards display names, track counts, duration and a clear open action;
+  the index makes no extra per-playlist detail requests. **Favoriten** and an
+  opened playlist use a cover preview/collage built from loaded tracks, readable
+  title rows, play/shuffle, and filters for title, artist or album. Favorites load
+  100 tracks per page; their header explicitly labels partial totals as loaded
+  tracks. Filtering and playback apply to loaded matching tracks, and sorting
+  changes only the local display; playlist order stored on the server is untouched.
+  Mac track rows show favorite and enqueue buttons directly, with a labeled
+  **Aktionen** menu for play/copy. Favorite requests cannot be double-submitted
+  while pending; removed favorites disappear from the loaded collection and
+  adjust its pagination offset. Empty filters disable play/shuffle.
 - Mac opens on **Start** by default: recently added albums, favorite tracks,
   playlists, artists and recently played tracks, with quick links to search and
   collections. Settings can choose a different launch page and hide feed sections.

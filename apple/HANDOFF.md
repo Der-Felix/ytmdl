@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.1.0, build 19
+# Apple app handoff — preview 0.1.0, build 20
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -35,7 +35,7 @@ Build commands, fixtures, device requirements and codec limits are in
 [README.md](README.md). Authentication, local HTTP consent, privacy and Apple
 review requirements are in [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
 
-Build 19 uses a unified listening card
+Build 20 uses a unified listening card
 and a right-hand queue/options area. Artwork is capped at 520 points, with
 transport near the bottom and flexible space beneath metadata. Known library
 duration takes precedence over unreliable stream estimates for seeking and
@@ -55,6 +55,18 @@ EQ headroom remains reachable in the EQ menu and detailed sound settings.
 Shorter windows scroll. Player overlays suppress the underlying toolbar's Escape shortcut
 so their close action runs first; a later Escape returns to the library. Sidebar and sign-in use the original repository logo,
 and Mac/iOS icons are generated from it by `Scripts/generate-icons.swift`.
+
+Mac favorites and playlist details now use a collection header with cover
+preview/collage from already loaded tracks, play/shuffle and local filtering and
+sorting. The playlist index uses adaptive cards with a name filter and clear
+open action, without extra requests to fetch individual playlists. Long names
+reserve three title lines so cards remain aligned. Mac track rows expose favorite
+and enqueue controls directly; a labeled **Aktionen** menu replaces the ellipsis.
+Favorite mutations stay explicit and are blocked while that row is pending;
+removing a loaded favorite adjusts the offset for the next 100-track page.
+Loaded totals are labeled when more pages exist. Filtered empty lists disable
+transport actions; sorting/filtering do not change stored playlist order or
+remove library media. Shared non-Mac list layouts remain available.
 
 The optional Visualizer now uses a Hann-windowed 2048-point real FFT (Accelerate)
 and 32 logarithmic bands rather than RMS-history graphics. **Spiegel-Spektrum** draws

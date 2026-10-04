@@ -1021,4 +1021,80 @@ struct DesktopListeningView: View {
         }.buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityAddTraits(tab == value ? .isSelected : [])
     }
 }
+
+/// Collection artwork uses only already loaded tracks; the index needs no detail requests.
+struct DesktopCollectionHeader: View {
+    @Environment(\.desktopAccent) private var accent
+    var model: AppModel
+    var tracks: [Track]
+    var title: String
+    var subtitle: String
+    var symbol: String
+    var canPlay: Bool
+    var detail: String
+    var play: () -> Void
+    var shuffle: () -> Void
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 28) { artwork; metadata }
+            VStack(alignment: .leading, spacing: 22) { artwork; metadata }
+        }.padding(28).frame(maxWidth: .infinity, alignment: .leading)
+            .background(LinearGradient(colors: [accent.opacity(0.14), accent.opacity(0.025)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 24))
+    }
+    private var artwork: some View {
+        let previews = Array(tracks.prefix(4))
+        return ZStack {
+            accent.opacity(0.1)
+            if previews.isEmpty { Image(systemName: symbol).font(.system(size: 52)).foregroundStyle(accent) }
+            else if previews.count < 4 {
+                ArtworkView(model: model, kind: "tracks", id: previews[0].id)
+            } else {
+                VStack(spacing: 2) {
+                    HStack(spacing: 2) { preview(previews[0]); preview(previews[1]) }
+                    HStack(spacing: 2) { preview(previews[2]); preview(previews[3]) }
+                }
+            }
+        }.frame(width: 150, height: 150).clipShape(RoundedRectangle(cornerRadius: 18)).accessibilityHidden(true)
+    }
+    private func preview(_ track: Track) -> some View { ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 74, height: 74) }
+    private var metadata: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).desktopScaledFont(32, weight: .bold).lineLimit(3)
+            Text(subtitle).desktopScaledFont(17).foregroundStyle(.secondary)
+            Text(detail).desktopScaledFont(15).monospacedDigit().foregroundStyle(.secondary)
+            HStack(spacing: 12) {
+                Button(action: play) {
+                    Label("Abspielen", systemImage: "play.fill").desktopScaledFont(16, weight: .semibold)
+                        .padding(.horizontal, 18).frame(minHeight: 46).foregroundStyle(.white)
+                        .background(accent, in: RoundedRectangle(cornerRadius: 12))
+                }.buttonStyle(DesktopHoverStyle(radius: 12))
+                Button(action: shuffle) {
+                    Label("Zufall", systemImage: "shuffle").desktopScaledFont(16, weight: .medium)
+                        .padding(.horizontal, 18).frame(minHeight: 46)
+                        .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                }.buttonStyle(DesktopHoverStyle(radius: 12))
+            }.disabled(!canPlay).opacity(canPlay ? 1 : 0.45)
+        }.frame(minWidth: 240, maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct DesktopPlaylistCard: View {
+    @Environment(\.desktopAccent) private var accent
+    @Environment(\.desktopTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+    var playlist: Playlist
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ZStack(alignment: .bottomLeading) {
+                RoundedRectangle(cornerRadius: 16).fill(LinearGradient(colors: [accent.opacity(0.32), accent.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: "music.note.list").font(.system(size: 48, weight: .light)).foregroundStyle(accent).padding(22)
+            }.frame(height: 130).accessibilityHidden(true)
+            Text(playlist.name).desktopScaledFont(22, weight: .semibold).foregroundStyle(.primary).lineLimit(3, reservesSpace: true).frame(maxWidth: .infinity, alignment: .leading)
+            Text("\(playlist.trackCount) Titel · \(formatTime(Double(playlist.durationMs) / 1000))").desktopScaledFont(15).foregroundStyle(.secondary)
+            HStack { Text("Playlist öffnen"); Spacer(); Image(systemName: "arrow.right") }.desktopScaledFont(15).foregroundStyle(accent)
+        }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.surface(scheme), in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
 #endif

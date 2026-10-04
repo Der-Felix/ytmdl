@@ -465,7 +465,30 @@ struct CollectionView: View {
     @State private var busy = false
     @State private var more = true
     @State private var offset = 0
+    #if os(macOS)
+    @State private var collectionQuery = ""
+    @State private var collectionSort = "original"
+    #endif
     var body: some View {
+        Group {
+            #if os(macOS)
+            if isListeningCollection { desktopCollection }
+            else { standardCollection }
+            #else
+            standardCollection
+            #endif
+        }.navigationTitle(kind.title).task { if tracks.isEmpty { await load() } }
+        #if os(macOS)
+        .onChange(of: model.favoriteIDs) { old, new in
+            guard isFavorites else { return }
+            let removed = old.subtracting(new)
+            let count = tracks.filter { removed.contains($0.id) }.count
+            tracks.removeAll { removed.contains($0.id) }
+            offset = max(0, offset - count)
+        }
+        #endif
+    }
+    private var standardCollection: some View {
         List {
             Section {
                 HStack {
@@ -484,8 +507,87 @@ struct CollectionView: View {
         .desktopScaledFont(17).listStyle(.plain).scrollContentBackground(.hidden).padding(.horizontal, 24)
             .frame(maxWidth: 1400).frame(maxWidth: .infinity)
         #endif
-        .navigationTitle(kind.title).task { if tracks.isEmpty { await load() } }
     }
+    #if os(macOS)
+    private var isListeningCollection: Bool {
+        switch kind { case .favorites, .playlist: true; default: false }
+    }
+    private var isFavorites: Bool { if case .favorites = kind { true } else { false } }
+    private var availableTracks: [Track] {
+        isFavorites ? tracks.filter { model.favoriteIDs.contains($0.id) } : tracks
+    }
+    private var visibleTracks: [Track] {
+        let query = collectionQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let result = availableTracks.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.artistText.localizedCaseInsensitiveContains(query) || $0.album.localizedCaseInsensitiveContains(query) }
+        switch collectionSort {
+        case "title": return result.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case "artist": return result.sorted { $0.artistText.localizedStandardCompare($1.artistText) == .orderedAscending }
+        default: return result
+        }
+    }
+    private var desktopCollection: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                DesktopCollectionHeader(model: model, tracks: availableTracks, title: kind.title,
+                    subtitle: isFavorites ? "Deine Musik, die bleibt." : "Deine Sammlung für diesen Moment.",
+                    symbol: isFavorites ? "heart.fill" : "music.note.list", canPlay: !visibleTracks.isEmpty,
+                    detail: "\(availableTracks.count)\(more ? " geladene" : "") Titel · \(formatTime(availableTracks.reduce(0) { $0 + $1.duration }))") {
+                    play(visibleTracks)
+                } shuffle: { play(visibleTracks.shuffled()) }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 20) { collectionFilter; collectionSortMenu }
+                    VStack(alignment: .leading, spacing: 14) { collectionFilter; collectionSortMenu }
+                }
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(visibleTracks.enumerated()), id: \.offset) { index, track in
+                        TrackRow(model: model, track: track) { play(visibleTracks, index: index) }.id(track.id).disabled(busy)
+                            .padding(.horizontal, 16).padding(.vertical, 6)
+                        if index < visibleTracks.count - 1 { Divider().padding(.horizontal, 20).opacity(0.35) }
+                    }
+                    if busy { ProgressView("Titel werden geladen …").padding(28) }
+                    else if visibleTracks.isEmpty {
+                        ContentUnavailableView(collectionQuery.isEmpty ? "Noch keine Titel" : "Keine passenden Titel",
+                            systemImage: collectionQuery.isEmpty ? (isFavorites ? "heart" : "music.note.list") : "magnifyingglass",
+                            description: Text(collectionQuery.isEmpty ? (isFavorites ? "Markiere Titel mit dem Herz. Deine Lieblingstitel erscheinen hier." : "Ergänze Titel in dieser Playlist über die Weboberfläche.") : "Suche nach Titel, Künstler oder Album."))
+                            .padding(24)
+                    }
+                }.background(.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 20))
+                if more && !tracks.isEmpty {
+                    Button("Weitere Titel laden") { Task { await load() } }.buttonStyle(.bordered).disabled(busy)
+                }
+            }.padding(32).frame(maxWidth: 1500).frame(maxWidth: .infinity, alignment: .top)
+        }
+    }
+    private var collectionFilter: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Titel, Künstler oder Album filtern", text: $collectionQuery).textFieldStyle(.plain)
+            if !collectionQuery.isEmpty {
+                Button { collectionQuery = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).accessibilityLabel("Sammlungsfilter leeren")
+            }
+        }.desktopScaledFont(17).padding(14).frame(minWidth: 200, maxWidth: .infinity)
+            .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+            .accessibilityLabel("Geladene Titel filtern")
+    }
+    private var collectionSortMenu: some View {
+        Menu {
+            Picker("Sortierung", selection: $collectionSort) {
+                Text(isFavorites ? "Reihenfolge der Sammlung" : "Playlist-Reihenfolge").tag("original")
+                Text("Titel A–Z").tag("title")
+                Text("Künstler A–Z").tag("artist")
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.up.arrow.down")
+                Text(collectionSort == "title" ? "Titel A–Z" : collectionSort == "artist" ? "Künstler A–Z" : "Reihenfolge")
+                Image(systemName: "chevron.down").font(.caption)
+            }.desktopScaledFont(15).padding(.horizontal, 14).frame(minHeight: 44)
+                .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 12)).fixedSize()
+            .accessibilityLabel("Titel sortieren")
+    }
+    #endif
     private func play(_ tracks: [Track], index: Int = 0) { if let client = model.client { model.player.play(tracks, start: index, client: client) } }
     private func load() async {
         guard let client = model.client, !busy else { return }
@@ -503,6 +605,7 @@ struct CollectionView: View {
                 let detail: PlaylistDetail = try await client.get("/playlists/\(playlist.id)"); result = detail.tracks
             }
             try Task.checkCancellation()
+            guard model.client === client else { return }
             tracks += result; offset += result.count
             if case .playlist = kind { more = false } else { more = result.count == 100 }
         } catch { model.report(error); more = false }
@@ -514,6 +617,13 @@ struct TrackRow: View {
     var track: Track
     var action: () -> Void
     var body: some View {
+        #if os(macOS)
+        desktopRow
+        #else
+        standardRow
+        #endif
+    }
+    private var standardRow: some View {
         HStack(spacing: 14) {
             Button(action: action) {
                 HStack(spacing: 14) {
@@ -531,6 +641,53 @@ struct TrackRow: View {
             } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Aktionen für \(track.title)")
         }.padding(.vertical, 4)
     }
+    #if os(macOS)
+    @Environment(\.desktopAccent) private var accent
+    @State private var favoriteBusy = false
+    private var desktopRow: some View {
+        HStack(spacing: 12) {
+            Button(action: action) {
+                HStack(spacing: 16) {
+                    ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 56, height: 56)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(track.title).desktopScaledFont(18, weight: .semibold).foregroundStyle(model.player.current?.id == track.id ? accent : .primary).lineLimit(1)
+                        Text(track.album.isEmpty ? track.artistText : "\(track.artistText) · \(track.album)")
+                            .desktopScaledFont(15).foregroundStyle(.secondary).lineLimit(1)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    Text(formatTime(track.duration)).desktopScaledFont(14).monospacedDigit().foregroundStyle(.secondary)
+                }.padding(8).contentShape(RoundedRectangle(cornerRadius: 10))
+            }.buttonStyle(DesktopHoverStyle(radius: 10)).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
+            Button {
+                favoriteBusy = true
+                Task { await model.toggleFavorite(track); favoriteBusy = false }
+            } label: {
+                Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart")
+                    .foregroundStyle(model.favoriteIDs.contains(track.id) ? accent : .secondary).frame(width: 40, height: 44)
+            }.buttonStyle(DesktopHoverStyle(radius: 8)).disabled(favoriteBusy)
+                .accessibilityLabel(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen")
+                .help(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen")
+            Button {
+                if let client = model.client { model.player.append(track, client: client) }
+            } label: { Image(systemName: "text.badge.plus").frame(width: 40, height: 44) }
+                .buttonStyle(DesktopHoverStyle(radius: 8)).foregroundStyle(.secondary)
+                .disabled(model.player.queue.tracks.count >= 500)
+                .accessibilityLabel("Zur Warteschlange hinzufügen").help("Zur Warteschlange hinzufügen")
+            Menu {
+                Button("Jetzt abspielen", systemImage: "play.fill", action: action)
+                Divider()
+                Button("Titel und Künstler kopieren", systemImage: "doc.on.doc") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("\(track.artistText) – \(track.title)", forType: .string)
+                }
+            } label: {
+                HStack(spacing: 6) { Text("Aktionen"); Image(systemName: "chevron.down").font(.caption) }
+                    .desktopScaledFont(14).foregroundStyle(.secondary).padding(.horizontal, 10).frame(minHeight: 44)
+            }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 8))
+                .accessibilityLabel("Aktionen für \(track.title)")
+        }.padding(.vertical, 4)
+    }
+    #endif
+
 }
 
 struct SearchView: View {
@@ -662,21 +819,89 @@ struct SearchView: View {
 
 struct PlaylistListView: View {
     var model: AppModel
+    #if os(macOS)
+    @State private var playlistQuery = ""
+    @State private var alphabetical = false
+    private var visiblePlaylists: [Playlist] {
+        let query = playlistQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let result = model.playlists.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
+        return alphabetical ? result.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } : result
+    }
+    #endif
     var body: some View {
-        List {
-            if model.playlists.isEmpty { ContentUnavailableView("Noch keine Playlists", systemImage: "music.note.list", description: Text("Playlists im Web anlegen. Sie erscheinen hier nach dem Aktualisieren.")) }
-            ForEach(model.playlists) { playlist in
-                NavigationLink { CollectionView(model: model, kind: .playlist(playlist)) } label: {
-                    VStack(alignment: .leading, spacing: 8) { Text(playlist.name).desktopScaledFont(20, weight: .semibold, fallback: .headline); Text("\(playlist.trackCount) Titel · \(formatTime(Double(playlist.durationMs)/1000))").desktopScaledFont(16, fallback: .body).foregroundStyle(.secondary) }.padding(.vertical, 14)
+        Group {
+            #if os(macOS)
+            desktopPlaylists
+            #else
+            List {
+                if model.playlists.isEmpty { emptyPlaylists }
+                ForEach(model.playlists) { playlist in
+                    NavigationLink { CollectionView(model: model, kind: .playlist(playlist)) } label: {
+                        VStack(alignment: .leading, spacing: 8) { Text(playlist.name).desktopScaledFont(20, weight: .semibold, fallback: .headline); Text("\(playlist.trackCount) Titel · \(formatTime(Double(playlist.durationMs)/1000))").desktopScaledFont(16, fallback: .body).foregroundStyle(.secondary) }.padding(.vertical, 14)
+                    }
                 }
             }
-        }
-        #if os(macOS)
-        .listStyle(.plain).scrollContentBackground(.hidden).padding(24).frame(maxWidth: 1400).frame(maxWidth: .infinity)
-        #endif
-        .navigationTitle("Playlists")
-        .toolbar { ToolbarItem { Button("Aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } } } }
+            #endif
+        }.navigationTitle("Playlists")
+            .toolbar { ToolbarItem { Button("Aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }.disabled(model.connecting) } }
     }
+    private var emptyPlaylists: some View {
+        ContentUnavailableView("Noch keine Playlists", systemImage: "music.note.list", description: Text("Playlists im Web anlegen. Sie erscheinen hier nach dem Aktualisieren."))
+    }
+    #if os(macOS)
+    private var desktopPlaylists: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Deine Playlists").desktopScaledFont(32, weight: .bold)
+                    Text("Für jeden Moment die passende Musik. \(model.playlists.count) Sammlungen.").desktopScaledFont(17).foregroundStyle(.secondary)
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 20) { playlistFilter; playlistSort }
+                    VStack(alignment: .leading, spacing: 14) { playlistFilter; playlistSort }
+                }
+                if model.playlists.isEmpty { emptyPlaylists.frame(maxWidth: .infinity).padding(32) }
+                else if visiblePlaylists.isEmpty { ContentUnavailableView("Keine passende Playlist", systemImage: "magnifyingglass", description: Text("Versuche einen anderen Namen.")) }
+                else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 280, maximum: 450), spacing: 24)], spacing: 24) {
+                        ForEach(visiblePlaylists) { playlist in
+                            NavigationLink { CollectionView(model: model, kind: .playlist(playlist)) } label: {
+                                DesktopPlaylistCard(playlist: playlist)
+                            }.buttonStyle(DesktopHoverStyle(radius: 20)).accessibilityLabel("Playlist öffnen: \(playlist.name), \(playlist.trackCount) Titel")
+                        }
+                    }
+                }
+            }.padding(32).frame(maxWidth: 1500).frame(maxWidth: .infinity, alignment: .top)
+        }
+    }
+    private var playlistFilter: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Playlists filtern", text: $playlistQuery).textFieldStyle(.plain)
+            if !playlistQuery.isEmpty {
+                Button { playlistQuery = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).accessibilityLabel("Playlist-Filter leeren")
+            }
+        }.desktopScaledFont(17).padding(14).frame(minWidth: 200, maxWidth: .infinity)
+            .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+    }
+    private var playlistSort: some View {
+        Menu {
+            Picker("Sortierung", selection: $alphabetical) {
+                Text("Reihenfolge der Sammlung").tag(false)
+                Text("Name A–Z").tag(true)
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.up.arrow.down")
+                Text(alphabetical ? "Name A–Z" : "Reihenfolge")
+                Image(systemName: "chevron.down").font(.caption)
+            }.desktopScaledFont(15).padding(.horizontal, 14).frame(minHeight: 44)
+                .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 12)).fixedSize()
+            .accessibilityLabel("Playlists sortieren")
+    }
+    #endif
 }
 
 struct NowPlayingView: View {
