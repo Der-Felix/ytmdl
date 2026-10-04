@@ -3,11 +3,22 @@ import ImageIO
 import UniformTypeIdentifiers
 import Foundation
 
-// Reproduce the repository's vector music-note mark with Core Graphics.
-// Keep generated assets deterministic and independent of external artwork.
+// Use the original repository artwork for both in-app branding and app icons.
+// Resolve the source relative to this script so generation works from any cwd.
+let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+let markURL = repository.appendingPathComponent("frontend/public/logo-mark.png")
+guard let source = CGImageSourceCreateWithURL(markURL as CFURL, nil),
+      let mark = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+    throw NSError(domain: "Original logo missing", code: 1)
+}
 let root = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "apple/Resources/Assets.xcassets")
 let icon = root.appendingPathComponent("AppIcon.appiconset")
 try FileManager.default.createDirectory(at: icon, withIntermediateDirectories: true)
+let branding = root.appendingPathComponent("BrandMark.imageset")
+try FileManager.default.createDirectory(at: branding, withIntermediateDirectories: true)
+try Data(contentsOf: markURL).write(to: branding.appendingPathComponent("logo-mark.png"))
+let brandingContents: [String: Any] = ["images": [["idiom": "universal", "filename": "logo-mark.png"]], "info": ["author": "xcode", "version": 1]]
+try JSONSerialization.data(withJSONObject: brandingContents, options: [.prettyPrinted, .sortedKeys]).write(to: branding.appendingPathComponent("Contents.json"))
 let entries: [(String, Int, String, String)] = [
     ("ios", 1024, "1024x1024", "1x"),
     ("mac", 16, "16x16", "1x"), ("mac", 32, "16x16", "2x"),
@@ -22,17 +33,12 @@ for (idiom, size, points, scale) in entries {
     let cg = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
     cg.setFillColor(CGColor(red: 11/255, green: 13/255, blue: 20/255, alpha: 1))
     cg.fill(CGRect(x: 0, y: 0, width: size, height: size))
-    cg.scaleBy(x: CGFloat(size)/32, y: -CGFloat(size)/32); cg.translateBy(x: 0, y: -32)
-    cg.setFillColor(CGColor(red: 206/255, green: 52/255, blue: 99/255, alpha: 1))
-    // Two joined stems and tilted bar, with elliptical note heads.
-    cg.fillEllipse(in: CGRect(x: 14.7, y: 16.0, width: 8.2, height: 8.2))
-    cg.fillEllipse(in: CGRect(x: 5.7, y: 18.7, width: 8.2, height: 8.2))
-    let path = CGMutablePath()
-    path.move(to: CGPoint(x: 20.5, y: 7.4)); path.addLine(to: CGPoint(x: 20.5, y: 20.1))
-    path.addLine(to: CGPoint(x: 18.1, y: 20.1)); path.addLine(to: CGPoint(x: 18.1, y: 10.4))
-    path.addLine(to: CGPoint(x: 11.5, y: 11.9)); path.addLine(to: CGPoint(x: 11.5, y: 22.8))
-    path.addLine(to: CGPoint(x: 9.1, y: 22.8)); path.addLine(to: CGPoint(x: 9.1, y: 9.9)); path.closeSubpath()
-    cg.addPath(path); cg.fillPath()
+    cg.interpolationQuality = .high
+    let inset = CGFloat(size) * 0.10
+    let side = CGFloat(size) - inset * 2
+    let ratio = CGFloat(mark.width) / CGFloat(mark.height)
+    let width = side * min(1, ratio), height = side / max(1, ratio)
+    cg.draw(mark, in: CGRect(x: (CGFloat(size) - width) / 2, y: (CGFloat(size) - height) / 2, width: width, height: height))
     let output = CGImageDestinationCreateWithURL(icon.appendingPathComponent(filename) as CFURL, UTType.png.identifier as CFString, 1, nil)!
     CGImageDestinationAddImage(output, cg.makeImage()!, nil)
     guard CGImageDestinationFinalize(output) else { throw NSError(domain: "Icon export failed", code: 1) }

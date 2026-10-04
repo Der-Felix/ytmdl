@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.1.0, build 13
+# Apple app handoff — preview 0.1.0, build 14
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -35,7 +35,7 @@ Build commands, fixtures, device requirements and codec limits are in
 [README.md](README.md). Authentication, local HTTP consent, privacy and Apple
 review requirements are in [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
 
-Build 13 uses a unified listening card
+Build 14 uses a unified listening card
 and a right-hand queue/options area. Artwork is capped at 520 points, with
 transport near the bottom and flexible space beneath metadata. Known library
 duration takes precedence over unreliable stream estimates for seeking and
@@ -44,7 +44,15 @@ AirPlay and big transport controls sit beneath it. Queue menus address
 occurrences by index, preserve the playing occurrence and invalidate prefetch
 when order changes. Removing from the queue never deletes media.
 
+The right queue grows with window height so playback options align with the
+listening card’s lower edge. Sidebar and sign-in use the original repository
+logo; Mac/iOS icons are generated from that same source by
+`Scripts/generate-icons.swift` into `Resources/Assets.xcassets`.
+
 Visualization is optional, defaults to off and uses measured PCM RMS history.
+Enable **Visualizer** in playback options, select bars/curve and use its expand
+button for the larger live view. Escape dismisses that view first. Style and
+enabled state persist on the device; the graph fits beneath the track metadata.
 It is not a spectrum analyzer. During crossfade the shared meter receives
 callbacks from either title rather than a final mixed-output measurement.
 The bypass path leaves samples unchanged. With both EQ and visualization off,

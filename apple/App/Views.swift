@@ -187,7 +187,7 @@ struct RootView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     HStack(spacing: 16) {
-                        Image(systemName: "waveform.circle.fill").desktopScaledFont(36).foregroundStyle(accent)
+                        Image("BrandMark").resizable().scaledToFit().frame(width: 52, height: 60).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 5) {
                             Text("YTMDL").desktopScaledFont(28, weight: .bold)
                             Text("Deine Musik").desktopScaledFont(16).foregroundStyle(.secondary)
@@ -243,7 +243,7 @@ struct ConnectView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                Image(systemName: "waveform.circle.fill").desktopScaledFont(72).foregroundStyle(.pink).accessibilityHidden(true)
+                Image("BrandMark").resizable().scaledToFit().frame(width: 84, height: 96).accessibilityHidden(true)
                 Text("Deine Musik.\nDein Server.").font(.largeTitle.bold())
                 Text("Verbinde YTMDL mit deiner bestehenden Musikbibliothek.").foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 12) {

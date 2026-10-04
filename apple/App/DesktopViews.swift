@@ -3,6 +3,48 @@ import AVKit
 import YTMDLCore
 
 #if os(macOS)
+enum PlayerVisualizerStyle: String, CaseIterable, Identifiable {
+    case bars, curve
+    var id: String { rawValue }
+    var name: String { self == .bars ? "Balken" : "Kurve" }
+}
+
+/// Both presentations draw the same measured RMS history, never invented FFT bins.
+struct AudioLevelVisualizer: View {
+    var player: PlayerModel
+    var style: PlayerVisualizerStyle
+    var accent: Color
+    var body: some View {
+        Canvas { context, size in
+            let levels = player.levelHistory
+            let step = size.width / 48
+            let bottom = size.height - 2
+            var curve = Path()
+            for (index, level) in levels.enumerated() {
+                let x = CGFloat(48 - levels.count + index) * step + step / 2
+                let height = max(2, min(1, max(0, level)) * bottom)
+                if style == .bars {
+                    let rect = CGRect(x: x - step * 0.33, y: bottom - height, width: max(1, step * 0.66), height: height)
+                    context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .linearGradient(Gradient(colors: [accent, accent.opacity(0.30)]), startPoint: .zero, endPoint: CGPoint(x: 0, y: bottom)))
+                } else {
+                    let point = CGPoint(x: x, y: bottom - height)
+                    if index == 0 { curve.move(to: point) } else { curve.addLine(to: point) }
+                }
+            }
+            if style == .curve, !levels.isEmpty {
+                context.stroke(curve, with: .color(accent), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                var fill = curve
+                fill.addLine(to: CGPoint(x: size.width - step / 2, y: bottom))
+                fill.addLine(to: CGPoint(x: CGFloat(48 - levels.count) * step + step / 2, y: bottom))
+                fill.closeSubpath()
+                context.fill(fill, with: .linearGradient(Gradient(colors: [accent.opacity(0.24), .clear]), startPoint: .zero, endPoint: CGPoint(x: 0, y: bottom)))
+            }
+        }.accessibilityLabel("Gemessener Audiopegel-Verlauf")
+            .accessibilityValue(player.isPlaying ? "Wiedergabe läuft" : "Pausiert")
+            .help("Audiopegel der letzten 4,8 Sekunden einschließlich App-Lautstärke; keine Frequenzanalyse")
+    }
+}
+
 struct DesktopHoverStyle: ButtonStyle {
     var radius: CGFloat = 14
     func makeBody(configuration: Configuration) -> some View {
@@ -156,11 +198,14 @@ struct DesktopListeningView: View {
     @Environment(\.desktopAccent) private var accent
     @Environment(\.colorScheme) private var scheme
     @AppStorage("playerCoverColors") private var coverColors = true
+    @AppStorage("playerVisualizerStyle") private var visualizerStyle = PlayerVisualizerStyle.bars.rawValue
     var model: AppModel
     var size: CGSize
     @State private var tab = 0
     @State private var queueFilter = ""
     @State private var expandedArtwork = false
+    @State private var expandedVisualizer = false
+    @State private var optionsHeight: CGFloat = 480
     var body: some View {
         Group {
             if let track = model.player.current {
@@ -169,12 +214,13 @@ struct DesktopListeningView: View {
                     let contextWidth = max(380, min(600, available * 0.34))
                     HStack(alignment: .top, spacing: 24) {
                         ScrollView {
-                            listeningCard(track, cover: max(220, min(520, (available - contextWidth) * 0.7, size.height - 560)))
+                            listeningCard(track, cover: max(220, min(520, (available - contextWidth) * 0.7, size.height - (model.player.visualizationEnabled ? 690 : 560))))
                         }.scrollIndicators(.hidden).frame(maxWidth: .infinity)
                         ScrollView {
                             VStack(spacing: 16) {
-                                queuePanel.frame(height: max(300, min(620, size.height - 550)))
+                                queuePanel.frame(height: max(300, size.height - 48 - optionsHeight - 16))
                                 listeningOptions
+                                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { optionsHeight = $0 }
                             }
                         }.scrollIndicators(.hidden).frame(width: contextWidth)
                     }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -208,12 +254,16 @@ struct DesktopListeningView: View {
                 Button("Schließen") { expandedArtwork = false }.keyboardShortcut(.cancelAction)
             }.padding(28)
         }
+        .sheet(isPresented: $expandedVisualizer) { visualizerSheet }
         #if DEBUG
         .task {
             let args = ProcessInfo.processInfo.arguments
             if args.contains("--fixture-server"), model.client?.server.url.host == "127.0.0.1",
                let index = args.firstIndex(of: "--fixture-player-tab"), args.indices.contains(index + 1) {
                 tab = args[index + 1] == "Klang" ? 2 : args[index + 1] == "Lyrics" ? 1 : 0
+            }
+            if args.contains("--fixture-server"), model.client?.server.url.host == "127.0.0.1", args.contains("--fixture-visualizer") {
+                model.player.setVisualization(true); expandedVisualizer = true
             }
         }
         #endif
@@ -246,7 +296,6 @@ struct DesktopListeningView: View {
             ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: cover, height: cover)
                 .shadow(color: .black.opacity(0.22), radius: 20, y: 12)
                 .frame(maxWidth: .infinity)
-            if model.player.visualizationEnabled { audioMeter.frame(height: 48) }
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(track.title).desktopScaledFont(32, weight: .bold).lineLimit(3)
@@ -258,6 +307,7 @@ struct DesktopListeningView: View {
                         .desktopScaledFont(27).foregroundStyle(playerAccent).frame(width: 56, height: 56)
                 }.buttonStyle(DesktopControlStyle()).accessibilityLabel("Favorit umschalten")
             }
+            if model.player.visualizationEnabled { visualizerPanel }
         }.padding(.horizontal, 4).padding(.bottom, 8)
     }
     private func listeningCard(_ track: Track, cover: CGFloat) -> some View {
@@ -270,12 +320,6 @@ struct DesktopListeningView: View {
                             .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
                     }.buttonStyle(DesktopHoverStyle(radius: 10)).padding(12)
                         .accessibilityLabel("Cover vergrößern")
-                }
-                .overlay(alignment: .bottom) {
-                    if model.player.visualizationEnabled {
-                        audioMeter.frame(height: 56).padding(16)
-                            .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
-                    }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 18))
                 .shadow(color: .black.opacity(0.24), radius: 20, y: 12)
@@ -302,6 +346,7 @@ struct DesktopListeningView: View {
                         .accessibilityLabel("Aktionen für den aktuellen Titel")
                 }
             }
+            if model.player.visualizationEnabled { visualizerPanel }
             Spacer(minLength: 36)
             DesktopSeekControl(player: model.player)
             ViewThatFits(in: .horizontal) {
@@ -318,38 +363,83 @@ struct DesktopListeningView: View {
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
     }
-    private var audioMeter: some View {
-        Canvas { context, size in
-            let levels = model.player.levelHistory
-            let width = size.width / 48
-            for (index, level) in levels.enumerated() {
-                let height = max(1, level * size.height)
-                let rect = CGRect(x: Double(48 - levels.count + index) * width, y: size.height - height, width: max(1, width - 3), height: height)
-                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(playerAccent))
+    private var selectedVisualizerStyle: PlayerVisualizerStyle { PlayerVisualizerStyle(rawValue: visualizerStyle) ?? .bars }
+    private var visualizerStylePicker: some View {
+        Picker("Visualizer-Stil", selection: $visualizerStyle) {
+            ForEach(PlayerVisualizerStyle.allCases) { Text($0.name).tag($0.rawValue) }
+        }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 240)
+    }
+    private var visualizerPanel: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Label("Visualizer", systemImage: "waveform").desktopScaledFont(15, weight: .semibold)
+                Spacer(minLength: 8)
+                Button { expandedVisualizer = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 36, height: 32)
+                }.buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer vergrößern")
+            }.foregroundStyle(.secondary)
+            AudioLevelVisualizer(player: model.player, style: selectedVisualizerStyle, accent: playerAccent).frame(height: 84)
+        }.frame(maxWidth: 680)
+    }
+    private var visualizerSheet: some View {
+        VStack(spacing: 24) {
+            HStack {
+                Label("Visualizer", systemImage: "waveform").font(.title2.bold())
+                Spacer()
+                visualizerStylePicker
+                Button("Schließen") { expandedVisualizer = false }.keyboardShortcut(.cancelAction)
             }
-        }.accessibilityLabel("Audiopegel-Verlauf")
-            .help("Gemessener Audiopegel-Verlauf; keine Frequenzanalyse")
+            VStack(spacing: 8) {
+                Text(model.player.current?.title ?? "Deine Musik").font(.title.bold()).multilineTextAlignment(.center).lineLimit(2)
+                Text(model.player.current?.artistText ?? "").font(.title3).foregroundStyle(.secondary)
+            }
+            AudioLevelVisualizer(player: model.player, style: selectedVisualizerStyle, accent: playerAccent)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.vertical, 16)
+            HStack(spacing: 24) {
+                Button { model.player.toggle() } label: {
+                    Label(model.player.isPlaybackRequested ? "Pause" : "Abspielen", systemImage: model.player.isPlaybackRequested ? "pause.fill" : "play.fill")
+                }.controlSize(.large)
+                Text(model.player.equalizerFormat == 2 ? "Dieses Ausgabeformat kann nicht visualisiert werden." : "Gemessener Audiopegel · 4,8 Sekunden Verlauf").foregroundStyle(.secondary)
+            }
+        }.padding(32).frame(minWidth: 680, idealWidth: 960, minHeight: 480, idealHeight: 620)
+            .background(playerBackground).tint(playerAccent)
     }
     private var listeningOptions: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Wiedergabe-Optionen", systemImage: "slider.horizontal.3").desktopScaledFont(20, weight: .semibold)
             Toggle(isOn: Binding(get: { model.player.visualizationEnabled }, set: { model.player.setVisualization($0) })) {
-                Label("Pegel-Visualisierung", systemImage: "waveform").frame(maxWidth: .infinity, alignment: .leading)
+                Label("Visualizer", systemImage: "waveform").frame(maxWidth: .infinity, alignment: .leading)
             }.toggleStyle(.switch)
+            if model.player.visualizationEnabled {
+                HStack {
+                    visualizerStylePicker
+                    Spacer(minLength: 8)
+                    Button { expandedVisualizer = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 40, height: 36) }
+                        .buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer vergrößern")
+                }
+            }
             eqMenu
             Toggle(isOn: Binding(get: { model.player.equalizer.headroom }, set: { model.player.equalizer.setHeadroom($0) })) {
                 Label("Automatischer EQ-Pegelschutz", systemImage: "checkmark.shield").frame(maxWidth: .infinity, alignment: .leading)
             }.toggleStyle(.switch).disabled(!model.player.equalizer.enabled)
-            HStack(spacing: 12) {
-                Label("Überblendung", systemImage: "shuffle")
-                Slider(value: Binding(get: { model.player.crossfadeSeconds }, set: { model.player.setCrossfade($0) }), in: 0...12, step: 1)
-                    .accessibilityLabel("Überblendung zwischen Titeln")
-                Text("\(Int(model.player.crossfadeSeconds)) s").monospacedDigit().frame(width: 36)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Label("Überblendung", systemImage: "shuffle").fixedSize()
+                    crossfadeSlider.frame(minWidth: 120)
+                    crossfadeValue
+                }
+                VStack(spacing: 8) {
+                    HStack { Label("Überblendung", systemImage: "shuffle"); Spacer(); crossfadeValue }
+                    crossfadeSlider
+                }
             }
             Toggle(isOn: Binding(get: { model.player.smartAlbumTransition }, set: { model.player.setSmartAlbumTransition($0) })) {
                 Text("Albentitel ohne Überblendung").frame(maxWidth: .infinity, alignment: .leading)
             }.toggleStyle(.switch)
-            HStack(spacing: 12) { timerMenu; speedMenu }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { timerMenu.frame(minWidth: 170); speedMenu.frame(minWidth: 150) }
+                VStack(spacing: 12) { timerMenu; speedMenu }
+            }
             HStack {
                 Button { model.player.seek(model.player.position - 10) } label: { playerActionLabel("−10 s", icon: "gobackward.10") }
                 Spacer(minLength: 0)
@@ -365,6 +455,13 @@ struct DesktopListeningView: View {
         }.desktopScaledFont(16).padding(24).frame(maxWidth: .infinity, alignment: .leading)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
+    }
+    private var crossfadeSlider: some View {
+        Slider(value: Binding(get: { model.player.crossfadeSeconds }, set: { model.player.setCrossfade($0) }), in: 0...12, step: 1)
+            .accessibilityLabel("Überblendung zwischen Titeln")
+    }
+    private var crossfadeValue: some View {
+        Text("\(Int(model.player.crossfadeSeconds)) s").monospacedDigit().frame(width: 36)
     }
     private func copyTrack(_ track: Track) {
         NSPasteboard.general.clearContents()

@@ -39,7 +39,8 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   transport bar with seeking, app volume, mute and AirPlay. The full player uses
   two areas on large windows: a unified listening card with a centered cover
   capped at 520 points and large transport/volume controls; queue/lyrics/sound
-  above compact playback options on the right. Transport sits near the bottom
+  above compact playback options on the right. The queue grows with the window
+  height to align the options with the listening card’s bottom edge. Transport sits near the bottom
   of the listening card, with flexible space beneath the title. Small windows stack artwork and
   context above a persistent compact transport. Panels scroll independently.
   EQ profiles, headroom, crossfade, speed and sleep timer remain accessible;
@@ -49,7 +50,12 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   The current occurrence cannot be removed; clearing upcoming entries never
   deletes library files. Escape returns to the library; expanded artwork closes
   with Escape first.
-- Optional **Pegel-Visualisierung** shows a bounded 48-sample history of measured
+- The original repository logo appears in the sidebar and connection screen.
+  Mac/iOS app icons use that same artwork; regenerate them with
+  `swift apple/Scripts/generate-icons.swift` from the repository root.
+- Optional **Visualizer** offers bars or a curve beneath track metadata and a
+  separate large live view with playback/pause and Escape to close. The style
+  persists on the device. Both views show a bounded 48-sample history of measured
   decoded-audio RMS level including AVPlayer gain. It is a level history, not a frequency
   spectrum. It defaults to off, persists on the device and meters samples even
   with EQ bypassed. Pause adds silence; disabling it clears the display. During
