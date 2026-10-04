@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import Testing
 import YTMDLCore
 @testable import YTMDLAppleSupport
@@ -121,3 +122,44 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     #expect(model.user == nil)
     #expect(model.error != nil)
 }
+
+#if os(macOS)
+@MainActor @Test func appVolumeControlsAudioAndRestoresWithoutChangingPlayback() throws {
+    let suite = "org.ytmdl.tests.volume.\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let audio = AVPlayer()
+    let player = PlayerModel(volumePreferences: preferences, audio: audio)
+    #expect(player.volume == 1)
+    player.setVolume(0.35)
+    #expect(abs(audio.volume - 0.35) < 0.001)
+    #expect(!player.isPlaying)
+    player.toggleMute()
+    #expect(player.isMuted && audio.isMuted)
+    #expect(player.volume == 0.35)
+    let restoredAudio = AVPlayer()
+    let restored = PlayerModel(volumePreferences: preferences, audio: restoredAudio)
+    #expect(restored.isMuted && restoredAudio.isMuted)
+    #expect(abs(restoredAudio.volume - 0.35) < 0.001)
+    restored.setVolume(0.6)
+    #expect(!restored.isMuted && !restoredAudio.isMuted)
+    #expect(abs(restoredAudio.volume - 0.6) < 0.001)
+    player.stop(); restored.stop()
+}
+@MainActor @Test func appVolumeRejectsNonfiniteValuesAndClampsPersistedLevels() throws {
+    let suite = "org.ytmdl.tests.volume.\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    preferences.set(8.0, forKey: "playerVolume")
+    let audio = AVPlayer()
+    let player = PlayerModel(volumePreferences: preferences, audio: audio)
+    #expect(player.volume == 1 && audio.volume == 1)
+    player.setVolume(-5)
+    #expect(player.volume == 0 && audio.volume == 0)
+    player.setVolume(.nan); player.setVolume(.infinity)
+    #expect(player.volume == 0 && audio.volume == 0)
+    player.setVolume(9)
+    #expect(player.volume == 1 && audio.volume == 1)
+    player.stop()
+}
+#endif

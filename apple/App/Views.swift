@@ -15,6 +15,9 @@ struct RootView: View {
     @Bindable var model: AppModel
     @State private var destination: Destination? = .library
     @State private var expandedPlayer = false
+    #if os(macOS)
+    @FocusState private var searchFocused: Bool
+    #endif
     @AppStorage("appearance") private var appearance = "dark"
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -62,6 +65,12 @@ struct RootView: View {
         #if DEBUG
         .task {
             await model.loadFixtureIfRequested()
+            #if os(macOS)
+            let args = ProcessInfo.processInfo.arguments
+            if let index = args.firstIndex(of: "--fixture-view"), args.indices.contains(index + 1),
+               ["127.0.0.1", "::1"].contains(model.client?.server.url.host ?? ""),
+               let requested = Destination(rawValue: args[index + 1]) { destination = requested }
+            #endif
             if ProcessInfo.processInfo.arguments.contains("--fixture-player") {
                 #if os(iOS)
                 expandedPlayer = true
@@ -74,9 +83,16 @@ struct RootView: View {
     }
     private var splitView: some View {
         NavigationSplitView {
-            List(Destination.allCases, selection: $destination) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
+            List(Destination.allCases, selection: $destination) { item in
+                #if os(macOS)
+                Label { Text(item.rawValue) } icon: { Image(systemName: item.icon).foregroundStyle(.pink) }
+                    .font(.system(size: 17, weight: .medium)).padding(.vertical, 9).tag(item)
+                #else
+                Label(item.rawValue, systemImage: item.icon).tag(item)
+                #endif
+            }
                 .navigationTitle("YTMDL")
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 230, max: 280)
         } detail: {
             NavigationStack {
                 content(destination ?? .library).safeAreaInset(edge: .bottom) {
@@ -87,7 +103,12 @@ struct RootView: View {
                     #endif
                 }
                 #if os(macOS)
+                .safeAreaInset(edge: .top, spacing: 0) { desktopHeader }
                 .toolbar {
+                    ToolbarItem {
+                        Button("Suche öffnen", systemImage: "magnifyingglass") { destination = .search; searchFocused = true }
+                            .keyboardShortcut("f", modifiers: .command)
+                    }
                     if destination == .player {
                         ToolbarItem(placement: .navigation) {
                             Button("Zurück zur Bibliothek", systemImage: "chevron.left") { destination = .library }
@@ -120,7 +141,7 @@ struct RootView: View {
                     HStack(spacing: 12) {
                         ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 46, height: 46)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(track.title).font(.headline).lineLimit(1)
+                            Text(track.title).font(desktopFont(18, fallback: .headline, weight: .semibold)).lineLimit(1)
                             Text(track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -133,29 +154,40 @@ struct RootView: View {
         }
     }
     #if os(macOS)
+    private var desktopHeader: some View {
+        GeometryReader { geometry in
+            if geometry.size.width >= 1050 {
+                ZStack {
+                    Text((destination ?? .library).rawValue).font(.system(size: 28, weight: .bold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    desktopSearchField.frame(width: 500)
+                }.padding(.horizontal, 28).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                HStack(spacing: 24) {
+                    Text((destination ?? .library).rawValue).font(.system(size: 28, weight: .bold)).lineLimit(1)
+                    Spacer(minLength: 8)
+                    desktopSearchField.frame(maxWidth: 500)
+                }.padding(.horizontal, 28).frame(maxHeight: .infinity)
+            }
+        }.frame(height: 82).background(.bar)
+            .onChange(of: model.query) { if !model.query.isEmpty { destination = .search } }
+            .onChange(of: searchFocused) { if searchFocused { destination = .search } }
+    }
+    private var desktopSearchField: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Musik suchen", text: $model.query)
+                .textFieldStyle(.plain).focused($searchFocused)
+                .accessibilityLabel("Bibliothek durchsuchen")
+            if !model.query.isEmpty {
+                Button("Suche leeren", systemImage: "xmark.circle.fill") { model.query = ""; searchFocused = true }
+                    .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
+            }
+        }.font(.system(size: 17)).padding(.horizontal, 16).padding(.vertical, 13)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
+    }
     private func desktopMiniPlayer(_ track: Track) -> some View {
-        HStack(spacing: 20) {
-            Button { destination = .player } label: {
-                HStack(spacing: 10) {
-                    ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 44, height: 44)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(track.title).font(.headline).lineLimit(1)
-                        Text(track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.plain).frame(maxWidth: 260).accessibilityLabel("Player öffnen: \(track.title)")
-            HStack(spacing: 4) {
-                Button { model.player.previous() } label: { Image(systemName: "backward.end.fill").frame(width: 32, height: 36) }.accessibilityLabel("Vorheriger Titel")
-                Button { model.player.toggle() } label: { Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 36, height: 36) }.accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen")
-                Button { model.player.next() } label: { Image(systemName: "forward.end.fill").frame(width: 32, height: 36) }.accessibilityLabel("Nächster Titel")
-            }.buttonStyle(.borderless).tint(.primary)
-            VStack(spacing: 2) {
-                Slider(value: Binding(get: { min(model.player.position, model.player.duration) }, set: { model.player.seek($0) }), in: 0...max(1, model.player.duration)).accessibilityLabel("Wiedergabeposition")
-                HStack { Text(formatTime(model.player.position)); Spacer(); Text(formatTime(model.player.duration)) }
-                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-            }.frame(maxWidth: .infinity)
-            AirPlayPicker().frame(width: 30, height: 30).accessibilityLabel("Audioausgabe wählen")
-        }.padding(.horizontal, 20).padding(.vertical, 10).background(.bar)
+        DesktopTransportBar(model: model, track: track) { destination = .player }
     }
     #endif
 }
@@ -257,7 +289,10 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 24) {
                 #if os(macOS)
                 HStack(alignment: .center, spacing: 16) {
-                    Text("Alben").font(.title2.bold())
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Deine Alben").font(.system(size: 30, weight: .bold))
+                        Text("Musik aus deiner Bibliothek").font(.system(size: 17)).foregroundStyle(.secondary)
+                    }
                     Spacer()
                     genrePicker.frame(maxWidth: 200)
                 }
@@ -276,14 +311,17 @@ struct LibraryView: View {
                         NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 ArtworkView(model: model, kind: "releases", id: release.id)
-                                Text(release.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
-                                Text(release.artists.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                                Text(release.title).font(desktopFont(18, fallback: .headline, weight: .semibold)).foregroundStyle(.primary).lineLimit(2)
+                                Text(release.artists.joined(separator: " · ")).font(desktopFont(16, fallback: .subheadline)).foregroundStyle(.secondary).lineLimit(1)
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(.plain)
                     }
                 }
                 if model.moreReleases { Button("Weitere Alben laden") { Task { await model.loadMore() } }.disabled(model.connecting) }
             }.padding(contentPadding)
+                #if os(macOS)
+                .frame(maxWidth: 1600).frame(maxWidth: .infinity)
+                #endif
         }.navigationTitle("Bibliothek")
         .toolbar { ToolbarItem { Button { Task { await model.loadLibrary() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Bibliothek aktualisieren").disabled(model.connecting) } }
     }
@@ -299,7 +337,7 @@ struct LibraryView: View {
         #if os(tvOS)
         240
         #elseif os(macOS)
-        175
+        220
         #else
         145
         #endif
@@ -325,17 +363,17 @@ struct ArtistListView: View {
         Group {
             #if os(macOS)
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 24)], spacing: 24) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 270), spacing: 24)], spacing: 24) {
                     ForEach(artists) { artist in
                         NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
                             VStack(spacing: 10) {
                                 ArtworkView(model: model, kind: "artists", id: artist.id).clipShape(Circle())
-                                Text(artist.name).font(.headline).foregroundStyle(.primary).lineLimit(1)
-                                Text("\(artist.trackCount ?? 0) Titel").font(.subheadline).foregroundStyle(.secondary)
+                                Text(artist.name).font(.system(size: 18, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+                                Text("\(artist.trackCount ?? 0) Titel").font(.system(size: 16)).foregroundStyle(.secondary)
                             }.padding(8).frame(maxWidth: .infinity)
                         }.buttonStyle(.plain)
                     }
-                }.padding(24)
+                }.padding(28).frame(maxWidth: 1600).frame(maxWidth: .infinity)
                 if more { loadMoreButton.padding(.bottom, 24) }
                 if busy && artists.isEmpty { ProgressView("Künstler werden geladen …") }
                 else if artists.isEmpty { ContentUnavailableView("Noch keine Künstler", systemImage: "person.2") }
@@ -396,7 +434,12 @@ struct CollectionView: View {
                 else if tracks.isEmpty { ContentUnavailableView("Noch keine Titel", systemImage: "music.note") }
                 if more && !tracks.isEmpty { Button("Weitere Titel laden") { Task { await load() } } }
             }
-        }.navigationTitle(kind.title).task { if tracks.isEmpty { await load() } }
+        }
+        #if os(macOS)
+        .font(.system(size: 17)).listStyle(.plain).padding(.horizontal, 24)
+            .frame(maxWidth: 1400).frame(maxWidth: .infinity)
+        #endif
+        .navigationTitle(kind.title).task { if tracks.isEmpty { await load() } }
     }
     private func play(_ tracks: [Track], index: Int = 0) { if let client = model.client { model.player.play(tracks, start: index, client: client) } }
     private func load() async {
@@ -431,10 +474,10 @@ struct TrackRow: View {
                 HStack(spacing: 14) {
                     ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 52, height: 52)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(track.title).font(.headline).lineLimit(1)
-                        Text(track.artistText).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        Text(track.title).font(desktopFont(18, fallback: .headline, weight: .semibold)).lineLimit(1)
+                        Text(track.artistText).font(desktopFont(16, fallback: .subheadline)).foregroundStyle(.secondary).lineLimit(1)
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                    Text(formatTime(track.duration)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    Text(formatTime(track.duration)).font(desktopFont(15, fallback: .caption).monospacedDigit()).foregroundStyle(.secondary)
                 }.contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
             Menu {
@@ -446,35 +489,49 @@ struct TrackRow: View {
 }
 
 struct SearchView: View {
-    var model: AppModel
-    @State private var query = ""
+    @Bindable var model: AppModel
+    @State private var localQuery = ""
+    private var query: String {
+        #if os(macOS)
+        model.query
+        #else
+        localQuery
+        #endif
+    }
     @State private var results: SearchResults?
     @State private var busy = false
     @State private var failure: String?
     var body: some View {
-        List {
-            if busy { ProgressView("Suche …") }
-            if let failure { Text(failure).foregroundStyle(.secondary) }
-            if let results {
-                Section("Künstler") {
-                    ForEach(results.artists) { artist in
-                        NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
-                            HStack { ArtworkView(model: model, kind: "artists", id: artist.id).frame(width: 56, height: 56); Text(artist.name) }
+        Group {
+            #if os(macOS)
+            desktopResults
+            #else
+            List {
+                if busy { ProgressView("Suche …") }
+                if let failure { Text(failure).foregroundStyle(.secondary) }
+                if let results {
+                    Section("Künstler") {
+                        ForEach(results.artists) { artist in
+                            NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
+                                HStack { ArtworkView(model: model, kind: "artists", id: artist.id).frame(width: 56, height: 56); Text(artist.name) }
+                            }
                         }
                     }
-                }
-                Section("Alben") {
-                    ForEach(results.releases) { release in
-                        NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
-                            HStack { ArtworkView(model: model, kind: "releases", id: release.id).frame(width: 56, height: 56); VStack(alignment: .leading) { Text(release.title); Text(release.artists.joined(separator: " · ")).foregroundStyle(.secondary) } }
+                    Section("Alben") {
+                        ForEach(results.releases) { release in
+                            NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
+                                HStack { ArtworkView(model: model, kind: "releases", id: release.id).frame(width: 56, height: 56); VStack(alignment: .leading) { Text(release.title); Text(release.artists.joined(separator: " · ")).foregroundStyle(.secondary) } }
+                            }
                         }
                     }
-                }
-                Section("Titel") { ForEach(results.tracks) { track in TrackRow(model: model, track: track) { if let client = model.client { model.player.play(results.tracks, start: results.tracks.firstIndex(of: track) ?? 0, client: client) } } } }
-                if results.artists.isEmpty && results.releases.isEmpty && results.tracks.isEmpty { ContentUnavailableView.search(text: query) }
-            } else if !busy && failure == nil { ContentUnavailableView("Deine Bibliothek durchsuchen", systemImage: "magnifyingglass", description: Text("Mindestens zwei Zeichen eingeben.")) }
+                    Section("Titel") { ForEach(results.tracks) { track in TrackRow(model: model, track: track) { if let client = model.client { model.player.play(results.tracks, start: results.tracks.firstIndex(of: track) ?? 0, client: client) } } } }
+                    if results.artists.isEmpty && results.releases.isEmpty && results.tracks.isEmpty { ContentUnavailableView.search(text: query) }
+                } else if !busy && failure == nil { ContentUnavailableView("Deine Bibliothek durchsuchen", systemImage: "magnifyingglass", description: Text("Mindestens zwei Zeichen eingeben.")) }
+            }
+            .searchable(text: $localQuery, prompt: "Titel, Alben, Künstler")
+            #endif
         }
-        .navigationTitle("Suche").searchable(text: $query, prompt: "Titel, Alben, Künstler")
+        .navigationTitle("Suche")
         .task(id: query) {
             results = nil; failure = nil; busy = query.count >= 2
             do {
@@ -485,6 +542,77 @@ struct SearchView: View {
             catch { if !Task.isCancelled { failure = "Die Suche konnte nicht geladen werden. Bitte Verbindung prüfen und erneut suchen."; busy = false } }
         }
     }
+    #if os(macOS)
+    private var desktopResults: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                if busy { ProgressView("Suche …").font(.system(size: 17)) }
+                if let failure { Text(failure).font(.system(size: 17)).foregroundStyle(.secondary) }
+                if let results {
+                    if !results.artists.isEmpty {
+                        Text("Künstler").font(.system(size: 25, weight: .bold))
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 240), spacing: 24)], spacing: 24) {
+                            ForEach(results.artists) { artist in
+                                NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
+                                    VStack(spacing: 12) {
+                                        ArtworkView(model: model, kind: "artists", id: artist.id).clipShape(Circle())
+                                        Text(artist.name).font(.system(size: 19, weight: .semibold)).foregroundStyle(.primary)
+                                    }.padding(12)
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    if !results.releases.isEmpty {
+                        Text("Alben").font(.system(size: 25, weight: .bold))
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 24)], spacing: 24) {
+                            ForEach(results.releases) { release in
+                                NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        ArtworkView(model: model, kind: "releases", id: release.id)
+                                        Text(release.title).font(.system(size: 18, weight: .semibold)).foregroundStyle(.primary)
+                                        Text(release.artists.joined(separator: " · ")).font(.system(size: 16)).foregroundStyle(.secondary)
+                                    }
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    if !results.tracks.isEmpty {
+                        Text("Titel").font(.system(size: 25, weight: .bold))
+                        LazyVStack(spacing: 12) {
+                            ForEach(results.tracks) { track in
+                                TrackRow(model: model, track: track) {
+                                    if let client = model.client { model.player.play(results.tracks, start: results.tracks.firstIndex(of: track) ?? 0, client: client) }
+                                }.padding(12).background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 14))
+                            }
+                        }
+                    }
+                    if results.artists.isEmpty && results.releases.isEmpty && results.tracks.isEmpty { ContentUnavailableView.search(text: query) }
+                } else if !busy && failure == nil {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Was möchtest du hören?").font(.system(size: 34, weight: .bold))
+                        Text("Suche oben nach einem Titel, Album oder Künstler. ⌘F bringt dich direkt ins Suchfeld.")
+                            .font(.system(size: 18)).foregroundStyle(.secondary)
+                    }.padding(.vertical, 20)
+                    if !model.releases.isEmpty {
+                        Text("Aus deiner Bibliothek").font(.system(size: 24, weight: .semibold))
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 280), spacing: 24)], spacing: 24) {
+                            ForEach(Array(model.releases.prefix(8))) { release in
+                                NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        ArtworkView(model: model, kind: "releases", id: release.id)
+                                        Text(release.title).font(.system(size: 18, weight: .semibold)).foregroundStyle(.primary)
+                                        Text(release.artists.joined(separator: " · ")).font(.system(size: 16)).foregroundStyle(.secondary)
+                                    }
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }.padding(32).frame(maxWidth: 1450, alignment: .leading).frame(maxWidth: .infinity, alignment: .top)
+        }
+    }
+    #endif
+
 }
 
 struct PlaylistListView: View {
@@ -494,10 +622,14 @@ struct PlaylistListView: View {
             if model.playlists.isEmpty { ContentUnavailableView("Noch keine Playlists", systemImage: "music.note.list", description: Text("Playlists im Web anlegen. Sie erscheinen hier nach dem Aktualisieren.")) }
             ForEach(model.playlists) { playlist in
                 NavigationLink { CollectionView(model: model, kind: .playlist(playlist)) } label: {
-                    VStack(alignment: .leading, spacing: 6) { Text(playlist.name).font(.headline); Text("\(playlist.trackCount) Titel · \(formatTime(Double(playlist.durationMs)/1000))").foregroundStyle(.secondary) }.padding(.vertical, 10)
+                    VStack(alignment: .leading, spacing: 8) { Text(playlist.name).font(desktopFont(20, fallback: .headline, weight: .semibold)); Text("\(playlist.trackCount) Titel · \(formatTime(Double(playlist.durationMs)/1000))").font(desktopFont(16, fallback: .body)).foregroundStyle(.secondary) }.padding(.vertical, 14)
                 }
             }
-        }.navigationTitle("Playlists")
+        }
+        #if os(macOS)
+        .listStyle(.plain).padding(24).frame(maxWidth: 1400).frame(maxWidth: .infinity)
+        #endif
+        .navigationTitle("Playlists")
         .toolbar { ToolbarItem { Button("Aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } } } }
     }
 }
@@ -530,39 +662,8 @@ struct NowPlayingView: View {
         #endif
     }
     #if os(macOS)
-    @ViewBuilder private func desktopPlayer(_ size: CGSize) -> some View {
-        if let track = model.player.current {
-            if size.width >= 640 {
-                let playerWidth = min(360, (size.width - 72) * 0.48)
-                HStack(alignment: .top, spacing: 24) {
-                    ScrollView {
-                        player(track, coverSize: max(150, min(playerWidth, size.height - 290)))
-                    }.scrollIndicators(.hidden).frame(width: playerWidth)
-                    Divider()
-                    desktopDetails
-                }.padding(24)
-            } else {
-                ScrollView {
-                    VStack(spacing: 24) {
-                        player(track, coverSize: min(280, size.width - 48, max(160, size.height - 290)))
-                            .frame(maxWidth: 380)
-                        Divider()
-                        details
-                    }.padding(24).frame(maxWidth: .infinity)
-                }
-            }
-        } else {
-            ContentUnavailableView("Musik auswählen", systemImage: "play.circle", description: Text("Öffne ein Album oder eine Playlist, um loszuhören."))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-    private var desktopDetails: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            detailsPicker
-            ScrollView {
-                detailsContent
-            }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    private func desktopPlayer(_ size: CGSize) -> some View {
+        DesktopListeningView(model: model, size: size)
     }
     #endif
     private func wideCoverSize(_ height: CGFloat) -> CGFloat {
@@ -657,8 +758,8 @@ struct NowPlayingView: View {
                         HStack(spacing: 12) {
                             ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 48, height: 48)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(track.title).font(.headline).lineLimit(1)
-                                Text(track.artistText).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                                Text(track.title).font(desktopFont(18, fallback: .headline, weight: .semibold)).lineLimit(1)
+                                Text(track.artistText).font(desktopFont(16, fallback: .subheadline)).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer(minLength: 8)
                             if model.player.queue.index == index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink) }
@@ -697,4 +798,12 @@ func formatTime(_ seconds: Double) -> String {
 }
 func cleanLyrics(_ content: String) -> String {
     content.replacingOccurrences(of: #"\[\d{1,3}:\d{2}(?:\.\d{1,3})?\]"#, with: "", options: .regularExpression)
+}
+
+func desktopFont(_ size: CGFloat, fallback: Font, weight: Font.Weight = .regular) -> Font {
+    #if os(macOS)
+    .system(size: size, weight: weight)
+    #else
+    fallback
+    #endif
 }

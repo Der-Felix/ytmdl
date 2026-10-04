@@ -119,7 +119,7 @@ import YTMDLCore
         do { try client.forget() } catch { report(error) }
         client.invalidate(); self.client = nil; user = nil; generation = UUID(); clearLibrary(); player.stop()
     }
-    private func clearLibrary() { releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil }
+    private func clearLibrary() { query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil }
     func report(_ failure: Error) {
         if failure is CancellationError { return }
         if let transport = failure as? URLError, transport.code == .cancelled { return }

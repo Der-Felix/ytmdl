@@ -12,12 +12,15 @@ import UIKit
     private(set) var isPlaying = false
     private(set) var loading = false
     private(set) var position: Double = 0
+    private(set) var volume: Double = 1
+    private(set) var isMuted = false
+    @ObservationIgnored private let volumePreferences: UserDefaults
     var repeatAll = false
     var error: String?
     var lyrics = ""
     var current: Track? { queue.current }
     var duration: Double { current?.duration ?? 0 }
-    @ObservationIgnored private let audio = AVPlayer()
+    @ObservationIgnored private let audio: AVPlayer
     @ObservationIgnored private var client: APIClient?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var lyricsTask: Task<Void, Never>?
@@ -31,7 +34,17 @@ import UIKit
     @ObservationIgnored private var wantsPlayback = false
     @ObservationIgnored private var commands: [(MPRemoteCommand, Any)] = []
 
-    init() {
+    init(volumePreferences: UserDefaults = .standard, audio: AVPlayer = AVPlayer()) {
+        self.audio = audio
+        self.volumePreferences = volumePreferences
+        #if os(macOS)
+        if let saved = volumePreferences.object(forKey: "playerVolume") as? Double, saved.isFinite {
+            volume = min(1, max(0, saved))
+        }
+        isMuted = volumePreferences.bool(forKey: "playerMuted")
+        audio.volume = Float(volume)
+        audio.isMuted = isMuted
+        #endif
         audio.automaticallyWaitsToMinimizeStalling = true
         observer = audio.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
             Task { @MainActor in
@@ -51,6 +64,24 @@ import UIKit
             let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { Task { @MainActor in self?.pause() } }
         }
+        #endif
+    }
+    /// App output level; leaves the device's system volume unchanged.
+    func setVolume(_ value: Double) {
+        guard value.isFinite else { return }
+        volume = min(1, max(0, value))
+        audio.volume = Float(volume)
+        // Moving the slider is an explicit request to hear this level.
+        isMuted = false; audio.isMuted = false
+        #if os(macOS)
+        volumePreferences.set(volume, forKey: "playerVolume")
+        volumePreferences.set(false, forKey: "playerMuted")
+        #endif
+    }
+    func toggleMute() {
+        isMuted.toggle(); audio.isMuted = isMuted
+        #if os(macOS)
+        volumePreferences.set(isMuted, forKey: "playerMuted")
         #endif
     }
     func play(_ tracks: [Track], start: Int = 0, client: APIClient) {

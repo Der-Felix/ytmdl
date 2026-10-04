@@ -32,12 +32,21 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 ## Listening and layout
 
 - Compact iPhone tab navigation, expandable player and persistent mini-player.
-- iPad/Mac sidebar navigation and adaptive album grids. Mac uses a compact
-  library header, artist cards and a desktop transport bar with seeking. Its
-  player keeps the queue/lyrics independently scrollable in wide windows and
-  stacks the panes in narrow windows; Escape returns to the library.
+- iPad/Mac sidebar navigation and adaptive album grids. Mac has readable album,
+  artist and track labels, a persistent search field (⌘F), and a centered transport
+  bar with seeking, app volume, mute and AirPlay. The full player centers its
+  listening area and grows the cover up to 680 points; queue/lyrics stay in a
+  bounded independently scrolling pane. Small windows stack the panes and
+  transport rows. Escape returns to the library.
+- Mac volume and mute control AVPlayer output and persist across app launches;
+  moving the volume slider unmutes. Device/system volume remains separate.
+  ⌘↑/⌘↓ adjust app volume; ⇧⌘M toggles mute. Mac Settings use top-aligned cards
+  for playback, appearance, server, device approval and account controls.
 - Apple TV native tabs/focus, readable covers, remote-operated transport and seek.
 - Local library search, artists, albums, genre filtering, favorites and playlists.
+  Mac search shows existing library albums before a query, then groups results
+  into artist/album cards and playable track rows. Search is cleared on logout
+  or server changes.
 - Bounded paginated library reads, queue up to 500 tracks, shuffle upcoming
   songs, repeat queue, seeking, lyrics, explicit retry and format error messages.
 - Native audio-session/background configuration, system media controls and

@@ -7,34 +7,103 @@ struct SettingsView: View {
     @State private var signingOut = false
     @AppStorage("appearance") private var appearance = "dark"
     var body: some View {
-        Form {
-            Section("Darstellung") {
-                Picker("Erscheinungsbild", selection: $appearance) { Text("System").tag("system"); Text("Dunkel").tag("dark"); Text("Hell").tag("light") }
-            }
-            Section("Verbindung") {
-                LabeledContent("Server", value: model.client?.server.url.absoluteString ?? "")
-                LabeledContent("Konto", value: model.user?.displayName ?? "")
-                if model.client?.server.isSecure == false { Text("Entwicklungsmodus: lokale HTTP-Verbindung ohne Verschlüsselung.").foregroundStyle(.orange) }
-                Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
-            }
-            #if !os(tvOS)
-            Section("Anderes Gerät anmelden") { ConfirmDeviceView(model: model) }
-            if let url = model.client?.server.url.appendingPathComponent("profile") {
-                Section("Verwaltung") { Link("Profil & Sicherheit im Web öffnen", destination: url) }
+        Group {
+            #if os(macOS)
+            desktopSettings
+            #else
+            Form {
+                Section("Darstellung") {
+                    Picker("Erscheinungsbild", selection: $appearance) { Text("System").tag("system"); Text("Dunkel").tag("dark"); Text("Hell").tag("light") }
+                }
+                Section("Verbindung") {
+                    LabeledContent("Server", value: model.client?.server.url.absoluteString ?? "")
+                    LabeledContent("Konto", value: model.user?.displayName ?? "")
+                    if model.client?.server.isSecure == false { Text("Entwicklungsmodus: lokale HTTP-Verbindung ohne Verschlüsselung.").foregroundStyle(.orange) }
+                    Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
+                }
+                #if !os(tvOS)
+                Section("Anderes Gerät anmelden") { ConfirmDeviceView(model: model) }
+                if let url = model.client?.server.url.appendingPathComponent("profile") {
+                    Section("Verwaltung") { Link("Profil & Sicherheit im Web öffnen", destination: url) }
+                }
+                #endif
+                Section("Datenschutz") {
+                    Text("Die App verbindet sich nur mit deinem YTMDL-Server. Keine Werbung, keine Analyse-SDKs. Anmeldesitzungen werden gerätegebunden im Schlüsselbund gespeichert. Cover und Musik werden vom Server geladen.")
+                    Text("App-Vorschau 0.1 · Bibliothek, Suche und Wiedergabe. Die Verwaltung und dauerhafte Offline-Kopien erfolgen weiterhin im Web.").font(.footnote).foregroundStyle(.secondary)
+                }
+                Section {
+                    Button("Abmelden", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { signingOut = true }
+                }
             }
             #endif
-            Section("Datenschutz") {
-                Text("Die App verbindet sich nur mit deinem YTMDL-Server. Keine Werbung, keine Analyse-SDKs. Anmeldesitzungen werden gerätegebunden im Schlüsselbund gespeichert. Cover und Musik werden vom Server geladen.")
-                Text("App-Vorschau 0.1 · Bibliothek, Suche und Wiedergabe. Die Verwaltung und dauerhafte Offline-Kopien erfolgen weiterhin im Web.").font(.footnote).foregroundStyle(.secondary)
-            }
-            Section {
-                Button("Abmelden", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { signingOut = true }
-            }
         }.navigationTitle("Einstellungen")
         .confirmationDialog("Auf diesem Gerät abmelden?", isPresented: $signingOut) {
             Button("Abmelden", role: .destructive) { Task { await model.logout() } }
         } message: { Text("Die Wiedergabe stoppt. Die lokal gespeicherte Sitzung wird entfernt.") }
     }
+    #if os(macOS)
+    private var desktopSettings: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Mach es dir bequem.").font(.system(size: 32, weight: .bold))
+                Text("Wiedergabe, Darstellung und dein Server an einem Ort.").foregroundStyle(.secondary)
+                settingsCard("Wiedergabe", icon: "speaker.wave.2") {
+                    HStack {
+                        Text("App-Lautstärke")
+                        Spacer()
+                        DesktopVolumeControl(player: model.player)
+                    }
+                    Text("Die Lautstärke gilt für YTMDL. Die Systemlautstärke stellst du weiterhin am Mac ein.")
+                        .font(.system(size: 15)).foregroundStyle(.secondary)
+                }
+                settingsCard("Darstellung", icon: "circle.lefthalf.filled") {
+                    Picker("Erscheinungsbild", selection: $appearance) {
+                        Text("System").tag("system"); Text("Dunkel").tag("dark"); Text("Hell").tag("light")
+                    }.pickerStyle(.segmented).controlSize(.large).labelsHidden().frame(maxWidth: 420)
+                }
+                settingsCard("Verbindung", icon: "network") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(model.user?.displayName ?? "").font(.system(size: 20, weight: .semibold))
+                        Text(model.client?.server.url.absoluteString ?? "").foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    if model.client?.server.isSecure == false {
+                        Label("Lokaler HTTP-Test: Verbindung ohne Verschlüsselung", systemImage: "exclamationmark.shield").font(.system(size: 15)).foregroundStyle(.orange)
+                    }
+                    Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
+                        .buttonStyle(.bordered).controlSize(.large).disabled(model.connecting)
+                }
+                settingsCard("Anderes Gerät anmelden", icon: "appletv") {
+                    ConfirmDeviceView(model: model).textFieldStyle(.roundedBorder).controlSize(.large).frame(maxWidth: 570, alignment: .leading)
+                }
+                settingsCard("Konto & Datenschutz", icon: "lock.shield") {
+                    if let url = model.client?.server.url.appendingPathComponent("profile") {
+                        Link("Profil & Sicherheit im Web öffnen", destination: url)
+                    }
+                    Text("Nur dein YTMDL-Server. Keine Werbung, keine Analyse-SDKs. Deine Sitzung bleibt im Schlüsselbund dieses Geräts.")
+                        .foregroundStyle(.secondary)
+                    Button("Abmelden", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { signingOut = true }
+                        .buttonStyle(.bordered).controlSize(.large)
+                }
+                Text("⌘F Suche · Leertaste Wiedergabe/Pause · ⌘← / ⌘→ Titel wechseln · Esc Player verlassen")
+                    .font(.system(size: 15)).foregroundStyle(.secondary)
+                Text(appVersion).font(.system(size: 14)).foregroundStyle(.secondary)
+            }.font(.system(size: 17)).padding(36).frame(maxWidth: 920, alignment: .leading).frame(maxWidth: .infinity, alignment: .top)
+        }
+    }
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "–"
+        return "YTMDL für Mac · Vorschau \(version) (\(build))"
+    }
+    private func settingsCard<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Label(title, systemImage: icon).font(.system(size: 21, weight: .semibold))
+            content()
+        }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 20))
+    }
+    #endif
+
 }
 
 struct ConfirmDeviceView: View {

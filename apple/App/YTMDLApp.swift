@@ -15,12 +15,16 @@ import SwiftUI
                 #endif
         }
         #if os(macOS)
-        .defaultSize(width: 1100, height: 740)
+        .defaultSize(width: 1280, height: 860)
         .commands {
             CommandMenu("Wiedergabe") {
                 Button("Wiedergabe / Pause") { model.player.toggle() }.keyboardShortcut(.space, modifiers: [])
                 Button("Nächster Titel") { model.player.next() }.keyboardShortcut(.rightArrow, modifiers: .command)
                 Button("Vorheriger Titel") { model.player.previous() }.keyboardShortcut(.leftArrow, modifiers: .command)
+                Divider()
+                Button("Lauter") { model.player.setVolume(model.player.volume + 0.05) }.keyboardShortcut(.upArrow, modifiers: .command)
+                Button("Leiser") { model.player.setVolume(model.player.volume - 0.05) }.keyboardShortcut(.downArrow, modifiers: .command)
+                Button(model.player.isMuted ? "Ton einschalten" : "Stummschalten") { model.player.toggleMute() }.keyboardShortcut("m", modifiers: [.command, .shift])
             }
         }
         #endif
