@@ -158,24 +158,46 @@ struct DesktopListeningView: View {
     var model: AppModel
     var size: CGSize
     @State private var tab = 0
+    @State private var queueFilter = ""
     var body: some View {
         Group {
             if let track = model.player.current {
-                if size.width >= 880 {
-                    let cover = max(200, min(740, (size.width - 100) * 0.54, size.height - 550))
-                    HStack(alignment: .center, spacing: 40) {
+                if size.width >= 1600 {
+                    let available = size.width - 112
+                    let contextWidth = min(680, available * 0.29)
+                    let controlWidth = max(400, min(460, available * 0.22))
+                    let artworkWidth = available - contextWidth - controlWidth
+                    HStack(alignment: .top, spacing: 24) {
                         ScrollView {
-                            listeningCard(track, cover: cover)
-                        }.scrollIndicators(.hidden).frame(width: max(420, cover), height: min(size.height - 64, cover + 486))
-                        queuePanel.frame(width: min(520, max(340, size.width - max(420, cover) - 100)))
-                    }.padding(32)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                            artworkCard(track, cover: max(240, min(1000, artworkWidth - 8, size.height - 210)))
+                        }.scrollIndicators(.hidden).frame(width: artworkWidth)
+                        ScrollView {
+                            playbackCard(track)
+                        }.scrollIndicators(.hidden).frame(width: controlWidth)
+                        queuePanel.frame(width: contextWidth)
+                    }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if size.width >= 850 {
+                    let available = size.width - 80
+                    let contextWidth = max(340, min(560, available * 0.44))
+                    let artworkWidth = available - contextWidth
+                    VStack(spacing: 0) {
+                        HStack(alignment: .top, spacing: 24) {
+                            ScrollView {
+                                artworkCard(track, cover: max(200, min(820, artworkWidth - 8, size.height - 460)))
+                            }.scrollIndicators(.hidden).frame(width: artworkWidth)
+                            queuePanel
+                        }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        playbackDock(track)
+                    }
                 } else {
-                    ScrollView {
-                        VStack(spacing: 32) {
-                            listeningCard(track, cover: max(200, min(440, size.width - 64, size.height * 0.48)))
-                            queuePanel.frame(minHeight: 320, idealHeight: 440)
-                        }.padding(28).frame(maxWidth: 660).frame(maxWidth: .infinity)
+                    VStack(spacing: 0) {
+                        ScrollView {
+                            VStack(spacing: 24) {
+                                artworkCard(track, cover: max(180, min(560, size.width - 56, size.height - 440)))
+                                queuePanel.frame(height: 540)
+                            }.padding(24).frame(maxWidth: 720).frame(maxWidth: .infinity)
+                        }
+                        playbackDock(track, compact: true)
                     }
                 }
             } else {
@@ -214,58 +236,213 @@ struct DesktopListeningView: View {
             } else { theme.background(scheme) }
         }
     }
-    private func listeningCard(_ track: Track, cover: CGFloat) -> some View {
-        VStack(spacing: 16) {
+    private func artworkCard(_ track: Track, cover: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
             HStack {
                 Text("JETZT LÄUFT").desktopScaledFont(13, weight: .semibold).tracking(2).foregroundStyle(.secondary)
                 Spacer()
-                if model.player.equalizer.enabled { Label("EQ", systemImage: "slider.vertical.3").desktopScaledFont(13).foregroundStyle(playerAccent) }
+                if model.player.equalizer.enabled { Label("EQ", systemImage: "slider.vertical.3").desktopScaledFont(14).foregroundStyle(playerAccent) }
                 if model.player.sleepMode != .off { Image(systemName: "moon.zzz.fill").foregroundStyle(playerAccent) }
             }
             ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: cover, height: cover)
                 .shadow(color: .black.opacity(0.22), radius: 20, y: 12)
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(track.title).desktopScaledFont(34, weight: .bold).lineLimit(2)
-                    Text(track.artistText).desktopScaledFont(22).foregroundStyle(.secondary).lineLimit(2)
-                    if !track.album.isEmpty && track.album != track.title { Text(track.album).desktopScaledFont(16).foregroundStyle(.secondary).lineLimit(1) }
+                .frame(maxWidth: .infinity)
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(track.title).desktopScaledFont(38, weight: .bold).lineLimit(2)
+                    Text(track.artistText).desktopScaledFont(23).foregroundStyle(.secondary).lineLimit(2)
+                    if !track.album.isEmpty && track.album != track.title { Text(track.album).desktopScaledFont(18).foregroundStyle(.secondary).lineLimit(1) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Button { Task { await model.toggleFavorite(track) } } label: {
                     Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart")
-                        .desktopScaledFont(23).foregroundStyle(playerAccent).frame(width: 48, height: 48)
+                        .desktopScaledFont(27).foregroundStyle(playerAccent).frame(width: 56, height: 56)
                 }.buttonStyle(DesktopControlStyle()).accessibilityLabel("Favorit umschalten")
             }
+        }.padding(.horizontal, 4).padding(.bottom, 8)
+    }
+    private func playbackCard(_ track: Track) -> some View {
+        VStack(alignment: .leading, spacing: 28) {
+            Text("Wiedergabe").desktopScaledFont(26, weight: .bold)
+            ViewThatFits(in: .horizontal) {
+                DesktopPlaybackControls(player: model.player, large: true)
+                DesktopPlaybackControls(player: model.player)
+            }.frame(maxWidth: .infinity)
             DesktopSeekControl(player: model.player)
-            DesktopPlaybackControls(player: model.player, large: true)
-            HStack(spacing: 20) {
+            HStack(spacing: 16) {
                 DesktopVolumeControl(player: model.player)
-                AirPlayPicker().frame(width: 40, height: 40).accessibilityLabel("Audioausgabe wählen")
+                Spacer(minLength: 0)
+                AirPlayPicker().frame(width: 44, height: 44).accessibilityLabel("Audioausgabe wählen")
             }
+            playbackStatus(track)
+            Divider()
+            Text("Dein Klang").desktopScaledFont(22, weight: .semibold)
+            quickTools
             HStack(spacing: 12) {
-                if model.player.loading { ProgressView().controlSize(.small); Text("Titel wird vorbereitet …") }
-                else if model.player.isCrossfading { Label("Weicher Übergang", systemImage: "waveform") }
-                else { Text(track.codec?.uppercased() ?? "AUDIO"); Text("·"); Text(String(format: "%g×", model.player.playbackRate)) }
-            }.desktopScaledFont(14).foregroundStyle(.secondary).frame(height: 24)
-            if let error = model.player.error {
-                Text(error).desktopScaledFont(16).foregroundStyle(.secondary)
-                Button("Erneut versuchen") { model.player.resume() }.buttonStyle(.bordered)
+                Button { tab = 2 } label: { playerActionLabel("Equalizer", icon: "slider.vertical.3") }
+                Button { tab = 1 } label: { playerActionLabel("Lyrics", icon: "text.quote") }
+            }.buttonStyle(DesktopHoverStyle(radius: 12))
+            Divider()
+            HStack {
+                Button { model.player.seek(model.player.position - 10) } label: { playerActionLabel("−10 s", icon: "gobackward.10") }
+                Spacer(minLength: 8)
+                Button { model.player.seek(model.player.position + 10) } label: { playerActionLabel("+10 s", icon: "goforward.10") }
+            }.buttonStyle(DesktopHoverStyle(radius: 12))
+            if let deadline = model.player.sleepDeadline {
+                Label("Stoppt um \(deadline.formatted(date: .omitted, time: .shortened))", systemImage: "moon.zzz").desktopScaledFont(16).foregroundStyle(.secondary)
             }
-        }.padding(.horizontal, 4).padding(.bottom, 12)
+            playbackError
+        }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
+            .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
+    }
+    private func playerActionLabel(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon).desktopScaledFont(17, weight: .medium)
+            .padding(.horizontal, 14).frame(minHeight: 46)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+    }
+    private func playbackDock(_ track: Track, compact: Bool = false) -> some View {
+        VStack(spacing: 14) {
+            if compact {
+                VStack(spacing: 8) {
+                    DesktopPlaybackControls(player: model.player)
+                    DesktopSeekControl(player: model.player)
+                    dockOutput
+                }
+                ScrollView(.horizontal) { compactTools.frame(minWidth: 660) }.scrollIndicators(.hidden)
+            } else {
+                HStack(spacing: 24) {
+                    VStack(spacing: 8) {
+                        DesktopPlaybackControls(player: model.player, large: true)
+                        DesktopSeekControl(player: model.player)
+                    }.frame(maxWidth: .infinity)
+                    dockOutput.frame(maxWidth: 300)
+                }
+                HStack(spacing: 20) {
+                    compactTools
+                    Spacer(minLength: 0)
+                    playbackStatus(track)
+                }
+            }
+            playbackError
+        }.padding(.horizontal, compact ? 20 : 28).padding(.vertical, compact ? 14 : 20)
+            .background(.ultraThinMaterial).overlay(alignment: .top) { Divider() }
+    }
+    private var dockOutput: some View {
+        HStack(spacing: 12) {
+            DesktopVolumeControl(player: model.player)
+            AirPlayPicker().frame(width: 40, height: 40).accessibilityLabel("Audioausgabe wählen")
+        }
+    }
+    private var quickTools: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+            eqMenu
+            fadeMenu
+            timerMenu
+            speedMenu
+        }
+    }
+    private var compactTools: some View {
+        HStack(spacing: 10) {
+            eqMenu
+            fadeMenu
+            timerMenu
+            speedMenu
+        }
+    }
+    private var eqMenu: some View {
+        Menu {
+            Toggle("Equalizer aktivieren", isOn: Binding(get: { model.player.equalizer.enabled }, set: { model.player.equalizer.setEnabled($0) }))
+            Divider()
+            ForEach(EqualizerPreset.allCases) { preset in
+                Button(preset.name) { model.player.equalizer.select(preset); model.player.equalizer.setEnabled(true) }
+            }
+            Divider()
+            Button("Alle Frequenzbänder anzeigen") { tab = 2 }
+        } label: {
+            toolLabel("Equalizer", value: model.player.equalizer.enabled ? (EqualizerPreset(rawValue: model.player.equalizer.preset)?.name ?? "Eigener Klang") : "Aus", icon: "slider.vertical.3")
+        }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 14))
+    }
+    private var fadeMenu: some View {
+        Menu {
+            ForEach([0, 2, 4, 6, 8, 12], id: \.self) { seconds in
+                Button(seconds == 0 ? "Aus" : "\(seconds) Sekunden") { model.player.setCrossfade(Double(seconds)) }
+            }
+            Divider()
+            Toggle("Albentitel ohne Überblendung", isOn: Binding(get: { model.player.smartAlbumTransition }, set: { model.player.setSmartAlbumTransition($0) }))
+            Button("Übergänge einstellen") { tab = 2 }
+        } label: {
+            toolLabel("Übergang", value: model.player.crossfadeSeconds == 0 ? "Aus" : "\(Int(model.player.crossfadeSeconds)) s", icon: "waveform")
+        }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 14))
+    }
+    private var timerMenu: some View {
+        Menu {
+            ForEach(SleepMode.allCases) { mode in Button(mode.name) { model.player.setSleepMode(mode) } }
+        } label: {
+            toolLabel("Sleep-Timer", value: model.player.sleepMode.name, icon: "moon.zzz")
+        }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 14))
+    }
+    private var speedMenu: some View {
+        Menu {
+            ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
+                Button(String(format: "%g×", speed)) { model.player.setPlaybackRate(speed) }
+            }
+        } label: {
+            toolLabel("Tempo", value: String(format: "%g×", model.player.playbackRate), icon: "speedometer")
+        }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 14))
+    }
+    private func toolLabel(_ title: String, value: String, icon: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon).foregroundStyle(playerAccent).desktopScaledFont(19)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).desktopScaledFont(16, weight: .semibold).lineLimit(1).minimumScaleFactor(0.8)
+                Text(value).desktopScaledFont(14).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }.padding(12).frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+            .contentShape(RoundedRectangle(cornerRadius: 14))
+    }
+    private func playbackStatus(_ track: Track) -> some View {
+        HStack(spacing: 10) {
+            if model.player.loading { ProgressView().controlSize(.small); Text("Titel wird vorbereitet …") }
+            else if model.player.isCrossfading { Label("Weicher Übergang", systemImage: "waveform") }
+            else { Text(track.codec?.uppercased() ?? "AUDIO"); Text("·"); Text(formatTime(model.player.duration)) }
+        }.desktopScaledFont(14).foregroundStyle(.secondary).frame(minHeight: 24)
+    }
+    @ViewBuilder private var playbackError: some View {
+        if let error = model.player.error {
+            Text(error).desktopScaledFont(16).foregroundStyle(.secondary)
+            Button("Erneut versuchen") { model.player.resume() }.buttonStyle(.bordered)
+        }
     }
     private var queuePanel: some View {
         VStack(alignment: .leading, spacing: 20) {
-            ScrollView(.horizontal) {
-                HStack(spacing: 10) {
-                    panelTab("Warteschlange", value: 0)
-                    panelTab("Lyrics", value: 1)
-                    panelTab("Klang", value: 2)
+            HStack(spacing: 8) {
+                panelTab("Warteschlange", value: 0)
+                panelTab("Lyrics", value: 1)
+                panelTab("Klang", value: 2)
+            }
+            if tab == 0 {
+                HStack {
+                    Text("\(model.player.queue.tracks.count) Titel · \(max(0, model.player.queue.tracks.count - model.player.queue.index - 1)) als Nächstes").desktopScaledFont(15).foregroundStyle(.secondary)
+                    Spacer()
+                    Button { model.player.shuffle() } label: {
+                        Image(systemName: "shuffle").desktopScaledFont(20).frame(width: 44, height: 44)
+                    }.buttonStyle(DesktopControlStyle()).accessibilityLabel("Nächste Titel mischen").help("Nur die nächsten Titel mischen")
                 }
-            }.scrollIndicators(.hidden)
-            if tab == 0 { Text("\(model.player.queue.tracks.count) Titel in dieser Sitzung").desktopScaledFont(15).foregroundStyle(.secondary) }
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Warteschlange filtern", text: $queueFilter).textFieldStyle(.plain).accessibilityLabel("Warteschlange filtern")
+                    if !queueFilter.isEmpty {
+                        Button { queueFilter = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain).accessibilityLabel("Filter leeren")
+                    }
+                }.desktopScaledFont(17).padding(12)
+                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+            }
             ScrollView {
                 if tab == 0 {
                     LazyVStack(spacing: 10) {
-                        ForEach(Array(model.player.queue.tracks.enumerated()), id: \.offset) { index, track in
+                        ForEach(Array(model.player.queue.tracks.enumerated()).filter { queueFilter.isEmpty || $0.element.title.localizedCaseInsensitiveContains(queueFilter) || $0.element.artistText.localizedCaseInsensitiveContains(queueFilter) }, id: \.offset) { index, track in
                             Button { model.player.select(index) } label: {
                                 HStack(spacing: 14) {
                                     ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 56, height: 56)
@@ -290,13 +467,14 @@ struct DesktopListeningView: View {
                         .desktopScaledFont(24).lineSpacing(14).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-        }.padding(24).frame(height: max(340, min(980, size.height - 64)))
+        }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
     }
     private func panelTab(_ title: String, value: Int) -> some View {
         Button { tab = value } label: {
-            Text(title).desktopScaledFont(18, weight: .semibold).padding(.horizontal, 14).padding(.vertical, 12)
+            Text(title).desktopScaledFont(18, weight: .semibold).lineLimit(1).minimumScaleFactor(0.75)
+                .padding(.horizontal, 10).padding(.vertical, 12)
                 .background(tab == value ? playerAccent.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 12))
                 .foregroundStyle(tab == value ? playerAccent : .primary)
         }.buttonStyle(DesktopHoverStyle(radius: 12)).accessibilityAddTraits(tab == value ? .isSelected : [])

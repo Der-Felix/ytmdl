@@ -77,6 +77,8 @@ struct RootView: View {
         .environment(\.desktopButtonAccent, selectedTheme.accent)
         .environment(\.desktopTextScale, (DesktopTextSize(rawValue: textSize) ?? .large).scale)
         .tint(accent)
+        .onChange(of: model.query) { if !model.query.isEmpty { destination = .search } }
+        .onChange(of: searchFocused) { if searchFocused { destination = .search } }
         #endif
         #if DEBUG
         .task {
@@ -121,7 +123,9 @@ struct RootView: View {
                     #endif
                 }
                 #if os(macOS)
-                .safeAreaInset(edge: .top, spacing: 0) { desktopHeader }
+                .toolbar(removing: .title)
+                .searchable(text: $model.query, placement: .toolbarPrincipal, prompt: "Musik suchen")
+                .searchFocused($searchFocused)
                 .toolbar {
                     ToolbarItem {
                         Button("Suche öffnen", systemImage: "magnifyingglass") { destination = .search; searchFocused = true }
@@ -221,41 +225,6 @@ struct RootView: View {
                 }.buttonStyle(DesktopHoverStyle()).accessibilityAddTraits(destination == item ? .isSelected : [])
             }
         }
-    }
-    private var desktopHeader: some View {
-        GeometryReader { geometry in
-            if geometry.size.width >= 1050 {
-                ZStack {
-                    Text((destination ?? .library).rawValue).desktopScaledFont(28, weight: .bold)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    desktopSearchField.frame(width: 500)
-                }.padding(.horizontal, 28).frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if geometry.size.width < 650 {
-                desktopSearchField.padding(.horizontal, 20).frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                HStack(spacing: 24) {
-                    Text((destination ?? .library).rawValue).desktopScaledFont(28, weight: .bold).lineLimit(1)
-                    Spacer(minLength: 8)
-                    desktopSearchField.frame(maxWidth: 500)
-                }.padding(.horizontal, 28).frame(maxHeight: .infinity)
-            }
-        }.frame(height: 82).background(selectedTheme.surface(colorScheme))
-            .onChange(of: model.query) { if !model.query.isEmpty { destination = .search } }
-            .onChange(of: searchFocused) { if searchFocused { destination = .search } }
-    }
-    private var desktopSearchField: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Musik suchen", text: $model.query)
-                .textFieldStyle(.plain).focused($searchFocused)
-                .accessibilityLabel("Bibliothek durchsuchen")
-            if !model.query.isEmpty {
-                Button("Suche leeren", systemImage: "xmark.circle.fill") { model.query = ""; searchFocused = true }
-                    .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
-            }
-        }.desktopScaledFont(17).padding(.horizontal, 16).padding(.vertical, 13)
-            .background(selectedTheme.background(colorScheme), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.14)))
     }
     private func desktopMiniPlayer(_ track: Track) -> some View {
         DesktopTransportBar(model: model, track: track) { destination = .player }
@@ -728,9 +697,6 @@ struct NowPlayingView: View {
             }
             #endif
         }.navigationTitle("Player")
-        #if os(macOS)
-        .toolbar { ToolbarItem { AirPlayPicker().frame(width: 30, height: 30).accessibilityLabel("Audioausgabe wählen") } }
-        #endif
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
