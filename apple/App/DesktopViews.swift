@@ -4,53 +4,174 @@ import YTMDLCore
 
 #if os(macOS)
 enum PlayerVisualizerStyle: String, CaseIterable, Identifiable {
-    case bars, orbit = "curve" // Preserve the existing device preference.
+    case bars, columns, orbit = "curve", rings, dots, ribbon
     var id: String { rawValue }
-    var name: String { self == .bars ? "Spektrum" : "Orbit" }
+    var name: String {
+        switch self {
+        case .bars: "Spiegel-Spektrum"
+        case .columns: "Säulen"
+        case .orbit: "Orbit"
+        case .rings: "Ringe"
+        case .dots: "Lichtpunkte"
+        case .ribbon: "Frequenzband"
+        }
+    }
+    var radial: Bool { self == .orbit || self == .rings }
 }
 
-/// Instantaneous logarithmic frequency bands, with attack/release and falling peaks.
+enum PlayerVisualizerPlacement: String, CaseIterable, Identifiable {
+    case below, overlay, background
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .below: "Unter dem Cover"
+        case .overlay: "Auf dem Cover"
+        case .background: "Ohne Cover"
+        }
+    }
+}
+
+/// Shared device-local preferences for the player and its detailed sound settings.
+struct VisualizerPreferences: View {
+    @AppStorage("playerVisualizerStyle") private var style = PlayerVisualizerStyle.bars.rawValue
+    @AppStorage("playerVisualizerPlacement") private var placement = PlayerVisualizerPlacement.below.rawValue
+    @AppStorage("playerVisualizerIntensity") private var intensity = 1.0
+    @AppStorage("playerVisualizerOpacity") private var opacity = 0.85
+    @AppStorage("playerVisualizerPeaks") private var peaks = true
+    @AppStorage("playerVisualizerCoverColors") private var coverColors = true
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Stil", selection: $style) {
+                ForEach(PlayerVisualizerStyle.allCases) { Text($0.name).tag($0.rawValue) }
+            }.pickerStyle(.menu)
+            Picker("Darstellung", selection: $placement) {
+                ForEach(PlayerVisualizerPlacement.allCases) { Text($0.name).tag($0.rawValue) }
+            }.pickerStyle(.menu)
+            HStack { Text("Intensität"); Slider(value: $intensity, in: 0.5...2, step: 0.1).accessibilityLabel("Visualizer-Intensität"); Text(String(format: "%g×", intensity)).monospacedDigit().frame(width: 42) }
+            if placement == PlayerVisualizerPlacement.overlay.rawValue {
+                HStack { Text("Deckkraft"); Slider(value: $opacity, in: 0.35...1, step: 0.05).accessibilityLabel("Deckkraft auf dem Cover"); Text("\(Int(opacity * 100)) %").monospacedDigit().frame(width: 42) }
+            }
+            if [.bars, .columns, .orbit].contains(PlayerVisualizerStyle(rawValue: style) ?? .bars) {
+                Toggle(isOn: $peaks) { Text("Spitzen anzeigen").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch)
+            }
+            Toggle(isOn: $coverColors) { Text("Farben aus dem Cover").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch)
+            Text(placement == PlayerVisualizerPlacement.background.rawValue ? "Musikfarben und Visualizer ohne Cover. Titel und Steuerung bleiben sichtbar." : "Alle Stile reagieren auf die gemessenen Frequenzen deiner Musik.")
+                .font(.caption).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Instantaneous frequency data; there is no time history or simulated waveform.
 struct AudioSpectrumVisualizer: View {
     var player: PlayerModel
     var style: PlayerVisualizerStyle
     var accent: Color
+    @AppStorage("playerVisualizerIntensity") private var intensity = 1.0
+    @AppStorage("playerVisualizerPeaks") private var peaks = true
     var body: some View {
-        let levels = player.spectrumLevels
-        let peaks = player.spectrumPeaks
+        SpectrumCanvas(levels: player.spectrumLevels, peaks: player.spectrumPeaks, style: style,
+                       accent: accent, intensity: intensity, showPeaks: peaks)
+            .accessibilityLabel("Live-Musikspektrum: \(style.name)")
+            .accessibilityValue(player.isPlaying ? "Wiedergabe läuft" : "Pausiert")
+            .help("32 gemessene Frequenzbänder: Bass bis Höhen; ohne Mikrofonaufnahme")
+    }
+}
+
+/// Stateless drawing also permits silent rendering checks without starting an audio device.
+struct SpectrumCanvas: View {
+    var levels: [Double]
+    var peaks: [Double]
+    var style: PlayerVisualizerStyle
+    var accent: Color
+    var intensity = 1.0
+    var showPeaks = true
+    var body: some View {
         Canvas { context, size in
-            let step = size.width / CGFloat(levels.count)
-            if style == .bars {
-                let middle = size.height * 0.5, maximum = size.height * 0.46
-                for (index, level) in levels.enumerated() {
+            guard !levels.isEmpty else { return }
+            let gain = intensity.isFinite ? min(2, max(0.5, intensity)) : 1
+            let amplitudes = levels.map { $0.isFinite ? min(1, max(0, $0 * gain)) : 0 }
+            let bright = accent.mix(with: .white, by: 0.38)
+            let shading = GraphicsContext.Shading.linearGradient(Gradient(colors: [bright, accent, accent.opacity(0.18)]), startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height))
+            let step = size.width / CGFloat(amplitudes.count)
+            switch style {
+            case .bars, .columns:
+                let middle = style == .bars ? size.height * 0.5 : size.height * 0.95
+                let maximum = size.height * (style == .bars ? 0.46 : 0.89)
+                for (index, level) in amplitudes.enumerated() {
                     let x = (CGFloat(index) + 0.5) * step
-                    let height = max(2, level * maximum), width = max(2, step * 0.62)
-                    let rect = CGRect(x: x - width / 2, y: middle - height, width: width, height: height * 2)
-                    context.fill(Path(roundedRect: rect, cornerRadius: min(4, width / 2)), with: .linearGradient(Gradient(colors: [accent.mix(with: .white, by: 0.38), accent, accent.opacity(0.25)]), startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: size.height)))
-                    let peak = peaks[index] * maximum
-                    if peak > 3 {
-                        context.fill(Path(roundedRect: CGRect(x: x - width / 2, y: middle - peak - 4, width: width, height: 2), cornerRadius: 1), with: .color(accent.opacity(0.75)))
+                    let height = max(2, level * maximum), width = max(1, step * 0.62)
+                    let rect = CGRect(x: x - width / 2, y: middle - height, width: width, height: height * (style == .bars ? 2 : 1))
+                    context.fill(Path(roundedRect: rect, cornerRadius: min(4, width / 2)), with: shading)
+                    if showPeaks, peaks.indices.contains(index), peaks[index].isFinite {
+                        let peak = min(1, max(0, peaks[index] * gain)) * maximum
+                        if peak > 3 {
+                            context.fill(Path(roundedRect: CGRect(x: x - width / 2, y: middle - peak - 4, width: width, height: 2), cornerRadius: 1), with: .color(bright.opacity(0.8)))
+                        }
                     }
                 }
-            } else {
+            case .orbit, .rings:
                 let center = CGPoint(x: size.width / 2, y: size.height / 2)
                 let limit = min(size.width, size.height) * 0.46
                 let radius = limit * 0.42
-                let energy = levels.prefix(8).reduce(0, +) / 8
+                let energy = amplitudes.prefix(8).reduce(0, +) / Double(min(8, amplitudes.count))
                 let halo = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-                context.fill(Path(ellipseIn: halo), with: .radialGradient(Gradient(colors: [accent.opacity(0.08 + energy * 0.15), .clear]), center: center, startRadius: 0, endRadius: radius))
-                context.stroke(Path(ellipseIn: halo), with: .color(accent.opacity(0.3)), lineWidth: 1)
-                for (index, level) in levels.enumerated() {
-                    let angle = Double(index) / Double(levels.count) * 2 * Double.pi - Double.pi / 2
-                    let outer = radius + 3 + level * (limit - radius)
-                    var ray = Path()
-                    ray.move(to: CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius))
-                    ray.addLine(to: CGPoint(x: center.x + cos(angle) * outer, y: center.y + sin(angle) * outer))
-                    context.stroke(ray, with: .color(accent.mix(with: .white, by: 0.25)), style: StrokeStyle(lineWidth: max(2, min(8, radius * 0.045)), lineCap: .round))
+                context.fill(Path(ellipseIn: halo), with: .radialGradient(Gradient(colors: [accent.opacity(0.1 + energy * 0.25), .clear]), center: center, startRadius: 0, endRadius: radius))
+                if style == .rings {
+                    // Four nested rings represent bass, low-mid, high-mid and treble energy.
+                    for group in 0..<4 {
+                        let lower = group * amplitudes.count / 4, upper = (group + 1) * amplitudes.count / 4
+                        let band = amplitudes[lower..<upper]
+                        let value = band.reduce(0, +) / Double(max(1, band.count))
+                        let ringRadius = limit * (0.22 + Double(group) * 0.19) + value * limit * 0.13
+                        let rect = CGRect(x: center.x - ringRadius, y: center.y - ringRadius, width: ringRadius * 2, height: ringRadius * 2)
+                        context.stroke(Path(ellipseIn: rect), with: .color(accent.mix(with: .white, by: Double(group) * 0.14).opacity(0.3 + value * 0.7)), lineWidth: 2 + value * 7)
+                    }
+                } else {
+                    context.stroke(Path(ellipseIn: halo), with: .color(accent.opacity(0.3)), lineWidth: 1)
+                    for (index, level) in amplitudes.enumerated() {
+                        let angle = Double(index) / Double(amplitudes.count) * 2 * Double.pi - Double.pi / 2
+                        let outer = radius + 3 + level * (limit - radius)
+                        var ray = Path()
+                        ray.move(to: CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius))
+                        ray.addLine(to: CGPoint(x: center.x + cos(angle) * outer, y: center.y + sin(angle) * outer))
+                        context.stroke(ray, with: .color(bright), style: StrokeStyle(lineWidth: max(2, min(8, radius * 0.045)), lineCap: .round))
+                        if showPeaks, peaks.indices.contains(index), peaks[index].isFinite {
+                            let peakRadius = radius + 3 + min(1, max(0, peaks[index] * gain)) * (limit - radius)
+                            let point = CGPoint(x: center.x + cos(angle) * peakRadius, y: center.y + sin(angle) * peakRadius)
+                            if peaks[index] > 0.03 { context.fill(Path(ellipseIn: CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)), with: .color(bright.opacity(0.6))) }
+                        }
+                    }
                 }
+            case .dots:
+                let rows = 12, dot = max(1, min(step * 0.65, size.height / CGFloat(rows) * 0.62))
+                for (index, level) in amplitudes.enumerated() {
+                    for row in 0..<rows {
+                        let active = Double(row) / Double(rows) < level && level > 0.005
+                        let point = CGPoint(x: (CGFloat(index) + 0.5) * step, y: size.height - (CGFloat(row) + 0.5) * size.height / CGFloat(rows))
+                        context.fill(Path(ellipseIn: CGRect(x: point.x - dot / 2, y: point.y - dot / 2, width: dot, height: dot)), with: .color(active ? bright.opacity(0.45 + Double(row) / Double(rows) * 0.55) : accent.opacity(0.08)))
+                    }
+                }
+            case .ribbon:
+                // Mirrored frequency envelope, deliberately not labelled a PCM waveform.
+                let middle = size.height / 2, maximum = size.height * 0.45
+                var path = Path()
+                path.move(to: CGPoint(x: 0, y: middle))
+                let upper = amplitudes.enumerated().map { CGPoint(x: (CGFloat($0.offset) + 0.5) * step, y: middle - max(1, $0.element * maximum)) }
+                let lower = amplitudes.enumerated().reversed().map { CGPoint(x: (CGFloat($0.offset) + 0.5) * step, y: middle + max(1, $0.element * maximum)) }
+                for (index, point) in upper.enumerated() {
+                    let next = index + 1 < upper.count ? upper[index + 1] : CGPoint(x: size.width, y: middle)
+                    path.addQuadCurve(to: CGPoint(x: (point.x + next.x) / 2, y: (point.y + next.y) / 2), control: point)
+                }
+                path.addLine(to: CGPoint(x: size.width, y: middle))
+                for (index, point) in lower.enumerated() {
+                    let next = index + 1 < lower.count ? lower[index + 1] : CGPoint(x: 0, y: middle)
+                    path.addQuadCurve(to: CGPoint(x: (point.x + next.x) / 2, y: (point.y + next.y) / 2), control: point)
+                }
+                path.closeSubpath()
+                context.fill(path, with: shading)
+                context.stroke(path, with: .color(bright.opacity(0.8)), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
             }
-        }.accessibilityLabel("Live-Musikspektrum")
-            .accessibilityValue(player.isPlaying ? "Wiedergabe läuft" : "Pausiert")
-            .help("32 gemessene Frequenzbänder: Bass bis Höhen; ohne Mikrofonaufnahme")
+        }
     }
 }
 
@@ -208,6 +329,9 @@ struct DesktopListeningView: View {
     @Environment(\.colorScheme) private var scheme
     @AppStorage("playerCoverColors") private var coverColors = true
     @AppStorage("playerVisualizerStyle") private var visualizerStyle = PlayerVisualizerStyle.bars.rawValue
+    @AppStorage("playerVisualizerPlacement") private var visualizerPlacement = PlayerVisualizerPlacement.below.rawValue
+    @AppStorage("playerVisualizerOpacity") private var visualizerOpacity = 0.85
+    @AppStorage("playerVisualizerCoverColors") private var visualizerCoverColors = true
     var model: AppModel
     var size: CGSize
     @State private var tab = 0
@@ -223,7 +347,7 @@ struct DesktopListeningView: View {
                     let contextWidth = max(380, min(600, available * 0.34))
                     HStack(alignment: .top, spacing: 24) {
                         ScrollView {
-                            listeningCard(track, cover: max(220, min(520, (available - contextWidth) * 0.7, size.height - (model.player.visualizationEnabled ? selectedVisualizerStyle == .orbit ? 780 : 706 : 560))))
+                            listeningCard(track, cover: max(220, min(520, (available - contextWidth) * 0.7, size.height - (showsInlineVisualizer ? selectedVisualizerStyle.radial ? 780 : 706 : 560))))
                         }.scrollIndicators(.hidden).frame(maxWidth: .infinity)
                         ScrollView {
                             VStack(spacing: 0) {
@@ -299,9 +423,7 @@ struct DesktopListeningView: View {
                 if model.player.equalizer.enabled { Label("EQ", systemImage: "slider.vertical.3").desktopScaledFont(14).foregroundStyle(playerAccent) }
                 if model.player.sleepMode != .off { Image(systemName: "moon.zzz.fill").foregroundStyle(playerAccent) }
             }
-            ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: cover, height: cover)
-                .shadow(color: .black.opacity(0.22), radius: 20, y: 12)
-                .frame(maxWidth: .infinity)
+            artworkPresentation(track, cover: cover).frame(maxWidth: .infinity)
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(track.title).desktopScaledFont(32, weight: .bold).lineLimit(3)
@@ -313,22 +435,13 @@ struct DesktopListeningView: View {
                         .desktopScaledFont(27).foregroundStyle(playerAccent).frame(width: 56, height: 56)
                 }.buttonStyle(DesktopControlStyle()).accessibilityLabel("Favorit umschalten")
             }
-            if model.player.visualizationEnabled { visualizerPanel }
+            if showsInlineVisualizer { visualizerPanel }
         }.padding(.horizontal, 4).padding(.bottom, 8)
     }
     private func listeningCard(_ track: Track, cover: CGFloat) -> some View {
         VStack(spacing: 22) {
             Spacer(minLength: 16)
-            ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: cover, height: cover)
-                .overlay(alignment: .topTrailing) {
-                    Button { expandedArtwork = true } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.title3)
-                            .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                    }.buttonStyle(DesktopHoverStyle(radius: 10)).padding(12)
-                        .accessibilityLabel("Cover vergrößern")
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .shadow(color: .black.opacity(0.24), radius: 20, y: 12)
+            artworkPresentation(track, cover: cover)
             HStack(alignment: .top, spacing: 12) {
                 Spacer().frame(width: 88)
                 VStack(spacing: 10) {
@@ -352,7 +465,7 @@ struct DesktopListeningView: View {
                         .accessibilityLabel("Aktionen für den aktuellen Titel")
                 }
             }
-            if model.player.visualizationEnabled { visualizerPanel }
+            if showsInlineVisualizer { visualizerPanel }
             Spacer(minLength: 36)
             DesktopSeekControl(player: model.player)
             ViewThatFits(in: .horizontal) {
@@ -369,11 +482,54 @@ struct DesktopListeningView: View {
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
     }
+    private var selectedVisualizerPlacement: PlayerVisualizerPlacement {
+        model.player.visualizationEnabled ? PlayerVisualizerPlacement(rawValue: visualizerPlacement) ?? .below : .below
+    }
+    private var showsInlineVisualizer: Bool { model.player.visualizationEnabled && selectedVisualizerPlacement == .below }
+    private var visualizerAccent: Color { visualizerCoverColors ? playerAccent : accent }
+    @ViewBuilder private func artworkPresentation(_ track: Track, cover: CGFloat) -> some View {
+        if selectedVisualizerPlacement == .background {
+            VStack(spacing: 16) {
+                HStack {
+                    Label(selectedVisualizerStyle.name, systemImage: "waveform").foregroundStyle(.secondary)
+                    Spacer()
+                    expandVisualizerButton
+                }
+                AudioSpectrumVisualizer(player: model.player, style: selectedVisualizerStyle, accent: visualizerAccent)
+                    .frame(height: max(240, min(560, size.height - 490)))
+            }.frame(maxWidth: .infinity)
+        } else {
+            ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: cover, height: cover)
+                .overlay {
+                    if selectedVisualizerPlacement == .overlay {
+                        ZStack(alignment: .bottom) {
+                            LinearGradient(colors: [.clear, .black.opacity(0.72)], startPoint: .center, endPoint: .bottom)
+                            AudioSpectrumVisualizer(player: model.player, style: selectedVisualizerStyle, accent: visualizerAccent)
+                                .frame(height: selectedVisualizerStyle.radial ? cover * 0.75 : cover * 0.36)
+                                .padding(16).opacity(visualizerOpacity.isFinite ? min(1, max(0.35, visualizerOpacity)) : 0.85)
+                        }.allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    Button { expandedArtwork = true } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.title3)
+                            .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    }.buttonStyle(DesktopHoverStyle(radius: 10)).padding(12).accessibilityLabel("Cover vergrößern")
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .shadow(color: .black.opacity(0.24), radius: 20, y: 12)
+        }
+    }
+    private var expandVisualizerButton: some View {
+        Button { expandedVisualizer = true } label: {
+            Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 36, height: 32)
+        }.buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer vergrößern")
+    }
     private var selectedVisualizerStyle: PlayerVisualizerStyle { PlayerVisualizerStyle(rawValue: visualizerStyle) ?? .bars }
     private var visualizerStylePicker: some View {
         Picker("Visualizer-Stil", selection: $visualizerStyle) {
             ForEach(PlayerVisualizerStyle.allCases) { Text($0.name).tag($0.rawValue) }
-        }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 240)
+        }.pickerStyle(.menu).labelsHidden().frame(maxWidth: 240)
     }
     private var visualizerPanel: some View {
         VStack(spacing: 10) {
@@ -384,7 +540,7 @@ struct DesktopListeningView: View {
                     Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 36, height: 32)
                 }.buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer vergrößern")
             }.foregroundStyle(.secondary)
-            AudioSpectrumVisualizer(player: model.player, style: selectedVisualizerStyle, accent: playerAccent).frame(height: selectedVisualizerStyle == .orbit ? 170 : 100)
+            AudioSpectrumVisualizer(player: model.player, style: selectedVisualizerStyle, accent: visualizerAccent).frame(height: selectedVisualizerStyle.radial ? 170 : 100)
         }.frame(maxWidth: 680)
     }
     private var visualizerSheet: some View {
@@ -399,7 +555,7 @@ struct DesktopListeningView: View {
                 Text(model.player.current?.title ?? "Deine Musik").font(.title.bold()).multilineTextAlignment(.center).lineLimit(2)
                 Text(model.player.current?.artistText ?? "").font(.title3).foregroundStyle(.secondary)
             }
-            AudioSpectrumVisualizer(player: model.player, style: selectedVisualizerStyle, accent: playerAccent)
+            AudioSpectrumVisualizer(player: model.player, style: selectedVisualizerStyle, accent: visualizerAccent)
                 .frame(maxWidth: .infinity, maxHeight: .infinity).padding(.vertical, 16)
             HStack(spacing: 24) {
                 Button { model.player.toggle() } label: {
@@ -426,12 +582,9 @@ struct DesktopListeningView: View {
                 Label("Visualizer", systemImage: "waveform").frame(maxWidth: .infinity, alignment: .leading)
             }.toggleStyle(.switch)
             if model.player.visualizationEnabled {
-                HStack {
-                    visualizerStylePicker
-                    Spacer(minLength: 8)
-                    Button { expandedVisualizer = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 40, height: 36) }
-                        .buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer vergrößern")
-                }
+                VisualizerPreferences()
+                Button { expandedVisualizer = true } label: { Label("Visualizer vergrößern", systemImage: "arrow.up.left.and.arrow.down.right") }
+                    .buttonStyle(DesktopHoverStyle(radius: 8))
             }
             eqMenu
             Toggle(isOn: Binding(get: { model.player.equalizer.headroom }, set: { model.player.equalizer.setHeadroom($0) })) {

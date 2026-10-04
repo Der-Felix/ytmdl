@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.1.0, build 15
+# Apple app handoff — preview 0.1.0, build 16
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -35,7 +35,7 @@ Build commands, fixtures, device requirements and codec limits are in
 [README.md](README.md). Authentication, local HTTP consent, privacy and Apple
 review requirements are in [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
 
-Build 15 uses a unified listening card
+Build 16 uses a unified listening card
 and a right-hand queue/options area. Artwork is capped at 520 points, with
 transport near the bottom and flexible space beneath metadata. Known library
 duration takes precedence over unreliable stream estimates for seeking and
@@ -50,16 +50,29 @@ shorter windows scroll. Sidebar and sign-in use the original repository logo,
 and Mac/iOS icons are generated from it by `Scripts/generate-icons.swift`.
 
 The optional Visualizer now uses a Hann-windowed 2048-point real FFT (Accelerate)
-and 32 logarithmic bands rather than RMS-history graphics. **Spektrum** draws
-mirrored bars and falling peaks; **Orbit** draws radial bands. Main-actor attack,
+and 32 logarithmic bands rather than RMS-history graphics. **Spiegel-Spektrum** draws
+mirrored bars and falling peaks; **Säulen**, **Orbit**, **Ringe**, **Lichtpunkte**
+and **Frequenzband** provide five other frequency-based renderers. Rings summarize
+four frequency ranges; the envelope is a frequency display, not a PCM waveform.
+The player supports placement beneath the cover, a cover overlay with adjustable
+opacity, or a cover-free view over the music-color background. Intensity, peak
+markers and cover/theme colors are device-local settings, shared between compact
+player options and detailed playback settings. Turning visualization off restores
+the ordinary cover. Existing bars/curve preference values remain compatible. Main-actor attack,
 release and peak decay run near 30 Hz. The large live view closes with Escape
-while playback continues. Style and enabled state persist; both default/style
+while playback continues. Style, placement and enabled state persist; default/style
 migration retain existing preferences. Render callback storage/setup is allocated
 before rendering, analysis is activation-gated, and disabling both EQ and
 visualization removes the processing tap. EQ bypass leaves samples unchanged.
 The first decoded channel is analyzed, including AVPlayer gain. During crossfade
 callbacks from either title feed the shared display, not a final mixed-output FFT.
 EQ headroom is not title loudness normalization. Reference links are in README.
+
+Local verification must remain silent: compile the full test target, run only
+CPU/state tests without audio output, and use the default silent loopback WAV
+for layout checks. The full AVPlayer audio suite includes audible fixtures and
+must not be run through local speakers. Stateless `SpectrumCanvas` allows
+rendering checks with CPU-analyzed samples, without scheduling audio playback.
 
 Review wide/narrow windows, long titles, light/dark themes, queue filtering with
 removal and duplicates, next-track order, mute/volume, pause, seeking, changing

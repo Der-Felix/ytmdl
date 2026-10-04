@@ -55,8 +55,14 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   Mac/iOS app icons use that same artwork; regenerate them with
   `swift apple/Scripts/generate-icons.swift` from the repository root.
 - Optional **Visualizer** uses a real 2048-sample Hann-windowed FFT with Apple
-  Accelerate. It displays 32 logarithmic frequency bands as **Spektrum** (mirrored
-  bars with falling peaks) or **Orbit** (radial bands), with cover-derived colors.
+  Accelerate. It displays 32 logarithmic frequency bands in six styles: **Spiegel-Spektrum**
+  (mirrored bars with falling peaks), **Säulen**, **Orbit**, **Ringe**,
+  **Lichtpunkte** and **Frequenzband**. The four rings aggregate frequency ranges;
+  the filled envelope represents frequency, not a PCM waveform. Under **Player →
+  Wiedergabe-Optionen** or detailed sound settings, choose beneath-cover placement,
+  a cover overlay or a cover-free view on the music-color background. Intensity,
+  overlay opacity, peak markers and cover/theme colors are configurable and
+  persist locally. Disabling the visualizer restores the normal cover.
   Frequency is shown instead of a scrolling volume history. The larger live view
   includes pause/play and closes with Escape. Style and activation persist on the
   device; it defaults to off. Audio-callback storage is preallocated and FFT work
