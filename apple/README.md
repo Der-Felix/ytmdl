@@ -38,8 +38,9 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   artist and track labels, search (⌘F) in the single window toolbar, and a centered
   transport bar with seeking, app volume, mute and AirPlay. The full player uses
   two areas on large windows: a unified listening card with a centered cover
-  capped at 460 points and large transport/volume controls; queue/lyrics/sound
-  above compact playback options on the right. Small windows stack artwork and
+  capped at 520 points and large transport/volume controls; queue/lyrics/sound
+  above compact playback options on the right. Transport sits near the bottom
+  of the listening card, with flexible space beneath the title. Small windows stack artwork and
   context above a persistent compact transport. Panels scroll independently.
   EQ profiles, headroom, crossfade, speed and sleep timer remain accessible;
   the **Klang** tab exposes all ten EQ bands and detailed playback settings.
@@ -96,6 +97,9 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   failed incoming item keeps the normal title-end path. Prepared titles retain
   their position when promoted. This is not a guarantee of sample-perfect
   gapless playback. Timer album boundaries are determined by the current queue.
+- For known tracks, library duration drives the timeline, seek limits and both
+  sides of the crossfade. AVPlayer duration is only a fallback when library
+  duration is missing; inflated stream estimates do not override known metadata.
 - Fast start avoids a separate playable-asset preflight and begins with available
   audio; lyric and cover loading run independently. Turn it off on weak networks
   to allow more buffering. Native loading state reflects actual playback.

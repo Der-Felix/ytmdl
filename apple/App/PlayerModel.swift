@@ -45,8 +45,13 @@ enum SleepMode: String, CaseIterable, Identifiable {
     var lyrics = ""
     var current: Track? { queue.current }
     var duration: Double {
-        if let item = audio.currentItem { let value = item.duration.seconds; if value.isFinite && value > 0 { return value } }
-        return current?.duration ?? 0
+        Self.resolvedDuration(metadata: current?.duration ?? 0, stream: audio.currentItem?.duration.seconds ?? 0)
+    }
+    static func resolvedDuration(metadata: Double, stream: Double) -> Double {
+        // Library duration is authoritative for known files. AVFoundation may
+        // report an inflated estimate for streamed Opus; use it only as fallback.
+        if metadata.isFinite && metadata > 0 { return metadata }
+        return stream.isFinite && stream > 0 ? stream : 0
     }
     var isPlaybackRequested: Bool { wantsPlayback }
     var preparedTrackID: String? { pendingID }
@@ -357,7 +362,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         let remaining = duration - time
         // Keep at least half of each short track outside the overlap.
         let preparedDuration = standby.currentItem?.duration.seconds ?? 0
-        let nextDuration = preparedDuration.isFinite && preparedDuration > 0 ? preparedDuration : queue.tracks[index].duration
+        let nextDuration = Self.resolvedDuration(metadata: queue.tracks[index].duration, stream: preparedDuration)
         let window = min(crossfadeSeconds * playbackRate, duration / 2, nextDuration / 2)
         guard remaining <= window, window > 0, remaining > 0 else { return }
         if !isCrossfading { isCrossfading = true; fadeDuration = max(0.1, remaining); start(standby) }

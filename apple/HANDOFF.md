@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.1.0, build 12
+# Apple app handoff — preview 0.1.0, build 13
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -35,8 +35,11 @@ Build commands, fixtures, device requirements and codec limits are in
 [README.md](README.md). Authentication, local HTTP consent, privacy and Apple
 review requirements are in [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
 
-Build 12 replaces the three-column Mac player with a unified listening card
-and a right-hand queue/options area. The cover stays bounded; seeking, volume,
+Build 13 uses a unified listening card
+and a right-hand queue/options area. Artwork is capped at 520 points, with
+transport near the bottom and flexible space beneath metadata. Known library
+duration takes precedence over unreliable stream estimates for seeking and
+crossfade; missing metadata falls back to valid AVPlayer duration. The cover stays bounded; seeking, volume,
 AirPlay and big transport controls sit beneath it. Queue menus address
 occurrences by index, preserve the playing occurrence and invalidate prefetch
 when order changes. Removing from the queue never deletes media.

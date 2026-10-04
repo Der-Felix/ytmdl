@@ -292,3 +292,14 @@ private func syntheticWave(in folder: URL, seconds: Double = 6) throws -> URL {
     #expect(player.queue.tracks == [tracks[0]] && standby.currentItem == nil && player.preparedTrackID == nil)
     #expect(audio.currentItem === currentItem && player.isPlaying)
 }
+
+@MainActor @Test func libraryDurationWinsOverInflatedStreamEstimateAndUnknownDurationFallsBack() {
+    // An Opus stream can report 278 minutes for a track whose library says 2:49.
+    #expect(PlayerModel.resolvedDuration(metadata: 169, stream: 16680) == 169)
+    #expect(PlayerModel.resolvedDuration(metadata: 169, stream: .nan) == 169)
+    #expect(PlayerModel.resolvedDuration(metadata: 0, stream: 169) == 169)
+    #expect(PlayerModel.resolvedDuration(metadata: -1, stream: 169) == 169)
+    #expect(PlayerModel.resolvedDuration(metadata: .infinity, stream: 169) == 169)
+    #expect(PlayerModel.resolvedDuration(metadata: 0, stream: .infinity) == 0)
+    #expect(PlayerModel.resolvedDuration(metadata: 0, stream: -1) == 0)
+}

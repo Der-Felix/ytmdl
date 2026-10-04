@@ -169,8 +169,7 @@ struct DesktopListeningView: View {
                     let contextWidth = max(380, min(600, available * 0.34))
                     HStack(alignment: .top, spacing: 24) {
                         ScrollView {
-                            listeningCard(track, cover: max(220, min(460, (available - contextWidth) * 0.7, size.height - 400)))
-                                .frame(minHeight: max(0, size.height - 48))
+                            listeningCard(track, cover: max(220, min(520, (available - contextWidth) * 0.7, size.height - 560)))
                         }.scrollIndicators(.hidden).frame(maxWidth: .infinity)
                         ScrollView {
                             VStack(spacing: 16) {
@@ -263,7 +262,7 @@ struct DesktopListeningView: View {
     }
     private func listeningCard(_ track: Track, cover: CGFloat) -> some View {
         VStack(spacing: 22) {
-            Spacer(minLength: 0)
+            Spacer(minLength: 16)
             ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: cover, height: cover)
                 .overlay(alignment: .topTrailing) {
                     Button { expandedArtwork = true } label: {
@@ -303,6 +302,7 @@ struct DesktopListeningView: View {
                         .accessibilityLabel("Aktionen für den aktuellen Titel")
                 }
             }
+            Spacer(minLength: 36)
             DesktopSeekControl(player: model.player)
             ViewThatFits(in: .horizontal) {
                 DesktopPlaybackControls(player: model.player, large: true)
@@ -314,8 +314,7 @@ struct DesktopListeningView: View {
             }
             playbackStatus(track)
             playbackError
-            Spacer(minLength: 0)
-        }.padding(28).frame(maxWidth: .infinity)
+        }.frame(maxWidth: .infinity, minHeight: max(0, size.height - 104)).padding(28)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
     }
