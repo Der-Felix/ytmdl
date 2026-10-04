@@ -37,6 +37,53 @@ enum PlayerVisualizerPlacement: String, CaseIterable, Identifiable {
     }
 }
 
+enum VisualizerColorMode: String, CaseIterable, Identifiable {
+    case cover, theme, aurora, sunset, ocean, neon, custom
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .cover: "Coverfarben"
+        case .theme: "Theme-Farbe"
+        case .aurora: "Aurora"
+        case .sunset: "Sonnenuntergang"
+        case .ocean: "Ozean"
+        case .neon: "Neon"
+        case .custom: "Eigene Farben"
+        }
+    }
+    static func resolved(_ raw: String, legacyCover: Bool) -> Self {
+        Self(rawValue: raw) ?? (legacyCover ? .cover : .theme)
+    }
+}
+
+/// RGB strings keep native color-picker choices portable and device-local.
+private enum VisualizerColors {
+    static func color(_ hex: String, fallback: String) -> Color {
+        let valid = hex.count == 6 && hex.allSatisfy { $0.isASCII && $0.isHexDigit }
+        let value = UInt32(valid ? hex : fallback, radix: 16) ?? 0xEF548E
+        return Color(red: Double((value >> 16) & 255) / 255,
+                     green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
+    }
+    static func hex(_ color: Color) -> String? {
+        guard let rgb = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+        let channels = [rgb.redComponent, rgb.greenComponent, rgb.blueComponent]
+        guard channels.allSatisfy({ $0.isFinite }) else { return nil }
+        return channels.map { String(format: "%02X", Int((min(1, max(0, $0)) * 255).rounded())) }.joined()
+    }
+    static func palette(_ mode: VisualizerColorMode, cover: Color, theme: Color,
+                        custom: Color, end: Color, gradient: Bool) -> (Color, Color?) {
+        switch mode {
+        case .cover: (cover, nil)
+        case .theme: (theme, nil)
+        case .aurora: (color("53E9BB", fallback: "53E9BB"), color("9C71FF", fallback: "9C71FF"))
+        case .sunset: (color("FFB65B", fallback: "FFB65B"), color("EF548E", fallback: "EF548E"))
+        case .ocean: (color("46DAD2", fallback: "46DAD2"), color("5285FF", fallback: "5285FF"))
+        case .neon: (color("EE5ADA", fallback: "EE5ADA"), color("55CCFF", fallback: "55CCFF"))
+        case .custom: (custom, gradient ? end : nil)
+        }
+    }
+}
+
 /// Shared device-local preferences for the player and its detailed sound settings.
 struct VisualizerPreferences: View {
     @AppStorage("playerVisualizerStyle") private var style = PlayerVisualizerStyle.bars.rawValue
@@ -45,6 +92,11 @@ struct VisualizerPreferences: View {
     @AppStorage("playerVisualizerOpacity") private var opacity = 0.85
     @AppStorage("playerVisualizerPeaks") private var peaks = true
     @AppStorage("playerVisualizerCoverColors") private var coverColors = true
+    @AppStorage("playerVisualizerColorMode") private var colorMode = "automatic"
+    @AppStorage("playerVisualizerCustomColor") private var customColor = "EF548E"
+    @AppStorage("playerVisualizerEndColor") private var endColor = "55CCFF"
+    @AppStorage("playerVisualizerCustomGradient") private var customGradient = false
+    private var selectedColorMode: VisualizerColorMode { .resolved(colorMode, legacyCover: coverColors) }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 16) {
@@ -79,8 +131,41 @@ struct VisualizerPreferences: View {
             if [.bars, .columns, .orbit].contains(PlayerVisualizerStyle(rawValue: style) ?? .bars) {
                 Toggle(isOn: $peaks) { Text("Spitzen anzeigen").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch)
             }
-            Toggle(isOn: $coverColors) { Text("Coverfarben verwenden").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch)
+            Divider()
+            HStack(spacing: 16) {
+                fieldLabel("Farben")
+                Menu {
+                    ForEach(VisualizerColorMode.allCases) { mode in
+                        Button { colorMode = mode.rawValue } label: {
+                            if selectedColorMode == mode { Label(mode.name, systemImage: "checkmark") }
+                            else { Text(mode.name) }
+                        }
+                    }
+                } label: { selectionLabel(selectedColorMode.name) }
+                    .menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer-Farbpalette")
+            }
+            if selectedColorMode == .custom {
+                customColorRow("Farbe", stored: $customColor, fallback: "EF548E")
+                Toggle(isOn: $customGradient) { Text("Farbverlauf").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch)
+                if customGradient {
+                    customColorRow("Zweite Farbe", stored: $endColor, fallback: "55CCFF")
+                }
+            }
+            Text("Nur der Visualizer verwendet diese Farben. Cover und Bedienelemente behalten ihr Design.")
+                .desktopScaledFont(13).foregroundStyle(.secondary)
         }.desktopScaledFont(15).frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func customColorRow(_ title: String, stored: Binding<String>, fallback: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            ColorPicker(title, selection: colorBinding(stored, fallback: fallback), supportsOpacity: false)
+                .labelsHidden().accessibilityLabel(title)
+        }
+    }
+    private func colorBinding(_ stored: Binding<String>, fallback: String) -> Binding<Color> {
+        Binding(get: { VisualizerColors.color(stored.wrappedValue, fallback: fallback) },
+                set: { if let hex = VisualizerColors.hex($0) { stored.wrappedValue = hex } })
     }
     private func fieldLabel(_ title: String) -> some View {
         Text(title).foregroundStyle(.secondary).frame(width: 100, alignment: .leading)
@@ -101,11 +186,20 @@ struct AudioSpectrumVisualizer: View {
     var player: PlayerModel
     var style: PlayerVisualizerStyle
     var accent: Color
+    @Environment(\.desktopTheme) private var theme
+    @AppStorage("playerVisualizerCoverColors") private var legacyCover = true
+    @AppStorage("playerVisualizerColorMode") private var colorMode = "automatic"
+    @AppStorage("playerVisualizerCustomColor") private var customColor = "EF548E"
+    @AppStorage("playerVisualizerEndColor") private var endColor = "55CCFF"
+    @AppStorage("playerVisualizerCustomGradient") private var customGradient = false
     @AppStorage("playerVisualizerIntensity") private var intensity = 1.0
     @AppStorage("playerVisualizerPeaks") private var peaks = true
     var body: some View {
+        let palette = VisualizerColors.palette(.resolved(colorMode, legacyCover: legacyCover), cover: accent,
+                                              theme: theme.accent, custom: VisualizerColors.color(customColor, fallback: "EF548E"),
+                                              end: VisualizerColors.color(endColor, fallback: "55CCFF"), gradient: customGradient)
         SpectrumCanvas(levels: player.spectrumLevels, peaks: player.spectrumPeaks, style: style,
-                       accent: accent, intensity: intensity, showPeaks: peaks)
+                       accent: palette.0, endAccent: palette.1, intensity: intensity, showPeaks: peaks)
             .accessibilityLabel("Live-Musikspektrum: \(style.name)")
             .accessibilityValue(player.isPlaying ? "Wiedergabe läuft" : "Pausiert")
             .help("32 gemessene Frequenzbänder: Bass bis Höhen; ohne Mikrofonaufnahme")
@@ -118,6 +212,7 @@ struct SpectrumCanvas: View {
     var peaks: [Double]
     var style: PlayerVisualizerStyle
     var accent: Color
+    var endAccent: Color? = nil
     var intensity = 1.0
     var showPeaks = true
     var body: some View {
@@ -125,8 +220,10 @@ struct SpectrumCanvas: View {
             guard !levels.isEmpty else { return }
             let gain = intensity.isFinite ? min(2, max(0.5, intensity)) : 1
             let amplitudes = levels.map { $0.isFinite ? min(1, max(0, $0 * gain)) : 0 }
-            let bright = accent.mix(with: .white, by: 0.38)
-            let shading = GraphicsContext.Shading.linearGradient(Gradient(colors: [bright, accent, accent.opacity(0.18)]), startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height))
+            func bandColor(_ index: Int, count: Int) -> Color {
+                accent.mix(with: endAccent ?? accent, by: Double(index) / Double(max(1, count - 1)))
+            }
+            let shading = GraphicsContext.Shading.linearGradient(Gradient(colors: [accent, endAccent ?? accent]), startPoint: .zero, endPoint: CGPoint(x: size.width, y: 0))
             let step = size.width / CGFloat(amplitudes.count)
             switch style {
             case .bars, .columns:
@@ -136,11 +233,13 @@ struct SpectrumCanvas: View {
                     let x = (CGFloat(index) + 0.5) * step
                     let height = max(2, level * maximum), width = max(1, step * 0.62)
                     let rect = CGRect(x: x - width / 2, y: middle - height, width: width, height: height * (style == .bars ? 2 : 1))
-                    context.fill(Path(roundedRect: rect, cornerRadius: min(4, width / 2)), with: shading)
+                    let color = bandColor(index, count: amplitudes.count)
+                    let column = GraphicsContext.Shading.linearGradient(Gradient(colors: [color, color.opacity(0.35)]), startPoint: CGPoint(x: 0, y: middle - height), endPoint: CGPoint(x: 0, y: middle + (style == .bars ? height : 0)))
+                    context.fill(Path(roundedRect: rect, cornerRadius: min(4, width / 2)), with: column)
                     if showPeaks, peaks.indices.contains(index), peaks[index].isFinite {
                         let peak = min(1, max(0, peaks[index] * gain)) * maximum
                         if peak > 3 {
-                            context.fill(Path(roundedRect: CGRect(x: x - width / 2, y: middle - peak - 4, width: width, height: 2), cornerRadius: 1), with: .color(bright.opacity(0.8)))
+                            context.fill(Path(roundedRect: CGRect(x: x - width / 2, y: middle - peak - 4, width: width, height: 2), cornerRadius: 1), with: .color(color.mix(with: .white, by: 0.18).opacity(0.8)))
                         }
                     }
                 }
@@ -159,7 +258,7 @@ struct SpectrumCanvas: View {
                         let value = band.reduce(0, +) / Double(max(1, band.count))
                         let ringRadius = limit * (0.22 + Double(group) * 0.19) + value * limit * 0.13
                         let rect = CGRect(x: center.x - ringRadius, y: center.y - ringRadius, width: ringRadius * 2, height: ringRadius * 2)
-                        context.stroke(Path(ellipseIn: rect), with: .color(accent.mix(with: .white, by: Double(group) * 0.14).opacity(0.3 + value * 0.7)), lineWidth: 2 + value * 7)
+                        context.stroke(Path(ellipseIn: rect), with: .color(bandColor(group, count: 4).opacity(0.3 + value * 0.7)), lineWidth: 2 + value * 7)
                     }
                 } else {
                     context.stroke(Path(ellipseIn: halo), with: .color(accent.opacity(0.3)), lineWidth: 1)
@@ -169,11 +268,11 @@ struct SpectrumCanvas: View {
                         var ray = Path()
                         ray.move(to: CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius))
                         ray.addLine(to: CGPoint(x: center.x + cos(angle) * outer, y: center.y + sin(angle) * outer))
-                        context.stroke(ray, with: .color(bright), style: StrokeStyle(lineWidth: max(2, min(8, radius * 0.045)), lineCap: .round))
+                        context.stroke(ray, with: .color(bandColor(index, count: amplitudes.count)), style: StrokeStyle(lineWidth: max(2, min(8, radius * 0.045)), lineCap: .round))
                         if showPeaks, peaks.indices.contains(index), peaks[index].isFinite {
                             let peakRadius = radius + 3 + min(1, max(0, peaks[index] * gain)) * (limit - radius)
                             let point = CGPoint(x: center.x + cos(angle) * peakRadius, y: center.y + sin(angle) * peakRadius)
-                            if peaks[index] > 0.03 { context.fill(Path(ellipseIn: CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)), with: .color(bright.opacity(0.6))) }
+                            if peaks[index] > 0.03 { context.fill(Path(ellipseIn: CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)), with: .color(bandColor(index, count: amplitudes.count).opacity(0.6))) }
                         }
                     }
                 }
@@ -183,7 +282,7 @@ struct SpectrumCanvas: View {
                     for row in 0..<rows {
                         let active = Double(row) / Double(rows) < level && level > 0.005
                         let point = CGPoint(x: (CGFloat(index) + 0.5) * step, y: size.height - (CGFloat(row) + 0.5) * size.height / CGFloat(rows))
-                        context.fill(Path(ellipseIn: CGRect(x: point.x - dot / 2, y: point.y - dot / 2, width: dot, height: dot)), with: .color(active ? bright.opacity(0.45 + Double(row) / Double(rows) * 0.55) : accent.opacity(0.08)))
+                        context.fill(Path(ellipseIn: CGRect(x: point.x - dot / 2, y: point.y - dot / 2, width: dot, height: dot)), with: .color(active ? bandColor(index, count: amplitudes.count).opacity(0.45 + Double(row) / Double(rows) * 0.55) : bandColor(index, count: amplitudes.count).opacity(0.08)))
                     }
                 }
             case .ribbon:
@@ -204,7 +303,7 @@ struct SpectrumCanvas: View {
                 }
                 path.closeSubpath()
                 context.fill(path, with: shading)
-                context.stroke(path, with: .color(bright.opacity(0.8)), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
+                context.stroke(path, with: shading, style: StrokeStyle(lineWidth: 2, lineJoin: .round))
             }
         }
     }
@@ -366,14 +465,12 @@ struct DesktopListeningView: View {
     @AppStorage("playerVisualizerStyle") private var visualizerStyle = PlayerVisualizerStyle.bars.rawValue
     @AppStorage("playerVisualizerPlacement") private var visualizerPlacement = PlayerVisualizerPlacement.below.rawValue
     @AppStorage("playerVisualizerOpacity") private var visualizerOpacity = 0.85
-    @AppStorage("playerVisualizerCoverColors") private var visualizerCoverColors = true
     var model: AppModel
     var size: CGSize
     @State private var tab = 0
     @State private var queueFilter = ""
     @State private var expandedArtwork = false
     @State private var expandedVisualizer = false
-    @State private var optionsHeight: CGFloat = 390
     @State private var visualizerSettingsOpen = false
     @State private var transitionSettingsOpen = false
     var body: some View {
@@ -381,14 +478,14 @@ struct DesktopListeningView: View {
             if let track = model.player.current {
                 if size.width >= 1000 {
                     let available = size.width - 72
-                    let contextWidth = max(380, min(600, available * 0.34))
+                    let contextWidth = max(480, min(640, available * 0.36))
                     HStack(alignment: .top, spacing: 24) {
                         ScrollView {
                             listeningCard(track, cover: max(220, min(520, (available - contextWidth) * 0.7, size.height - (showsInlineVisualizer ? selectedVisualizerStyle.radial ? 780 : 706 : 560))))
                         }.scrollIndicators(.hidden).frame(maxWidth: .infinity)
                         ScrollView {
                             VStack(spacing: 0) {
-                                contextPanel(queueHeight: max(300, size.height - 48 - optionsHeight - 1))
+                                contextPanel(queueHeight: max(500, size.height - 48))
                             }
                         }.scrollIndicators(.hidden).frame(width: contextWidth)
                     }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -428,7 +525,7 @@ struct DesktopListeningView: View {
             let args = ProcessInfo.processInfo.arguments
             if args.contains("--fixture-server"), model.client?.server.url.host == "127.0.0.1",
                let index = args.firstIndex(of: "--fixture-player-tab"), args.indices.contains(index + 1) {
-                tab = args[index + 1] == "Klang" ? 2 : args[index + 1] == "Lyrics" ? 1 : 0
+                tab = args[index + 1] == "Wiedergabe" ? 3 : args[index + 1] == "Klang" ? 2 : args[index + 1] == "Lyrics" ? 1 : 0
             }
             if args.contains("--fixture-server"), model.client?.server.url.host == "127.0.0.1", args.contains("--fixture-visualizer") {
                 model.player.setVisualization(true); expandedVisualizer = true
@@ -524,7 +621,7 @@ struct DesktopListeningView: View {
         model.player.visualizationEnabled ? PlayerVisualizerPlacement(rawValue: visualizerPlacement) ?? .below : .below
     }
     private var showsInlineVisualizer: Bool { model.player.visualizationEnabled && selectedVisualizerPlacement == .below }
-    private var visualizerAccent: Color { visualizerCoverColors ? playerAccent : accent }
+    private var visualizerAccent: Color { playerAccent }
     @ViewBuilder private func artworkPresentation(_ track: Track, cover: CGFloat) -> some View {
         if selectedVisualizerPlacement == .background {
             VStack(spacing: 16) {
@@ -605,19 +702,12 @@ struct DesktopListeningView: View {
             .background(playerBackground).tint(playerAccent)
     }
     private func contextPanel(queueHeight: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            queuePanel.frame(height: tab == 2 ? max(queueHeight, size.height - 48) : queueHeight)
-            if tab != 2 {
-                Divider().padding(.horizontal, 24)
-                listeningOptions
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { optionsHeight = $0 }
-            }
-        }.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
+        queuePanel.frame(height: queueHeight)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26))
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Color.primary.opacity(0.08)))
     }
     private var listeningOptions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Wiedergabe").desktopScaledFont(18, weight: .semibold)
             HStack(spacing: 12) {
                 Image(systemName: "waveform").foregroundStyle(.secondary).frame(width: 22)
                 VStack(alignment: .leading, spacing: 4) {
@@ -677,7 +767,7 @@ struct DesktopListeningView: View {
             if let deadline = model.player.sleepDeadline {
                 Text("Stoppt um \(deadline.formatted(date: .omitted, time: .shortened))").desktopScaledFont(13).foregroundStyle(.secondary)
             }
-        }.desktopScaledFont(15).padding(24).frame(maxWidth: .infinity, alignment: .leading)
+        }.desktopScaledFont(15).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
     }
     private func optionTitle(_ title: String, icon: String) -> some View {
         HStack(spacing: 12) {
@@ -702,8 +792,8 @@ struct DesktopListeningView: View {
                     .buttonStyle(DesktopHoverStyle(radius: 8)).accessibilityLabel("Visualizer-Einstellungen schließen").keyboardShortcut(.cancelAction)
             }
             ScrollView { VisualizerPreferences().padding(.vertical, 2) }.scrollIndicators(.automatic)
-                .frame(height: visualizerPlacement == PlayerVisualizerPlacement.overlay.rawValue ? 340 : 260)
-        }.padding(24).frame(width: 390).tint(playerAccent)
+                .frame(height: min(500, max(260, size.height - 200)))
+        }.padding(24).frame(width: 420).tint(playerAccent)
     }
     private var transitionSettingsPopover: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -799,7 +889,7 @@ struct DesktopListeningView: View {
             }
             Divider()
             Toggle("Albentitel ohne Überblendung", isOn: Binding(get: { model.player.smartAlbumTransition }, set: { model.player.setSmartAlbumTransition($0) }))
-            Button("Übergänge einstellen") { tab = 2 }
+            Button("Übergänge einstellen") { tab = 3 }
         } label: {
             toolLabel("Übergang", value: model.player.crossfadeSeconds == 0 ? "Aus" : "\(Int(model.player.crossfadeSeconds)) s", icon: "waveform")
         }.menuStyle(.button).menuIndicator(.hidden).buttonStyle(DesktopHoverStyle(radius: 14))
@@ -824,7 +914,7 @@ struct DesktopListeningView: View {
         HStack(spacing: 10) {
             Image(systemName: icon).foregroundStyle(playerAccent).desktopScaledFont(19)
             VStack(alignment: .leading, spacing: 5) {
-                Text(title).desktopScaledFont(16, weight: .semibold).lineLimit(1).minimumScaleFactor(0.8)
+                Text(title).desktopScaledFont(16, weight: .semibold).lineLimit(1)
                 Text(value).desktopScaledFont(14).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -847,10 +937,16 @@ struct DesktopListeningView: View {
     }
     private var queuePanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                panelTab("Warteschlange", value: 0)
-                panelTab("Lyrics", value: 1)
-                panelTab("Klang", value: 2)
+            ScrollViewReader { reader in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        panelTab("Warteschlange", value: 0).id(0)
+                        panelTab("Lyrics", value: 1).id(1)
+                        panelTab("Wiedergabe", value: 3).id(3)
+                        panelTab("Klang", value: 2).id(2)
+                    }.fixedSize(horizontal: true, vertical: false)
+                }.scrollIndicators(.hidden)
+                    .onChange(of: tab) { _, value in reader.scrollTo(value, anchor: .center) }
             }
             if tab == 0 {
                 HStack {
@@ -899,6 +995,8 @@ struct DesktopListeningView: View {
                                 .background(model.player.queue.index == index ? playerAccent.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 10))
                         }
                     }
+                } else if tab == 3 {
+                    listeningOptions
                 } else if tab == 2 {
                     VStack(alignment: .leading, spacing: 32) {
                         EqualizerControls(player: model.player)

@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.1.0, build 18
+# Apple app handoff — preview 0.1.0, build 19
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -35,7 +35,7 @@ Build commands, fixtures, device requirements and codec limits are in
 [README.md](README.md). Authentication, local HTTP consent, privacy and Apple
 review requirements are in [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
 
-Build 18 uses a unified listening card
+Build 19 uses a unified listening card
 and a right-hand queue/options area. Artwork is capped at 520 points, with
 transport near the bottom and flexible space beneath metadata. Known library
 duration takes precedence over unreliable stream estimates for seeking and
@@ -44,15 +44,15 @@ AirPlay and big transport controls sit beneath it. Queue menus address
 occurrences by index, preserve the playing occurrence and invalidate prefetch
 when order changes. Removing from the queue never deletes media.
 
-Queue/lyrics/sound and playback options share one right-hand surface. Underlined
-tabs and transparent queue rows reduce competing surfaces; only the playing
-occurrence is tinted. Playback options use matching single-line menu rows for
-EQ, timer and speed. Visualizer choices and transition protection live in named
-popovers opened by their adjustment buttons, with aligned fields and persistent
-preferences. EQ headroom is also reachable in the EQ menu and detailed sound
-settings. The sound tab uses the complete panel without a duplicate options footer.
-Queue height grows to keep compact options aligned at the bottom; shorter
-windows scroll. Player overlays suppress the underlying toolbar's Escape shortcut
+Queue, lyrics, playback and sound share one right-hand surface with four
+underlined tabs: **Warteschlange**, **Lyrics**, **Wiedergabe**, **Klang**. Playback
+options are in their own tab, so other content uses the full panel height.
+Tabs scroll horizontally when needed and follow the selected tab. Transparent
+queue rows reduce competing surfaces; only the playing occurrence is tinted.
+Playback options use matching menu rows for EQ, timer and speed. Visualizer
+choices and transition protection live in named popovers with aligned fields.
+EQ headroom remains reachable in the EQ menu and detailed sound settings.
+Shorter windows scroll. Player overlays suppress the underlying toolbar's Escape shortcut
 so their close action runs first; a later Escape returns to the library. Sidebar and sign-in use the original repository logo,
 and Mac/iOS icons are generated from it by `Scripts/generate-icons.swift`.
 
@@ -63,8 +63,15 @@ and **Frequenzband** provide five other frequency-based renderers. Rings summari
 four frequency ranges; the envelope is a frequency display, not a PCM waveform.
 The player supports placement beneath the cover, a cover overlay with adjustable
 opacity, or a cover-free view over the music-color background. Intensity, peak
-markers and cover/theme colors are device-local settings, shared between compact
-player options and detailed playback settings. Turning visualization off restores
+markers and colors are device-local settings, shared between player options
+and detailed playback settings. Color modes include cover, theme, Aurora,
+sunset, ocean, neon and custom. Custom RGB color pickers support a solid color
+or two-color gradient; all six renderers and the expanded view use the selected
+palette. These preferences do not recolor the rest of the player. Unknown or
+absent `playerVisualizerColorMode` respects the old `playerVisualizerCoverColors`
+boolean. RGB values persist as validated six-digit strings; invalid values
+fall back to defaults. Custom color and gradient choices remain saved when
+another palette is selected. Turning visualization off restores
 the ordinary cover. Existing bars/curve preference values remain compatible. Main-actor attack,
 release and peak decay run near 30 Hz. The large live view closes with Escape
 while playback continues. Style, placement and enabled state persist; default/style

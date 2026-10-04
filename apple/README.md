@@ -39,11 +39,13 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   transport bar with seeking, app volume, mute and AirPlay. The full player uses
   two areas on large windows: a unified listening card with a centered cover
   capped at 520 points and large transport/volume controls; queue/lyrics/sound
-  and playback options in one continuous right-hand panel, divided by a subtle
-  rule rather than two floating cards. The queue grows with the window
-  height to align the options with the listening card’s bottom edge. Transport sits near the bottom
-  of the listening card, with flexible space beneath the title. Small windows stack artwork and
-  context above a persistent compact transport. Panels scroll independently.
+  and playback options in one continuous right-hand panel. **Warteschlange**, **Lyrics**,
+  **Wiedergabe** and **Klang** each have their own tab, with no permanent options
+  footer. Queue and lyrics can use the full panel height. Tabs scroll horizontally
+  when larger text or a smaller window needs more space. Transport sits near the
+  bottom of the listening card, with flexible space beneath the title. Small
+  windows stack artwork and context above a persistent compact transport.
+  Panels scroll independently.
   Compact playback options use aligned rows without nested tool tiles. The
   adjustment button beside **Visualizer** opens all its display choices; the
   adjustment button beside crossfade opens album transition protection. EQ
@@ -67,8 +69,12 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   Wiedergabe** using the adjustment button beside Visualizer, or in detailed sound
   settings, choose beneath-cover placement,
   a cover overlay or a cover-free view on the music-color background. Intensity,
-  overlay opacity, peak markers and cover/theme colors are configurable and
-  persist locally. Disabling the visualizer restores the normal cover.
+  overlay opacity and peak markers are configurable. Colors offer **Coverfarben**,
+  **Theme-Farbe**, **Aurora**, **Sonnenuntergang**, **Ozean**, **Neon** and **Eigene Farben**.
+  Native color pickers select a custom solid color or two-color gradient. Colors
+  affect all six styles and the expanded visualizer, independently of cover and
+  control accents. Preferences persist locally; an absent or unknown color-mode
+  value respects the earlier cover/theme boolean instead of resetting it. Disabling the visualizer restores the normal cover.
   Frequency is shown instead of a scrolling volume history. The larger live view
   includes pause/play and closes with Escape. Style and activation persist on the
   device; it defaults to off. Audio-callback storage is preallocated and FFT work
