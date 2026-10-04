@@ -29,7 +29,10 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 ## Listening and layout
 
 - Compact iPhone tab navigation, expandable player and persistent mini-player.
-- iPad/Mac sidebar navigation, adaptive album grids, resizable player layout.
+- iPad/Mac sidebar navigation and adaptive album grids. Mac uses a compact
+  library header, artist cards and a desktop transport bar with seeking. Its
+  player keeps the queue/lyrics independently scrollable in wide windows and
+  stacks the panes in narrow windows; Escape returns to the library.
 - Apple TV native tabs/focus, readable covers, remote-operated transport and seek.
 - Local library search, artists, albums, genre filtering, favorites and playlists.
 - Bounded paginated library reads, queue up to 500 tracks, shuffle upcoming

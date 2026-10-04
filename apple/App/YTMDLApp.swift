@@ -15,7 +15,7 @@ import SwiftUI
                 #endif
         }
         #if os(macOS)
-        .defaultSize(width: 1180, height: 800)
+        .defaultSize(width: 1100, height: 740)
         .commands {
             CommandMenu("Wiedergabe") {
                 Button("Wiedergabe / Pause") { model.player.toggle() }.keyboardShortcut(.space, modifiers: [])

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Loopback-only native UI fixture. No providers, production data or credentials."""
 import argparse
+from functools import lru_cache
 import json
 import math
 import struct
@@ -12,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 
+@lru_cache(maxsize=10)
 def cover(index):
     colors = [(21, 63, 103), (99, 42, 72), (27, 91, 85), (147, 95, 52), (76, 62, 128), (64, 84, 103)]
     color = colors[index % len(colors)]
@@ -42,6 +44,12 @@ ARTISTS = [{'id':'a0','name':'Nordlicht','genres':['Elektronisch'],'track_count'
 USER = {'id':'fixture','username':'fixture_user','display_name':'Design-Vorschau','role':'user'}
 
 
+class FixtureServer(ThreadingHTTPServer):
+    # Artwork and AVFoundation range requests arrive concurrently on desktop.
+    # The default backlog of five can drop fixture connections during startup.
+    request_queue_size = 64
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
     def response(self, data, status=200, mime='application/json', cookies=False):
@@ -53,7 +61,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Set-Cookie','ytmdl_csrf=fixture-csrf; Path=/; Max-Age=3600')
             self.send_header('Set-Cookie','ytmdl_session=fixture-session; Path=/; Max-Age=3600; HttpOnly')
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Native views can cancel artwork requests while navigating.
     def do_GET(self):
         url=urlparse(self.path); path=url.path; query=parse_qs(url.query)
         if path.endswith('/auth/status'): return self.response({'authenticated':True,'setup_required':False,'user':USER},cookies=True)
@@ -97,6 +108,6 @@ if __name__=='__main__':
         path = Path(args.audio_file)
         MIME = {'.opus':'audio/ogg', '.ogg':'audio/ogg', '.m4a':'audio/mp4', '.wav':'audio/wav'}[path.suffix]
         AUDIO = path.read_bytes()
-    server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler)
+    server=FixtureServer(('127.0.0.1',args.port),Handler)
     print('Loopback UI fixture ready',flush=True)
     server.serve_forever()

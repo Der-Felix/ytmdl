@@ -133,30 +133,66 @@ jobs:
           xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-macOS -configuration Release -destination 'platform=macOS,arch=arm64' -derivedDataPath "$RUNNER_TEMP/apple-mac" CODE_SIGNING_ALLOWED=NO build
           xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-iOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/apple-ios-release" CODE_SIGNING_ALLOWED=NO build
           xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-tvOS -configuration Release -destination 'generic/platform=tvOS' -derivedDataPath "$RUNNER_TEMP/apple-tv-release" CODE_SIGNING_ALLOWED=NO build
+
+  apple-ui:
+    # Each runner boots one simulator. Three simultaneously booted simulators
+    # exhausted the build job's time budget before UI checks could finish.
+    runs-on: xcode-27
+    needs: apple
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: iPhone
+            runtime: iOS-27-
+            scheme: YTMDL-iOS
+            platform: iOS Simulator
+          - device: iPad
+            runtime: iOS-27-
+            scheme: YTMDL-iOS
+            platform: iOS Simulator
+          - device: Apple TV
+            runtime: tvOS-27-
+            scheme: YTMDL-tvOS
+            platform: tvOS Simulator
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Boot the selected OS 27 simulator
+        timeout-minutes: 10
+        env:
+          YTMDL_SIM_RUNTIME: ${{ matrix.runtime }}
+          YTMDL_SIM_DEVICE: ${{ matrix.device }}
+        run: |
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/apple-simulators.json"
+          python3 - "$RUNNER_TEMP/apple-simulators.json" > "$RUNNER_TEMP/apple-selected.env" <<'PYTHON'
+          import json, os, sys
+          devices = json.load(open(sys.argv[1]))['devices']
+          match = next((d['udid'] for r, ds in devices.items()
+                        if os.environ['YTMDL_SIM_RUNTIME'] in r
+                        for d in ds if d['name'].startswith(os.environ['YTMDL_SIM_DEVICE'])), None)
+          if not match:
+              raise SystemExit('Required OS 27 simulator is missing')
+          print('YTMDL_TEST_SIM=' + match)
+          PYTHON
+          cat "$RUNNER_TEMP/apple-selected.env" >> "$GITHUB_ENV"
+          source "$RUNNER_TEMP/apple-selected.env"
+          xcrun simctl bootstatus "$YTMDL_TEST_SIM" -b
       - name: Test native playback and navigation against loopback fixtures
+        env:
+          YTMDL_TEST_SCHEME: ${{ matrix.scheme }}
+          YTMDL_TEST_PLATFORM: ${{ matrix.platform }}
         run: |
           python3 apple/Scripts/fixture-server.py --port 59583 > "$RUNNER_TEMP/apple-fixture.log" 2>&1 &
           ytmdl_fixture_pid=$!
           trap 'kill "$ytmdl_fixture_pid"' EXIT
+          ytmdl_fixture_ready=false
           for attempt in {1..20}; do
-            if curl --fail --silent http://127.0.0.1:59583/api/v1/health > /dev/null; then break; fi
+            if curl --fail --silent http://127.0.0.1:59583/api/v1/health > /dev/null; then
+              ytmdl_fixture_ready=true
+              break
+            fi
             sleep 1
           done
-          xcrun simctl list devices available --json > "$RUNNER_TEMP/apple-simulators.json"
-          python3 - "$RUNNER_TEMP/apple-simulators.json" > "$RUNNER_TEMP/apple-simulators.env" <<'PY'
-          import json, sys
-          devices = json.load(open(sys.argv[1]))['devices']
-          for key, runtime, prefix in [('YTMDL_IPHONE_SIM', 'iOS-27-', 'iPhone'), ('YTMDL_IPAD_SIM', 'iOS-27-', 'iPad'), ('YTMDL_TV_SIM', 'tvOS-27-', 'Apple TV')]:
-              match = next((d['udid'] for r, ds in devices.items() if runtime in r for d in ds if d['name'].startswith(prefix)), None)
-              if not match:
-                  raise SystemExit('Required OS 27 simulator is missing: ' + prefix)
-              print(key + '=' + match)
-          PY
-          source "$RUNNER_TEMP/apple-simulators.env"
-          for ytmdl_sim in "$YTMDL_IPHONE_SIM" "$YTMDL_IPAD_SIM" "$YTMDL_TV_SIM"; do
-            xcrun simctl boot "$ytmdl_sim" || true
-            xcrun simctl bootstatus "$ytmdl_sim" -b
-          done
-          xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-iOS -destination "platform=iOS Simulator,id=$YTMDL_IPHONE_SIM" -derivedDataPath "$RUNNER_TEMP/apple-ios-ui" CODE_SIGNING_ALLOWED=NO -collect-test-diagnostics never -parallel-testing-enabled NO test
-          xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-iOS -destination "platform=iOS Simulator,id=$YTMDL_IPAD_SIM" -derivedDataPath "$RUNNER_TEMP/apple-ios-ui" CODE_SIGNING_ALLOWED=NO -collect-test-diagnostics never -parallel-testing-enabled NO test
-          xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-tvOS -destination "platform=tvOS Simulator,id=$YTMDL_TV_SIM" -derivedDataPath "$RUNNER_TEMP/apple-tv-ui" CODE_SIGNING_ALLOWED=NO -collect-test-diagnostics never -parallel-testing-enabled NO test
+          if [ "$ytmdl_fixture_ready" != true ]; then exit 1; fi
+          xcodebuild -project apple/YTMDL.xcodeproj -scheme "$YTMDL_TEST_SCHEME" -destination "platform=$YTMDL_TEST_PLATFORM,id=$YTMDL_TEST_SIM" -derivedDataPath "$RUNNER_TEMP/apple-ui" CODE_SIGNING_ALLOWED=NO -collect-test-diagnostics never -parallel-testing-enabled NO test

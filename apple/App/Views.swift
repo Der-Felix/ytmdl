@@ -20,7 +20,7 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
     var body: some View {
-        Group {
+        ZStack {
             if model.user == nil { ConnectView(model: model) }
             else {
                 #if os(tvOS)
@@ -49,7 +49,7 @@ struct RootView: View {
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Schließen", systemImage: "chevron.down") { expandedPlayer = false } } }
             }
             #if os(macOS)
-            .frame(minWidth: 700, minHeight: 620)
+            .frame(minWidth: 760, idealWidth: 900, minHeight: 540, idealHeight: 640)
             #endif
         }
         .alert("YTMDL", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
@@ -76,9 +76,27 @@ struct RootView: View {
         NavigationSplitView {
             List(Destination.allCases, selection: $destination) { item in Label(item.rawValue, systemImage: item.icon).tag(item) }
                 .navigationTitle("YTMDL")
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
         } detail: {
-            NavigationStack { content(destination ?? .library).safeAreaInset(edge: .bottom) { miniPlayer } }
+            NavigationStack {
+                content(destination ?? .library).safeAreaInset(edge: .bottom) {
+                    #if os(macOS)
+                    if destination != .player { miniPlayer }
+                    #else
+                    miniPlayer
+                    #endif
+                }
+                #if os(macOS)
+                .toolbar {
+                    if destination == .player {
+                        ToolbarItem(placement: .navigation) {
+                            Button("Zurück zur Bibliothek", systemImage: "chevron.left") { destination = .library }
+                                .keyboardShortcut(.cancelAction)
+                        }
+                    }
+                }
+                #endif
+            }
         }
     }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
@@ -94,6 +112,9 @@ struct RootView: View {
     }
     @ViewBuilder private var miniPlayer: some View {
         if let track = model.player.current {
+            #if os(macOS)
+            desktopMiniPlayer(track)
+            #else
             HStack(spacing: 14) {
                 Button { expandedPlayer = true } label: {
                     HStack(spacing: 12) {
@@ -108,8 +129,35 @@ struct RootView: View {
                 Button { model.player.next() } label: { Image(systemName: "forward.end.fill").frame(width: 44, height: 44) }.accessibilityLabel("Nächster Titel")
             }
             .padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)).padding(.horizontal, 12).padding(.bottom, 8)
+            #endif
         }
     }
+    #if os(macOS)
+    private func desktopMiniPlayer(_ track: Track) -> some View {
+        HStack(spacing: 20) {
+            Button { destination = .player } label: {
+                HStack(spacing: 10) {
+                    ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 44, height: 44)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(track.title).font(.headline).lineLimit(1)
+                        Text(track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }.buttonStyle(.plain).frame(maxWidth: 260).accessibilityLabel("Player öffnen: \(track.title)")
+            HStack(spacing: 4) {
+                Button { model.player.previous() } label: { Image(systemName: "backward.end.fill").frame(width: 32, height: 36) }.accessibilityLabel("Vorheriger Titel")
+                Button { model.player.toggle() } label: { Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 36, height: 36) }.accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen")
+                Button { model.player.next() } label: { Image(systemName: "forward.end.fill").frame(width: 32, height: 36) }.accessibilityLabel("Nächster Titel")
+            }.buttonStyle(.borderless).tint(.primary)
+            VStack(spacing: 2) {
+                Slider(value: Binding(get: { min(model.player.position, model.player.duration) }, set: { model.player.seek($0) }), in: 0...max(1, model.player.duration)).accessibilityLabel("Wiedergabeposition")
+                HStack { Text(formatTime(model.player.position)); Spacer(); Text(formatTime(model.player.duration)) }
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity)
+            AirPlayPicker().frame(width: 30, height: 30).accessibilityLabel("Audioausgabe wählen")
+        }.padding(.horizontal, 20).padding(.vertical, 10).background(.bar)
+    }
+    #endif
 }
 
 struct ConnectView: View {
@@ -198,17 +246,20 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                #if os(macOS)
+                HStack(alignment: .center, spacing: 16) {
+                    Text("Alben").font(.title2.bold())
+                    Spacer()
+                    genrePicker.frame(maxWidth: 200)
+                }
+                #else
                 Text("Deine Musik").font(.title2.bold())
                 HStack {
                     NavigationLink { ArtistListView(model: model) } label: { Label("Künstler", systemImage: "person.2") }
                     NavigationLink { CollectionView(model: model, kind: .favorites) } label: { Label("Favoriten", systemImage: "heart.fill") }
                 }.buttonStyle(.bordered)
-                if !model.genres.isEmpty {
-                    Picker("Genre", selection: $model.genre) {
-                        Text("Alle Genres").tag("")
-                        ForEach(model.genres, id: \.self) { Text($0).tag($0) }
-                    }.pickerStyle(.menu).onChange(of: model.genre) { _, genre in Task { await model.filterGenre(genre) } }
-                }
+                genrePicker
+                #endif
                 if model.connecting && model.releases.isEmpty { ProgressView("Bibliothek wird geladen …") }
                 else if model.releases.isEmpty { ContentUnavailableView("Noch keine Alben", systemImage: "square.stack", description: Text("Musik im Web hinzufügen oder einen anderen Genre-Filter wählen.")) }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: cardMinimum, maximum: 280), spacing: 20)], spacing: 24) {
@@ -227,9 +278,19 @@ struct LibraryView: View {
         }.navigationTitle("Bibliothek")
         .toolbar { ToolbarItem { Button { Task { await model.loadLibrary() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Bibliothek aktualisieren").disabled(model.connecting) } }
     }
+    @ViewBuilder private var genrePicker: some View {
+        if !model.genres.isEmpty {
+            Picker("Genre", selection: $model.genre) {
+                Text("Alle Genres").tag("")
+                ForEach(model.genres, id: \.self) { Text($0).tag($0) }
+            }.pickerStyle(.menu).onChange(of: model.genre) { _, genre in Task { await model.filterGenre(genre) } }
+        }
+    }
     private var cardMinimum: CGFloat {
         #if os(tvOS)
         240
+        #elseif os(macOS)
+        175
         #else
         145
         #endif
@@ -237,6 +298,8 @@ struct LibraryView: View {
     private var contentPadding: CGFloat {
         #if os(tvOS)
         60
+        #elseif os(macOS)
+        24
         #else
         20
         #endif
@@ -250,17 +313,41 @@ struct ArtistListView: View {
     @State private var more = true
     @State private var busy = false
     var body: some View {
-        List {
-            ForEach(artists) { artist in
-                NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
-                    HStack(spacing: 14) {
-                        ArtworkView(model: model, kind: "artists", id: artist.id).frame(width: 60, height: 60)
-                        VStack(alignment: .leading) { Text(artist.name).font(.headline); Text("\(artist.trackCount ?? 0) Titel").foregroundStyle(.secondary) }
-                    }.padding(.vertical, 4)
-                }
+        Group {
+            #if os(macOS)
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 24)], spacing: 24) {
+                    ForEach(artists) { artist in
+                        NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
+                            VStack(spacing: 10) {
+                                ArtworkView(model: model, kind: "artists", id: artist.id).clipShape(Circle())
+                                Text(artist.name).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                                Text("\(artist.trackCount ?? 0) Titel").font(.subheadline).foregroundStyle(.secondary)
+                            }.padding(8).frame(maxWidth: .infinity)
+                        }.buttonStyle(.plain)
+                    }
+                }.padding(24)
+                if more { loadMoreButton.padding(.bottom, 24) }
+                if busy && artists.isEmpty { ProgressView("Künstler werden geladen …") }
+                else if artists.isEmpty { ContentUnavailableView("Noch keine Künstler", systemImage: "person.2") }
             }
-            if more { Button("Weitere Künstler laden") { Task { await load() } }.disabled(busy) }
+            #else
+            List {
+                ForEach(artists) { artist in
+                    NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
+                        HStack(spacing: 14) {
+                            ArtworkView(model: model, kind: "artists", id: artist.id).frame(width: 60, height: 60)
+                            VStack(alignment: .leading) { Text(artist.name).font(.headline); Text("\(artist.trackCount ?? 0) Titel").foregroundStyle(.secondary) }
+                        }.padding(.vertical, 4)
+                    }
+                }
+                if more { loadMoreButton }
+            }
+            #endif
         }.navigationTitle("Künstler").task { if artists.isEmpty { await load() } }
+    }
+    private var loadMoreButton: some View {
+        Button("Weitere Künstler laden") { Task { await load() } }.disabled(busy)
     }
     private func load() async {
         guard let client = model.client, !busy else { return }
@@ -411,6 +498,9 @@ struct NowPlayingView: View {
     @State private var tab = 0
     var body: some View {
         GeometryReader { geometry in
+            #if os(macOS)
+            desktopPlayer(geometry.size)
+            #else
             ScrollView {
                 if let track = model.player.current {
                     let wide = geometry.size.width > 820
@@ -421,11 +511,51 @@ struct NowPlayingView: View {
                     }.padding(wide ? 40 : 24).frame(maxWidth: 1300).frame(maxWidth: .infinity)
                 } else { ContentUnavailableView("Musik auswählen", systemImage: "play.circle", description: Text("Öffne ein Album oder eine Playlist, um loszuhören.")).frame(width: geometry.size.width, height: geometry.size.height) }
             }
+            #endif
         }.navigationTitle("Player")
+        #if os(macOS)
+        .toolbar { ToolbarItem { AirPlayPicker().frame(width: 30, height: 30).accessibilityLabel("Audioausgabe wählen") } }
+        #endif
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
     }
+    #if os(macOS)
+    @ViewBuilder private func desktopPlayer(_ size: CGSize) -> some View {
+        if let track = model.player.current {
+            if size.width >= 640 {
+                let playerWidth = min(360, (size.width - 72) * 0.48)
+                HStack(alignment: .top, spacing: 24) {
+                    ScrollView {
+                        player(track, coverSize: max(150, min(playerWidth, size.height - 290)))
+                    }.scrollIndicators(.hidden).frame(width: playerWidth)
+                    Divider()
+                    desktopDetails
+                }.padding(24)
+            } else {
+                ScrollView {
+                    VStack(spacing: 24) {
+                        player(track, coverSize: min(280, size.width - 48, max(160, size.height - 290)))
+                            .frame(maxWidth: 380)
+                        Divider()
+                        details
+                    }.padding(24).frame(maxWidth: .infinity)
+                }
+            }
+        } else {
+            ContentUnavailableView("Musik auswählen", systemImage: "play.circle", description: Text("Öffne ein Album oder eine Playlist, um loszuhören."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+    private var desktopDetails: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            detailsPicker
+            ScrollView {
+                detailsContent
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    #endif
     private func wideCoverSize(_ height: CGFloat) -> CGFloat {
         #if os(tvOS)
         min(250, height * 0.32)
@@ -434,22 +564,25 @@ struct NowPlayingView: View {
         #endif
     }
     private var titleFont: Font {
-        #if os(tvOS)
+        #if os(tvOS) || os(macOS)
         .title2
         #else
         .title
         #endif
     }
     private func player(_ track: Track, coverSize: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: playerSpacing) {
             ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: coverSize, height: coverSize).frame(maxWidth: .infinity)
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(track.title).font(titleFont.bold()); Text(track.artistText).font(.title3).foregroundStyle(.secondary)
+                    Text(track.title).font(titleFont.bold()).lineLimit(2); Text(track.artistText).font(.title3).foregroundStyle(.secondary).lineLimit(2)
                     if !track.album.isEmpty && track.album != track.title { Text(track.album).font(.subheadline).foregroundStyle(.secondary) }
                 }
                 Spacer()
                 Button { Task { await model.toggleFavorite(track) } } label: { Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Favorit umschalten")
+                #if os(macOS)
+                .buttonStyle(.borderless)
+                #endif
             }
             #if os(tvOS)
             ProgressView(value: min(model.player.position, model.player.duration), total: max(1, model.player.duration))
@@ -458,43 +591,81 @@ struct NowPlayingView: View {
             Slider(value: Binding(get: { min(model.player.position, model.player.duration) }, set: { model.player.seek($0) }), in: 0...max(1, model.player.duration)).accessibilityLabel("Wiedergabeposition")
             #endif
             HStack { Text(formatTime(model.player.position)).accessibilityIdentifier("playbackElapsed"); Spacer(); Text(formatTime(model.player.duration)) }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            HStack(spacing: 20) {
+            HStack(spacing: transportSpacing) {
                 Button { model.player.shuffle() } label: { Image(systemName: "shuffle").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Nächste Titel mischen")
                 Button { model.player.previous() } label: { Image(systemName: "backward.end.fill").font(.title2).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Vorheriger Titel")
                 Button { model.player.toggle() } label: {
-                    Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.title).frame(width: 64, height: 64)
+                    Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.title).frame(width: playButtonSize, height: playButtonSize)
                 }.buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.pink).accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen")
                 Button { model.player.next() } label: { Image(systemName: "forward.end.fill").font(.title2).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Nächster Titel")
                 Button { model.player.repeatAll.toggle() } label: { Image(systemName: "repeat").foregroundStyle(model.player.repeatAll ? .pink : .primary).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel(model.player.repeatAll ? "Wiederholen ausschalten" : "Warteschlange wiederholen")
             }.frame(maxWidth: .infinity).tint(.primary)
+            #if os(macOS)
+            .buttonStyle(.borderless)
+            #endif
             if model.player.loading { ProgressView("Titel wird geladen …") }
             if let error = model.player.error { Text(error).font(.callout).foregroundStyle(.secondary); Button("Erneut versuchen") { model.player.resume() } }
-            #if os(iOS) || os(macOS)
+            #if os(iOS)
             AirPlayPicker().frame(width: 44, height: 44).frame(maxWidth: .infinity).accessibilityLabel("Audioausgabe wählen")
             #endif
         }
     }
+    private var playerSpacing: CGFloat {
+        #if os(macOS)
+        12
+        #else
+        16
+        #endif
+    }
+    private var transportSpacing: CGFloat {
+        #if os(macOS)
+        4
+        #else
+        20
+        #endif
+    }
+    private var playButtonSize: CGFloat {
+        #if os(macOS)
+        48
+        #else
+        64
+        #endif
+    }
     private var details: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Picker("Player-Ansicht", selection: $tab) { Text("Warteschlange").tag(0); Text("Lyrics").tag(1) }.pickerStyle(.segmented)
-            if tab == 0 {
+            detailsPicker
+            detailsContent
+        }
+    }
+    private var detailsPicker: some View {
+        Picker("Player-Ansicht", selection: $tab) { Text("Warteschlange").tag(0); Text("Lyrics").tag(1) }.pickerStyle(.segmented).labelsHidden()
+    }
+    @ViewBuilder private var detailsContent: some View {
+        if tab == 0 {
+            LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(model.player.queue.tracks.enumerated()), id: \.offset) { index, track in
                     Button { model.player.select(index) } label: {
                         HStack(spacing: 12) {
                             ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 48, height: 48)
-                            VStack(alignment: .leading) { Text(track.title).font(.headline); Text(track.artistText).font(.subheadline).foregroundStyle(.secondary) }
-                            Spacer()
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(track.title).font(.headline).lineLimit(1)
+                                Text(track.artistText).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer(minLength: 8)
                             if model.player.queue.index == index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink) }
                         }.padding(8).contentShape(Rectangle())
+                        #if os(macOS)
+                        .background(model.player.queue.index == index ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                        #endif
                     }.buttonStyle(.plain)
                 }
-            } else {
-                Text(model.player.lyrics.isEmpty ? "Lyrics werden geladen …" : cleanLyrics(model.player.lyrics)).font(.title3).lineSpacing(12)
-                    #if !os(tvOS)
-                    .textSelection(.enabled)
-                    #endif
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+        } else {
+            Text(model.player.lyrics.isEmpty ? "Lyrics werden geladen …" : cleanLyrics(model.player.lyrics)).font(.title3).lineSpacing(12)
+                #if !os(tvOS)
+                .textSelection(.enabled)
+                #endif
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
