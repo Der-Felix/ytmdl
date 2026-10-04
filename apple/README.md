@@ -34,7 +34,11 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 ## Listening and layout
 
 - Compact iPhone tab navigation, expandable player and persistent mini-player.
-- iPad/Mac sidebar navigation and adaptive album grids. Mac has readable album,
+- iPad/Mac sidebar navigation and adaptive album grids.
+  Switching sidebar sections closes the previous album/artist/playlist drilldown;
+  clicking the selected Mac section again returns to its overview. The shared
+  playback queue and session remain alive across navigation.
+  Mac has readable album,
   artist and track labels, search (⌘F) in the single window toolbar, and a centered
   transport bar with seeking, app volume, mute and AirPlay. The full player uses
   two areas on large windows: a unified listening card with a centered cover

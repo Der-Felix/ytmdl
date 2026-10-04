@@ -1,4 +1,7 @@
 import XCTest
+#if os(iOS)
+import UIKit
+#endif
 
 final class PlayerUITests: XCTestCase {
     @MainActor private func app(player: Bool = false) throws -> XCUIApplication {
@@ -21,6 +24,29 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.alerts.firstMatch.exists)
         attach(app, name: "Native library")
     }
+    #if os(iOS)
+    @MainActor func testSidebarSwitchDiscardsOpenedCollections() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Sidebar regression requires iPad.")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = try app() // Library fixture only: never starts playback.
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
+        app.staticTexts["Nachtfahrt"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Abspielen"].firstMatch.waitForExistence(timeout: 10))
+        app.staticTexts["Playlists"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Abends unterwegs"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Abspielen"].firstMatch.exists, "Album drilldown must not conceal playlist overview.")
+        app.staticTexts["Abends unterwegs"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Abspielen"].firstMatch.waitForExistence(timeout: 10))
+        app.staticTexts["Favoriten"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Lieblingstitel"].waitForExistence(timeout: 10))
+        app.staticTexts["Bibliothek"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Zeitlos"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Abspielen"].firstMatch.exists, "Collection drilldown must be discarded on section change.")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        attach(app, name: "Sidebar returns to library without playback")
+    }
+    #endif
     @MainActor func testAuthenticatedPlayerAndQueue() throws {
         let app = try app(player: true)
         #if os(tvOS)

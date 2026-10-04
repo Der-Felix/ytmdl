@@ -3,7 +3,7 @@ import AVKit
 import CoreImage.CIFilterBuiltins
 import YTMDLCore
 
-enum Destination: String, CaseIterable, Identifiable {
+enum Destination: String, CaseIterable, Identifiable, Hashable {
     case home = "Start", library = "Bibliothek", artists = "Künstler", search = "Suche", favorites = "Favoriten", playlists = "Playlists", player = "Player", settings = "Einstellungen"
     var id: String { rawValue }
     var icon: String {
@@ -24,6 +24,23 @@ struct RootView: View {
     @State private var destination: Destination? = .library
     #endif
     @State private var expandedPlayer = false
+    @State private var detailVisit = UUID()
+    @State private var detailPath = NavigationPath()
+    private struct DetailIdentity: Hashable {
+        let selection: Destination?
+        let visit: UUID
+    }
+    // Value-based sidebar selection must also replace the view-based navigation
+    // stack. Otherwise a pushed album/playlist can conceal the newly selected root.
+    private func selectDestination(_ item: Destination) {
+        detailPath = NavigationPath()
+        if destination == item { detailVisit = UUID() }
+        destination = item
+        #if os(macOS)
+        searchFocused = item == .search
+        playerOverlayOpen = false
+        #endif
+    }
     #if os(macOS)
     @FocusState private var searchFocused: Bool
     @State private var playerOverlayOpen = false
@@ -39,14 +56,14 @@ struct RootView: View {
                 #if os(tvOS)
                 TabView(selection: $destination) {
                     ForEach([Destination.library, .search, .favorites, .playlists, .player, .settings]) { item in
-                        NavigationStack { content(item) }.tabItem { Label(item == .settings ? "Optionen" : item.rawValue, systemImage: item.icon) }.tag(Optional(item))
+                        NavigationStack { routedContent(item) }.tabItem { Label(item == .settings ? "Optionen" : item.rawValue, systemImage: item.icon) }.tag(Optional(item))
                     }
                 }
                 #elseif os(iOS)
                 if sizeClass == .compact {
                     TabView(selection: $destination) {
                         ForEach([Destination.library, .search, .favorites, .playlists, .settings]) { item in
-                            NavigationStack { content(item).safeAreaInset(edge: .bottom) { miniPlayer } }
+                            NavigationStack { routedContent(item).safeAreaInset(edge: .bottom) { miniPlayer } }
                                 .tabItem { Label(item.rawValue, systemImage: item.icon) }.tag(Optional(item))
                         }
                     }
@@ -79,9 +96,11 @@ struct RootView: View {
         .environment(\.desktopTextScale, (DesktopTextSize(rawValue: textSize) ?? .large).scale)
         .tint(accent)
         .onPreferenceChange(PlayerOverlayPreferenceKey.self) { playerOverlayOpen = $0 }
-        .onChange(of: model.query) { if !model.query.isEmpty { destination = .search } }
-        .onChange(of: searchFocused) { if searchFocused { destination = .search } }
+        .onChange(of: model.query) { if !model.query.isEmpty && destination != .search { selectDestination(.search) } }
+        .onChange(of: searchFocused) { if searchFocused && destination != .search { selectDestination(.search) } }
         #endif
+        .onChange(of: destination) { if !detailPath.isEmpty { detailPath = NavigationPath() } }
+        .onChange(of: model.user?.id) { detailPath = NavigationPath(); detailVisit = UUID() }
         #if DEBUG
         .task {
             await model.loadFixtureIfRequested()
@@ -89,13 +108,13 @@ struct RootView: View {
             let args = ProcessInfo.processInfo.arguments
             if let index = args.firstIndex(of: "--fixture-view"), args.indices.contains(index + 1),
                ["127.0.0.1", "::1"].contains(model.client?.server.url.host ?? ""),
-               let requested = Destination(rawValue: args[index + 1]) { destination = requested }
+               let requested = Destination(rawValue: args[index + 1]) { selectDestination(requested) }
             #endif
             if ProcessInfo.processInfo.arguments.contains("--fixture-player") {
                 #if os(iOS)
                 expandedPlayer = true
                 #else
-                destination = .player
+                selectDestination(.player)
                 #endif
             }
         }
@@ -112,8 +131,8 @@ struct RootView: View {
             }.navigationTitle("YTMDL").navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
             #endif
         } detail: {
-            NavigationStack {
-                content(destination ?? .library)
+            NavigationStack(path: $detailPath) {
+                routedContent(destination ?? .library)
                     #if os(macOS)
                     .background(selectedTheme.background(colorScheme))
                     #endif
@@ -130,25 +149,39 @@ struct RootView: View {
                 .searchFocused($searchFocused)
                 .toolbar {
                     ToolbarItem {
-                        Button("Suche öffnen", systemImage: "magnifyingglass") { destination = .search; searchFocused = true }
+                        Button("Suche öffnen", systemImage: "magnifyingglass") { selectDestination(.search) }
                             .keyboardShortcut("f", modifiers: .command)
                     }
                     if destination == .player {
                         ToolbarItem(placement: .navigation) {
-                            Button("Zurück zur Bibliothek", systemImage: "chevron.left") { destination = .library }
+                            Button("Zurück zur Bibliothek", systemImage: "chevron.left") { selectDestination(.library) }
                                 .keyboardShortcut(playerOverlayOpen ? nil : .cancelAction)
                         }
                     }
                 }
+                .task {
+                    // The old search field is removed with the stack. Request focus
+                    // only after the replacement field has joined the view tree.
+                    guard destination == .search else { return }
+                    searchFocused = false
+                    try? await Task.sleep(for: .milliseconds(120))
+                    guard !Task.isCancelled, destination == .search else { return }
+                    searchFocused = true
+                }
                 #endif
-            }
+            }.id(DetailIdentity(selection: destination, visit: detailVisit))
         }
+    }
+    private func routedContent(_ destination: Destination) -> some View {
+        content(destination)
+            .navigationDestination(for: CollectionKind.self) { kind in CollectionView(model: model, kind: kind) }
+            .navigationDestination(for: Destination.self) { item in content(item) }
     }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {
         case .home:
             #if os(macOS)
-            DesktopHomeView(model: model) { self.destination = $0; if $0 == .search { searchFocused = true } }
+            DesktopHomeView(model: model, navigate: selectDestination)
             #else
             LibraryView(model: model)
             #endif
@@ -213,8 +246,7 @@ struct RootView: View {
             if !title.isEmpty { Text(title).desktopScaledFont(12, weight: .semibold).tracking(1.5).foregroundStyle(.secondary).padding(.horizontal, 12) }
             ForEach(items) { item in
                 Button {
-                    destination = item
-                    if item == .search { searchFocused = true }
+                    selectDestination(item)
                 } label: {
                     HStack(spacing: 18) {
                         Image(systemName: item.icon).desktopScaledFont(23).foregroundStyle(accent).frame(width: 32)
@@ -224,12 +256,12 @@ struct RootView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(destination == item ? accent.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 14))
                         .contentShape(RoundedRectangle(cornerRadius: 14))
-                }.buttonStyle(DesktopHoverStyle()).accessibilityAddTraits(destination == item ? .isSelected : [])
+                }.buttonStyle(DesktopHoverStyle()).accessibilityIdentifier("sidebar-" + item.id).accessibilityAddTraits(destination == item ? .isSelected : [])
             }
         }
     }
     private func desktopMiniPlayer(_ track: Track) -> some View {
-        DesktopTransportBar(model: model, track: track) { destination = .player }
+        DesktopTransportBar(model: model, track: track) { selectDestination(.player) }
     }
     #endif
 }
@@ -344,8 +376,8 @@ struct LibraryView: View {
                 #else
                 Text("Deine Musik").font(.title2.bold())
                 HStack {
-                    NavigationLink { ArtistListView(model: model) } label: { Label("Künstler", systemImage: "person.2") }
-                    NavigationLink { CollectionView(model: model, kind: .favorites) } label: { Label("Favoriten", systemImage: "heart.fill") }
+                    NavigationLink(value: Destination.artists) { Label("Künstler", systemImage: "person.2") }
+                    NavigationLink(value: CollectionKind.favorites) { Label("Favoriten", systemImage: "heart.fill") }
                 }.buttonStyle(.bordered)
                 genrePicker
                 #endif
@@ -353,7 +385,7 @@ struct LibraryView: View {
                 else if model.releases.isEmpty { ContentUnavailableView("Noch keine Alben", systemImage: "square.stack", description: Text("Musik im Web hinzufügen oder einen anderen Genre-Filter wählen.")) }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: cardMinimum, maximum: max(280, cardMinimum + 40)), spacing: 20)], spacing: 24) {
                     ForEach(model.releases) { release in
-                        NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
+                        NavigationLink(value: CollectionKind.release(release)) {
                             VStack(alignment: .leading, spacing: 8) {
                                 ArtworkView(model: model, kind: "releases", id: release.id)
                                 Text(release.title).desktopScaledFont(18, weight: .semibold, fallback: .headline).foregroundStyle(.primary).lineLimit(2)
@@ -410,7 +442,7 @@ struct ArtistListView: View {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 270), spacing: 24)], spacing: 24) {
                     ForEach(artists) { artist in
-                        NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
+                        NavigationLink(value: CollectionKind.artist(artist)) {
                             VStack(spacing: 10) {
                                 ArtworkView(model: model, kind: "artists", id: artist.id).clipShape(Circle())
                                 Text(artist.name).desktopScaledFont(18, weight: .semibold).foregroundStyle(.primary).lineLimit(1)
@@ -426,7 +458,7 @@ struct ArtistListView: View {
             #else
             List {
                 ForEach(artists) { artist in
-                    NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
+                    NavigationLink(value: CollectionKind.artist(artist)) {
                         HStack(spacing: 14) {
                             ArtworkView(model: model, kind: "artists", id: artist.id).frame(width: 60, height: 60)
                             VStack(alignment: .leading) { Text(artist.name).font(.headline); Text("\(artist.trackCount ?? 0) Titel").foregroundStyle(.secondary) }
@@ -452,7 +484,18 @@ struct ArtistListView: View {
     }
 }
 
-enum CollectionKind {
+enum CollectionKind: Hashable {
+    // Routes keep their display metadata while navigation identity uses only kind/id.
+    private var routeID: String {
+        switch self {
+        case .favorites: "favorites"
+        case .release(let value): "release:" + value.id
+        case .artist(let value): "artist:" + value.id
+        case .playlist(let value): "playlist:" + value.id
+        }
+    }
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.routeID == rhs.routeID }
+    func hash(into hasher: inout Hasher) { hasher.combine(routeID) }
     case favorites, release(Release), artist(Artist), playlist(Playlist)
     var title: String {
         switch self { case .favorites: "Lieblingstitel"; case .release(let x): x.title; case .artist(let x): x.name; case .playlist(let x): x.name }
@@ -840,14 +883,14 @@ struct SearchView: View {
                 if let results {
                     Section("Künstler") {
                         ForEach(results.artists) { artist in
-                            NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
+                            NavigationLink(value: CollectionKind.artist(artist)) {
                                 HStack { ArtworkView(model: model, kind: "artists", id: artist.id).frame(width: 56, height: 56); Text(artist.name) }
                             }
                         }
                     }
                     Section("Alben") {
                         ForEach(results.releases) { release in
-                            NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
+                            NavigationLink(value: CollectionKind.release(release)) {
                                 HStack { ArtworkView(model: model, kind: "releases", id: release.id).frame(width: 56, height: 56); VStack(alignment: .leading) { Text(release.title); Text(release.artists.joined(separator: " · ")).foregroundStyle(.secondary) } }
                             }
                         }
@@ -881,7 +924,7 @@ struct SearchView: View {
                         Text("Künstler").desktopScaledFont(25, weight: .bold)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 240), spacing: 24)], spacing: 24) {
                             ForEach(results.artists) { artist in
-                                NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
+                                NavigationLink(value: CollectionKind.artist(artist)) {
                                     VStack(spacing: 12) {
                                         ArtworkView(model: model, kind: "artists", id: artist.id).clipShape(Circle())
                                         Text(artist.name).desktopScaledFont(19, weight: .semibold).foregroundStyle(.primary)
@@ -894,7 +937,7 @@ struct SearchView: View {
                         Text("Alben").desktopScaledFont(25, weight: .bold)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 24)], spacing: 24) {
                             ForEach(results.releases) { release in
-                                NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
+                                NavigationLink(value: CollectionKind.release(release)) {
                                     VStack(alignment: .leading, spacing: 10) {
                                         ArtworkView(model: model, kind: "releases", id: release.id)
                                         Text(release.title).desktopScaledFont(18, weight: .semibold).foregroundStyle(.primary)
@@ -925,7 +968,7 @@ struct SearchView: View {
                         Text("Aus deiner Bibliothek").desktopScaledFont(24, weight: .semibold)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 280), spacing: 24)], spacing: 24) {
                             ForEach(Array(model.releases.prefix(8))) { release in
-                                NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
+                                NavigationLink(value: CollectionKind.release(release)) {
                                     VStack(alignment: .leading, spacing: 10) {
                                         ArtworkView(model: model, kind: "releases", id: release.id)
                                         Text(release.title).desktopScaledFont(18, weight: .semibold).foregroundStyle(.primary)
@@ -963,7 +1006,7 @@ struct PlaylistListView: View {
             List {
                 if model.playlists.isEmpty { emptyPlaylists }
                 ForEach(model.playlists) { playlist in
-                    NavigationLink { CollectionView(model: model, kind: .playlist(playlist)) } label: {
+                    NavigationLink(value: CollectionKind.playlist(playlist)) {
                         VStack(alignment: .leading, spacing: 8) { Text(playlist.name).desktopScaledFont(20, weight: .semibold, fallback: .headline); Text("\(playlist.trackCount) Titel · \(formatTime(Double(playlist.durationMs)/1000))").desktopScaledFont(16, fallback: .body).foregroundStyle(.secondary) }.padding(.vertical, 14)
                     }
                 }
@@ -997,7 +1040,7 @@ struct PlaylistListView: View {
                 else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 280, maximum: 450), spacing: 24)], spacing: 24) {
                         ForEach(visiblePlaylists) { playlist in
-                            NavigationLink { CollectionView(model: model, kind: .playlist(playlist)) } label: {
+                            NavigationLink(value: CollectionKind.playlist(playlist)) {
                                 DesktopPlaylistCard(playlist: playlist)
                             }.buttonStyle(DesktopHoverStyle(radius: 20)).accessibilityLabel("Playlist öffnen: \(playlist.name), \(playlist.trackCount) Titel")
                         }

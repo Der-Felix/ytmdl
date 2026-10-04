@@ -41,7 +41,7 @@ struct DesktopHomeView: View {
                     ScrollView(.horizontal) {
                         HStack(alignment: .top, spacing: 24) {
                             ForEach(Array(model.releases.prefix(12))) { release in
-                                NavigationLink { CollectionView(model: model, kind: .release(release)) } label: {
+                                NavigationLink(value: CollectionKind.release(release)) {
                                     VStack(alignment: .leading, spacing: 12) {
                                         ArtworkView(model: model, kind: "releases", id: release.id).frame(width: 220, height: 220)
                                         Text(release.title).desktopScaledFont(19, weight: .semibold).foregroundStyle(.primary).lineLimit(2)
@@ -67,7 +67,7 @@ struct DesktopHomeView: View {
                     sectionHeading("Deine Playlists", subtitle: "Für jeden Moment die passende Sammlung")
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 420), spacing: 20)], spacing: 20) {
                         ForEach(Array(model.playlists.prefix(6))) { playlist in
-                            NavigationLink { CollectionView(model: model, kind: .playlist(playlist)) } label: {
+                            NavigationLink(value: CollectionKind.playlist(playlist)) {
                                 HStack(spacing: 16) {
                                     Image(systemName: "music.note.list").desktopScaledFont(30).foregroundStyle(accent)
                                     VStack(alignment: .leading, spacing: 6) {
@@ -86,7 +86,7 @@ struct DesktopHomeView: View {
                     ScrollView(.horizontal) {
                         HStack(alignment: .top, spacing: 28) {
                             ForEach(Array(model.artists.prefix(10))) { artist in
-                                NavigationLink { CollectionView(model: model, kind: .artist(artist)) } label: {
+                                NavigationLink(value: CollectionKind.artist(artist)) {
                                     VStack(spacing: 14) {
                                         ArtworkView(model: model, kind: "artists", id: artist.id).frame(width: 160, height: 160).clipShape(Circle())
                                         Text(artist.name).desktopScaledFont(18, weight: .semibold).foregroundStyle(.primary).lineLimit(2)
@@ -140,7 +140,7 @@ struct DesktopHomeView: View {
             Button { navigate(.player) } label: { ArtworkView(model: model, kind: "tracks", id: track.id) }
                 .buttonStyle(DesktopHoverStyle(radius: 20)).accessibilityLabel("Player öffnen: \(track.title)")
         } else if let release = model.releases.first {
-            NavigationLink { CollectionView(model: model, kind: .release(release)) } label: { ArtworkView(model: model, kind: "releases", id: release.id) }.buttonStyle(DesktopHoverStyle(radius: 20))
+            NavigationLink(value: CollectionKind.release(release)) { ArtworkView(model: model, kind: "releases", id: release.id) }.buttonStyle(DesktopHoverStyle(radius: 20))
         }
     }
     private var quickActions: some View {

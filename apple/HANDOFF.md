@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.1.0, build 21
+# Apple app handoff — preview 0.1.0, build 24
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -36,7 +36,20 @@ Build commands, fixtures, device requirements and codec limits are in
 [README.md](README.md). Authentication, local HTTP consent, privacy and Apple
 review requirements are in [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
 
-Build 21 uses a unified listening card
+Build 24 binds split-view detail navigation to an explicit NavigationPath.
+Albums, artists, playlists and home cards use value-based collection routes;
+the selection handler clears the path on section changes or repeated clicks.
+Opened album, artist and playlist drilldowns cannot conceal another section's
+root. Clicking the already selected Mac sidebar item returns to its overview.
+Home shortcuts, mini-player, search and player Escape use the same selection
+handler. Search focus is cleared when leaving search and typing does not recreate
+its stack per keystroke. Focus is requested after the new search field appears.
+Navigation replacement retains the shared AppModel,
+PlayerModel, queue and authentication state. Session changes discard drilldowns.
+The iPad-only silent UI regression opens an album and playlist, switches sections
+and verifies the library overview returns without starting playback.
+
+The Mac layout uses a unified listening card
 and a right-hand queue/options area. Artwork is capped at 520 points, with
 transport near the bottom and flexible space beneath metadata. Known library
 duration takes precedence over unreliable stream estimates for seeking and
