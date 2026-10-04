@@ -232,3 +232,31 @@ For an App Store build, supply final layered TV icons, signing/provisioning, pri
 policy, support contact, screenshots, accurate metadata and a reviewer account
 using authorized sample music. Verify interruption, AirPlay, background audio,
 accessibility, format support and remote focus on physical devices.
+
+## Native playlists (preview build 21)
+
+Open **Playlists → Neue Playlist** to create a manual collection or enable
+**Intelligente Playlist**. Edit name, description and smart rules using
+**Playlist bearbeiten** (or the Playlist toolbar menu on mobile/TV).
+**Titel hinzufügen** searches the existing library and accepts up to 100 selected
+titles. Track action menus add songs to existing or new playlists; the Mac
+player's current-title menu can also save its queue. Playlist row edit menus move
+titles up/down or remove membership. Clear local filters and select original
+order before persisting a reorder. Deletion asks for confirmation and preserves
+library audio. The same user-owned playlists appear in the web client.
+
+Smart presets and rules are evaluated by the existing server on opening:
+genre/artist, favorite-only, recent additions, sort and maximum 1–500 titles.
+All filters combine; frequent/recent-play sorting uses server listening history.
+Manual membership/order is disabled for smart collections. Turning rules off
+restores earlier stored manual membership, without copying the dynamic selection.
+Native playlist features require the existing playlist/rules/bulk API routes.
+
+Use silent isolated fixtures for verification. `PlaylistTests.swift` exercises
+typed rule payloads, CSRF, clearing rules with JSON null, order/removal, batching,
+partial failures and discarding mutations across server/session replacement.
+Run only these non-audio tests locally with:
+
+```sh
+swift test --package-path apple --filter 'nativePlaylistMutations|smartRulesDecode'
+```

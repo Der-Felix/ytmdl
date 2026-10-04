@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.1.0, build 20
+# Apple app handoff — preview 0.1.0, build 21
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -19,6 +19,7 @@ The server release and native preview have independent version numbers.
 | Streaming, prefetch, timers, two-player crossfade, metering | `App/PlayerModel.swift` |
 | Audio processing and ten-band EQ | `App/Equalizer.swift`, `App/AudioSettingsViews.swift` |
 | Cover-derived colors | `App/ArtworkPalette.swift` |
+| Native playlist editing, library track selection and smart rules | `App/PlaylistViews.swift` |
 | Settings | `App/SettingsViews.swift` |
 | API models, origin policy, bounded queue | `Sources/YTMDLCore/` |
 | Isolated audio/network/queue regression tests | `Tests/` |
@@ -35,7 +36,7 @@ Build commands, fixtures, device requirements and codec limits are in
 [README.md](README.md). Authentication, local HTTP consent, privacy and Apple
 review requirements are in [SECURITY-DESIGN.md](SECURITY-DESIGN.md).
 
-Build 20 uses a unified listening card
+Build 21 uses a unified listening card
 and a right-hand queue/options area. Artwork is capped at 520 points, with
 transport near the bottom and flexible space beneath metadata. Known library
 duration takes precedence over unreliable stream estimates for seeking and
@@ -67,6 +68,27 @@ removing a loaded favorite adjusts the offset for the next 100-track page.
 Loaded totals are labeled when more pages exist. Filtered empty lists disable
 transport actions; sorting/filtering do not change stored playlist order or
 remove library media. Shared non-Mac list layouts remain available.
+
+Playlist management is native on all three targets: create, rename, describe,
+delete with confirmation, add/remove titles and persist order. Track action menus
+in collections/search and Mac player/queue offer **Zur Playlist hinzufügen**;
+the Mac current-title menu can save its queue as a manual playlist. Library
+selection adds up to 100 tracks; queue additions support up to 500 unique tracks
+in sequential server batches of 100. Already acknowledged batches remain visible
+if a later request fails; errors explain partial changes without deleting music.
+Metadata and rules are separate server writes; a rule failure preserves and
+reports the successful metadata edit. Reordering is enabled only in the original,
+unfiltered order. Deleting a playlist removes its collection, not library media.
+
+Smart playlists use existing server rules: genre, artist, favorites, added-days,
+recent/title/frequent/last-played ordering and 1–500 titles. Presets provide a
+starting point; all criteria combine with AND. They resolve when opened, and
+manual membership changes are disabled. Turning rules off restores earlier
+manual membership rather than materializing the current smart result. Listening
+sorts use server history, not the Mac's local recent-listening cache. Artist search
+is not limited to the first loaded library page. No recommendation model or new
+backend migration is introduced. Session/origin/CSRF guards remain shared;
+stale catalog reloads cannot overwrite newer playlist mutations.
 
 The optional Visualizer now uses a Hann-windowed 2048-point real FFT (Accelerate)
 and 32 logarithmic bands rather than RMS-history graphics. **Spiegel-Spektrum** draws

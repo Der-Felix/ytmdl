@@ -465,6 +465,16 @@ struct CollectionView: View {
     @State private var busy = false
     @State private var more = true
     @State private var offset = 0
+    @State private var editor = false
+    @State private var adding = false
+    @State private var deleting = false
+    @State private var failure: String?
+    @Environment(\.dismiss) private var dismiss
+    private var playlist: Playlist? {
+        guard case .playlist(let value) = kind else { return nil }
+        return model.playlists.first { $0.id == value.id } ?? value
+    }
+    private var collectionTitle: String { playlist?.name ?? kind.title }
     #if os(macOS)
     @State private var collectionQuery = ""
     @State private var collectionSort = "original"
@@ -477,7 +487,41 @@ struct CollectionView: View {
             #else
             standardCollection
             #endif
-        }.navigationTitle(kind.title).task { if tracks.isEmpty { await load() } }
+        }.navigationTitle(collectionTitle).task { if tracks.isEmpty { await load() } }
+        .toolbar {
+            if let playlist {
+                ToolbarItem {
+                    Menu("Playlist", systemImage: "music.note.list") {
+                        Button("Bearbeiten", systemImage: "pencil") { editor = true }
+                        if playlist.smartRules == nil {
+                            Button("Titel hinzufügen", systemImage: "plus") { adding = true }
+                        }
+                        Button("Neu laden", systemImage: "arrow.clockwise") { Task { await reloadPlaylist() } }
+                        Divider()
+                        Button("Playlist löschen", systemImage: "trash", role: .destructive) { deleting = true }
+                    }.disabled(busy || model.playlistBusy)
+                }
+            }
+        }
+        .sheet(isPresented: $editor) {
+            if let playlist { PlaylistEditor(model: model, playlist: playlist) { _ in Task { await reloadPlaylist() } } }
+        }
+        .sheet(isPresented: $adding) {
+            if let playlist { PlaylistTrackPicker(model: model, playlist: playlist, existing: Set(tracks.map(\.id))) { tracks = $0.tracks } }
+        }
+        .confirmationDialog("Playlist löschen?", isPresented: $deleting, titleVisibility: .visible) {
+            Button("Playlist löschen", role: .destructive) {
+                Task {
+                    guard let playlist, let client = model.client else { return }
+                    do { try await model.deletePlaylist(playlist); if model.client === client { dismiss() } }
+                    catch is CancellationError { }
+                    catch { if model.client === client { failure = playlistFailure(error) } }
+                }
+            }
+        } message: { Text("Die Playlist wird entfernt. Ihre Titel und Audiodateien bleiben in der Bibliothek.") }
+        .alert("Playlist konnte nicht geändert werden", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+            Button("OK") { failure = nil }
+        } message: { Text(failure ?? "") }
         #if os(macOS)
         .onChange(of: model.favoriteIDs) { old, new in
             guard isFavorites else { return }
@@ -497,7 +541,9 @@ struct CollectionView: View {
                 }.padding(.vertical, 12)
             }
             Section {
-                ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in TrackRow(model: model, track: track) { play(tracks, index: index) } }
+                ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
+                    TrackRow(model: model, track: track, playlistEdit: playlistEdit(track, index: index)) { play(tracks, index: index) }
+                }
                 if busy { ProgressView("Titel werden geladen …") }
                 else if tracks.isEmpty { ContentUnavailableView("Noch keine Titel", systemImage: "music.note") }
                 if more && !tracks.isEmpty { Button("Weitere Titel laden") { Task { await load() } } }
@@ -528,27 +574,35 @@ struct CollectionView: View {
     private var desktopCollection: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                DesktopCollectionHeader(model: model, tracks: availableTracks, title: kind.title,
-                    subtitle: isFavorites ? "Deine Musik, die bleibt." : "Deine Sammlung für diesen Moment.",
+                DesktopCollectionHeader(model: model, tracks: availableTracks, title: collectionTitle,
+                    subtitle: isFavorites ? "Deine Musik, die bleibt." : playlist?.smartRules != nil ? "Intelligente Playlist · bei jedem Öffnen aktualisiert" : playlist?.description?.isEmpty == false ? playlist!.description! : "Deine Sammlung für diesen Moment.",
                     symbol: isFavorites ? "heart.fill" : "music.note.list", canPlay: !visibleTracks.isEmpty,
                     detail: "\(availableTracks.count)\(more ? " geladene" : "") Titel · \(formatTime(availableTracks.reduce(0) { $0 + $1.duration }))") {
                     play(visibleTracks)
                 } shuffle: { play(visibleTracks.shuffled()) }
+                if let playlist {
+                    HStack {
+                        collectionTool("Playlist bearbeiten", icon: "pencil") { editor = true }
+                        if playlist.smartRules == nil { collectionTool("Titel hinzufügen", icon: "plus") { adding = true } }
+                        Spacer()
+                        if playlist.smartRules != nil { Label("Automatisch zusammengestellt", systemImage: "sparkles").foregroundStyle(.secondary) }
+                    }.disabled(busy || model.playlistBusy)
+                }
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 20) { collectionFilter; collectionSortMenu }
                     VStack(alignment: .leading, spacing: 14) { collectionFilter; collectionSortMenu }
                 }
                 LazyVStack(spacing: 0) {
                     ForEach(Array(visibleTracks.enumerated()), id: \.offset) { index, track in
-                        TrackRow(model: model, track: track) { play(visibleTracks, index: index) }.id(track.id).disabled(busy)
-                            .padding(.horizontal, 16).padding(.vertical, 6)
+                        TrackRow(model: model, track: track, playlistEdit: playlistEdit(track, index: index)) { play(visibleTracks, index: index) }
+                            .id(track.id).disabled(busy || model.playlistBusy).padding(.horizontal, 16).padding(.vertical, 6)
                         if index < visibleTracks.count - 1 { Divider().padding(.horizontal, 20).opacity(0.35) }
                     }
                     if busy { ProgressView("Titel werden geladen …").padding(28) }
                     else if visibleTracks.isEmpty {
                         ContentUnavailableView(collectionQuery.isEmpty ? "Noch keine Titel" : "Keine passenden Titel",
                             systemImage: collectionQuery.isEmpty ? (isFavorites ? "heart" : "music.note.list") : "magnifyingglass",
-                            description: Text(collectionQuery.isEmpty ? (isFavorites ? "Markiere Titel mit dem Herz. Deine Lieblingstitel erscheinen hier." : "Ergänze Titel in dieser Playlist über die Weboberfläche.") : "Suche nach Titel, Künstler oder Album."))
+                            description: Text(collectionQuery.isEmpty ? (isFavorites ? "Markiere Titel mit dem Herz. Deine Lieblingstitel erscheinen hier." : "Füge Titel hinzu oder passe die Regeln deiner intelligenten Playlist an.") : "Suche nach Titel, Künstler oder Album."))
                             .padding(24)
                     }
                 }.background(.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 20))
@@ -557,6 +611,12 @@ struct CollectionView: View {
                 }
             }.padding(32).frame(maxWidth: 1500).frame(maxWidth: .infinity, alignment: .top)
         }
+    }
+    private func collectionTool(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon).desktopScaledFont(16).padding(.horizontal, 16).frame(minHeight: 44)
+                .background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        }.buttonStyle(DesktopHoverStyle(radius: 12))
     }
     private var collectionFilter: some View {
         HStack(spacing: 12) {
@@ -588,6 +648,45 @@ struct CollectionView: View {
             .accessibilityLabel("Titel sortieren")
     }
     #endif
+    private var canReorder: Bool {
+        #if os(macOS)
+        collectionQuery.isEmpty && collectionSort == "original" && !model.playlistBusy && !busy
+        #else
+        !model.playlistBusy && !busy
+        #endif
+    }
+    private func playlistEdit(_ track: Track, index: Int) -> PlaylistRowEdit? {
+        guard let playlist, playlist.smartRules == nil else { return nil }
+        return PlaylistRowEdit(canMoveUp: canReorder && index > 0,
+            canMoveDown: canReorder && index < tracks.count - 1,
+            moveUp: { Task { await moveTrack(index, by: -1) } },
+            moveDown: { Task { await moveTrack(index, by: 1) } },
+            remove: {
+                Task {
+                    guard let client = model.client else { return }
+                    do { let result = try await model.changePlaylistTracks(playlist, ids: [], removing: track.id); tracks = result.tracks }
+                    catch is CancellationError { }
+                    catch { if model.client === client { failure = playlistFailure(error) } }
+                }
+            })
+    }
+    private func moveTrack(_ index: Int, by distance: Int) async {
+        guard canReorder, let playlist, let client = model.client, tracks.indices.contains(index), tracks.indices.contains(index + distance) else { return }
+        var reordered = tracks; reordered.swapAt(index, index + distance)
+        do { let result = try await model.changePlaylistTracks(playlist, ids: reordered.map(\.id), reorder: true); tracks = result.tracks }
+        catch is CancellationError { }
+        catch { if model.client === client { failure = playlistFailure(error) } }
+    }
+    private func reloadPlaylist() async {
+        guard let playlist, let client = model.client, !busy else { return }
+        busy = true; defer { busy = false }
+        do {
+            let detail: PlaylistDetail = try await client.get(try client.playlistPath(playlist.id))
+            guard model.client === client else { return }
+            tracks = detail.tracks; model.rememberPlaylist(detail.playlist(fallback: playlist)); more = false
+        } catch is CancellationError { }
+        catch { if model.client === client { failure = playlistFailure(error) } }
+    }
     private func play(_ tracks: [Track], index: Int = 0) { if let client = model.client { model.player.play(tracks, start: index, client: client) } }
     private func load() async {
         guard let client = model.client, !busy else { return }
@@ -602,7 +701,9 @@ struct CollectionView: View {
             case .artist(let artist):
                 result = try await client.get("/library/tracks", query: [.init(name: "artist_id", value: artist.id), .init(name: "limit", value: "100"), .init(name: "offset", value: String(offset))])
             case .playlist(let playlist):
-                let detail: PlaylistDetail = try await client.get("/playlists/\(playlist.id)"); result = detail.tracks
+                let detail: PlaylistDetail = try await client.get(try client.playlistPath(playlist.id))
+                guard model.client === client else { return }
+                model.rememberPlaylist(detail.playlist(fallback: playlist)); result = detail.tracks
             }
             try Task.checkCancellation()
             guard model.client === client else { return }
@@ -612,16 +713,37 @@ struct CollectionView: View {
     }
 }
 
+struct PlaylistRowEdit {
+    let canMoveUp: Bool
+    let canMoveDown: Bool
+    let moveUp: () -> Void
+    let moveDown: () -> Void
+    let remove: () -> Void
+}
 struct TrackRow: View {
     var model: AppModel
     var track: Track
+    var playlistEdit: PlaylistRowEdit? = nil
     var action: () -> Void
+    @State private var addingToPlaylist = false
     var body: some View {
-        #if os(macOS)
-        desktopRow
-        #else
-        standardRow
-        #endif
+        Group {
+            #if os(macOS)
+            desktopRow
+            #else
+            standardRow
+            #endif
+        }
+        .sheet(isPresented: $addingToPlaylist) { AddToPlaylistSheet(model: model, tracks: [track]) }
+    }
+    @ViewBuilder private var playlistMenuItems: some View {
+        if let edit = playlistEdit {
+            Divider()
+            Button("In Playlist nach oben", systemImage: "arrow.up", action: edit.moveUp).disabled(!edit.canMoveUp)
+            Button("In Playlist nach unten", systemImage: "arrow.down", action: edit.moveDown).disabled(!edit.canMoveDown)
+            Button("Aus Playlist entfernen", systemImage: "minus.circle", role: .destructive, action: edit.remove)
+            Divider()
+        }
     }
     private var standardRow: some View {
         HStack(spacing: 14) {
@@ -636,6 +758,8 @@ struct TrackRow: View {
                 }.contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
             Menu {
+                Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }
+                playlistMenuItems
                 Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten", systemImage: "heart") { Task { await model.toggleFavorite(track) } }
                 Button("Zur Warteschlange", systemImage: "text.badge.plus") { if let client = model.client { model.player.append(track, client: client) } }
             } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Aktionen für \(track.title)")
@@ -674,6 +798,8 @@ struct TrackRow: View {
                 .accessibilityLabel("Zur Warteschlange hinzufügen").help("Zur Warteschlange hinzufügen")
             Menu {
                 Button("Jetzt abspielen", systemImage: "play.fill", action: action)
+                Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }
+                playlistMenuItems
                 Divider()
                 Button("Titel und Künstler kopieren", systemImage: "doc.on.doc") {
                     NSPasteboard.general.clearContents()
@@ -819,6 +945,7 @@ struct SearchView: View {
 
 struct PlaylistListView: View {
     var model: AppModel
+    @State private var creating = false
     #if os(macOS)
     @State private var playlistQuery = ""
     @State private var alphabetical = false
@@ -843,10 +970,14 @@ struct PlaylistListView: View {
             }
             #endif
         }.navigationTitle("Playlists")
-            .toolbar { ToolbarItem { Button("Aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }.disabled(model.connecting) } }
+            .toolbar {
+                ToolbarItem { Button("Neue Playlist", systemImage: "plus") { creating = true }.disabled(model.playlistBusy) }
+                ToolbarItem { Button("Aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }.disabled(model.connecting || model.playlistBusy) }
+            }
+            .sheet(isPresented: $creating) { PlaylistEditor(model: model) }
     }
     private var emptyPlaylists: some View {
-        ContentUnavailableView("Noch keine Playlists", systemImage: "music.note.list", description: Text("Playlists im Web anlegen. Sie erscheinen hier nach dem Aktualisieren."))
+        ContentUnavailableView("Noch keine Playlists", systemImage: "music.note.list", description: Text("Erstelle deine erste Playlist direkt hier – mit eigenen Titeln oder intelligenten Regeln."))
     }
     #if os(macOS)
     private var desktopPlaylists: some View {
@@ -855,6 +986,7 @@ struct PlaylistListView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Deine Playlists").desktopScaledFont(32, weight: .bold)
                     Text("Für jeden Moment die passende Musik. \(model.playlists.count) Sammlungen.").desktopScaledFont(17).foregroundStyle(.secondary)
+                    Button("Neue Playlist", systemImage: "plus") { creating = true }.buttonStyle(.borderedProminent).controlSize(.large).disabled(model.playlistBusy)
                 }
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 20) { playlistFilter; playlistSort }

@@ -469,6 +469,8 @@ struct DesktopListeningView: View {
     var size: CGSize
     @State private var tab = 0
     @State private var queueFilter = ""
+    @State private var playlistSelection: [Track] = []
+    @State private var addingToPlaylist = false
     @State private var expandedArtwork = false
     @State private var expandedVisualizer = false
     @State private var visualizerSettingsOpen = false
@@ -506,10 +508,11 @@ struct DesktopListeningView: View {
             }
         }
         .background(playerBackground)
-        .preference(key: PlayerOverlayPreferenceKey.self, value: visualizerSettingsOpen || transitionSettingsOpen || expandedArtwork || expandedVisualizer)
+        .preference(key: PlayerOverlayPreferenceKey.self, value: visualizerSettingsOpen || transitionSettingsOpen || expandedArtwork || expandedVisualizer || addingToPlaylist)
         .environment(\.desktopAccent, playerAccent)
         .environment(\.desktopButtonAccent, playerButtonAccent)
         .tint(playerAccent)
+        .sheet(isPresented: $addingToPlaylist) { AddToPlaylistSheet(model: model, tracks: playlistSelection) }
         .sheet(isPresented: $expandedArtwork) {
             VStack(spacing: 20) {
                 if let track = model.player.current {
@@ -589,6 +592,8 @@ struct DesktopListeningView: View {
                             .desktopScaledFont(26).foregroundStyle(playerAccent).frame(width: 44, height: 44)
                     }.buttonStyle(DesktopControlStyle()).accessibilityLabel("Favorit umschalten")
                     Menu {
+                        Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; addingToPlaylist = true }
+                        Button("Warteschlange als Playlist speichern", systemImage: "square.and.arrow.down") { playlistSelection = model.player.queue.tracks; addingToPlaylist = true }
                         Button("Titel und Künstler kopieren") { copyTrack(track) }
                         Button("Cover vergrößern") { expandedArtwork = true }
                         Button("Lyrics anzeigen") { tab = 1 }
@@ -982,6 +987,7 @@ struct DesktopListeningView: View {
                                     }.padding(8).contentShape(Rectangle())
                                 }.buttonStyle(DesktopHoverStyle(radius: 10)).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
                                 Menu {
+                                    Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; addingToPlaylist = true }
                                     Button("Jetzt abspielen") { model.player.select(index) }
                                     Button("Als Nächstes abspielen") { model.player.playNextInQueue(index) }.disabled(index <= model.player.queue.index + 1)
                                     Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen") { Task { await model.toggleFavorite(track) } }
@@ -1087,7 +1093,7 @@ struct DesktopPlaylistCard: View {
         VStack(alignment: .leading, spacing: 18) {
             ZStack(alignment: .bottomLeading) {
                 RoundedRectangle(cornerRadius: 16).fill(LinearGradient(colors: [accent.opacity(0.32), accent.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                Image(systemName: "music.note.list").font(.system(size: 48, weight: .light)).foregroundStyle(accent).padding(22)
+                Image(systemName: playlist.smartRules == nil ? "music.note.list" : "sparkles").font(.system(size: 48, weight: .light)).foregroundStyle(accent).padding(22)
             }.frame(height: 130).accessibilityHidden(true)
             Text(playlist.name).desktopScaledFont(22, weight: .semibold).foregroundStyle(.primary).lineLimit(3, reservesSpace: true).frame(maxWidth: .infinity, alignment: .leading)
             Text("\(playlist.trackCount) Titel · \(formatTime(Double(playlist.durationMs) / 1000))").desktopScaledFont(15).foregroundStyle(.secondary)

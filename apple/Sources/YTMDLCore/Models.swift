@@ -43,13 +43,53 @@ public struct Track: Codable, Identifiable, Equatable, Sendable {
         self.album = album; self.durationMs = durationMs; self.codec = codec
     }
 }
+public struct SmartPlaylistRules: Codable, Equatable, Sendable {
+    public var genre: String?
+    public var artistId: String?
+    public var favorites: Bool
+    public var addedDays: Int
+    public var sort: String
+    public var limit: Int
+    public init(genre: String? = nil, artistId: String? = nil, favorites: Bool = false,
+                addedDays: Int = 0, sort: String = "recent", limit: Int = 50) {
+        self.genre = genre; self.artistId = artistId; self.favorites = favorites
+        self.addedDays = addedDays; self.sort = sort; self.limit = limit
+    }
+    enum CodingKeys: String, CodingKey { case genre, artistId, favorites, addedDays, sort, limit }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        genre = try c.decodeIfPresent(String.self, forKey: .genre)
+        artistId = try c.decodeIfPresent(String.self, forKey: .artistId)
+        favorites = try c.decodeIfPresent(Bool.self, forKey: .favorites) ?? false
+        addedDays = try c.decodeIfPresent(Int.self, forKey: .addedDays) ?? 0
+        sort = try c.decode(String.self, forKey: .sort); limit = try c.decode(Int.self, forKey: .limit)
+    }
+}
 public struct Playlist: Decodable, Identifiable, Sendable {
     public let id: String
     public let name: String
     public let trackCount: Int
     public let durationMs: Int
+    public let description: String?
+    public let smartRules: SmartPlaylistRules?
+    public init(id: String, name: String, trackCount: Int, durationMs: Int,
+                description: String? = nil, smartRules: SmartPlaylistRules? = nil) {
+        self.id = id; self.name = name; self.trackCount = trackCount; self.durationMs = durationMs
+        self.description = description; self.smartRules = smartRules
+    }
 }
-public struct PlaylistDetail: Decodable, Sendable { public let tracks: [Track] }
+public struct PlaylistDetail: Decodable, Sendable {
+    public let tracks: [Track]
+    public let id: String?
+    public let name: String?
+    public let description: String?
+    public let smartRules: SmartPlaylistRules?
+    public func playlist(fallback: Playlist) -> Playlist {
+        Playlist(id: id ?? fallback.id, name: name ?? fallback.name, trackCount: tracks.count,
+                 durationMs: tracks.reduce(0) { $0 + $1.durationMs }, description: description ?? fallback.description,
+                 smartRules: id == nil ? fallback.smartRules : smartRules)
+    }
+}
 public struct SearchResults: Decodable, Sendable {
     public let artists: [Artist]
     public let releases: [Release]

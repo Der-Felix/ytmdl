@@ -103,6 +103,27 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     func mutate(_ path: String, method: String, body: [String: String]? = nil) async throws {
         _ = try await perform(request(path, method: method, body: body))
     }
+    // Typed payloads retain booleans, nested rules and arrays; all mutations use
+    // the same session validity, origin checks and CSRF protection as sign-in.
+    private func jsonRequest<Body: Encodable>(_ path: String, method: String, body: Body) throws -> URLRequest {
+        var request = try request(path, method: method)
+        let encoder = JSONEncoder(); encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return request
+    }
+    func sendJSON<T: Decodable & Sendable, Body: Encodable>(_ path: String, method: String, body: Body) async throws -> T {
+        let data = try await perform(jsonRequest(path, method: method, body: body))
+        return try decoder.decode(Envelope<T>.self, from: data).data
+    }
+    func mutateJSON<Body: Encodable>(_ path: String, method: String, body: Body) async throws {
+        _ = try await perform(jsonRequest(path, method: method, body: body))
+    }
+    func playlistPath(_ id: String, suffix: String = "") throws -> String {
+        // Reuse the strict ID policy without accepting arbitrary path fragments.
+        let libraryPath = try server.itemPath("playlists", id: id, suffix: suffix)
+        return String(libraryPath.dropFirst("/library".count))
+    }
     func login(username: String, password: String) async throws -> User {
         let _: AuthStatus = try await get("/auth/status")
         do {
