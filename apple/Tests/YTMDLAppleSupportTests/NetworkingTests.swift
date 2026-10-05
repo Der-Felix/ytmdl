@@ -116,7 +116,9 @@ final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     configuration.protocolClasses = [FixtureProtocol.self]
     let client = try APIClient(server: ServerAddress("https://unavailable.fixture.example"), persist: false, configuration: configuration)
     defer { client.invalidate() }
-    let model = AppModel(); model.client = client
+    let offlineRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: offlineRoot) }
+    let model = AppModel(offlineLibrary: OfflineLibrary(root: offlineRoot, startTransfers: false)); model.client = client
     let connected = await model.restore()
     #expect(!connected)
     #expect(model.user == nil)

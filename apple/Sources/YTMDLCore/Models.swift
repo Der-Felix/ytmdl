@@ -5,7 +5,7 @@ public struct Envelope<T: Decodable & Sendable>: Decodable, Sendable {
     public let meta: ListMeta?
 }
 public struct ListMeta: Decodable, Sendable { public let total: Int? }
-public struct User: Decodable, Sendable {
+public struct User: Codable, Sendable {
     public let id: String
     public let username: String
     public let displayName: String

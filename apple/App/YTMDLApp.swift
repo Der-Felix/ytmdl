@@ -2,11 +2,17 @@ import SwiftUI
 
 @main struct YTMDLApp: App {
     @State private var model = AppModel()
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(OfflineAppDelegate.self) private var delegate
+    #endif
+    @AppStorage("mobileAccent") private var mobileAccent = "rose"
     var body: some Scene {
         WindowGroup {
             RootView(model: model)
                 #if os(tvOS)
                 .tint(.white)
+                #elseif os(iOS)
+                .tint((DesktopTheme(rawValue: mobileAccent) ?? .rose).accent)
                 #else
                 .tint(.pink)
                 #endif
@@ -30,3 +36,13 @@ import SwiftUI
         #endif
     }
 }
+
+#if os(iOS)
+final class OfflineAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard identifier == OfflineLibrary.backgroundIdentifier else { completionHandler(); return }
+        OfflineLibrary.shared.backgroundCompletion = completionHandler
+    }
+}
+#endif

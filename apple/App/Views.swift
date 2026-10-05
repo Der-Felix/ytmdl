@@ -4,10 +4,10 @@ import CoreImage.CIFilterBuiltins
 import YTMDLCore
 
 enum Destination: String, CaseIterable, Identifiable, Hashable {
-    case home = "Start", library = "Bibliothek", artists = "Künstler", search = "Suche", favorites = "Favoriten", playlists = "Playlists", player = "Player", settings = "Einstellungen"
+    case home = "Start", library = "Bibliothek", artists = "Künstler", search = "Suche", favorites = "Favoriten", playlists = "Playlists", player = "Player", downloads = "Offline-Musik", settings = "Einstellungen"
     var id: String { rawValue }
     var icon: String {
-        switch self { case .home: "house.fill"; case .library: "square.stack"; case .artists: "person.2"; case .search: "magnifyingglass"; case .favorites: "heart"; case .playlists: "music.note.list"; case .player: "play.circle"; case .settings: "gearshape" }
+        switch self { case .downloads: "arrow.down.circle"; case .home: "house.fill"; case .library: "square.stack"; case .artists: "person.2"; case .search: "magnifyingglass"; case .favorites: "heart"; case .playlists: "music.note.list"; case .player: "play.circle"; case .settings: "gearshape" }
     }
 }
 
@@ -20,6 +20,8 @@ struct RootView: View {
     @Environment(\.colorScheme) private var colorScheme
     private var selectedTheme: DesktopTheme { DesktopTheme(rawValue: themeName) ?? .rose }
     private var accent: Color { selectedTheme.accent(colorScheme) }
+    #elseif os(iOS)
+    @State private var destination: Destination? = .home
     #else
     @State private var destination: Destination? = .library
     #endif
@@ -60,9 +62,10 @@ struct RootView: View {
                     }
                 }
                 #elseif os(iOS)
-                if sizeClass == .compact {
+                if model.offlineMode { NavigationStack { OfflineLibraryView(model: model) } }
+                else if sizeClass == .compact {
                     TabView(selection: $destination) {
-                        ForEach([Destination.library, .search, .favorites, .playlists, .settings]) { item in
+                        ForEach([Destination.home, .search, .library, .playlists, .settings]) { item in
                             NavigationStack { routedContent(item).safeAreaInset(edge: .bottom) { miniPlayer } }
                                 .tabItem { Label(item.rawValue, systemImage: item.icon) }.tag(Optional(item))
                         }
@@ -126,7 +129,7 @@ struct RootView: View {
             desktopSidebar.navigationTitle("YTMDL")
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 440)
             #else
-            List(Destination.allCases.filter { $0 != .home }, selection: $destination) { item in
+            List(Destination.allCases, selection: $destination) { item in
                 Label(item.rawValue, systemImage: item.icon).tag(item)
             }.navigationTitle("YTMDL").navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
             #endif
@@ -183,7 +186,11 @@ struct RootView: View {
             #if os(macOS)
             DesktopHomeView(model: model, navigate: selectDestination)
             #else
+            #if os(iOS)
+            MobileHomeView(model: model)
+            #else
             LibraryView(model: model)
+            #endif
             #endif
         case .library: LibraryView(model: model)
         case .artists: ArtistListView(model: model)
@@ -191,6 +198,12 @@ struct RootView: View {
         case .favorites: CollectionView(model: model, kind: .favorites)
         case .playlists: PlaylistListView(model: model)
         case .player: NowPlayingView(model: model)
+        case .downloads:
+            #if os(iOS)
+            OfflineLibraryView(model: model)
+            #else
+            ContentUnavailableView("Offline-Musik", systemImage: "arrow.down.circle", description: Text("Offline-Verwaltung ist derzeit auf iPhone und iPad verfügbar."))
+            #endif
         case .settings: SettingsView(model: model)
         }
     }
@@ -274,6 +287,7 @@ struct ConnectView: View {
     @State private var allowHTTP = false
     @State private var connected = false
     @State private var checkingServer = false
+    @State private var offlinePicker = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -322,6 +336,20 @@ struct ConnectView: View {
                     }.textFieldStyle(.roundedBorder)
                     #endif
                 }
+                #if os(iOS)
+                if !model.offline.profiles.isEmpty {
+                    Button("Offline-Musik öffnen", systemImage: "arrow.down.circle") { offlinePicker = true }.buttonStyle(.bordered)
+                        .sheet(isPresented: $offlinePicker) {
+                            NavigationStack {
+                                List(model.offline.profiles) { profile in
+                                    Button { model.openOffline(profile); offlinePicker = false } label: {
+                                        VStack(alignment: .leading) { Text(profile.user.displayName).font(.headline); Text(profile.origin).font(.caption).foregroundStyle(.secondary) }
+                                    }
+                                }.navigationTitle("Offline-Sammlungen").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { offlinePicker = false } } }
+                            }
+                        }
+                }
+                #endif
                 Text("Keine Analyse- oder Werbe-SDKs. Sitzungen bleiben im Schlüsselbund dieses Geräts.").font(.footnote).foregroundStyle(.secondary)
             }.padding(32).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }
@@ -346,7 +374,9 @@ struct ArtworkView: View {
         Group {
             if kind == "tracks", model.player.current?.id == id, let image = model.player.artwork {
                 Image(decorative: image, scale: 1).resizable().scaledToFill()
-            } else if let client = model.client, let request = try? client.artworkRequest(kind: kind, id: id) {
+            } else if kind == "tracks", let url = model.offline.artworkURL(id), let data = try? Data(contentsOf: url), let image = ArtworkPalette.thumbnail(data) {
+                Image(decorative: image, scale: 1).resizable().scaledToFill()
+            } else if !model.offlineMode, let client = model.client, let request = try? client.artworkRequest(kind: kind, id: id) {
                 AsyncImage(request: request) { image in image.resizable().scaledToFill() } placeholder: { placeholder }
                     .asyncImageURLSession(client.session)
             } else { placeholder }
@@ -378,6 +408,9 @@ struct LibraryView: View {
                 HStack {
                     NavigationLink(value: Destination.artists) { Label("Künstler", systemImage: "person.2") }
                     NavigationLink(value: CollectionKind.favorites) { Label("Favoriten", systemImage: "heart.fill") }
+                    #if os(iOS)
+                    NavigationLink(value: Destination.downloads) { Label("Offline", systemImage: "arrow.down.circle") }
+                    #endif
                 }.buttonStyle(.bordered)
                 genrePicker
                 #endif
@@ -532,6 +565,12 @@ struct CollectionView: View {
             #endif
         }.navigationTitle(collectionTitle).task { if tracks.isEmpty { await load() } }
         .toolbar {
+            #if os(iOS)
+            ToolbarItem {
+                Button("Offline speichern", systemImage: "arrow.down.circle") { Task { await model.downloadCollection(kind) } }
+                    .disabled(busy || model.offlineMode)
+            }
+            #endif
             if let playlist {
                 ToolbarItem {
                     Menu("Playlist", systemImage: "music.note.list") {
@@ -804,6 +843,10 @@ struct TrackRow: View {
                 Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }
                 playlistMenuItems
                 Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten", systemImage: "heart") { Task { await model.toggleFavorite(track) } }
+                #if os(iOS)
+                Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }
+                Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }.disabled(model.listeningBusy)
+                #endif
                 Button("Zur Warteschlange", systemImage: "text.badge.plus") { if let client = model.client { model.player.append(track, client: client) } }
             } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Aktionen für \(track.title)")
         }.padding(.vertical, 4)
@@ -1086,6 +1129,8 @@ struct NowPlayingView: View {
         GeometryReader { geometry in
             #if os(macOS)
             desktopPlayer(geometry.size)
+            #elseif os(iOS)
+            MobilePlayerView(model: model)
             #else
             ScrollView {
                 if let track = model.player.current {

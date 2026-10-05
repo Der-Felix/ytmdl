@@ -45,6 +45,11 @@ enum SleepMode: String, CaseIterable, Identifiable {
     private(set) var artwork: CGImage?
     private(set) var artworkPalette: ArtworkPalette?
     let equalizer: EqualizerModel
+    var offlineLibrary: OfflineLibrary?
+    var offlineOnly = false
+    private(set) var autoplay = false
+    @ObservationIgnored var onQueueEnded: ((Track) -> Void)?
+    @ObservationIgnored var onSnapshot: ((PlaybackQueue, Double, String, Bool) -> Void)?
     var repeatAll = false { didSet { cancelPrepared(); prepareNext() } }
     var error: String?
     var soundError: String?
@@ -97,6 +102,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         if let value = volumePreferences.object(forKey: "crossfadeSeconds") as? Double, value.isFinite { crossfadeSeconds = min(12, max(0, value)) }
         smartAlbumTransition = volumePreferences.object(forKey: "smartAlbumTransition") as? Bool ?? true
         preloadEnabled = volumePreferences.object(forKey: "preloadNextTrack") as? Bool ?? true
+        autoplay = volumePreferences.bool(forKey: "playerAutoplay")
         fastStart = volumePreferences.object(forKey: "fastPlaybackStart") as? Bool ?? true
         if let value = volumePreferences.object(forKey: "playbackRate") as? Double, value.isFinite { playbackRate = min(2, max(0.5, value)) }
         #if os(macOS)
@@ -136,6 +142,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     func setSmartAlbumTransition(_ enabled: Bool) { smartAlbumTransition = enabled; volumePreferences.set(enabled, forKey: "smartAlbumTransition"); cancelPrepared(); prepareNext() }
     func setPreload(_ enabled: Bool) { preloadEnabled = enabled; volumePreferences.set(enabled, forKey: "preloadNextTrack"); cancelPrepared(); prepareNext() }
+    func setAutoplay(_ value: Bool) { autoplay = value; volumePreferences.set(value, forKey: "playerAutoplay") }
     func setFastStart(_ enabled: Bool) {
         fastStart = enabled; volumePreferences.set(enabled, forKey: "fastPlaybackStart"); configure(audio); configure(standby)
         audio.currentItem?.preferredForwardBufferDuration = enabled ? 5 : 20
@@ -219,7 +226,8 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     func next() {
         if promotePrepared() { return }
-        if queue.next(repeatAll: repeatAll) { loadCurrent() } else { cancelPrepared(); pause(); seek(0) }
+        if queue.next(repeatAll: repeatAll) { loadCurrent() }
+        else { let ended = current; cancelPrepared(); pause(); seek(0); if autoplay, let ended { onQueueEnded?(ended) } }
     }
     func previous() { if position > 3 { seek(0) } else { queue.previous(); loadCurrent() } }
     func toggle() { wantsPlayback ? pause() : resume() }
@@ -259,10 +267,12 @@ enum SleepMode: String, CaseIterable, Identifiable {
         AVAudioSession.sharedInstance().deactivate(options: .notifyOthersOnDeactivation) { _, _ in }
         #endif
     }
-    private func makeItem(_ track: Track, client: APIClient) throws -> AVPlayerItem {
+    func makeItem(_ track: Track, client: APIClient) throws -> AVPlayerItem {
         let item: AVPlayerItem
         if let itemFactory { item = try itemFactory(track, client) }
+        else if let url = offlineLibrary?.audioURL(track.id) { item = AVPlayerItem(url: url) }
         else {
+            if offlineOnly { throw OfflineError.unavailable }
             let path = try client.server.itemPath("tracks", id: track.id, suffix: "/stream")
             let asset = AVURLAsset(url: try client.server.endpoint(path), options: [AVURLAssetHTTPCookiesKey: client.authenticationCookies])
             item = AVPlayerItem(asset: asset)
@@ -455,6 +465,14 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     private func loadDetails(_ track: Track, client: APIClient) {
         lyricsTask?.cancel(); artworkTask?.cancel(); lyrics = ""; artwork = nil; artworkPalette = nil
+        if let localLyrics = offlineLibrary?.lyrics(track.id) { lyrics = localLyrics }
+        if let url = offlineLibrary?.artworkURL(track.id), let data = try? Data(contentsOf: url), let image = ArtworkPalette.thumbnail(data) {
+            artwork = image; artworkPalette = ArtworkPalette.extract(image)
+        }
+        if offlineOnly {
+            if lyrics.isEmpty { lyrics = "Für diesen Titel sind keine Offline-Lyrics gespeichert." }
+            return
+        }
         let token = generation
         lyricsTask = Task { [weak self] in
             do {
@@ -528,6 +546,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
     private func updateNowPlaying() {
         lastNowPlaying = Date()
         guard let current else { return }
+        onSnapshot?(queue, position, repeatOne ? "track" : repeatAll ? "queue" : "off", !isPlaying)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: current.title, MPMediaItemPropertyArtist: current.artistText,
             MPMediaItemPropertyAlbumTitle: current.album, MPMediaItemPropertyPlaybackDuration: duration,

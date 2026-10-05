@@ -1,10 +1,11 @@
 # YTMDL for Apple
 
-Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The first
-review build is **0.1.0** and requires OS 27 and Xcode 27. It is a client of the
+Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The current
+review preview is **0.2.0, build 25** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
 
-See [HANDOFF.md](HANDOFF.md) for the code map, current behavior and open work.
+See [HANDOFF.md](HANDOFF.md) for the code map and [FEATURES.md](FEATURES.md)
+for the mobile/offline feature matrix, review steps, limits and open work.
 
 ## Open and run
 
@@ -114,8 +115,8 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
   controls; **Startseite**, **Wiedergabe**, **Klang** and **Konto** group the other options.
 - Mac recent listening records at most 40 track metadata entries after playback
   begins. History stays in local preferences, separately scoped to server and
-  account; it neither syncs to the server nor stores offline audio. It can be
-  disabled or cleared in **Settings → Wiedergabe**. Disabling retains earlier
+  account. Optional server history uses idempotent events and can be disabled;
+  mobile offline storage is documented separately in FEATURES.md. Local history can be disabled or cleared in **Settings → Wiedergabe**. Disabling retains earlier
   entries, while logout removes them from the current view. Test fixtures never
   persist listening history.
 - Mac volume and mute control AVPlayer output and persist across app launches;
@@ -169,9 +170,9 @@ UI tests play an authenticated synthetic Opus/Ogg stream with advancing time.
 A local Mac asset check opens Opus/Ogg and AAC/M4A, but rejects Opus/WebM.
 These checks do not replace playback checks on physical devices with actual
 library media. Unsupported media is
-reported rather than silently skipped. Native offline storage,
-automatic device discovery, timed lyric highlighting and seamless handoff are
-follow-up work, not advertised as implemented in 0.1.0.
+reported rather than silently skipped. iOS offline storage, LRC highlighting and
+explicit server playback handoff are available in preview 0.2.0. Automatic device
+discovery, seamless remote control and physical-codec qualification remain open.
 
 ## Apple TV code login
 

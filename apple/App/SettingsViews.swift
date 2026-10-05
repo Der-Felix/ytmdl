@@ -5,6 +5,8 @@ import YTMDLCore
 struct SettingsView: View {
     var model: AppModel
     @State private var signingOut = false
+    @State private var removeOfflineOnLogout = false
+    @AppStorage("mobileAccent") private var mobileAccent = "rose"
     @AppStorage("appearance") private var appearance = "dark"
     #if os(macOS)
     @AppStorage("desktopTheme") private var themeName = "rose"
@@ -30,6 +32,23 @@ struct SettingsView: View {
                 Section("Darstellung") {
                     Picker("Erscheinungsbild", selection: $appearance) { Text("System").tag("system"); Text("Dunkel").tag("dark"); Text("Hell").tag("light") }
                 }
+                #if os(iOS)
+                Section("Musik & Wiedergabe") {
+                    NavigationLink("Equalizer, Überblendung & Visualizer", destination: MobileAudioSettings(model: model))
+                    NavigationLink("Offline-Musik", destination: OfflineLibraryView(model: model))
+                    Toggle("Lokalen Hörverlauf merken", isOn: Binding(get: { model.listeningHistory.enabled }, set: { model.listeningHistory.setEnabled($0) }))
+                    Toggle("Hörverlauf mit meinem Server synchronisieren", isOn: Binding(get: { model.syncHistory }, set: { model.setSyncHistory($0) }))
+                    Text("Ermöglicht häufig gehörte und zuletzt gehörte intelligente Playlists. Offline-Einträge werden bei erneuter Anmeldung an dasselbe Konto übertragen.").font(.footnote).foregroundStyle(.secondary)
+                    Button("Lokalen Hörverlauf leeren", role: .destructive) { model.listeningHistory.clear() }
+                    Button("Wiedergabe von anderem Gerät prüfen", systemImage: "arrow.down.forward.and.arrow.up.backward") { Task { await model.checkHandoff() } }
+                    if let handoff = model.handoff {
+                        Text("\(handoff.sourceName) · \(handoff.queue?.count ?? 0) Titel").font(.caption).foregroundStyle(.secondary)
+                        Button("Wiedergabe hier fortsetzen") { model.acceptHandoff() }
+                    }
+                }
+                DownloadPreferences(model: model)
+                Section("Theme") { Picker("Akzentfarbe", selection: $mobileAccent) { ForEach(DesktopTheme.allCases) { Text($0.name).tag($0.rawValue) } } }
+                #endif
                 Section("Verbindung") {
                     LabeledContent("Server", value: model.client?.server.url.absoluteString ?? "")
                     LabeledContent("Konto", value: model.user?.displayName ?? "")
@@ -42,18 +61,25 @@ struct SettingsView: View {
                     Section("Verwaltung") { Link("Profil & Sicherheit im Web öffnen", destination: url) }
                 }
                 #endif
+                Section("Über YTMDL") {
+                    LabeledContent("App-Version", value: (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–") + " (" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "–") + ")")
+                }
                 Section("Datenschutz") {
                     Text("Die App verbindet sich nur mit deinem YTMDL-Server. Keine Werbung, keine Analyse-SDKs. Anmeldesitzungen werden gerätegebunden im Schlüsselbund gespeichert. Cover und Musik werden vom Server geladen.")
-                    Text("App-Vorschau 0.1 · Bibliothek, Suche und Wiedergabe. Die Verwaltung und dauerhafte Offline-Kopien erfolgen weiterhin im Web.").font(.footnote).foregroundStyle(.secondary)
+                    Text("App-Vorschau 0.2 · Bibliothek, Playlists, Offline-Musik und Wiedergabe. Offline-Kopien werden auf diesem Gerät gespeichert. Die Server-Verwaltung bleibt im Web.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section {
+                    #if os(iOS)
+                    Toggle("Offline-Musik beim Abmelden entfernen", isOn: $removeOfflineOnLogout)
+                    Text("Ohne diese Option bleiben Musik und Metadaten lokal verfügbar, auch nach dem Abmelden.").font(.footnote).foregroundStyle(.secondary)
+                    #endif
                     Button("Abmelden", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { signingOut = true }
                 }
             }
             #endif
         }.navigationTitle("Einstellungen")
         .confirmationDialog("Auf diesem Gerät abmelden?", isPresented: $signingOut) {
-            Button("Abmelden", role: .destructive) { Task { await model.logout() } }
+            Button("Abmelden", role: .destructive) { if removeOfflineOnLogout { model.player.stop(); model.offline.clearCurrent() }; Task { await model.logout() } }
         } message: { Text("Die Wiedergabe stoppt. Die lokal gespeicherte Sitzung wird entfernt.") }
     }
     #if os(macOS)
@@ -197,7 +223,8 @@ struct SettingsView: View {
             }
             settingsCard("Konto & Datenschutz", icon: "lock.shield") {
                 if let url = model.client?.server.url.appendingPathComponent("profile") { Link("Profil & Sicherheit im Web öffnen", destination: url) }
-                Text("Nur dein YTMDL-Server. Keine Werbung, keine Analyse-SDKs. Deine Sitzung bleibt im Schlüsselbund dieses Geräts; Hörverlauf und Darstellungseinstellungen bleiben lokal.").foregroundStyle(.secondary)
+                Toggle("Hörverlauf mit meinem Server synchronisieren", isOn: Binding(get: { model.syncHistory }, set: { model.setSyncHistory($0) }))
+                Text("Nur dein YTMDL-Server. Keine Werbung, keine Analyse-SDKs. Deine Sitzung bleibt im Schlüsselbund dieses Geräts. Darstellung und lokale Wiedergabelisten bleiben auf dem Gerät; aktivierter Hörverlauf wird mit deinem eigenen Server synchronisiert.").foregroundStyle(.secondary)
                 Button("Abmelden", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { signingOut = true }.buttonStyle(.bordered).controlSize(.large)
             }
         }

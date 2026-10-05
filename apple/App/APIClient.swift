@@ -25,7 +25,7 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 60
-        configuration.httpAdditionalHeaders = ["User-Agent": "YTMDL-Apple/0.1"]
+        configuration.httpAdditionalHeaders = ["User-Agent": "YTMDL-Apple/0.2"]
         configuration.httpCookieAcceptPolicy = .always
         cookies = configuration.httpCookieStorage!
         decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase

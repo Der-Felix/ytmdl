@@ -131,10 +131,39 @@ task or persisting response cookies. No extracted colors leave the device.
 EQ runs on decoded PCM using the OS 27 mixed-output AVPlayer tap. The direct
 path has no tap while EQ is disabled. A prepared incoming AVPlayer uses the same
 origin and session cookies as the current stream. Crossfade and next-track
-buffering retain at most one incoming title and create no persistent offline
-library. Stop, seek, logout and timer boundaries cancel incoming playback.
+buffering retain at most one incoming title. Separately requested offline storage
+is described below. Stop, seek, logout and timer boundaries cancel incoming playback.
 Audio settings are local device preferences; active sleep timers are ephemeral.
 
 See [Apple’s streaming/audio guidance](https://developer.apple.com/streaming/Whats-new-HLS.pdf)
 for the OS 27 mixed-output tap. This does not change the existing transport,
 codec, account-permission or physical-device qualification boundaries.
+
+## Native offline library (preview 0.2.0)
+
+Offline audio, track metadata and optional artwork/lyrics are stored under the
+app's Application Support directory, excluded from backup. Origin/account hashes
+partition data, and profile/file IDs are validated when reading manifests. Audio
+is published only after a successful same-origin 200 response, size checks and
+recognized audio container headers. Local playback rejects partial/missing files
+and symbolic links. These checks do not certify physical decoder support.
+
+iOS transfers use a dedicated background URLSession with no shared cookies/cache,
+explicit same-origin session cookies and rejected redirects. Neither credentials
+nor URLSession resume blobs enter manifests. Logout cancels authenticated tasks,
+removes the API session and offers deletion of local music. Retention is an explicit
+UI policy: otherwise files and metadata remain accessible from the offline picker,
+even after logout. Offline entry creates an unauthenticated client for local source
+resolution and routes only to local playback/download views; it is not server login.
+File protection permits continued playback after the device has been unlocked once.
+
+The configurable cap covers audio bytes across profiles; sidecars are separately
+bounded. Automatic eviction affects only opted-in played-cache records and excludes
+currently playing/prepared tracks. Manual copies are removed only by explicit local
+removal/clear actions. No local delete calls a server media-delete API.
+
+Optional history synchronization sends idempotent events only to the signed-in
+origin/account. Pending events are bounded and partitioned by the same identity;
+fixtures never persist or send listening events. Disable recording/synchronization
+or explicitly clear local history to discard pending events. Device handoff is an
+explicit user action; receiving a handoff never automatically starts playback.

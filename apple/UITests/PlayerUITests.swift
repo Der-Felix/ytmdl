@@ -25,6 +25,29 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "Native library")
     }
     #if os(iOS)
+    @MainActor func testMobileHomeDownloadsAndSoundSettingsWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Mobile flow requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].waitForExistence(timeout: 20))
+        attach(app, name: "Mobile Start")
+        app.tabBars.buttons["Bibliothek"].tap()
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 10))
+        app.staticTexts["Nachtfahrt"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Offline speichern"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["Offline speichern"].firstMatch.tap()
+        app.tabBars.buttons["Start"].tap()
+        app.buttons["Offline"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Offline-Musik"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Offline verfügbar"].firstMatch.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.buttons["Pause"].exists, "Downloading must not start playback.")
+        attach(app, name: "Mobile Offline downloads")
+        app.tabBars.buttons["Einstellungen"].tap()
+        app.buttons["Equalizer, Überblendung & Visualizer"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Klang & Wiedergabe"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.switches["Equalizer aktivieren"].firstMatch.exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        attach(app, name: "Mobile EQ settings without playback")
+    }
     @MainActor func testSidebarSwitchDiscardsOpenedCollections() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Sidebar regression requires iPad.")
         XCUIDevice.shared.orientation = .landscapeLeft

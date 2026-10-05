@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.1.0, build 24
+# Apple app handoff — preview 0.2.0, build 25
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -12,6 +12,9 @@ The server release and native preview have independent version numbers.
 | Schemes, targets, minimum OS and signing | `YTMDL.xcodeproj`, `Resources/Info.plist`, `Resources/Mac.entitlements` |
 | App lifecycle and media shortcuts | `App/YTMDLApp.swift` |
 | Library, search, authentication, favorites | `App/AppModel.swift`, `App/APIClient.swift` |
+| Mobile Home/player, offline views and sound controls | `App/MobileListeningViews.swift` |
+| Scoped offline files/background transfer | `App/OfflineLibrary.swift` |
+| Timed lyric parser and playback transfer wire models | `Sources/YTMDLCore/ListeningFeatures.swift` |
 | Sessions, keychain and logout | `App/SessionVault.swift` |
 | Navigation, shared iOS/iPadOS/tvOS views, authenticated artwork | `App/Views.swift` |
 | Mac player, queue actions and compact playback options | `App/DesktopViews.swift` |
@@ -27,6 +30,15 @@ The server release and native preview have independent version numbers.
 
 All app source files are shared with the Swift support test target. If adding
 files, ensure both the Xcode project and package include them.
+
+## Mobile preview 0.2.0
+
+Build 25 adds the iPhone/iPad listening feature set documented in
+[FEATURES.md](FEATURES.md), including download/restart review steps and explicit
+limits. Preserve the existing bundle ID, keychain and preferences during updates.
+The background session registers during launch and delegates system wake completion
+through `OfflineAppDelegate`. Test fixtures use a distinct temporary store and an
+ephemeral transfer session. No task description or manifest contains credentials.
 
 ## Build and review
 
@@ -146,8 +158,9 @@ production or mutate its data incidentally during verification.
   live-server performance. Check actual media formats on physical devices.
 - Real per-title loudness normalization needs reliable loudness metadata or
   analysis and bounded processing. The current UI does not pretend it exists.
-- Timed lyric highlighting, native offline downloads, playback transfer between
-  devices and automatic server discovery remain open.
+- Physical-device background completion, offline codec playback and live handoff
+  still require qualification. Automatic discovery, sample-perfect gapless, loudness
+  analysis, CarPlay entitlement, Siri/widgets and third-party services remain open.
 - TV device-code backend routes exist in this branch but require reviewed backend
   integration and deployment before use on an older server. Code approval is
   explicit; approving an admin account grants that account's permissions.

@@ -22,15 +22,31 @@ import YTMDLCore
     var device: DeviceStart?
     var player = PlayerModel()
     var listeningHistory = ListeningHistory()
+    var offline: OfflineLibrary
+    var offlineMode = false
+    var handoff: PlaybackHandoff?
+    var listeningBusy = false
+    var syncHistory = UserDefaults.standard.object(forKey: "syncListeningHistory") as? Bool ?? true
     private var persistsSession = true
-    init() {
-        #if os(macOS)
-        player.onTrackPlayed = { [weak self] track in self?.listeningHistory.record(track) }
-        #endif
+    init(offlineLibrary: OfflineLibrary? = nil) {
+        offline = offlineLibrary ?? OfflineLibrary.shared
+        player.offlineLibrary = offline
+        player.onTrackPlayed = { [weak self] track in
+            guard let self else { return }
+            listeningHistory.record(track); if syncHistory { listeningHistory.enqueueEvent(track) }
+            Task { await flushListeningHistory() }
+            if !offlineMode && offline.cachePlayed { offline.enqueue([track], automatic: true) }
+        }
+        player.onSnapshot = { [weak self] queue, position, mode, force in
+            self?.listeningHistory.saveSnapshot(queue: queue, position: position, repeatMode: mode, force: force)
+            self?.offline.protectedTrackIDs = Set([queue.current?.id, self?.player.preparedTrackID].compactMap { $0 })
+        }
+        player.onQueueEnded = { [weak self] track in Task { await self?.continueRadio(after: track) } }
     }
     private var generation = UUID()
     private var catalogGeneration = UUID()
     private var playlistRevision = UUID()
+    private var syncingHistory = false
 
     func connect(_ text: String, localHTTP: Bool, persist: Bool = true) throws {
         var allowHTTP = false
@@ -39,6 +55,7 @@ import YTMDLCore
         #endif
         let address = try ServerAddress(text, allowLocalHTTP: allowHTTP)
         let replacement = try APIClient(server: address, persist: persist)
+        offline.detach(); offlineMode = false; player.offlineOnly = false
         client?.invalidate(); client = replacement; player.stop(); persistsSession = persist
         listeningHistory.configure(server: nil, userID: nil, persist: false)
         generation = UUID(); catalogGeneration = UUID(); clearLibrary(); user = nil; connecting = false; busy = false
@@ -51,6 +68,7 @@ import YTMDLCore
             let status: AuthStatus = try await client.get("/auth/status")
             guard self.generation == generation else { return false }
             user = status.user
+            if let user { offline.configure(client: client, user: user) }
             listeningHistory.configure(server: client.server, userID: user?.id, persist: persistsSession)
             if status.authenticated { await loadLibrary() }
             return self.generation == generation
@@ -67,27 +85,32 @@ import YTMDLCore
             let result = try await client.login(username: username, password: password)
             guard self.generation == generation else { return }
             user = result
+            offline.configure(client: client, user: result)
             listeningHistory.configure(server: client.server, userID: result.id, persist: persistsSession)
             await loadLibrary()
         } catch { if self.generation == generation { report(error) } }
     }
     func loadLibrary() async {
-        guard let client, !connecting else { return }
+        guard !offlineMode, let client, !connecting else { return }
         let generation = generation
         let catalogGeneration = UUID(); self.catalogGeneration = catalogGeneration
         let playlistRevision = playlistRevision
         connecting = true; defer { if self.catalogGeneration == catalogGeneration { connecting = false } }
         do {
-            let releases: [Release] = try await client.get("/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc"), .init(name: "genre", value: genre)])
-            let artists: [Artist] = try await client.get("/library/artists", query: [.init(name: "limit", value: "60")])
-            let playlists: [Playlist] = try await client.get("/playlists")
-            let favorites: [String] = try await client.get("/favorites/ids")
-            let genres: [String] = try await client.get("/library/genres")
+            async let releasePage: [Release] = client.get("/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc"), .init(name: "genre", value: genre)])
+            async let artistPage: [Artist] = client.get("/library/artists", query: [.init(name: "limit", value: "60")])
+            async let playlistPage: [Playlist] = client.get("/playlists")
+            async let favoritePage: [String] = client.get("/favorites/ids")
+            async let genrePage: [String] = client.get("/library/genres")
+            let (releases, artists, playlists, favorites, genres) = try await (releasePage, artistPage, playlistPage, favoritePage, genrePage)
             guard self.generation == generation, self.catalogGeneration == catalogGeneration else { return }
             self.releases = releases; self.artists = artists
             if self.playlistRevision == playlistRevision { self.playlists = playlists }
             favoriteIDs = Set(favorites); releaseOffset = releases.count; moreReleases = releases.count == 60
-            self.genres = genres
+            self.genres = genres; connecting = false
+            if offline.syncFavorites { await downloadCollection(.favorites, automatic: false) }
+            await refreshOfflineCollections()
+            await flushListeningHistory()
         } catch { if self.generation == generation, self.catalogGeneration == catalogGeneration { report(error) } }
     }
     func loadMore() async {
@@ -220,12 +243,169 @@ import YTMDLCore
     }
     func logout() async {
         guard let client else { return }
-        do { try await client.mutate("/auth/logout", method: "POST") }
+        do { if !offlineMode { try await client.mutate("/auth/logout", method: "POST") } }
         catch { report(error) }
-        do { try client.forget() } catch { report(error) }
+        offline.detach()
+        do { if !offlineMode { try client.forget() } } catch { report(error) }
+        offlineMode = false; player.offlineOnly = false
         client.invalidate(); self.client = nil; user = nil; generation = UUID(); clearLibrary(); player.stop()
     }
     private func clearLibrary() { playlistBusy = false; playlistRevision = UUID(); listeningHistory.configure(server: nil, userID: nil, persist: false); query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil }
+    func openOffline(_ profile: OfflineProfile) {
+        do {
+            let address = try ServerAddress(profile.origin, allowLocalHTTP: true)
+            let local = try APIClient(server: address, persist: false)
+            player.stop(); client?.invalidate(); offline.detach(); clearLibrary()
+            client = local; user = profile.user; offlineMode = true; player.offlineOnly = true
+            generation = UUID(); offline.selectProfile(profile)
+            listeningHistory.configure(server: address, userID: profile.user.id, persist: true)
+        } catch { report(error) }
+    }
+    func downloadCollection(_ kind: CollectionKind, automatic: Bool = false) async {
+        guard !offlineMode, let client else { return }
+        do {
+            var collected: [Track] = []
+            if case .playlist(let playlist) = kind {
+                let result: PlaylistDetail = try await client.get(try client.playlistPath(playlist.id))
+                collected = result.tracks
+            } else {
+                while collected.count < 500 {
+                    var query: [URLQueryItem] = [.init(name: "limit", value: "100"), .init(name: "offset", value: String(collected.count))]
+                    switch kind {
+                    case .favorites: query.append(.init(name: "favorite", value: "true"))
+                    case .release(let release): query += [.init(name: "release_id", value: release.id), .init(name: "sort", value: "track_number"), .init(name: "order", value: "asc")]
+                    case .artist(let artist): query.append(.init(name: "artist_id", value: artist.id))
+                    case .playlist: break
+                    }
+                    let page: [Track] = try await client.get("/library/tracks", query: query)
+                    try Task.checkCancellation(); guard self.client === client else { return }
+                    collected += page
+                    if page.count < 100 { break }
+                }
+            }
+            guard self.client === client, !offlineMode else { return }
+            offline.rememberCollection(kind, tracks: collected)
+            offline.enqueue(collected, automatic: automatic)
+            if collected.count >= 500 { error = "Die ersten 500 Titel wurden für offline vorgemerkt. Größere Sammlungen bitte in mehrere Playlists aufteilen." }
+        } catch { if self.client === client { report(error) } }
+    }
+    func refreshOfflineCollections() async {
+        guard !offlineMode, let client else { return }
+        for collection in offline.currentCollections where collection.keepUpdated {
+            do {
+                let tracks: [Track]
+                if collection.kind == "playlist" {
+                    let result: PlaylistDetail = try await client.get(try client.playlistPath(collection.sourceID)); tracks = result.tracks
+                } else {
+                    var result: [Track] = []
+                    while result.count < 500 {
+                        var query: [URLQueryItem] = [.init(name: "limit", value: "100"), .init(name: "offset", value: String(result.count))]
+                        switch collection.kind {
+                        case "favorites": query.append(.init(name: "favorite", value: "true"))
+                        case "release": query += [.init(name: "release_id", value: collection.sourceID), .init(name: "sort", value: "track_number"), .init(name: "order", value: "asc")]
+                        case "artist": query.append(.init(name: "artist_id", value: collection.sourceID))
+                        default: throw PlayerError.invalidID
+                        }
+                        let page: [Track] = try await client.get("/library/tracks", query: query)
+                        try Task.checkCancellation(); guard self.client === client else { return }
+                        result += page; if page.count < 100 { break }
+                    }
+                    tracks = result
+                }
+                guard self.client === client else { return }
+                offline.updateCollection(collection.id, tracks: tracks)
+            } catch { if self.client === client { offline.error = "Die Offline-Sammlung „\(collection.name)“ konnte nicht aktualisiert werden. Gespeicherte Titel bleiben erhalten." } }
+        }
+    }
+    func playMix(_ name: String, genre: String = "") async {
+        guard !listeningBusy else { return }
+        if offlineMode, let client { player.play(offline.readyTracks.shuffled(), client: client); return }
+        guard let client else { return }
+        listeningBusy = true; defer { listeningBusy = false }
+        do {
+            var query: [URLQueryItem] = [.init(name: "limit", value: "100")]
+            if name == "Favoriten" { query.append(.init(name: "favorite", value: "true")) }
+            if !genre.isEmpty { query.append(.init(name: "genre", value: genre)) }
+            query.append(.init(name: "sort", value: name == "Neu" ? "recent" : "title"))
+            let result: [Track]
+            if !genre.isEmpty { result = try await client.get("/library/radio", query: [.init(name: "genre", value: genre), .init(name: "nonce", value: UUID().uuidString)]) }
+            else { result = try await client.get("/library/tracks", query: query) }
+            guard self.client === client else { return }
+            player.play(name == "Neu" ? result : result.shuffled(), client: client)
+        } catch { if self.client === client { report(error) } }
+    }
+    func startRadio(_ track: Track) async {
+        guard !offlineMode, let client, !listeningBusy else { return }
+        listeningBusy = true; defer { listeningBusy = false }
+        do {
+            let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
+            guard self.client === client else { return }
+            player.play([track] + result.filter { $0.id != track.id }, client: client)
+        } catch { if self.client === client { report(error) } }
+    }
+    func continueRadio(after track: Track) async {
+        guard player.autoplay, !player.isPlaybackRequested, player.current?.id == track.id, let client else { return }
+        if offlineMode {
+            let candidates = offline.readyTracks.filter { $0.id != track.id }.shuffled()
+            if !candidates.isEmpty { player.play(candidates, client: client) }; return
+        }
+        do {
+            let played = Set(player.queue.tracks.map(\.id))
+            let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
+            guard self.client === client, player.autoplay, !player.isPlaybackRequested, player.current?.id == track.id else { return }
+            let candidates = result.filter { !played.contains($0.id) }
+            if !candidates.isEmpty { player.play(candidates, client: client) }
+        } catch { /* Autoplay must not turn normal queue completion into an alert. */ }
+    }
+    func resumeLastSession() {
+        guard let snapshot = listeningHistory.snapshot, let client else { return }
+        let tracks = offlineMode ? snapshot.tracks.filter { offline.audioURL($0.id) != nil } : snapshot.tracks
+        guard !tracks.isEmpty else { return }
+        let selected = snapshot.tracks.indices.contains(snapshot.index) ? snapshot.tracks[snapshot.index].id : ""
+        player.repeatAll = snapshot.repeatMode == "queue"; player.setRepeatOne(snapshot.repeatMode == "track")
+        player.play(tracks, start: tracks.firstIndex { $0.id == selected } ?? 0, client: client)
+        if player.current?.id == selected { player.seek(snapshot.position) }
+    }
+    func setSyncHistory(_ value: Bool) {
+        syncHistory = value; UserDefaults.standard.set(value, forKey: "syncListeningHistory")
+        if !value { listeningHistory.discardPendingEvents() }
+    }
+    func flushListeningHistory() async {
+        guard syncHistory, !offlineMode, persistsSession, !syncingHistory, let client else { return }
+        let generation = generation
+        syncingHistory = true; defer { syncingHistory = false }
+        for event in listeningHistory.pendingEvents {
+            guard syncHistory, listeningHistory.enabled, self.generation == generation, self.client === client else { return }
+            do {
+                try await client.mutate("/history", method: "POST", body: ["event_id": event.eventID, "track_id": event.trackID])
+                guard self.generation == generation, self.client === client else { return }
+                listeningHistory.acknowledgeEvent(event.eventID)
+            } catch { return } // Retain idempotent events until this same account reconnects.
+        }
+    }
+    func saveHandoff() async {
+        guard !offlineMode, let client, player.current != nil else { return }
+        do {
+            let payload = HandoffPayload(queue: player.queue, position: player.position,
+                repeatMode: player.repeatOne ? "track" : player.repeatAll ? "queue" : "off", sourceName: "YTMDL Apple")
+            let _: PlaybackHandoff = try await client.sendJSON("/playback/handoff", method: "POST", body: payload)
+            guard self.client === client else { return }
+            player.pause()
+        } catch { if self.client === client { report(error) } }
+    }
+    func checkHandoff() async {
+        guard !offlineMode, let client else { return }
+        do {
+            let result: PlaybackHandoff? = try await client.get("/playback/handoff")
+            if self.client === client { handoff = result }
+        } catch { if self.client === client { report(error) } }
+    }
+    func acceptHandoff() {
+        guard !offlineMode, let handoff, let client, let tracks = handoff.queue, tracks.indices.contains(handoff.queueIndex) else { return }
+        player.repeatAll = handoff.repeatMode == "queue"; player.setRepeatOne(handoff.repeatMode == "track")
+        player.play(tracks, start: handoff.queueIndex, client: client)
+        player.seek(handoff.positionSeconds); self.handoff = nil
+    }
     func report(_ failure: Error) {
         if failure is CancellationError { return }
         if let transport = failure as? URLError, transport.code == .cancelled { return }
@@ -240,6 +420,8 @@ import YTMDLCore
         guard let index = args.firstIndex(of: "--fixture-server"), args.indices.contains(index+1),
               let url = URL(string: args[index+1]), ["127.0.0.1", "localhost"].contains(url.host ?? "") else { return }
         do {
+            offline = OfflineLibrary(root: FileManager.default.temporaryDirectory.appendingPathComponent("YTMDL-Fixture-" + UUID().uuidString))
+            player.offlineLibrary = offline
             try connect(args[index+1], localHTTP: true, persist: false)
             await restore()
             if args.contains("--fixture-player"), let client, !releases.isEmpty {

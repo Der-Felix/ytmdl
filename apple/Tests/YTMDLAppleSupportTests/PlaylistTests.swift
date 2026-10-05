@@ -82,7 +82,9 @@ private final class PlaylistProtocol: URLProtocol, @unchecked Sendable {
     let client = try APIClient(server: ServerAddress("https://playlists.fixture.example"), persist: false, configuration: configuration)
     defer { client.invalidate() }
     let _: AuthStatus = try await client.get("/auth/status")
-    let model = AppModel(); model.client = client
+    let offlineRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: offlineRoot) }
+    let model = AppModel(offlineLibrary: OfflineLibrary(root: offlineRoot, startTransfers: false)); model.client = client
     let rules = SmartPlaylistRules(genre: "Pop", artistId: "artist_1", favorites: true, addedDays: 30, sort: "frequent", limit: 50)
     let smart = try await model.createPlaylist(name: "Intelligent", description: "Rules", rules: rules)
     #expect(smart.smartRules == rules)
