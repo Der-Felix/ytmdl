@@ -4,12 +4,13 @@ import UIKit
 #endif
 
 final class PlayerUITests: XCTestCase {
-    @MainActor private func app(player: Bool = false) throws -> XCUIApplication {
+    @MainActor private func app(player: Bool = false, pausedPlayer: Bool = false) throws -> XCUIApplication {
         let server = ProcessInfo.processInfo.environment["YTMDL_FIXTURE_URL"] ?? "http://127.0.0.1:59583"
         guard let host = URL(string: server)?.host, ["127.0.0.1", "localhost"].contains(host) else { throw NSError(domain: "Loopback fixture required", code: 1) }
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-server", server]
         if player { app.launchArguments.append("--fixture-player") }
+        if pausedPlayer { app.launchArguments.append("--fixture-paused-player") }
         app.launch()
         return app
     }
@@ -25,6 +26,28 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "Native library")
     }
     #if os(iOS)
+    @MainActor func testMiniPlayerRemainsReachableInPlaylistWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact player requires iPhone.")
+        let app = try app(pausedPlayer: true)
+        let mini = app.buttons["mobile-mini-player-open"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 20))
+        XCTAssertTrue(mini.isHittable)
+        app.tabBars.buttons["Playlists"].tap()
+        app.staticTexts["Abends unterwegs"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Offline speichern"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(mini.isHittable, "Player must stay above tabs inside a pushed collection.")
+        attach(app, name: "Playlist with anchored paused mini player")
+        mini.tap()
+        XCTAssertTrue(app.navigationBars["Jetzt läuft"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Werkzeuge"].firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        attach(app, name: "Mobile player opened without audio")
+        app.buttons["Schließen"].firstMatch.tap()
+        app.tabBars.buttons["Suche"].tap()
+        XCTAssertTrue(mini.isHittable)
+        app.buttons["open-mobile-player"].tap()
+        XCTAssertTrue(app.navigationBars["Jetzt läuft"].waitForExistence(timeout: 10))
+    }
     @MainActor func testMobileHomeDownloadsAndSoundSettingsWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Mobile flow requires iPhone.")
         let app = try app()
@@ -47,6 +70,21 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.switches["Equalizer aktivieren"].firstMatch.exists)
         XCTAssertFalse(app.alerts.firstMatch.exists)
         attach(app, name: "Mobile EQ settings without playback")
+    }
+    @MainActor func testTabletPlayerControlsFitWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tablet layout requires iPad.")
+        let app = try app(pausedPlayer: true)
+        let mini = app.buttons["Player öffnen: Nachtfahrt"].firstMatch
+        XCTAssertTrue(mini.waitForExistence(timeout: 20))
+        XCTAssertTrue(mini.isHittable)
+        mini.tap()
+        XCTAssertTrue(app.navigationBars["Jetzt läuft"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Abspielen"].firstMatch.isHittable, "Transport must fit the tablet sheet without scrolling.")
+        XCTAssertTrue(app.buttons["Werkzeuge"].firstMatch.isHittable)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        attach(app, name: "Tablet player controls without audio")
+        app.buttons["Schließen"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].firstMatch.waitForExistence(timeout: 5))
     }
     @MainActor func testSidebarSwitchDiscardsOpenedCollections() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Sidebar regression requires iPad.")
@@ -100,7 +138,11 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "Native player paused")
         #if !os(tvOS)
         app.buttons["Schließen"].firstMatch.tap()
+        #if os(iOS)
+        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].firstMatch.waitForExistence(timeout: 5))
+        #else
         XCTAssertTrue(app.staticTexts["Deine Musik"].firstMatch.waitForExistence(timeout: 5))
+        #endif
         #endif
     }
 }

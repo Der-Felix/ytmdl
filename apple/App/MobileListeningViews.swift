@@ -4,6 +4,51 @@ import YTMDLCore
 import UIKit
 import MediaPlayer
 
+struct MobileMiniPlayer: View {
+    var model: AppModel
+    var open: () -> Void
+    var body: some View {
+        if let track = model.player.current {
+            HStack(spacing: 8) {
+                Button(action: open) {
+                    HStack(spacing: 10) {
+                        ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 40, height: 40)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(model.player.loading ? "Wird geladen …" : track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("Player öffnen: \(track.title)").accessibilityIdentifier("mobile-mini-player-open")
+                Button { model.player.toggle() } label: {
+                    Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").frame(width: 44, height: 44)
+                }.buttonStyle(.plain).accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen")
+                Button { model.player.next() } label: { Image(systemName: "forward.end.fill").frame(width: 44, height: 44) }
+                    .buttonStyle(.plain).accessibilityLabel("Nächster Titel")
+            }.padding(.horizontal, 12).padding(.vertical, 6)
+        }
+    }
+}
+
+struct MobileCollectionArtwork: View {
+    var model: AppModel
+    var tracks: [Track]
+    private var preview: [Track] {
+        var seen = Set<String>()
+        return Array(tracks.filter { seen.insert($0.album.isEmpty ? $0.id : $0.artistText + "\n" + $0.album).inserted }.prefix(4))
+    }
+    var body: some View {
+        Group {
+            if preview.isEmpty { Image(systemName: "music.note.list").font(.system(size: 64)).foregroundStyle(.tint).frame(width: 180, height: 180).background(.tint.opacity(0.1)) }
+            else if preview.count == 1 { ArtworkView(model: model, kind: "tracks", id: preview[0].id).frame(width: 180, height: 180) }
+            else {
+                LazyVGrid(columns: [GridItem(.fixed(90), spacing: 0), GridItem(.fixed(90), spacing: 0)], spacing: 0) {
+                    ForEach(0..<4, id: \.self) { index in ArtworkView(model: model, kind: "tracks", id: preview[index % preview.count].id).frame(width: 90, height: 90) }
+                }.frame(width: 180, height: 180)
+            }
+        }.clipShape(RoundedRectangle(cornerRadius: 20)).accessibilityLabel("Cover der Sammlung")
+    }
+}
+
 struct MobileHomeView: View {
     var model: AppModel
     var body: some View {
@@ -210,6 +255,7 @@ struct MobilePlayerView: View {
         guard coverColors, let color = model.player.artworkPalette?.accent.button else { return .pink }
         return Color(red: color.red, green: color.green, blue: color.blue)
     }
+    private func coverSize(_ size: CGSize) -> CGFloat { min(360, max(180, min(size.width - 48, size.height * 0.38))) }
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
@@ -217,7 +263,7 @@ struct MobilePlayerView: View {
                     VStack(spacing: 22) {
                         ZStack(alignment: .bottom) {
                             if !model.player.visualizationEnabled || placement != "background" {
-                                ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: min(400, max(160, geometry.size.width - 64)), height: min(400, max(160, geometry.size.width - 64)))
+                                ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: coverSize(geometry.size), height: coverSize(geometry.size))
                                     .shadow(color: .black.opacity(0.18), radius: 20, y: 12)
                             }
                             if model.player.visualizationEnabled {

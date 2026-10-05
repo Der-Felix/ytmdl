@@ -1,19 +1,19 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowUp,
   Heart,
-  ListMusic,
-  ListPlus,
   Loader2,
   Pencil,
+  Pause,
   Play,
   Shuffle,
   Trash2,
 } from 'lucide-react'
 
-import { TrackPlaybackButton } from '@/components/music/TrackPlaybackButton'
+import { Cover } from '@/components/music/Cover'
+import { PlaylistArtwork } from '@/components/music/PlaylistArtwork'
+import { PlaylistTrackMenu } from '@/components/music/PlaylistTrackMenu'
+import { libraryArtwork } from '@/lib/artwork'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -72,6 +72,9 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
   // Track removal/reordering feedback
   const [reordering, setReordering] = useState(false)
   const [actionTrackId, setActionTrackId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [removing, setRemoving] = useState<PlaylistTrack | null>(null)
 
   const playlist = state.status === 'success' ? state.data : null
 
@@ -79,20 +82,20 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
   const totalDurationMs = useMemo(() => {
     if (!playlist?.tracks) return 0
     return playlist.tracks.reduce((acc, pt) => acc + (pt.duration_ms || 0), 0)
-  }, [playlist?.tracks])
+  }, [playlist])
 
   // Play entire playlist
   const handlePlayAll = useCallback(() => {
     if (!playlist?.tracks || playlist.tracks.length === 0) return
     playAlbum(playlist.tracks)
-  }, [playlist?.tracks, playAlbum])
+  }, [playlist, playAlbum])
 
   // Play shuffled
   const handlePlayShuffled = useCallback(() => {
     if (!playlist?.tracks || playlist.tracks.length === 0) return
     const shuffled = [...playlist.tracks].sort(() => Math.random() - 0.5)
     playAlbum(shuffled)
-  }, [playlist?.tracks, playAlbum])
+  }, [playlist, playAlbum])
 
   // Play specific track
   const handlePlayTrack = useCallback(
@@ -104,7 +107,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
         playTrack(track, playlist.tracks, index)
       }
     },
-    [currentTrack?.id, playlist?.tracks, playTrack, togglePlayPause],
+    [currentTrack?.id, playlist, playTrack, togglePlayPause],
   )
 
   // Open edit dialog
@@ -162,8 +165,9 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
 
   // Remove track
   const handleRemoveTrack = async (trackId: string) => {
-    if (!playlist) return
+    if (!playlist || actionTrackId || reordering) return
     try {
+      setActionError(null)
       setActionTrackId(trackId)
       // Optimistic update
       const prevTracks = playlist.tracks
@@ -178,7 +182,8 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       }))
 
       await removePlaylistTrack(id, trackId)
-    } catch {
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Titel konnte nicht entfernt werden.')
       // Rollback on error
       void reload()
     } finally {
@@ -188,7 +193,8 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
 
   // Move track position up/down
   const handleMoveTrack = async (index: number, direction: 'up' | 'down') => {
-    if (!playlist || reordering) return
+    if (!playlist || reordering || actionTrackId) return
+    setActionError(null)
     const targetIndex = direction === 'up' ? index - 1 : index + 1
     if (targetIndex < 0 || targetIndex >= playlist.tracks.length) return
 
@@ -213,7 +219,8 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
     try {
       setReordering(true)
       await reorderPlaylistTracks(id, newTrackIds)
-    } catch {
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Reihenfolge konnte nicht gespeichert werden.')
       // Rollback
       void reload()
     } finally {
@@ -257,6 +264,8 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
   }
 
   const tracks = playlist.tracks || []
+  const visible = tracks.map((track, index) => ({ track, index })).filter(({ track }) =>
+    `${track.title} ${joinArtists(track.artists || [])} ${track.album || ''}`.toLocaleLowerCase('de').includes(query.trim().toLocaleLowerCase('de')))
 
   return (
     <div className="space-y-6 pb-28">
@@ -273,9 +282,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
 
       {/* Playlist Hero Header */}
       <div className="flex flex-col md:flex-row md:items-end gap-6 p-6 rounded-3xl border border-white/5 bg-gradient-to-b from-white/[0.04] to-white/[0.01]">
-        <div className="size-36 sm:size-44 rounded-2xl bg-gradient-to-br from-neutral-800 to-neutral-900 border border-white/10 flex items-center justify-center shrink-0 shadow-2xl">
-          <ListMusic className="size-20 text-neutral-600" />
-        </div>
+        <PlaylistArtwork tracks={tracks} name={playlist.name} className="size-44 sm:size-56 shrink-0 shadow-xl" />
 
         <div className="flex-1 min-w-0 space-y-2">
           <Badge
@@ -284,7 +291,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
           >
             {playlist.smart_rules ? 'Intelligente Playlist' : 'Playlist'}
           </Badge>
-          <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white break-words">
+          <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-white break-words">
             {playlist.name}
           </h1>
           {playlist.description && (
@@ -322,12 +329,11 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
             </Button>
             <Button
               variant="ghost"
-              size="icon"
               onClick={openEditModal}
               className="rounded-full text-neutral-400 hover:text-white"
               title="Playlist bearbeiten"
             >
-              <Pencil className="size-4" />
+              <Pencil className="size-4" /> Bearbeiten
             </Button>
             <Button
               variant="ghost"
@@ -338,6 +344,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
               }}
               className="rounded-full text-neutral-400 hover:text-destructive"
               title="Playlist löschen"
+              aria-label="Playlist löschen"
             >
               <Trash2 className="size-4" />
             </Button>
@@ -345,218 +352,49 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
         </div>
       </div>
 
-      <OfflineSavePanel playlist={playlist}/>
+      <details className="rounded-2xl border border-white/10 bg-white/[0.02]">
+        <summary className="cursor-pointer rounded-2xl px-5 py-4 text-sm font-medium hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-ring">Offline mitnehmen · Download-Optionen</summary>
+        <div className="p-3 pt-0"><OfflineSavePanel playlist={playlist} /></div>
+      </details>
 
-      {/* Track List */}
-      {tracks.length === 0 ? (
-        <EmptyState
-          icon={<ListMusic />}
-          title="Diese Playlist ist noch leer"
-          description="Füge Titel aus der Bibliothek oder dem Player mit dem Ordner-Symbol hinzu."
-          action={
-            <Link href={paths.library()}>
-              <Button variant="outline" className="gap-2 mt-2">
-                Zur Bibliothek
-              </Button>
-            </Link>
-          }
-        />
-      ) : (
-        <div className="w-full overflow-x-auto rounded-2xl border border-white/5 bg-neutral-950/40">
-          <table className="w-full text-left text-sm border-collapse min-w-[650px]">
-            <thead>
-              <tr className="border-b border-white/5 bg-white/[0.02] text-neutral-400">
-                <th className="py-3 px-3 w-12 text-center">#</th>
-                <th className="py-3 px-3">Titel</th>
-                <th className="py-3 px-3">Künstler</th>
-                <th className="py-3 px-3 hidden md:table-cell">Album</th>
-                <th className="py-3 px-3 w-28 text-center">Format</th>
-                <th className="py-3 px-3 w-20 text-right">Dauer</th>
-                <th className="py-3 px-2 w-36 text-right"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {tracks.map((pt, index) => {
-                const isCurrent = currentTrack?.id === pt.id
-                const isPlaying = isCurrent && status === 'playing'
-                const artistName =
-                  pt.artists?.length > 0 ? joinArtists(pt.artists) : pt.album_artist || ''
-                const isFav = favorites?.isFavorite(pt.id)
-
-                return (
-                  <tr
-                    key={pt.id}
-                    onClick={() => handlePlayTrack(pt, index)}
-                    className={`transition-colors cursor-pointer group ${
-                      isCurrent ? 'bg-white/[0.05]' : 'hover:bg-white/[0.02]'
-                    }`}
-                  >
-                    {/* Position / Play Button */}
-                    <td className="py-2.5 px-3 text-center font-mono text-xs relative">
-                      <TrackPlaybackButton
-                        number={pt.position}
-                        title={pt.title}
-                        isCurrent={isCurrent}
-                        isPlaying={isPlaying}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handlePlayTrack(pt, index)
-                        }}
-                      />
-                    </td>
-
-                    {/* Title */}
-                    <td className="py-2.5 px-3 font-medium">
-                      <div
-                        className={`truncate max-w-[280px] lg:max-w-md ${
-                          isCurrent ? 'text-primary font-semibold' : 'text-neutral-200'
-                        }`}
-                      >
-                        {pt.title}
-                      </div>
-                    </td>
-
-                    {/* Artist */}
-                    <td className="py-2.5 px-3 text-neutral-400">
-                      <div className="truncate max-w-[180px]">{artistName}</div>
-                    </td>
-
-                    {/* Album */}
-                    <td className="py-2.5 px-3 text-neutral-400 hidden md:table-cell">
-                      <div className="truncate max-w-[200px]">{pt.album || '–'}</div>
-                    </td>
-
-                    {/* Format */}
-                    <td className="py-2.5 px-3 text-center">
-                      {pt.codec ? (
-                        <Badge
-                          variant="outline"
-                          className="font-mono text-[11px] uppercase py-0 px-1.5 h-5 border-white/10"
-                        >
-                          {pt.codec}
-                        </Badge>
-                      ) : (
-                        <span className="text-neutral-600 text-xs">–</span>
-                      )}
-                    </td>
-
-                    {/* Duration */}
-                    <td className="py-2.5 px-3 text-right text-neutral-400 font-mono text-xs">
-                      {formatDuration(pt.duration_ms)}
-                    </td>
-
-                    {/* Actions: Reorder Up/Down, Favorite, Delete */}
-                    <td className="py-2.5 px-2 text-right">
-                      <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                        {/* Move Up */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={!!playlist.smart_rules || index === 0 || reordering}
-                          className="h-7 w-7 p-0 text-neutral-400 hover:text-white disabled:opacity-20"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void handleMoveTrack(index, 'up')
-                          }}
-                          title="Nach oben verschieben"
-                        >
-                          <ArrowUp className="size-3.5" />
-                        </Button>
-
-                        {/* Move Down */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={
-                            !!playlist.smart_rules || index === tracks.length - 1 || reordering
-                          }
-                          className="h-7 w-7 p-0 text-neutral-400 hover:text-white disabled:opacity-20"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void handleMoveTrack(index, 'down')
-                          }}
-                          title="Nach unten verschieben"
-                        >
-                          <ArrowDown className="size-3.5" />
-                        </Button>
-
-                        {/* Play Next */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-neutral-400 hover:text-primary hover:bg-white/10"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            playNext(pt)
-                          }}
-                          title="Als Nächstes abspielen"
-                        >
-                          <Play className="size-3" />
-                        </Button>
-
-                        {/* Add to Queue */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-neutral-400 hover:text-primary hover:bg-white/10"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            addToQueue(pt)
-                          }}
-                          title="Zur Queue hinzufügen"
-                        >
-                          <ListPlus className="size-3.5" />
-                        </Button>
-
-                        {/* Favorite */}
-                        {favorites && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={`h-7 w-7 p-0 transition-colors ${
-                              isFav
-                                ? 'text-rose-500 hover:text-rose-400'
-                                : 'text-neutral-400 hover:text-rose-400'
-                            }`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void favorites.toggleFavorite(pt.id)
-                            }}
-                            title={isFav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}
-                          >
-                            <Heart
-                              className={`size-3.5 ${isFav ? 'fill-rose-500 text-rose-500' : ''}`}
-                            />
-                          </Button>
-                        )}
-
-                        {/* Remove from playlist */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={!!playlist.smart_rules || actionTrackId === pt.id}
-                          className="h-7 w-7 p-0 text-neutral-400 hover:text-destructive hover:bg-destructive/10"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void handleRemoveTrack(pt.id)
-                          }}
-                          title="Aus Playlist entfernen"
-                        >
-                          {actionTrackId === pt.id ? (
-                            <Loader2 className="size-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="size-3.5" />
-                          )}
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+      <section aria-label="Titel dieser Playlist" className="rounded-2xl border border-white/10 bg-white/[0.02]">
+        <div className="flex flex-col gap-3 border-b border-white/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div><h2 className="text-lg font-semibold">Titel</h2><p className="text-sm text-muted-foreground">{visible.length} von {tracks.length} · Reihenfolge der Playlist</p></div>
+          <Input aria-label="In dieser Playlist suchen" placeholder="Titel, Künstler oder Album suchen …" value={query} onChange={(event) => setQuery(event.target.value)} className="sm:max-w-sm" />
         </div>
-      )}
+        {actionError && <p role="alert" className="px-5 pt-4 text-sm text-destructive">{actionError}</p>}
+        {tracks.length === 0 ? <EmptyState title="Noch keine Titel" description="Füge Musik aus der Bibliothek über „Zur Playlist hinzufügen“ hinzu." action={<Link href={paths.library()} className="text-primary hover:underline">Bibliothek öffnen</Link>} /> :
+          visible.length === 0 ? <div className="p-10 text-center"><p>Keine passenden Titel.</p><Button variant="ghost" onClick={() => setQuery('')}>Suche zurücksetzen</Button></div> :
+          <ol className="divide-y divide-white/5">
+            {visible.map(({ track: pt, index }) => {
+              const isCurrent = currentTrack?.id === pt.id
+              const isPlaying = isCurrent && status === 'playing'
+              const isFav = favorites?.isFavorite(pt.id)
+              return <li key={pt.id} className={`flex items-center gap-3 px-3 py-3 sm:gap-4 sm:px-5 ${isCurrent ? 'bg-primary/8' : 'hover:bg-white/[0.035]'} transition-colors`}>
+                <Button variant="ghost" size="icon" className={`size-11 shrink-0 rounded-full ${isCurrent ? 'bg-primary/15 text-primary' : ''}`} aria-label={`${pt.title} ${isPlaying ? 'pausieren' : 'abspielen'}`} onClick={() => handlePlayTrack(pt, index)}>
+                  {isPlaying ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
+                </Button>
+                <Cover src={libraryArtwork('tracks', pt.id)} alt={pt.title} className="size-12 shrink-0 rounded-lg sm:size-14" />
+                <button onClick={() => handlePlayTrack(pt, index)} aria-label={`${pt.title} auswählen`} className="min-w-0 flex-1 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-ring">
+                  <span className={`block truncate text-base font-medium ${isCurrent ? 'text-primary' : ''}`}>{pt.title}</span>
+                  <span className="block truncate text-sm text-muted-foreground">{joinArtists(pt.artists || []) || pt.album_artist} <span className="hidden sm:inline">· {pt.album || 'Ohne Album'}</span></span>
+                </button>
+                {pt.codec && <Badge variant="outline" className="hidden uppercase text-xs lg:inline-flex">{pt.codec}</Badge>}
+                <span className="hidden text-sm tabular-nums text-muted-foreground sm:block">{formatDuration(pt.duration_ms)}</span>
+                {favorites && <Button variant="ghost" size="icon" className={`size-11 shrink-0 ${isFav ? 'text-primary' : 'text-muted-foreground'}`} aria-label={`${pt.title}: ${isFav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}`} onClick={() => { setActionError(null); void favorites.toggleFavorite(pt.id).catch((error: unknown) => setActionError(error instanceof Error ? error.message : 'Favorit konnte nicht gespeichert werden.')) }}><Heart className={`size-5 ${isFav ? 'fill-current' : ''}`} /></Button>}
+                <PlaylistTrackMenu title={pt.title} smart={!!playlist.smart_rules} busy={reordering || !!actionTrackId}
+                  moveUp={index > 0 ? () => void handleMoveTrack(index, 'up') : undefined}
+                  moveDown={index < tracks.length - 1 ? () => void handleMoveTrack(index, 'down') : undefined}
+                  next={() => playNext(pt)} enqueue={() => addToQueue(pt)} remove={() => setRemoving(pt)} />
+              </li>
+            })}
+          </ol>}
+      </section>
+      <Dialog open={removing !== null} onOpenChange={(open) => { if (!open) setRemoving(null) }}>
+        <DialogContent><DialogHeader><DialogTitle>Titel aus Playlist entfernen?</DialogTitle><DialogDescription>{removing?.title} bleibt in deiner Bibliothek. Nur der Eintrag in dieser Playlist wird entfernt.</DialogDescription></DialogHeader><DialogFooter>
+          <Button variant="ghost" onClick={() => setRemoving(null)}>Abbrechen</Button><Button variant="destructive" onClick={() => { if (removing) void handleRemoveTrack(removing.id); setRemoving(null) }}>Aus Playlist entfernen</Button>
+        </DialogFooter></DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

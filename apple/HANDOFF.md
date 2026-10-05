@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.2.0, build 25
+# Apple app handoff — preview 0.2.0, build 26
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -31,9 +31,20 @@ The server release and native preview have independent version numbers.
 All app source files are shared with the Swift support test target. If adding
 files, ensure both the Xcode project and package include them.
 
+## Build 26: reachable mobile player
+
+The compact iPhone TabView owns `tabViewBottomAccessory`; do not put a bottom
+safe-area inset inside each tab's NavigationStack because floating tabs can cover it.
+`MobileMiniPlayer` keeps cover/title, play/pause and next controls reachable in
+pushed playlist views. The toolbar also opens the player before any track starts.
+The collection header includes a bounded four-cover collage and duration.
+`testMiniPlayerRemainsReachableInPlaylistWithoutPlayback` tests tab switching,
+pushed playlists and expansion through a paused loopback-only Debug fixture.
+The fixture does not create an AVPlayerItem or start audio. Preserve this property.
+
 ## Mobile preview 0.2.0
 
-Build 25 adds the iPhone/iPad listening feature set documented in
+Build 25 added the iPhone/iPad listening feature set documented in
 [FEATURES.md](FEATURES.md), including download/restart review steps and explicit
 limits. Preserve the existing bundle ID, keychain and preferences during updates.
 The background session registers during launch and delegates system wake completion

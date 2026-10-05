@@ -1,7 +1,7 @@
 # YTMDL for Apple
 
 Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The current
-review preview is **0.2.0, build 25** and requires OS 27 and Xcode 27. It is a client of the
+review preview is **0.2.0, build 26** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
 
 See [HANDOFF.md](HANDOFF.md) for the code map and [FEATURES.md](FEATURES.md)

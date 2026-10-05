@@ -66,10 +66,20 @@ struct RootView: View {
                 else if sizeClass == .compact {
                     TabView(selection: $destination) {
                         ForEach([Destination.home, .search, .library, .playlists, .settings]) { item in
-                            NavigationStack { routedContent(item).safeAreaInset(edge: .bottom) { miniPlayer } }
+                            NavigationStack {
+                                routedContent(item).toolbar {
+                                    ToolbarItem(placement: .topBarTrailing) {
+                                        Button("Player", systemImage: "play.circle") { expandedPlayer = true }
+                                            .accessibilityIdentifier("open-mobile-player")
+                                    }
+                                }
+                            }
                                 .tabItem { Label(item.rawValue, systemImage: item.icon) }.tag(Optional(item))
                         }
-                    }
+                    }.tabBarMinimizeBehavior(.never)
+                        .tabViewBottomAccessory(isEnabled: model.player.current != nil) {
+                            MobileMiniPlayer(model: model) { expandedPlayer = true }
+                        }
                 } else { splitView }
                 #else
                 splitView
@@ -617,6 +627,13 @@ struct CollectionView: View {
     private var standardCollection: some View {
         List {
             Section {
+                #if os(iOS)
+                MobileCollectionArtwork(model: model, tracks: tracks).frame(height: 180)
+                    .frame(maxWidth: .infinity).listRowBackground(Color.clear)
+                Text("\(tracks.count)\(more ? " geladene" : "") Titel · \(formatTime(tracks.reduce(0) { $0 + $1.duration }))")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                if let description = playlist?.description, !description.isEmpty { Text(description).font(.subheadline).foregroundStyle(.secondary) }
+                #endif
                 HStack {
                     Button("Abspielen", systemImage: "play.fill") { play(tracks) }.buttonStyle(.borderedProminent).disabled(tracks.isEmpty)
                     Button("Zufall", systemImage: "shuffle") { play(tracks.shuffled()) }.buttonStyle(.bordered).disabled(tracks.isEmpty)

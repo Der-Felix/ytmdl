@@ -168,6 +168,13 @@ enum SleepMode: String, CaseIterable, Identifiable {
         }
     }
     func play(_ tracks: [Track], start: Int = 0, client: APIClient) { self.client = client; queue.replace(tracks, start: start); loadCurrent() }
+    #if DEBUG
+    // Loopback UI fixtures can inspect navigation with a selected title without
+    // creating an audio item, activating the audio session or playing a tone.
+    func previewPaused(_ tracks: [Track], client: APIClient) {
+        self.client = client; queue.replace(tracks)
+    }
+    #endif
     func append(_ track: Track, client: APIClient) { self.client = client; queue.append(track); prepareNext() }
     func select(_ index: Int) { guard queue.tracks.indices.contains(index) else { return }; queue.select(index); loadCurrent() }
     func shuffle() { queue.shuffleUpcoming(); cancelPrepared(); prepareNext() }

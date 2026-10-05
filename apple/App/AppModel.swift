@@ -428,6 +428,10 @@ import YTMDLCore
                 let list: [Track] = try await client.get("/library/tracks")
                 player.play(list, client: client)
             }
+            if args.contains("--fixture-paused-player"), let client {
+                let list: [Track] = try await client.get("/library/tracks")
+                player.previewPaused(list, client: client)
+            }
         } catch { report(error) }
     }
     #endif

@@ -1,4 +1,4 @@
-# Native listening preview 0.2.0 — build 25
+# Native listening preview 0.2.0 — build 26
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -11,6 +11,8 @@ of the server version. This preview does not promise full Spotify/Plexamp parity
 | Offline music (iOS/iPadOS) | Track, album, artist, favorites and playlist snapshots; local search, collection filter, sorting and shuffle |
 | Downloads | Background URLSession on real iOS, progress, pause/retry, Wi-Fi preference, music storage cap, remove local copies |
 | Smart offline storage | Optional played-track cache; favorites and selected collections refresh when the library is refreshed |
+| Player access | Native mini-player above the floating iPhone tab bar, retained inside pushed collections; direct Player toolbar entry; expandable player |
+| Collection artwork | Up to four distinct album covers, track count and duration on iPhone collection headers |
 | Mobile transport | Seeking, previous/next, shuffle, repeat queue/track, native device volume and AirPlay |
 | Mobile sound | Ten-band EQ, presets, preamp/headroom, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer |
 | Mobile visualization | Four FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
@@ -21,6 +23,13 @@ of the server version. This preview does not promise full Spotify/Plexamp parity
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## Player access review (build 26)
+
+1. Start a track. The mini-player must remain above the tab bar on Start, Search, Library, Playlists and Settings, including opened playlists.
+2. Tap its cover/title to open **Jetzt läuft**. Seeking and transport controls are visible; **Werkzeuge** opens EQ, transitions, timer, tempo and visualizer settings.
+3. Close the player and change tabs. The queue is retained. Before starting music, the **Player** toolbar button opens the empty player instead of forcing playback.
+4. The iPhone and iPad regression tests seed a paused queue using a loopback fixture, without creating an audio item or playing test sounds. Real codecs, AirPlay and background audio still need device review.
 
 ## Offline review on a phone
 
