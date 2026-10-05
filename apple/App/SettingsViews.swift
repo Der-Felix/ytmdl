@@ -270,10 +270,15 @@ struct ConfirmDeviceView: View {
                     let submittedCode = code
                     do {
                         let result: DevicePreview = try await client.send("/auth/device/preview", body: ["user_code": submittedCode])
-                        guard code == submittedCode else { return }
+                        guard model.client === client, code == submittedCode else { return }
                         preview = result
                     }
-                    catch { model.report(error) }
+                    catch {
+                        guard model.client === client else { return }
+                        if case PlayerError.server(let status, _, _) = error, status == 404 {
+                            message = "Dieser Server unterstützt Gerätecodes noch nicht. Die Anmeldung mit Benutzername und Passwort funktioniert weiterhin."
+                        } else { model.report(error) }
+                    }
                 }
             }.disabled(busy || code.trimmingCharacters(in: .whitespacesAndNewlines).count < 8)
             if let preview {
@@ -286,6 +291,7 @@ struct ConfirmDeviceView: View {
                         busy = true; defer { busy = false }
                         do {
                             try await client.mutate("/auth/device/confirm", method: "POST", body: ["user_code": code])
+                            guard model.client === client else { return }
                             self.preview = nil; code = ""; message = "Gerät freigegeben. Die Anmeldung wird auf dem TV abgeschlossen."
                         } catch { model.report(error) }
                     }

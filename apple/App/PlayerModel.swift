@@ -4,8 +4,10 @@ import MediaPlayer
 import Observation
 import CoreGraphics
 import YTMDLCore
-#if os(tvOS)
+#if os(iOS) || os(tvOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 enum SleepMode: String, CaseIterable, Identifiable {
@@ -42,7 +44,10 @@ enum SleepMode: String, CaseIterable, Identifiable {
     @ObservationIgnored private var spectrumTarget = Array(repeating: 0.0, count: 32)
     @ObservationIgnored private var meteredFrames: UInt64 = 0
     private(set) var equalizerFormat = 0
-    private(set) var artwork: CGImage?
+    private(set) var artwork: CGImage? {
+        didSet { systemArtwork = artwork.map(Self.nowPlayingArtwork) }
+    }
+    @ObservationIgnored private var systemArtwork: MPMediaItemArtwork?
     private(set) var artworkPalette: ArtworkPalette?
     let equalizer: EqualizerModel
     var offlineLibrary: OfflineLibrary?
@@ -167,12 +172,17 @@ enum SleepMode: String, CaseIterable, Identifiable {
             }
         }
     }
-    func play(_ tracks: [Track], start: Int = 0, client: APIClient) { self.client = client; queue.replace(tracks, start: start); loadCurrent() }
+    func play(_ tracks: [Track], start: Int = 0, client: APIClient) {
+        guard !tracks.isEmpty else { stop(); return }
+        self.client = client; queue.replace(tracks, start: start); loadCurrent()
+    }
     #if DEBUG
     // Loopback UI fixtures can inspect navigation with a selected title without
     // creating an audio item, activating the audio session or playing a tone.
     func previewPaused(_ tracks: [Track], client: APIClient) {
-        self.client = client; queue.replace(tracks)
+        generation = UUID(); self.client = client; queue.replace(tracks)
+        if let current { loadDetails(current, client: client) }
+        else { artwork = nil; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
     }
     #endif
     func append(_ track: Track, client: APIClient) { self.client = client; queue.append(track); prepareNext() }
@@ -476,6 +486,9 @@ enum SleepMode: String, CaseIterable, Identifiable {
         if let url = offlineLibrary?.artworkURL(track.id), let data = try? Data(contentsOf: url), let image = ArtworkPalette.thumbnail(data) {
             artwork = image; artworkPalette = ArtworkPalette.extract(image)
         }
+        // Publish the new title immediately, dropping the previous title's cover.
+        // Publish again when the authenticated or offline artwork becomes ready.
+        updateNowPlaying()
         if offlineOnly {
             if lyrics.isEmpty { lyrics = "Für diesen Titel sind keine Offline-Lyrics gespeichert." }
             return
@@ -499,7 +512,10 @@ enum SleepMode: String, CaseIterable, Identifiable {
                     let image = ArtworkPalette.thumbnail(data); return (image, image.flatMap(ArtworkPalette.extract))
                 }.value
                 try Task.checkCancellation(); guard self?.generation == token else { return }
-                self?.artwork = result.0; self?.artworkPalette = result.1
+                if let image = result.0 {
+                    self?.artwork = image; self?.artworkPalette = result.1
+                    self?.updateNowPlaying()
+                }
             } catch { /* Keep the selected theme and the normal artwork placeholder. */ }
         }
     }
@@ -554,14 +570,27 @@ enum SleepMode: String, CaseIterable, Identifiable {
         lastNowPlaying = Date()
         guard let current else { return }
         onSnapshot?(queue, position, repeatOne ? "track" : repeatAll ? "queue" : "off", !isPlaying)
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+        var info: [String: Any] = [
             MPMediaItemPropertyTitle: current.title, MPMediaItemPropertyArtist: current.artistText,
             MPMediaItemPropertyAlbumTitle: current.album, MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? playbackRate : 0.0,
         ]
+        if let systemArtwork { info[MPMediaItemPropertyArtwork] = systemArtwork }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         #if os(macOS)
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
         #endif
+    }
+    nonisolated private static func nowPlayingArtwork(_ image: CGImage) -> MPMediaItemArtwork {
+        // The system can request this image outside the main actor. Capture only
+        // immutable CGImage data, never the player or a UI-owned image instance.
+        MPMediaItemArtwork(boundsSize: CGSize(width: image.width, height: image.height)) { size in
+            #if os(macOS)
+            NSImage(cgImage: image, size: size)
+            #else
+            UIImage(cgImage: image)
+            #endif
+        }
     }
 }

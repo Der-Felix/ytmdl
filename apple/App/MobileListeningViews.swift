@@ -278,7 +278,7 @@ struct MobilePlayerView: View {
                                 if !track.album.isEmpty && track.album != track.title { Text(track.album).font(.caption).foregroundStyle(.secondary) }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                             if !model.offlineMode {
-                                Button { Task { await model.toggleFavorite(track) } } label: { Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart").font(.title2).frame(width: 44, height: 44) }.accessibilityLabel("Favorit umschalten")
+                                Button { Task { await model.toggleFavorite(track) } } label: { Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart").font(.title2).frame(width: 44, height: 44) }.accessibilityLabel("Favorit umschalten").disabled(model.pendingFavorites.contains(track.id))
                             }
                             Menu {
                                 if !model.offlineMode {
@@ -294,10 +294,10 @@ struct MobilePlayerView: View {
                             Slider(value: Binding(get: { min(model.player.position, model.player.duration) }, set: { model.player.seek($0) }), in: 0...max(1, model.player.duration)).accessibilityLabel("Wiedergabeposition")
                             HStack { Text(formatTime(model.player.position)).accessibilityIdentifier("playbackElapsed"); Spacer(); Text(formatTime(model.player.duration)) }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
-                        HStack(spacing: 20) {
+                        HStack(spacing: min(20, max(0, (geometry.size.width - 48 - 246) / 4))) {
                             Button { model.player.shuffle() } label: { Image(systemName: "shuffle").frame(width: 44, height: 44) }.accessibilityLabel("Nächste Titel mischen")
                             Button { model.player.previous() } label: { Image(systemName: "backward.end.fill").font(.title2).frame(width: 44, height: 44) }.accessibilityLabel("Vorheriger Titel")
-                            Button { model.player.toggle() } label: { Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.title).frame(width: 70, height: 70).background(accent, in: Circle()).foregroundStyle(.white) }.accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen")
+                            Button { model.player.toggle() } label: { Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.title).frame(width: 70, height: 70).background(accent, in: Circle()).foregroundStyle(.white) }.accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen").accessibilityIdentifier("mobile-player-toggle")
                             Button { model.player.next() } label: { Image(systemName: "forward.end.fill").font(.title2).frame(width: 44, height: 44) }.accessibilityLabel("Nächster Titel")
                             Button {
                                 if model.player.repeatOne { model.player.setRepeatOne(false); model.player.repeatAll = false }
@@ -329,7 +329,7 @@ struct MobilePlayerView: View {
         .sheet(isPresented: $adding) { AddToPlaylistSheet(model: model, tracks: model.player.current.map { [$0] } ?? []) }
     }
     private var mobileQueue: some View {
-        VStack(spacing: 8) {
+        LazyVStack(spacing: 8) {
             HStack { Text("\(model.player.queue.tracks.count) Titel").font(.subheadline).foregroundStyle(.secondary); Spacer(); Button("Nächste leeren") { model.player.clearUpcoming() }.font(.caption) }
             ForEach(Array(model.player.queue.tracks.enumerated()), id: \.offset) { index, track in
                 HStack(spacing: 12) {

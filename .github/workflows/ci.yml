@@ -127,7 +127,8 @@ jobs:
         run: |
           xcodebuild -version
           xcodebuild -version | head -n 1 | grep -Eq '^Xcode 27([.]|$)'
-          swift test --package-path apple --scratch-path "$RUNNER_TEMP/apple-tests"
+          # MediaPlayer metadata and remote commands are process-wide singletons.
+          swift test --package-path apple --scratch-path "$RUNNER_TEMP/apple-tests" --no-parallel
       - name: Build production configurations without distribution signing
         run: |
           xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-macOS -configuration Release -destination 'platform=macOS,arch=arm64' -derivedDataPath "$RUNNER_TEMP/apple-mac" CODE_SIGNING_ALLOWED=NO build
@@ -183,7 +184,7 @@ jobs:
           YTMDL_TEST_SCHEME: ${{ matrix.scheme }}
           YTMDL_TEST_PLATFORM: ${{ matrix.platform }}
         run: |
-          python3 apple/Scripts/fixture-server.py --port 59583 > "$RUNNER_TEMP/apple-fixture.log" 2>&1 &
+          python3 apple/Scripts/fixture-server.py --port 59583 --audit-failures > "$RUNNER_TEMP/apple-fixture.log" 2>&1 &
           ytmdl_fixture_pid=$!
           trap 'kill "$ytmdl_fixture_pid"' EXIT
           ytmdl_fixture_ready=false

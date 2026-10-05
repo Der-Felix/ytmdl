@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.2.0, build 26
+# Apple app handoff — preview 0.2.0, build 27
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
@@ -30,6 +30,25 @@ The server release and native preview have independent version numbers.
 
 All app source files are shared with the Swift support test target. If adding
 files, ensure both the Xcode project and package include them.
+
+## Build 27: functional audit
+
+[AUDIT.md](AUDIT.md) records each mobile feature's actual verification level,
+confirmed corrections and pending physical-device review. Keep this distinction
+when extending the preview; a build or fixture result is not an audio-route qualification.
+`Tests/YTMDLAppleSupportTests/AuditTests.swift` exercises lock-screen artwork,
+delayed account/logout replies and serialized favorites without creating audio items.
+The offline integration test also checks local Now Playing artwork without a login
+request or playback. `MPMediaItemArtwork` is cached per image, preserved across
+progress updates and cleared before the next title's asynchronous image loads.
+The callback captures immutable CGImage data rather than main-actor player state.
+
+The iPhone UI suite uses stateful playlist/favorite fixtures and optional
+`--audit-failures` for a recoverable collection error. The codec test requires
+`YTMDL_CODEC_FIXTURE_URL`; it fully decodes synthetic silent files with AVAssetReader,
+without starting AVPlayer. Do not replace them with library media or audible signals.
+The expanded mobile transport has `mobile-player-toggle`: a generic first match
+for Pause can select the mini-player beneath a sheet and produce a false UI failure.
 
 ## Build 26: reachable mobile player
 

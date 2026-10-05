@@ -1,7 +1,10 @@
-# Native listening preview 0.2.0 — build 26
+# Native listening preview 0.2.0 — build 27
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
+
+See [AUDIT.md](AUDIT.md) for the build 27 functional audit, test evidence,
+corrected defects and the remaining real-device release checks.
 
 | Feature | Current implementation |
 | --- | --- |
@@ -14,6 +17,7 @@ of the server version. This preview does not promise full Spotify/Plexamp parity
 | Player access | Native mini-player above the floating iPhone tab bar, retained inside pushed collections; direct Player toolbar entry; expandable player |
 | Collection artwork | Up to four distinct album covers, track count and duration on iPhone collection headers |
 | Mobile transport | Seeking, previous/next, shuffle, repeat queue/track, native device volume and AirPlay |
+| System artwork | Now Playing artwork published after authenticated/local loading, retained across progress updates, cleared on title change or stop; actual lock-screen review remains required |
 | Mobile sound | Ten-band EQ, presets, preamp/headroom, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer |
 | Mobile visualization | Four FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
 | Lyrics | Cached/plain text; LRC timing, optional following and tap-to-seek when time tags exist |

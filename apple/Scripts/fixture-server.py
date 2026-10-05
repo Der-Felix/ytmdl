@@ -9,6 +9,7 @@ import threading
 import wave
 import io
 import zlib
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -42,6 +43,28 @@ TRACKS = [{'id': 't'+str(i), 'title': name, 'artists': ['Mira' if i%2 else 'Nord
 RELEASES = [{'id':'r'+str(i),'title':t['title'],'artists':t['artists'],'year':2026,'track_count_in_library':1} for i,t in enumerate(TRACKS)]
 ARTISTS = [{'id':'a0','name':'Nordlicht','genres':['Elektronisch'],'track_count':3},{'id':'a1','name':'Mira','genres':['Pop'],'track_count':3}]
 USER = {'id':'fixture','username':'fixture_user','display_name':'Design-Vorschau','role':'user'}
+STATE_LOCK = threading.RLock()
+PLAYLISTS = {}
+FAVORITES = set()
+FAILED_COLLECTIONS = set()
+AUDIT_FAILURES = False
+
+
+def reset_state():
+    with STATE_LOCK:
+        PLAYLISTS.clear()
+        PLAYLISTS['p0'] = {'id':'p0','name':'Abends unterwegs','description':'', 'track_ids':[t['id'] for t in TRACKS]}
+        FAVORITES.clear(); FAVORITES.update(['t0','t1'])
+        FAILED_COLLECTIONS.clear()
+
+
+def playlist_detail(item):
+    ids = item['track_ids']
+    tracks = [next(t for t in TRACKS if t['id'] == value) for value in ids]
+    if item.get('smart_rules') is not None:
+        rules = item['smart_rules']
+        tracks = [t for t in TRACKS if not rules.get('favorites') or t['id'] in FAVORITES][:rules.get('limit',50)]
+    return {key:value for key,value in item.items() if key != 'track_ids'} | {'tracks':tracks, 'track_count':len(tracks), 'duration_ms':sum(t['duration_ms'] for t in tracks)}
 
 
 class FixtureServer(ThreadingHTTPServer):
@@ -67,7 +90,9 @@ class Handler(BaseHTTPRequestHandler):
             pass  # Native views can cancel artwork requests while navigating.
     def do_GET(self):
         url=urlparse(self.path); path=url.path; query=parse_qs(url.query)
-        if path.endswith('/auth/status'): return self.response({'authenticated':True,'setup_required':False,'user':USER},cookies=True)
+        if path.endswith('/auth/status'):
+            reset_state()
+            return self.response({'authenticated':True,'setup_required':False,'user':USER},cookies=True)
         if path.endswith('/auth/me'): return self.response(USER)
         if path.endswith('/health'): return self.response({'status':'ok','version':'fixture-only'})
         if path.endswith('/artwork'): return self.response(cover(int(path.split('/')[-2][-1]) if path.split('/')[-2][-1].isdigit() else 0),mime='image/png')
@@ -83,34 +108,81 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
         if path.endswith('/lyrics'): return self.response({'state':'available_plain','content':'Durch die Stadt bei Nacht\nAlles wird so leise\nFenster runter, kalter Wind\nGedanken wieder frei'})
         if path.endswith('/genres'): return self.response(['Elektronisch','Pop'])
-        if path.endswith('/favorites/ids'): return self.response(['t0','t1'])
+        if path.endswith('/favorites/ids'):
+            with STATE_LOCK: return self.response(sorted(FAVORITES))
         if path.endswith('/library/search'): return self.response({'artists':ARTISTS,'releases':RELEASES[:2],'tracks':TRACKS[:2]})
         if path.endswith('/library/releases'): return self.response(RELEASES if int(query.get('offset',['0'])[0])==0 else [])
         if path.endswith('/library/artists'): return self.response(ARTISTS if int(query.get('offset',['0'])[0])==0 else [])
         if path.endswith('/library/tracks'):
+            if AUDIT_FAILURES and query.get('release_id') == ['r5'] and 'r5' not in FAILED_COLLECTIONS:
+                FAILED_COLLECTIONS.add('r5')
+                return self.response({},503)
             tracks = TRACKS
-            if query.get('favorite', ['false'])[0] == 'true': tracks = [t for t in tracks if t['id'] in ['t0', 't1']]
+            if query.get('favorite', ['false'])[0] == 'true': tracks = [t for t in tracks if t['id'] in FAVORITES]
             if 'release_id' in query: tracks = [t for t in tracks if 'r'+t['id'][1:] == query['release_id'][0]]
             if 'artist_id' in query:
                 artist = 'Nordlicht' if query['artist_id'][0] == 'a0' else 'Mira'
                 tracks = [t for t in tracks if artist in t['artists']]
             offset = int(query.get('offset', ['0'])[0]); limit = int(query.get('limit', ['100'])[0])
             return self.response(tracks[offset:offset+limit])
-        if path.endswith('/playlists/p0'): return self.response({'tracks':TRACKS})
-        if path.endswith('/playlists'): return self.response([{'id':'p0','name':'Abends unterwegs','track_count':6,'duration_ms':180000}])
+        if '/playlists/' in path:
+            with STATE_LOCK:
+                item = PLAYLISTS.get(path.split('/playlists/')[1])
+                return self.response(playlist_detail(item) if item else {},200 if item else 404)
+        if path.endswith('/playlists'):
+            with STATE_LOCK: return self.response([playlist_detail(p) for p in PLAYLISTS.values()])
         self.response({},404)
     def do_POST(self):
-        self.rfile.read(int(self.headers.get('Content-Length','0')))
+        body = json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))) or b'{}')
+        if '/playlists' in self.path: return self.mutate_playlist(body)
         if self.path.endswith('/auth/logout'):return self.response({})
         if self.path.endswith('/device'):return self.response({'device_code':'fixture-only-opaque-secret','user_code':'ABCD-EFGH','expires_in':300,'interval':5},201)
         if self.path.endswith('/device/poll'):return self.response({'status':'authorization_pending'})
         self.response({})
+    def do_PATCH(self):
+        return self.mutate_playlist(json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))) or b'{}'))
+    def do_PUT(self):
+        body = json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))) or b'{}')
+        if '/favorites/' in self.path:
+            if self.headers.get('X-CSRF-Token') != 'fixture-csrf': return self.response({},403)
+            with STATE_LOCK: FAVORITES.add(self.path.split('/')[-1])
+            return self.response({})
+        return self.mutate_playlist(body)
+    def do_DELETE(self):
+        if '/favorites/' in self.path:
+            if self.headers.get('X-CSRF-Token') != 'fixture-csrf': return self.response({},403)
+            with STATE_LOCK: FAVORITES.discard(self.path.split('/')[-1])
+            return self.response({})
+        return self.mutate_playlist({})
+    def mutate_playlist(self, body):
+        if self.headers.get('X-CSRF-Token') != 'fixture-csrf': return self.response({},403)
+        if body.get('name') == 'Audit failure': return self.response({},503)
+        with STATE_LOCK:
+            parts = self.path.split('/playlists',1)[1].strip('/').split('/')
+            if parts == ['']:
+                identifier = 'p' + str(len(PLAYLISTS) + 1)
+                item = {'id':identifier,'name':body['name'],'description':body.get('description',''), 'smart_rules':body.get('smart_rules'), 'track_ids':[]}
+                PLAYLISTS[identifier] = item
+                return self.response(playlist_detail(item),201)
+            item = PLAYLISTS.get(parts[0])
+            if item is None: return self.response({},404)
+            if self.command == 'DELETE' and len(parts) == 1:
+                del PLAYLISTS[parts[0]]; return self.response({})
+            if self.command == 'PATCH': item.update(body)
+            if len(parts) > 1 and parts[1] == 'rules': item['smart_rules'] = body.get('smart_rules')
+            if parts[-1] == 'bulk': item['track_ids'] += [i for i in body['track_ids'] if i not in item['track_ids']]
+            if parts[-1] == 'reorder': item['track_ids'] = body['track_ids']
+            if self.command == 'DELETE' and len(parts) == 3 and parts[1] == 'tracks': item['track_ids'].remove(parts[2])
+            return self.response(playlist_detail(item))
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=59583)
     parser.add_argument('--audio-file', help='Optional synthetic audio fixture; never use library media')
+    parser.add_argument('--audit-failures', action='store_true', help='Isolated retry/error UI cases')
     args=parser.parse_args()
+    AUDIT_FAILURES = args.audit_failures
+    reset_state()
     if args.audio_file:
         from pathlib import Path
         path = Path(args.audio_file)

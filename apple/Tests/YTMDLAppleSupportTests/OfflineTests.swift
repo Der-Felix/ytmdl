@@ -1,4 +1,5 @@
 import Foundation
+import MediaPlayer
 import AVFoundation
 import Testing
 import YTMDLCore
@@ -147,6 +148,11 @@ func offlineAuthenticatedTransferCachesSidecarsAndPlayerUsesLocalFile() async th
     store.detach()
     store.selectProfile(try #require(store.profiles.first))
     #expect(store.audioURL(track.id) != nil)
+    player.previewPaused([track], client: client)
+    #expect(player.artwork != nil)
+    #expect(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork)
+    #expect(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyTitle] as? String == track.title)
+    player.stop()
 }
 
 @MainActor @Test func listeningQueueAndPendingEventsRemainAccountScoped() throws {

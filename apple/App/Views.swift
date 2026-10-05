@@ -415,12 +415,9 @@ struct LibraryView: View {
                 }
                 #else
                 Text("Deine Musik").font(.title2.bold())
-                HStack {
-                    NavigationLink(value: Destination.artists) { Label("Künstler", systemImage: "person.2") }
-                    NavigationLink(value: CollectionKind.favorites) { Label("Favoriten", systemImage: "heart.fill") }
-                    #if os(iOS)
-                    NavigationLink(value: Destination.downloads) { Label("Offline", systemImage: "arrow.down.circle") }
-                    #endif
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { collectionShortcuts }.fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 8) { collectionShortcuts }
                 }.buttonStyle(.bordered)
                 genrePicker
                 #endif
@@ -444,6 +441,15 @@ struct LibraryView: View {
                 #endif
         }.navigationTitle("Bibliothek")
         .toolbar { ToolbarItem { Button { Task { await model.loadLibrary() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Bibliothek aktualisieren").disabled(model.connecting) } }
+    }
+    private var collectionShortcuts: some View {
+        Group {
+            NavigationLink(value: Destination.artists) { Label("Künstler", systemImage: "person.2") }
+            NavigationLink(value: CollectionKind.favorites) { Label("Favoriten", systemImage: "heart.fill") }
+            #if os(iOS)
+            NavigationLink(value: Destination.downloads) { Label("Offline", systemImage: "arrow.down.circle") }
+            #endif
+        }.lineLimit(1)
     }
     @ViewBuilder private var genrePicker: some View {
         if !model.genres.isEmpty {
@@ -522,8 +528,9 @@ struct ArtistListView: View {
         do {
             let result: [Artist] = try await client.get("/library/artists", query: [.init(name: "limit", value: "60"), .init(name: "offset", value: String(offset))])
             try Task.checkCancellation()
+            guard model.client === client else { return }
             artists += result; offset += result.count; more = result.count == 60
-        } catch { model.report(error) }
+        } catch { if model.client === client { model.report(error) } }
     }
 }
 
@@ -555,6 +562,7 @@ struct CollectionView: View {
     @State private var adding = false
     @State private var deleting = false
     @State private var failure: String?
+    @State private var loadFailure: String?
     @Environment(\.dismiss) private var dismiss
     private var playlist: Playlist? {
         guard case .playlist(let value) = kind else { return nil }
@@ -614,7 +622,6 @@ struct CollectionView: View {
         .alert("Playlist konnte nicht geändert werden", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
             Button("OK") { failure = nil }
         } message: { Text(failure ?? "") }
-        #if os(macOS)
         .onChange(of: model.favoriteIDs) { old, new in
             guard isFavorites else { return }
             let removed = old.subtracting(new)
@@ -622,7 +629,10 @@ struct CollectionView: View {
             tracks.removeAll { removed.contains($0.id) }
             offset = max(0, offset - count)
         }
-        #endif
+        .refreshable {
+            if playlist != nil { await reloadPlaylist() }
+            else { tracks = []; offset = 0; more = true; await load() }
+        }
     }
     private var standardCollection: some View {
         List {
@@ -644,6 +654,10 @@ struct CollectionView: View {
                     TrackRow(model: model, track: track, playlistEdit: playlistEdit(track, index: index)) { play(tracks, index: index) }
                 }
                 if busy { ProgressView("Titel werden geladen …") }
+                else if let loadFailure {
+                    Text(loadFailure).foregroundStyle(.secondary)
+                    Button("Titel erneut laden") { Task { await load() } }
+                }
                 else if tracks.isEmpty { ContentUnavailableView("Noch keine Titel", systemImage: "music.note") }
                 if more && !tracks.isEmpty { Button("Weitere Titel laden") { Task { await load() } } }
             }
@@ -653,11 +667,11 @@ struct CollectionView: View {
             .frame(maxWidth: 1400).frame(maxWidth: .infinity)
         #endif
     }
+    private var isFavorites: Bool { if case .favorites = kind { true } else { false } }
     #if os(macOS)
     private var isListeningCollection: Bool {
         switch kind { case .favorites, .playlist: true; default: false }
     }
-    private var isFavorites: Bool { if case .favorites = kind { true } else { false } }
     private var availableTracks: [Track] {
         isFavorites ? tracks.filter { model.favoriteIDs.contains($0.id) } : tracks
     }
@@ -698,6 +712,10 @@ struct CollectionView: View {
                         if index < visibleTracks.count - 1 { Divider().padding(.horizontal, 20).opacity(0.35) }
                     }
                     if busy { ProgressView("Titel werden geladen …").padding(28) }
+                    else if let loadFailure {
+                        Text(loadFailure).foregroundStyle(.secondary).padding(24)
+                        Button("Titel erneut laden") { Task { await load() } }.padding(.bottom, 24)
+                    }
                     else if visibleTracks.isEmpty {
                         ContentUnavailableView(collectionQuery.isEmpty ? "Noch keine Titel" : "Keine passenden Titel",
                             systemImage: collectionQuery.isEmpty ? (isFavorites ? "heart" : "music.note.list") : "magnifyingglass",
@@ -789,6 +807,7 @@ struct CollectionView: View {
     private func play(_ tracks: [Track], index: Int = 0) { if let client = model.client { model.player.play(tracks, start: index, client: client) } }
     private func load() async {
         guard let client = model.client, !busy else { return }
+        loadFailure = nil
         busy = true; defer { busy = false }
         do {
             let result: [Track]
@@ -808,7 +827,12 @@ struct CollectionView: View {
             guard model.client === client else { return }
             tracks += result; offset += result.count
             if case .playlist = kind { more = false } else { more = result.count == 100 }
-        } catch { model.report(error); more = false }
+        } catch is CancellationError { }
+        catch {
+            if model.client === client, !Task.isCancelled {
+                loadFailure = "Titel konnten nicht geladen werden. Bitte Verbindung prüfen und erneut versuchen."
+            }
+        }
     }
 }
 

@@ -14,6 +14,7 @@ import YTMDLCore
     var playlists: [Playlist] = []
     var playlistBusy = false
     var favoriteIDs: Set<String> = []
+    private(set) var pendingFavorites: Set<String> = []
     var genres: [String] = []
     var query = ""
     var genre = ""
@@ -67,8 +68,9 @@ import YTMDLCore
         do {
             let status: AuthStatus = try await client.get("/auth/status")
             guard self.generation == generation else { return false }
-            user = status.user
+            user = status.authenticated ? status.user : nil
             if let user { offline.configure(client: client, user: user) }
+            else { offline.detach(); player.stop() }
             listeningHistory.configure(server: client.server, userID: user?.id, persist: persistsSession)
             if status.authenticated { await loadLibrary() }
             return self.generation == generation
@@ -138,17 +140,22 @@ import YTMDLCore
     }
     func search(_ value: String) async throws -> SearchResults? {
         guard let client, value.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else { return nil }
-        return try await client.get("/library/search", query: [.init(name: "q", value: value), .init(name: "limit", value: "25")])
+        let result: SearchResults = try await client.get("/library/search", query: [.init(name: "q", value: value), .init(name: "limit", value: "25")])
+        try Task.checkCancellation()
+        guard self.client === client else { throw CancellationError() }
+        return result
     }
     func toggleFavorite(_ track: Track) async {
-        guard let client else { return }
+        guard !offlineMode, let client, !pendingFavorites.contains(track.id) else { return }
         let wasFavorite = favoriteIDs.contains(track.id)
         let generation = generation
+        pendingFavorites.insert(track.id)
+        defer { if self.generation == generation { pendingFavorites.remove(track.id) } }
         do {
             try await client.mutate("/favorites/\(track.id)", method: wasFavorite ? "DELETE" : "PUT")
             guard self.generation == generation else { return }
             if wasFavorite { favoriteIDs.remove(track.id) } else { favoriteIDs.insert(track.id) }
-        } catch { report(error) }
+        } catch { if self.generation == generation { report(error) } }
     }
     private struct PlaylistInput: Encodable { let name: String; let description: String; let smartRules: SmartPlaylistRules? }
     private struct TrackIDs: Encodable { let trackIds: [String] }
@@ -243,14 +250,23 @@ import YTMDLCore
     }
     func logout() async {
         guard let client else { return }
+        var failure: Error?
         do { if !offlineMode { try await client.mutate("/auth/logout", method: "POST") } }
-        catch { report(error) }
+        catch { failure = error }
+        guard self.client === client else { return }
         offline.detach()
-        do { if !offlineMode { try client.forget() } } catch { report(error) }
+        do { if !offlineMode { try client.forget() } } catch { failure = error }
         offlineMode = false; player.offlineOnly = false
         client.invalidate(); self.client = nil; user = nil; generation = UUID(); clearLibrary(); player.stop()
+        if let failure { report(failure) }
     }
-    private func clearLibrary() { playlistBusy = false; playlistRevision = UUID(); listeningHistory.configure(server: nil, userID: nil, persist: false); query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil }
+    private func clearLibrary() {
+        playlistBusy = false; playlistRevision = UUID(); catalogGeneration = UUID()
+        connecting = false; listeningBusy = false; handoff = nil; error = nil; pendingFavorites = []
+        genres = []; genre = ""; releaseOffset = 0; moreReleases = false
+        listeningHistory.configure(server: nil, userID: nil, persist: false)
+        query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil
+    }
     func openOffline(_ profile: OfflineProfile) {
         do {
             let address = try ServerAddress(profile.origin, allowLocalHTTP: true)
@@ -321,7 +337,7 @@ import YTMDLCore
         guard !listeningBusy else { return }
         if offlineMode, let client { player.play(offline.readyTracks.shuffled(), client: client); return }
         guard let client else { return }
-        listeningBusy = true; defer { listeningBusy = false }
+        listeningBusy = true; defer { if self.client === client { listeningBusy = false } }
         do {
             var query: [URLQueryItem] = [.init(name: "limit", value: "100")]
             if name == "Favoriten" { query.append(.init(name: "favorite", value: "true")) }
@@ -336,7 +352,7 @@ import YTMDLCore
     }
     func startRadio(_ track: Track) async {
         guard !offlineMode, let client, !listeningBusy else { return }
-        listeningBusy = true; defer { listeningBusy = false }
+        listeningBusy = true; defer { if self.client === client { listeningBusy = false } }
         do {
             let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
             guard self.client === client else { return }
