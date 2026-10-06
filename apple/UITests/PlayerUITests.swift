@@ -139,7 +139,11 @@ final class PlayerUITests: XCTestCase {
         let options = app.buttons["playlist-collection-options"]
         XCTAssertTrue(options.waitForExistence(timeout: 10))
         options.tap(); app.buttons["Titel hinzufügen"].tap()
-        XCTAssertTrue(app.buttons["select-playlist-track-t0"].waitForExistence(timeout: 10))
+        guard app.buttons["select-playlist-track-t0"].waitForExistence(timeout: 10) else {
+            attach(app, name: "Playlist picker missing library tracks")
+            XCTFail("The playlist picker must load selectable library tracks.")
+            return
+        }
         app.buttons["select-playlist-track-t0"].tap()
         XCTAssertEqual(app.buttons["playlist-add-selected"].label, "1 hinzufügen")
         app.buttons["select-playlist-track-t1"].tap()
@@ -347,7 +351,24 @@ final class PlayerUITests: XCTestCase {
     }
     #endif
     @MainActor func testAuthenticatedPlayerAndQueue() throws {
+        #if os(iOS)
+        let manualStart = UIDevice.current.userInterfaceIdiom == .phone
+        let app = try app(player: !manualStart, pausedPlayer: manualStart)
+        if manualStart {
+            // Exercise the user's foreground Play action instead of starting
+            // AVPlayer while the cold simulator is still launching the app.
+            let mini = app.buttons["mobile-mini-player-open"]
+            XCTAssertTrue(mini.waitForExistence(timeout: 20))
+            mini.tap()
+            let play = app.buttons["mobile-player-toggle"]
+            XCTAssertTrue(play.waitForExistence(timeout: 10))
+            XCTAssertEqual(play.label, "Abspielen")
+            XCTAssertTrue(play.isHittable)
+            play.tap()
+        }
+        #else
         let app = try app(player: true)
+        #endif
         #if os(tvOS)
         // Navigate with the remote like a user. Initial TV focus may select
         // Library while the asynchronous fixture session is restored.
@@ -372,8 +393,12 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(toggle.isHittable, "Primary playback control must fit the visible screen.")
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.exists)
         let elapsed = app.staticTexts["playbackElapsed"]
-        expectation(for: NSPredicate(format: "label != %@", "0:00"), evaluatedWith: elapsed)
-        waitForExpectations(timeout: 5)
+        let progressed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND label != %@", "0:00"), object: elapsed)
+        guard XCTWaiter.wait(for: [progressed], timeout: 5) == .completed else {
+            attach(app, name: "Playback clock did not advance")
+            XCTFail("The real AVPlayer playback clock must advance within five seconds.")
+            return
+        }
         #if os(tvOS)
         XCUIRemote.shared.press(.playPause)
         #else

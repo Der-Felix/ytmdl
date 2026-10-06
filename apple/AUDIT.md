@@ -189,3 +189,15 @@ Die Loopback-Fixture verwendet jetzt drei Minuten Null-PCM mit passender
 Metadaten-Dauer, um automatische Titelgrenzen während langsamer Accessibility-
 Snapshots zu vermeiden. Die bestehende Fortschrittsprüfung bleibt unverändert;
 das Ergebnis der erneuten abschließenden CI muss separat kontrolliert werden.
+
+Die erneute CI auf `85df6f9` scheiterte ebenfalls auf dem iPhone: Der Player-Zähler
+blieb bei 0:00, und im manuellen Playlist-Test fehlten einmal die auswählbaren
+Titel. Die sechs übrigen Jobs bestanden; dieselben elf iPhone-Abläufe bestanden
+lokal. Die längere Fixture hat den Unterschied damit nicht erklärt. Die stabile
+Freigabe bleibt gesperrt. Für die weitere Eingrenzung startet der iPhone-Test die
+Wiedergabe ausdrücklich über den sichtbaren Play-Button im Vordergrund und
+verlangt weiterhin echten Zeitfortschritt innerhalb von fünf Sekunden. Fehler
+halten ein Fixture-Bild fest; CI exportiert ausschließlich PNG-Fehlerbilder,
+keine rohen Result-Bundles, Logs oder Simulator-Diagnosen. Die Playlist-Prüfung
+bricht nach der fehlgeschlagenen Auswahl ab, statt weitere ungültige Taps zu senden.
+Diese Diagnoseänderung ist noch kein Beleg für eine behobene Produktionsursache.

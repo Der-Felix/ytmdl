@@ -208,4 +208,20 @@ jobs:
             sleep 1
           done
           if [ "$ytmdl_fixture_ready" != true ]; then exit 1; fi
-          xcodebuild -project apple/YTMDL.xcodeproj -scheme "$YTMDL_TEST_SCHEME" -destination "platform=$YTMDL_TEST_PLATFORM,id=$YTMDL_TEST_SIM" -derivedDataPath "$RUNNER_TEMP/apple-ui" CODE_SIGNING_ALLOWED=NO -collect-test-diagnostics never -parallel-testing-enabled NO test
+          xcodebuild -project apple/YTMDL.xcodeproj -scheme "$YTMDL_TEST_SCHEME" -destination "platform=$YTMDL_TEST_PLATFORM,id=$YTMDL_TEST_SIM" -derivedDataPath "$RUNNER_TEMP/apple-ui" -resultBundlePath "$RUNNER_TEMP/apple-ui-results.xcresult" CODE_SIGNING_ALLOWED=NO -collect-test-diagnostics never -parallel-testing-enabled NO test
+      - name: Export failed fixture screenshots
+        if: failure()
+        run: |
+          if [ -d "$RUNNER_TEMP/apple-ui-results.xcresult" ]; then
+            xcrun xcresulttool export attachments --only-failures --path "$RUNNER_TEMP/apple-ui-results.xcresult" --output-path "$RUNNER_TEMP/apple-ui-failure-images"
+          fi
+      - name: Preserve fixture screenshots for diagnosis
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: apple-ui-failure-${{ matrix.device }}
+          # Only PNGs from loopback fixture tests: no raw result bundles,
+          # simulator diagnostics, attachment manifests or logs.
+          path: ${{ runner.temp }}/apple-ui-failure-images/*.png
+          if-no-files-found: ignore
+          retention-days: 7
