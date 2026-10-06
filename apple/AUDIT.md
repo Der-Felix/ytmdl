@@ -101,3 +101,22 @@ zurückgesetzt; persönliche Port-/Signing-Angaben gehören nicht ins Repository
 Apple-Referenzen: [Now Playing](https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter),
 [Artwork](https://developer.apple.com/documentation/mediaplayer/mpmediaitemartwork),
 [Hintergrunddownloads](https://developer.apple.com/documentation/foundation/downloading-files-in-the-background).
+
+## Ergänzung: mobile Oberfläche, Build 28 (6. Oktober 2026)
+
+Start, Bibliothek und Playlists wurden visuell überarbeitet: eine große Hauptaktion,
+neutrale Navigationsflächen, einheitliche Abstände, eigene Genre-Zeile und
+Playlist-Collagen mit lesbaren Stunden-/Minutenangaben. Filtern und Sortieren sind
+auf dem iPhone direkt erreichbar. Cover-Vorschauen werden zwischen Start und
+Playlists geteilt, auf zwölf Sammlungen je Revision begrenzt und bei Kontowechsel
+gelöscht. Ein fehlendes Vorschaubild blockiert keine Playlist.
+
+25 stille Swift-Tests (inklusive Grenzen, Wiederverwendung und Kontentrennung der
+Vorschauen), sieben iPhone-UI-Abläufe und zwei iPad-UI-Abläufe bestanden.
+Die abschließende Layoutprüfung erzeugt Screenshots von Start, Bibliothek und
+Playlists und prüft Filter, Rücknavigation und mindestens 44 Punkt hohe Buttons.
+Signierter iOS-Debug-Build, macOS Debug und tvOS-Simulator Debug wurden gebaut.
+Keine Testtöne und keine Produktionsdaten als Test-Fixtures.
+
+Die offenen Hardwareprüfungen oben gelten weiter. Dieser Layoutwechsel bestätigt
+keine zusätzlichen Audiofunktionen und ist kein neuer stabiler Server-Release.

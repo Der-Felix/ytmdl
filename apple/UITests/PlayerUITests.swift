@@ -27,6 +27,42 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "Native library")
     }
     #if os(iOS)
+    @MainActor func testMobileCollectionDesignAndPlaylistFilterWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact design requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].waitForExistence(timeout: 20))
+        let mix = app.buttons["Favoriten-Mix"].firstMatch
+        XCTAssertTrue(mix.isHittable)
+        XCTAssertGreaterThanOrEqual(mix.frame.height, 44)
+        XCTAssertTrue(app.buttons["Offline"].firstMatch.isHittable)
+        attach(app, name: "Build 28 Start")
+        app.tabBars.buttons["Bibliothek"].tap()
+        for title in ["Favoriten", "Künstler", "Offline"] {
+            let button = app.buttons[title].firstMatch
+            XCTAssertTrue(button.isHittable)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+        }
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.exists)
+        attach(app, name: "Build 28 Library")
+        app.tabBars.buttons["Playlists"].tap()
+        let create = app.buttons["Neue Playlist"].firstMatch
+        XCTAssertTrue(create.isHittable)
+        XCTAssertGreaterThanOrEqual(create.frame.height, 44)
+        XCTAssertTrue(app.staticTexts["Abends unterwegs"].firstMatch.waitForExistence(timeout: 10))
+        attach(app, name: "Build 28 Playlists")
+        let filter = app.textFields["mobile-playlist-filter"]
+        XCTAssertTrue(filter.isHittable)
+        filter.tap(); filter.typeText("Missing")
+        XCTAssertTrue(app.staticTexts["Keine passende Playlist"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["Playlist-Filter leeren"].tap()
+        XCTAssertTrue(app.staticTexts["Abends unterwegs"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["Playlists sortieren und aktualisieren"].tap()
+        XCTAssertTrue(app.buttons["Aktualisieren"].firstMatch.waitForExistence(timeout: 5))
+        app.tap()
+        if app.keyboards.firstMatch.exists { app.swipeUp() }
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
     @MainActor func testMobileFavoritesRemovalAndSearchNavigationWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact flow requires iPhone.")
         let app = try app()

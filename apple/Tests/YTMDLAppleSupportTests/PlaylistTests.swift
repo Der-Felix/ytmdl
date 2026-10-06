@@ -14,6 +14,7 @@ private final class PlaylistFixtureState: @unchecked Sendable {
     var bulkCount = 0
     var delayCreate = false
     func snapshot() -> [(String, String, [String: Any])] { lock.lock(); defer { lock.unlock() }; return requests }
+    func setPreviewTracks() { lock.lock(); defer { lock.unlock() }; ids = ["t0", "t1", "t2"] }
     func configureFailure(rules: Bool = false, bulk: Int = 0, delay: Bool = false) {
         lock.lock(); defer { lock.unlock() }; failRules = rules; failBulkAt = bulk; bulkCount = 0; delayCreate = delay
     }
@@ -132,6 +133,28 @@ private final class PlaylistProtocol: URLProtocol, @unchecked Sendable {
     do { _ = try await pending.value; Issue.record("Old session mutation must be discarded") }
     catch { #expect(error is CancellationError || (error as? URLError)?.code == .cancelled) }
     #expect(model.playlists.isEmpty && !model.playlistBusy)
+    model.client?.invalidate()
+}
+
+@MainActor @Test func playlistCoverPreviewsAreBoundedSharedAndClearedAfterAccountChanges() async throws {
+    PlaylistProtocol.state.reset(); PlaylistProtocol.state.setPreviewTracks()
+    let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [PlaylistProtocol.self]
+    let client = try APIClient(server: ServerAddress("https://playlists.fixture.example"), persist: false, configuration: configuration)
+    defer { client.invalidate() }
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let model = AppModel(offlineLibrary: OfflineLibrary(root: folder, startTransfers: false)); model.client = client
+    let candidates = (0..<20).map { Playlist(id: "p\($0)", name: "Fixture", trackCount: 3, durationMs: 3000) }
+    await model.loadPlaylistPreviews(candidates)
+    #expect(model.playlistPreviews.count == 12)
+    #expect(model.playlistPreviews.values.allSatisfy { $0.count == 1 }, "Same-album tracks use one cover.")
+    let count = PlaylistProtocol.state.snapshot().count
+    await model.loadPlaylistPreviews(candidates)
+    #expect(PlaylistProtocol.state.snapshot().count == count, "Start and Playlists reuse the same previews.")
+    model.rememberPlaylist(candidates[0]); await model.loadPlaylistPreviews([candidates[0]])
+    #expect(model.playlistPreviews.count == 1)
+    try model.connect("https://replacement.fixture.example", localHTTP: false, persist: false)
+    #expect(model.playlistPreviews.isEmpty)
     model.client?.invalidate()
 }
 

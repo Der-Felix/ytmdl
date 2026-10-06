@@ -69,7 +69,8 @@ struct RootView: View {
                             NavigationStack {
                                 routedContent(item).toolbar {
                                     ToolbarItem(placement: .topBarTrailing) {
-                                        Button("Player", systemImage: "play.circle") { expandedPlayer = true }
+                                        Button { expandedPlayer = true } label: { Image(systemName: "play.circle").font(.system(size: 21, weight: .medium)).frame(width: 44, height: 44) }
+                                            .buttonStyle(.plain).foregroundStyle(.primary).accessibilityLabel("Player")
                                             .accessibilityIdentifier("open-mobile-player")
                                     }
                                 }
@@ -380,6 +381,7 @@ struct ArtworkView: View {
     var model: AppModel
     var kind: String
     var id: String
+    var cornerRadius: CGFloat = 12
     var body: some View {
         Group {
             if kind == "tracks", model.player.current?.id == id, let image = model.player.artwork {
@@ -390,7 +392,7 @@ struct ArtworkView: View {
                 AsyncImage(request: request) { image in image.resizable().scaledToFill() } placeholder: { placeholder }
                     .asyncImageURLSession(client.session)
             } else { placeholder }
-        }.aspectRatio(1, contentMode: .fit).clipped().clipShape(RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)
+        }.aspectRatio(1, contentMode: .fit).clipped().clipShape(RoundedRectangle(cornerRadius: cornerRadius)).accessibilityHidden(true)
     }
     private var placeholder: some View {
         RoundedRectangle(cornerRadius: 12).fill(.quaternary)
@@ -412,6 +414,20 @@ struct LibraryView: View {
                     }
                     Spacer()
                     genrePicker.frame(maxWidth: 200)
+                }
+                #elseif os(iOS)
+                MobileLibraryShortcuts()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Deine Alben").font(.title2.bold())
+                    Text("Musik aus deiner Bibliothek").font(.subheadline).foregroundStyle(.secondary)
+                }
+                if !model.genres.isEmpty {
+                    HStack {
+                        Label("Genre", systemImage: "line.3.horizontal.decrease").font(.subheadline.weight(.medium))
+                        Spacer()
+                        genrePicker.labelsHidden().tint(.primary)
+                    }.padding(.horizontal, 16).frame(minHeight: 52)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
                 }
                 #else
                 Text("Deine Musik").font(.title2.bold())
@@ -440,7 +456,12 @@ struct LibraryView: View {
                 .frame(maxWidth: 1600).frame(maxWidth: .infinity)
                 #endif
         }.navigationTitle("Bibliothek")
+        #if os(iOS)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .refreshable { await model.loadLibrary() }
+        #else
         .toolbar { ToolbarItem { Button { Task { await model.loadLibrary() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Bibliothek aktualisieren").disabled(model.connecting) } }
+        #endif
     }
     private var collectionShortcuts: some View {
         Group {
@@ -1073,7 +1094,6 @@ struct SearchView: View {
 struct PlaylistListView: View {
     var model: AppModel
     @State private var creating = false
-    #if os(macOS)
     @State private var playlistQuery = ""
     @State private var alphabetical = false
     private var visiblePlaylists: [Playlist] {
@@ -1081,11 +1101,12 @@ struct PlaylistListView: View {
         let result = model.playlists.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
         return alphabetical ? result.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } : result
     }
-    #endif
     var body: some View {
         Group {
             #if os(macOS)
             desktopPlaylists
+            #elseif os(iOS)
+            mobilePlaylists
             #else
             List {
                 if model.playlists.isEmpty { emptyPlaylists }
@@ -1097,12 +1118,66 @@ struct PlaylistListView: View {
             }
             #endif
         }.navigationTitle("Playlists")
+            #if !os(iOS)
             .toolbar {
                 ToolbarItem { Button("Neue Playlist", systemImage: "plus") { creating = true }.disabled(model.playlistBusy) }
                 ToolbarItem { Button("Aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }.disabled(model.connecting || model.playlistBusy) }
             }
+            #endif
             .sheet(isPresented: $creating) { PlaylistEditor(model: model) }
     }
+    #if os(iOS)
+    private var mobilePlaylists: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Deine Musik für jeden Moment.").font(.subheadline).foregroundStyle(.secondary)
+                Button { creating = true } label: { Label("Neue Playlist", systemImage: "plus") }
+                    .buttonStyle(MobileActionStyle(prominent: true)).disabled(model.playlistBusy)
+                HStack(spacing: 12) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        TextField("Playlists filtern", text: $playlistQuery).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityIdentifier("mobile-playlist-filter")
+                        if !playlistQuery.isEmpty {
+                            Button { playlistQuery = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44) }
+                                .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Playlist-Filter leeren")
+                        }
+                    }.padding(.leading, 14).padding(.trailing, playlistQuery.isEmpty ? 14 : 0).frame(minHeight: 52)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                    Menu {
+                        Picker("Sortierung", selection: $alphabetical) {
+                            Text("Reihenfolge der Sammlung").tag(false)
+                            Text("Name A–Z").tag(true)
+                        }
+                        Button("Aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
+                            .disabled(model.connecting || model.playlistBusy)
+                    } label: { Image(systemName: "arrow.up.arrow.down").frame(width: 52, height: 52) }
+                        .buttonStyle(.plain).foregroundStyle(.primary)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                        .accessibilityLabel("Playlists sortieren und aktualisieren")
+                }
+                Text("\(visiblePlaylists.count) \(visiblePlaylists.count == 1 ? "Playlist" : "Playlists")")
+                    .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                if model.playlists.isEmpty { emptyPlaylists }
+                else if visiblePlaylists.isEmpty {
+                    ContentUnavailableView("Keine passende Playlist", systemImage: "magnifyingglass", description: Text("Versuche einen anderen Namen."))
+                } else {
+                    LazyVStack(spacing: 0) {
+                        ForEach(visiblePlaylists) { playlist in
+                            NavigationLink(value: CollectionKind.playlist(playlist)) { MobilePlaylistRow(model: model, playlist: playlist) }
+                                .buttonStyle(.plain)
+                            if playlist.id != visiblePlaylists.last?.id { Divider().padding(.leading, 104) }
+                        }
+                    }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                }
+            }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 32)
+                .frame(maxWidth: 760).frame(maxWidth: .infinity)
+        }.background(Color(uiColor: .systemGroupedBackground))
+            .scrollDismissesKeyboard(.interactively)
+            .refreshable { await model.loadLibrary() }
+            .task(id: model.playlistRevision) { await model.loadPlaylistPreviews(model.playlists) }
+    }
+    #endif
     private var emptyPlaylists: some View {
         ContentUnavailableView("Noch keine Playlists", systemImage: "music.note.list", description: Text("Erstelle deine erste Playlist direkt hier – mit eigenen Titeln oder intelligenten Regeln."))
     }

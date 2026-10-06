@@ -12,6 +12,9 @@ import YTMDLCore
     var artists: [Artist] = []
     var tracks: [Track] = []
     var playlists: [Playlist] = []
+    private(set) var playlistPreviews: [String: [Track]] = [:]
+    @ObservationIgnored private var previewRequests: Set<String> = []
+    @ObservationIgnored private var previewRevision: UUID?
     var playlistBusy = false
     var favoriteIDs: Set<String> = []
     private(set) var pendingFavorites: Set<String> = []
@@ -46,7 +49,7 @@ import YTMDLCore
     }
     private var generation = UUID()
     private var catalogGeneration = UUID()
-    private var playlistRevision = UUID()
+    private(set) var playlistRevision = UUID()
     private var syncingHistory = false
 
     func connect(_ text: String, localHTTP: Bool, persist: Bool = true) throws {
@@ -107,7 +110,9 @@ import YTMDLCore
             let (releases, artists, playlists, favorites, genres) = try await (releasePage, artistPage, playlistPage, favoritePage, genrePage)
             guard self.generation == generation, self.catalogGeneration == catalogGeneration else { return }
             self.releases = releases; self.artists = artists
-            if self.playlistRevision == playlistRevision { self.playlists = playlists }
+            if self.playlistRevision == playlistRevision {
+                self.playlists = playlists; self.playlistRevision = UUID()
+            }
             favoriteIDs = Set(favorites); releaseOffset = releases.count; moreReleases = releases.count == 60
             self.genres = genres; connecting = false
             if offline.syncFavorites { await downloadCollection(.favorites, automatic: false) }
@@ -261,11 +266,44 @@ import YTMDLCore
         if let failure { report(failure) }
     }
     private func clearLibrary() {
+        playlistPreviews = [:]; previewRequests = []; previewRevision = nil
         playlistBusy = false; playlistRevision = UUID(); catalogGeneration = UUID()
         connecting = false; listeningBusy = false; handoff = nil; error = nil; pendingFavorites = []
         genres = []; genre = ""; releaseOffset = 0; moreReleases = false
         listeningHistory.configure(server: nil, userID: nil, persist: false)
         query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil
+    }
+    // Cover previews are shared by Start and Playlists. Fetch at most twelve
+    // collections per revision, serially, and retain only four distinct covers.
+    func loadPlaylistPreviews(_ candidates: [Playlist]) async {
+        guard !offlineMode, let client else { return }
+        let revision = playlistRevision
+        if previewRevision != revision {
+            playlistPreviews = [:]; previewRequests = []; previewRevision = revision
+        }
+        for playlist in candidates.prefix(12) {
+            guard !Task.isCancelled, self.client === client, playlistRevision == revision else { return }
+            guard playlist.trackCount > 0, playlistPreviews[playlist.id] == nil,
+                  !previewRequests.contains(playlist.id), playlistPreviews.count + previewRequests.count < 12 else { continue }
+            previewRequests.insert(playlist.id)
+            defer { if self.client === client, playlistRevision == revision { previewRequests.remove(playlist.id) } }
+            do {
+                let detail: PlaylistDetail = try await client.get(try client.playlistPath(playlist.id))
+                guard !Task.isCancelled, self.client === client, playlistRevision == revision else { return }
+                var seen = Set<String>()
+                var preview: [Track] = []
+                for track in detail.tracks {
+                    if seen.insert(track.album.isEmpty ? track.id : track.artistText + "\n" + track.album).inserted {
+                        preview.append(track)
+                        if preview.count == 4 { break }
+                    }
+                }
+                playlistPreviews[playlist.id] = preview
+            } catch {
+                guard !Task.isCancelled, self.client === client, playlistRevision == revision else { return }
+                playlistPreviews[playlist.id] = []
+            }
+        }
     }
     func openOffline(_ profile: OfflineProfile) {
         do {

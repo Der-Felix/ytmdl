@@ -32,21 +32,78 @@ struct MobileMiniPlayer: View {
 struct MobileCollectionArtwork: View {
     var model: AppModel
     var tracks: [Track]
+    var size: CGFloat = 180
     private var preview: [Track] {
         var seen = Set<String>()
         return Array(tracks.filter { seen.insert($0.album.isEmpty ? $0.id : $0.artistText + "\n" + $0.album).inserted }.prefix(4))
     }
     var body: some View {
         Group {
-            if preview.isEmpty { Image(systemName: "music.note.list").font(.system(size: 64)).foregroundStyle(.tint).frame(width: 180, height: 180).background(.tint.opacity(0.1)) }
-            else if preview.count == 1 { ArtworkView(model: model, kind: "tracks", id: preview[0].id).frame(width: 180, height: 180) }
+            if preview.isEmpty { Image(systemName: "music.note.list").font(.system(size: size * 0.35)).foregroundStyle(.tint).frame(width: size, height: size).background(.tint.opacity(0.1)) }
+            else if preview.count == 1 { ArtworkView(model: model, kind: "tracks", id: preview[0].id).frame(width: size, height: size) }
             else {
-                LazyVGrid(columns: [GridItem(.fixed(90), spacing: 0), GridItem(.fixed(90), spacing: 0)], spacing: 0) {
-                    ForEach(0..<4, id: \.self) { index in ArtworkView(model: model, kind: "tracks", id: preview[index % preview.count].id).frame(width: 90, height: 90) }
-                }.frame(width: 180, height: 180)
+                LazyVGrid(columns: [GridItem(.fixed(size / 2), spacing: 0), GridItem(.fixed(size / 2), spacing: 0)], spacing: 0) {
+                    ForEach(0..<4, id: \.self) { index in ArtworkView(model: model, kind: "tracks", id: preview[index % preview.count].id, cornerRadius: 0).frame(width: size / 2, height: size / 2) }
+                }.frame(width: size, height: size)
             }
-        }.clipShape(RoundedRectangle(cornerRadius: 20)).accessibilityLabel("Cover der Sammlung")
+        }.clipShape(RoundedRectangle(cornerRadius: size > 100 ? 20 : 12)).accessibilityLabel("Cover der Sammlung")
     }
+}
+
+// Consistent touch surfaces: accent is reserved for the main action and icons.
+struct MobileActionStyle: ButtonStyle {
+    var prominent = false
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.headline).frame(maxWidth: .infinity, minHeight: 52)
+            .foregroundStyle(prominent ? Color.white : Color.primary)
+            .background {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(prominent ? AnyShapeStyle(.tint) : AnyShapeStyle(Color(uiColor: .secondarySystemGroupedBackground)))
+            }
+            .opacity(!enabled ? 0.45 : configuration.isPressed ? 0.75 : 1)
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+struct MobileLibraryShortcuts: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            NavigationLink(value: CollectionKind.favorites) { tile("Favoriten", symbol: "heart.fill") }.accessibilityLabel("Favoriten")
+            NavigationLink(value: Destination.artists) { tile("Künstler", symbol: "person.2.fill") }.accessibilityLabel("Künstler")
+            NavigationLink(value: Destination.downloads) { tile("Offline", symbol: "arrow.down.circle.fill") }.accessibilityLabel("Offline")
+        }.buttonStyle(.plain)
+    }
+    private func tile(_ title: String, symbol: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 23, weight: .medium)).foregroundStyle(.tint)
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
+        }.padding(.horizontal, 4).padding(.vertical, 16).frame(maxWidth: .infinity, minHeight: 86)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+struct MobilePlaylistRow: View {
+    var model: AppModel
+    var playlist: Playlist
+    var body: some View {
+        HStack(spacing: 16) {
+            MobileCollectionArtwork(model: model, tracks: model.playlistPreviews[playlist.id] ?? [], size: 72)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(playlist.name).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                Text("\(playlist.trackCount) Titel · \(mobileCollectionDuration(playlist.durationMs))")
+                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                if playlist.smartRules != nil { Label("Intelligent", systemImage: "sparkles").font(.caption).foregroundStyle(.secondary) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+        }.padding(16).contentShape(Rectangle())
+    }
+}
+
+func mobileCollectionDuration(_ milliseconds: Int) -> String {
+    let minutes = max(0, milliseconds / 60_000)
+    return minutes >= 60 ? "\(minutes / 60) Std. \(minutes % 60) Min." : "\(minutes) Min."
 }
 
 struct MobileHomeView: View {
@@ -54,72 +111,104 @@ struct MobileHomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Hallo, \(model.user?.displayName ?? "")").font(.subheadline).foregroundStyle(.secondary)
-                    Text("Deine Musik.\nDein Moment.").font(.largeTitle.bold())
-                    HStack {
-                        Button("Favoriten-Mix", systemImage: "heart.fill") { Task { await model.playMix("Favoriten") } }.buttonStyle(.borderedProminent)
-                        NavigationLink(value: Destination.downloads) { Label("Offline", systemImage: "arrow.down.circle") }.buttonStyle(.bordered)
-                    }.disabled(model.listeningBusy)
-                }.padding(24).frame(maxWidth: .infinity, alignment: .leading).background(.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 24))
+                hero
+                MobileLibraryShortcuts()
                 if model.listeningHistory.snapshot != nil {
-                    Button("Letzte Wiedergabe fortsetzen", systemImage: "play.circle.fill") { model.resumeLastSession() }.buttonStyle(.bordered)
+                    Button { model.resumeLastSession() } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Weiterhören").font(.headline).foregroundStyle(.primary)
+                                Text("Letzte Wiedergabe fortsetzen").font(.subheadline).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                        }.padding(16).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                    }.buttonStyle(.plain).accessibilityLabel("Letzte Wiedergabe fortsetzen")
                 }
-                HStack {
-                    NavigationLink(value: CollectionKind.favorites) { Label("Lieblingstitel", systemImage: "heart") }
-                    Spacer()
-                    NavigationLink(value: Destination.artists) { Label("Künstler", systemImage: "person.2") }
-                }.buttonStyle(.bordered)
                 if !model.listeningHistory.tracks.isEmpty {
-                    Text("Zuletzt gehört").font(.title2.bold())
-                    ForEach(Array(model.listeningHistory.tracks.prefix(6))) { track in
-                        TrackRow(model: model, track: track) { if let client = model.client { model.player.play(model.listeningHistory.tracks, start: model.listeningHistory.tracks.firstIndex(of: track) ?? 0, client: client) } }
+                    VStack(alignment: .leading, spacing: 12) {
+                        heading("Zuletzt gehört", subtitle: "Schnell zurück zu deiner Musik")
+                        VStack(spacing: 0) {
+                            ForEach(Array(model.listeningHistory.tracks.prefix(4))) { track in
+                                TrackRow(model: model, track: track) { if let client = model.client { model.player.play(model.listeningHistory.tracks, start: model.listeningHistory.tracks.firstIndex(of: track) ?? 0, client: client) } }
+                                    .padding(.horizontal, 12).padding(.vertical, 6)
+                            }
+                        }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
                     }
                 }
-                Text("Für deinen Moment").font(.title2.bold())
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                    mix("Favoriten", subtitle: "Deine Lieblingstitel", symbol: "heart.fill")
-                    mix("Neu", subtitle: "Frisch in der Bibliothek", symbol: "sparkles")
-                    ForEach(Array(model.genres.filter { $0 != "__none__" }.prefix(6)), id: \.self) { genre in mix(genre, subtitle: "Genre-Mix", symbol: "waveform", genre: genre) }
-                }
-                Text("Neu in deiner Bibliothek").font(.title2.bold())
-                ScrollView(.horizontal) {
-                    LazyHStack(alignment: .top, spacing: 16) {
-                        ForEach(Array(model.releases.prefix(16))) { release in
-                            NavigationLink(value: CollectionKind.release(release)) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ArtworkView(model: model, kind: "releases", id: release.id).frame(width: 160, height: 160)
-                                    Text(release.title).font(.headline).lineLimit(2)
-                                    Text(release.artists.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                }.frame(width: 160, alignment: .leading)
-                            }.buttonStyle(.plain)
-                        }
+                if !model.releases.isEmpty { albumShelf }
+                VStack(alignment: .leading, spacing: 14) {
+                    heading("Für deinen Moment", subtitle: "Ein Mix aus deiner Bibliothek")
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        mix("Favoriten", subtitle: "Deine Lieblingstitel", symbol: "heart.fill")
+                        mix("Neu", subtitle: "Frisch hinzugefügt", symbol: "sparkles")
+                        ForEach(Array(model.genres.filter { $0 != "__none__" }.prefix(4)), id: \.self) { genre in mix(genre, subtitle: "Genre-Mix", symbol: "waveform", genre: genre) }
                     }
-                }.scrollIndicators(.hidden)
+                }
                 if !model.playlists.isEmpty {
-                    Text("Deine Playlists").font(.title2.bold())
-                    ForEach(Array(model.playlists.prefix(6))) { playlist in
-                        NavigationLink(value: CollectionKind.playlist(playlist)) {
-                            HStack(spacing: 14) {
-                                Image(systemName: playlist.smartRules == nil ? "music.note.list" : "sparkles").font(.title2).frame(width: 48, height: 48).background(.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-                                VStack(alignment: .leading) { Text(playlist.name).font(.headline); Text("\(playlist.trackCount) Titel").font(.caption).foregroundStyle(.secondary) }
-                                Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                            }.padding(12).background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 16))
+                    VStack(alignment: .leading, spacing: 14) {
+                        heading("Deine Playlists", subtitle: "Deine Musik, zusammengestellt von dir")
+                        VStack(spacing: 0) {
+                            ForEach(Array(model.playlists.prefix(3))) { playlist in
+                                NavigationLink(value: CollectionKind.playlist(playlist)) { MobilePlaylistRow(model: model, playlist: playlist) }.buttonStyle(.plain)
+                                if playlist.id != model.playlists.prefix(3).last?.id { Divider().padding(.leading, 104) }
+                            }
+                        }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+                    }
+                }
+            }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 32)
+                .frame(maxWidth: 1000).frame(maxWidth: .infinity)
+        }.background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("Start").refreshable { await model.loadLibrary() }
+            .task(id: model.playlistRevision) { await model.loadPlaylistPreviews(Array(model.playlists.prefix(3))) }
+    }
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Hallo, \(model.user?.displayName ?? "")").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Deine Musik.\nDein Moment.").font(.title.bold()).fixedSize(horizontal: false, vertical: true)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                if let release = model.releases.first {
+                    ArtworkView(model: model, kind: "releases", id: release.id).frame(width: 80, height: 80).rotationEffect(.degrees(5)).accessibilityHidden(true)
+                }
+            }
+            Button { Task { await model.playMix("Favoriten") } } label: { Label("Favoriten-Mix", systemImage: "play.fill") }
+                .buttonStyle(MobileActionStyle(prominent: true)).disabled(model.listeningBusy)
+        }.padding(20).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
+    }
+    private var albumShelf: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            heading("Neu in deiner Bibliothek", subtitle: "Deine zuletzt hinzugefügten Alben")
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 16) {
+                    ForEach(Array(model.releases.prefix(12))) { release in
+                        NavigationLink(value: CollectionKind.release(release)) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ArtworkView(model: model, kind: "releases", id: release.id).frame(width: 148, height: 148)
+                                Text(release.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
+                                Text(release.artists.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }.frame(width: 148, alignment: .leading)
                         }.buttonStyle(.plain)
                     }
                 }
-                NavigationLink(value: Destination.settings) { Label("Klang, Downloads & Einstellungen", systemImage: "slider.horizontal.3") }
-            }.padding(20).frame(maxWidth: 1000).frame(maxWidth: .infinity)
-        }.navigationTitle("Start").refreshable { await model.loadLibrary() }
+            }.scrollIndicators(.hidden)
+        }
+    }
+    private func heading(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.title2.bold())
+            Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+        }
     }
     private func mix(_ name: String, subtitle: String, symbol: String, genre: String = "") -> some View {
         Button { Task { await model.playMix(name, genre: genre) } } label: {
-            VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: symbol).font(.title2)
-                Text(name).font(.headline).lineLimit(1)
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: symbol).font(.title2).foregroundStyle(.tint)
+                Text(name).font(.headline).foregroundStyle(.primary).lineLimit(2)
                 Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            }.padding(18).frame(maxWidth: .infinity, minHeight: 130, alignment: .leading)
-                .background(.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+            }.padding(16).frame(maxWidth: .infinity, minHeight: 124, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
         }.buttonStyle(.plain).disabled(model.listeningBusy)
     }
 }

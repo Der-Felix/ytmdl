@@ -1,9 +1,31 @@
-# Apple app handoff — preview 0.2.0, build 27
+# Apple app handoff — preview 0.2.0, build 28
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
 Do not promote it to a stable server release just because it builds locally.
 The server release and native preview have independent version numbers.
+
+## Build 28: calmer mobile collections
+
+Start, Library and Playlists use consistent neutral surfaces, a single full-width
+primary action and large labeled collection shortcuts. Native tab navigation and
+the anchored player remain available. Refresh uses pull-to-refresh; Playlist
+sorting/refresh live in one labeled options menu instead of several toolbar icons.
+Playlists have an inline filter, cover previews and readable hour/minute durations.
+
+`MobileActionStyle`, `MobileLibraryShortcuts` and `MobilePlaylistRow` live in
+`App/MobileListeningViews.swift`; the mobile playlist overview is in `App/Views.swift`.
+`AppModel.loadPlaylistPreviews` shares at most twelve previews per playlist revision,
+loads each batch serially, retains up to four distinct covers and clears on account changes.
+An unavailable preview uses a placeholder; it must never prevent opening/editing a
+playlist. The existing API response-size limit still applies.
+
+Review Start, Library and Playlists on the phone, filter a playlist, clear the
+filter, open it, create/edit a playlist and return through the tab bar. No playback
+is triggered by navigation, artwork previews, filters or refreshing.
+
+Design reference: [Apple buttons](https://developer.apple.com/design/human-interface-guidelines/buttons)
+(minimum 44-point hit regions and consistent control sizing).
 
 ## Code map
 
