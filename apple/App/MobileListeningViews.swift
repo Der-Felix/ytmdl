@@ -16,13 +16,15 @@ struct MobileMiniPlayer: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1)
                             Text(model.player.loading ? "Wird geladen …" : track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        // The system bottom accessory has a compact height;
+                        // expanded playback exposes fully scaled metadata.
+                        }.dynamicTypeSize(...DynamicTypeSize.xxxLarge).frame(maxWidth: .infinity, alignment: .leading)
                     }.contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel("Player öffnen: \(track.title)").accessibilityIdentifier("mobile-mini-player-open")
+                }.buttonStyle(.plain).accessibilityLabel("Player öffnen: \(track.title), \(track.artistText)").accessibilityIdentifier("mobile-mini-player-open")
                 Button { model.player.toggle() } label: {
-                    Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").frame(width: 44, height: 44)
+                    Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen")
-                Button { model.player.next() } label: { Image(systemName: "forward.end.fill").frame(width: 44, height: 44) }
+                Button { model.player.next() } label: { Image(systemName: "forward.end.fill").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .buttonStyle(.plain).accessibilityLabel("Nächster Titel")
             }.padding(.horizontal, 12).padding(.vertical, 6)
         }
@@ -55,7 +57,8 @@ struct MobileActionStyle: ButtonStyle {
     var prominent = false
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.headline).frame(maxWidth: .infinity, minHeight: 52)
+        configuration.label.font(.headline).fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 14).padding(.vertical, 12).frame(maxWidth: .infinity, minHeight: 52)
             .foregroundStyle(prominent ? Color.white : Color.primary)
             .background {
                 RoundedRectangle(cornerRadius: 16)
@@ -67,8 +70,10 @@ struct MobileActionStyle: ButtonStyle {
 }
 
 struct MobileLibraryShortcuts: View {
+    @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(alignment: .top, spacing: 10))
+        layout {
             NavigationLink(value: CollectionKind.favorites) { tile("Favoriten", symbol: "heart.fill") }.accessibilityLabel("Favoriten")
             NavigationLink(value: Destination.artists) { tile("Künstler", symbol: "person.2.fill") }.accessibilityLabel("Künstler")
             NavigationLink(value: Destination.downloads) { tile("Offline", symbol: "arrow.down.circle.fill") }.accessibilityLabel("Offline")
@@ -108,6 +113,7 @@ func mobileCollectionDuration(_ milliseconds: Int) -> String {
 
 struct MobileHomeView: View {
     var model: AppModel
+    @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
@@ -139,7 +145,7 @@ struct MobileHomeView: View {
                 if !model.releases.isEmpty { albumShelf }
                 VStack(alignment: .leading, spacing: 14) {
                     heading("Für deinen Moment", subtitle: "Ein Mix aus deiner Bibliothek")
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: textSize.isAccessibilitySize ? 1 : 2), spacing: 12) {
                         mix("Favoriten", subtitle: "Deine Lieblingstitel", symbol: "heart.fill")
                         mix("Neu", subtitle: "Frisch hinzugefügt", symbol: "sparkles")
                         ForEach(Array(model.genres.filter { $0 != "__none__" }.prefix(4)), id: \.self) { genre in mix(genre, subtitle: "Genre-Mix", symbol: "waveform", genre: genre) }
@@ -169,7 +175,7 @@ struct MobileHomeView: View {
                     Text("Hallo, \(model.user?.displayName ?? "")").font(.subheadline).foregroundStyle(.secondary)
                     Text("Deine Musik.\nDein Moment.").font(.title.bold()).fixedSize(horizontal: false, vertical: true)
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                if let release = model.releases.first {
+                if !textSize.isAccessibilitySize, let release = model.releases.first {
                     ArtworkView(model: model, kind: "releases", id: release.id).frame(width: 80, height: 80).rotationEffect(.degrees(5)).accessibilityHidden(true)
                 }
             }

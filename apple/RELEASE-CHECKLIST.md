@@ -11,6 +11,7 @@ they do not establish zero defects or certify physical-device behavior.
 - Delayed favorite snapshots, radio/mix results and playback handoff replies.
 - Cancelled offline completion after logout and background-task reconciliation.
 - Origin-bound login form state and offline action availability.
+- Compact transport hit areas and layout at the largest accessibility text size.
 - Explicit app-container metadata privacy declaration.
 
 The current feature set and limits are in [FEATURES.md](FEATURES.md). Keep bundle
@@ -26,6 +27,7 @@ signal-dependent tests require explicit opt-in and remain unqualified when skipp
 - Swift core/support suite, including silent AVPlayer transport and offline transfer.
 - iPhone: favorites/search, collections, error/retry, smart rules, manual playlist
   create/add/order/remove/rename/delete, repeated tabs, player and queue.
+  Include the maximum-text-size compact transport/navigation regression.
 - iPad: navigation replacement and reachable player controls.
 - Release compilation: iOS, macOS and tvOS simulator.
 - Verify the final commit's CI and applicable branch rules before integration.

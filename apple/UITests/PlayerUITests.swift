@@ -5,13 +5,14 @@ import UIKit
 #endif
 
 final class PlayerUITests: XCTestCase {
-    @MainActor private func app(player: Bool = false, pausedPlayer: Bool = false) throws -> XCUIApplication {
+    @MainActor private func app(player: Bool = false, pausedPlayer: Bool = false, largeText: Bool = false) throws -> XCUIApplication {
         let server = ProcessInfo.processInfo.environment["YTMDL_FIXTURE_URL"] ?? "http://127.0.0.1:59583"
         guard let host = URL(string: server)?.host, ["127.0.0.1", "localhost"].contains(host) else { throw NSError(domain: "Loopback fixture required", code: 1) }
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-server", server]
         if player { app.launchArguments.append("--fixture-player") }
         if pausedPlayer { app.launchArguments.append("--fixture-paused-player") }
+        if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
         app.launch()
         return app
     }
@@ -27,6 +28,34 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "Native library")
     }
     #if os(iOS)
+    @MainActor func testLargestTextKeepsMiniPlayerAndNavigationUsableWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact accessibility requires iPhone.")
+        let app = try app(pausedPlayer: true, largeText: true)
+        let mini = app.buttons["mobile-mini-player-open"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 20))
+        XCTAssertTrue(mini.isHittable)
+        XCTAssertLessThanOrEqual(mini.frame.height, 70)
+        XCTAssertGreaterThan(app.staticTexts["Deine Musik.\nDein Moment."].frame.height, 120, "The fixture must actually use accessibility text size.")
+        let mix = app.buttons["Favoriten-Mix"].firstMatch
+        for _ in 0..<6 where !mix.isHittable { app.swipeUp() }
+        XCTAssertTrue(mix.isHittable, "The large-text primary action remains reachable by scrolling.")
+        let next = app.buttons["Nächster Titel"].firstMatch
+        XCTAssertTrue(next.isHittable)
+        XCTAssertGreaterThanOrEqual(next.frame.width, 44)
+        XCTAssertLessThanOrEqual(next.frame.height, 60)
+        for title in ["Playlists", "Bibliothek", "Einstellungen", "Start"] {
+            app.tabBars.buttons[title].tap()
+            XCTAssertTrue(mini.isHittable)
+        }
+        mini.tap()
+        XCTAssertTrue(app.buttons["Schließen"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Schließen"].firstMatch.isHittable)
+        attach(app, name: "Accessible large player")
+        app.buttons["Schließen"].firstMatch.tap()
+        XCTAssertTrue(mini.isHittable)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        attach(app, name: "Largest text with compact transport")
+    }
     @MainActor func testMobileCollectionDesignAndPlaylistFilterWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact design requires iPhone.")
         let app = try app()

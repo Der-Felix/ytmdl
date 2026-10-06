@@ -145,15 +145,21 @@ Bestätigte Fehler und Korrekturen:
 - Serverformular-Ergebnisse prüfen die noch gewählte Adresse und HTTP-Zustimmung.
   Kontowechsel schließt den großen Player; Offline-Menüs sperren Serveraktionen.
 - Privacy-Manifest ergänzt FileTimestamp/C617.1 für Metadaten im eigenen Container.
+- Bei maximaler Schriftgröße ragten Mini-Player-Symbole über die feste Systemleiste
+  hinaus. Symbole und kompakte Metadaten bleiben jetzt begrenzt, vollständige Texte
+  im großen Player skalieren weiter. Transport hat explizite 44-Punkt-Tippflächen;
+  Start-Verknüpfungen/Mixe stehen mit Accessibility-Schrift untereinander.
 
 Prüfungen des abschließenden Quellstands:
 
 - **43 Swift-Tests bestanden**: sieben Core- und 36 Support-Tests, einschließlich
   authentifiziertem Offline-Transfer, verzögerten Antworten und Now-Playing-Covern.
   Zwei signalabhängige Audio-Tap/Meter-Tests ausdrücklich übersprungen.
-- **Zehn iPhone-UI-Abläufe bestanden**, inklusive manueller Playlist-Bearbeitung,
+- **Elf iPhone-UI-Abläufe bestanden**, inklusive manueller Playlist-Bearbeitung,
   Smart-Regeln mit Fehler/Retry, Suche/Favoriten, Mini-Player, Einstellungen und
-  15 wiederholten Tab-Wechseln ohne automatischen Wiedergabestart.
+  15 wiederholten Tab-Wechseln ohne automatischen Wiedergabestart. Eine zusätzliche
+  Prüfung erzwingt die maximale Schriftgröße und kontrolliert erreichbare Hauptaktion,
+  Mini-Player, Titelwechsel-Fläche, Tab-Navigation und Schließen des großen Players.
 - **Zwei iPad-UI-Prüfungen bestanden**: Navigation und erreichbare Player-Steuerung.
 - **Release-Builds iOS, macOS und tvOS-Simulator erfolgreich**; signierter iOS-Debug-
   Build erstellt und Signatur geprüft. Die erfolgreiche Kompilierung ersetzt keine

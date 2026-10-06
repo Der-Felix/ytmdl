@@ -11,6 +11,10 @@ Playlist and artist selection buttons accept taps across the whole row, includin
 its empty space. Manual playlist creation, adding two titles, persistent ordering,
 removal, rename and confirmed deletion are covered by an iPhone UI regression.
 Repeated tab switching retains access to the paused mini-player.
+The fixed-height system mini-player limits only its compact metadata scaling;
+full metadata remains scaled in the expanded view. Symbols retain bounded sizes
+and 44-point hit areas. Accessibility text switches Home shortcuts/mixes to one
+column and removes decorative hero art so it cannot squeeze the heading.
 
 Player seeks requested before AVPlayerItem readiness are retained and applied
 after loading. Next/previous preserve pause, and a paused queue boundary cannot
