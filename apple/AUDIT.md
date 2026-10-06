@@ -201,3 +201,13 @@ halten ein Fixture-Bild fest; CI exportiert ausschließlich PNG-Fehlerbilder,
 keine rohen Result-Bundles, Logs oder Simulator-Diagnosen. Die Playlist-Prüfung
 bricht nach der fehlgeschlagenen Auswahl ab, statt weitere ungültige Taps zu senden.
 Diese Diagnoseänderung ist noch kein Beleg für eine behobene Produktionsursache.
+
+Nachprüfung auf `506f054`: Die sechs Jobs Backend, Frontend, Browser-Offline,
+Apple Core/Builds, iPhone-UI und iPad-UI bestanden. Der ausdrückliche iPhone-Start
+mit echtem Zeitfortschritt und die Playlist-Auswahl sind damit auch in CI grün.
+Die TV-UI scheiterte diesmal an der Remote-Fokus-Navigation zum Player; die
+gesamte Freigabe bleibt deshalb rot. Hardwareprüfung und Release-HTTPS stehen
+weiter aus. Der Bilderexport wird korrigiert: `--only-failures` exportierte hier
+nur die Issue-Beschreibung und ließ Aktivitäts-Screenshots weg. Ein PNG-Filter
+exportiert die Fixture-Bilder, das Upload-Glob schließt alle anderen Dateitypen
+aus. Dieser Export wurde lokal an einem Result-Bundle mit drei PNGs geprüft.
