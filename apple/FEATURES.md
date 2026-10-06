@@ -1,10 +1,12 @@
-# Native listening preview 0.2.0 — build 28
+# Native listening release candidate 0.2.1 — build 29
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
 See [AUDIT.md](AUDIT.md) for the build 27 functional audit, test evidence,
 corrected defects and the remaining real-device release checks.
+The [release checklist](RELEASE-CHECKLIST.md) tracks qualification separately
+from implemented features and simulator verification.
 
 | Feature | Current implementation |
 | --- | --- |

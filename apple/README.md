@@ -1,13 +1,15 @@
 # YTMDL for Apple
 
 Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The current
-review preview is **0.2.0, build 28** and requires OS 27 and Xcode 27. It is a client of the
+release candidate is **0.2.1, build 29** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
 
 See [HANDOFF.md](HANDOFF.md) for the code map and [FEATURES.md](FEATURES.md)
 for the mobile/offline feature matrix, review steps, limits and open work.
 The build 27 [functional audit](AUDIT.md) separates verified behavior from
 pending hardware checks, including the corrected lock-screen artwork path.
+Build 29 adds playback, playlist hit-area and delayed-response fixes. See
+[RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) for the remaining stable-release gates.
 
 ## Open and run
 
@@ -225,6 +227,11 @@ queue occurrence edits and prefetch invalidation, crossfade gain/position, pause
 repeat and timer boundaries. Palette and session-invalidation tests use isolated
 images/sessions. Local compressed-stream probes are loopback-only. These checks
 are not measurements of production network start latency.
+Transport fixtures are silent by default. Two tests that require an audible
+signal are skipped unless `YTMDL_AUDIBLE_AUDIO_TESTS=1` is explicitly supplied;
+do not enable that flag during unattended local verification. CPU-only EQ and
+spectrum tests still run, alongside silent AVPlayer transport tests. Supply a
+loopback `YTMDL_OFFLINE_FIXTURE_URL` to exercise the authenticated offline transfer.
 
 The DSP uses [Apple’s OS 27 mixed-output audio tap](https://developer.apple.com/streaming/Whats-new-HLS.pdf)
 and the [W3C Audio EQ Cookbook](https://www.w3.org/TR/audio-eq-cookbook/).

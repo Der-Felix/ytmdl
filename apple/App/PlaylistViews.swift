@@ -75,7 +75,7 @@ struct PlaylistEditor: View {
                     ForEach(Array(Set(model.genres + [rules.genre ?? ""]).subtracting([""])).sorted(), id: \.self) { Text($0).tag($0) }
                 }
                 Button { artistPicker = true } label: {
-                    HStack { Text("Künstler"); Spacer(); Text(artistName).foregroundStyle(.secondary); Image(systemName: "chevron.right") }
+                    HStack { Text("Künstler"); Spacer(); Text(artistName).foregroundStyle(.secondary); Image(systemName: "chevron.right") }.contentShape(Rectangle())
                 }.buttonStyle(.plain)
                 Toggle("Nur Lieblingstitel", isOn: $rules.favorites)
                 Picker("Hinzugefügt", selection: $rules.addedDays) {
@@ -143,7 +143,7 @@ struct PlaylistArtistPicker: View {
                 if let failure { Text(failure).foregroundStyle(.red) }
                 ForEach(results) { artist in
                     Button { picked(artist); dismiss() } label: {
-                        HStack { Text(artist.name); Spacer(); if artist.id == selected { Image(systemName: "checkmark") } }
+                        HStack { Text(artist.name); Spacer(); if artist.id == selected { Image(systemName: "checkmark") } }.contentShape(Rectangle())
                     }
                 }
                 if results.isEmpty && !loading { Text("Künstler über mindestens zwei Zeichen suchen.").foregroundStyle(.secondary) }
@@ -190,8 +190,9 @@ struct PlaylistTrackPicker: View {
                             VStack(alignment: .leading) { Text(track.title).font(.headline); Text(track.artistText).foregroundStyle(.secondary) }
                             Spacer()
                             Image(systemName: existing.contains(track.id) ? "checkmark.circle.fill" : selected.contains(where: { $0.id == track.id }) ? "checkmark.circle.fill" : "circle")
-                        }.padding(.vertical, 4)
+                        }.padding(.vertical, 4).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(existing.contains(track.id) || working)
+                        .accessibilityIdentifier("select-playlist-track-" + track.id)
                 }
                 if !loading && results.isEmpty { Text("Keine passenden Titel gefunden.").foregroundStyle(.secondary) }
             }.searchable(text: $query, prompt: "Titel, Künstler oder Album suchen")
@@ -200,7 +201,7 @@ struct PlaylistTrackPicker: View {
                     ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { dismiss() }.disabled(working) }
                     ToolbarItem(placement: .confirmationAction) {
                         Button(working ? "Hinzufügen …" : "\(selected.count) hinzufügen") { Task { await add() } }
-                            .disabled(selected.isEmpty || working || model.playlistBusy)
+                            .disabled(selected.isEmpty || working || model.playlistBusy).accessibilityIdentifier("playlist-add-selected")
                     }
                 }
                 .task(id: query) { await search() }
@@ -261,7 +262,7 @@ struct AddToPlaylistSheet: View {
                 Section("Deine Playlists") {
                     ForEach(model.playlists) { playlist in
                         Button { Task { await add(playlist) } } label: {
-                            HStack { Label(playlist.name, systemImage: playlist.smartRules == nil ? "music.note.list" : "sparkles"); Spacer(); Text("\(playlist.trackCount)").foregroundStyle(.secondary) }
+                            HStack { Label(playlist.name, systemImage: playlist.smartRules == nil ? "music.note.list" : "sparkles"); Spacer(); Text("\(playlist.trackCount)").foregroundStyle(.secondary) }.contentShape(Rectangle())
                         }.disabled(working || model.playlistBusy || playlist.smartRules != nil || uniqueTracks.isEmpty || uniqueTracks.count > 500)
                     }
                 }

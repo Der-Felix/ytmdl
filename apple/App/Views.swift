@@ -114,7 +114,10 @@ struct RootView: View {
         .onChange(of: searchFocused) { if searchFocused && destination != .search { selectDestination(.search) } }
         #endif
         .onChange(of: destination) { if !detailPath.isEmpty { detailPath = NavigationPath() } }
-        .onChange(of: model.user?.id) { detailPath = NavigationPath(); detailVisit = UUID() }
+        .onChange(of: model.user?.id) { old, _ in
+            detailPath = NavigationPath(); detailVisit = UUID()
+            if old != nil { expandedPlayer = false }
+        }
         #if DEBUG
         .task {
             await model.loadFixtureIfRequested()
@@ -320,7 +323,11 @@ struct ConnectView: View {
                         let origin = address; let localHTTP = allowHTTP
                         Task {
                             defer { checkingServer = false }
-                            do { try model.connect(origin, localHTTP: localHTTP); connected = await model.restore() }
+                            do {
+                                try model.connect(origin, localHTTP: localHTTP)
+                                let restored = await model.restore()
+                                connected = restored && address == origin && allowHTTP == localHTTP
+                            }
                             catch { model.report(error) }
                         }
                     }.buttonStyle(.borderedProminent).disabled(model.busy || checkingServer || address.isEmpty)
@@ -370,7 +377,12 @@ struct ConnectView: View {
             if address.hasPrefix("https://") {
                 checkingServer = true
                 defer { checkingServer = false }
-                do { try model.connect(address, localHTTP: false); connected = await model.restore() }
+                let origin = address
+                do {
+                    try model.connect(origin, localHTTP: false)
+                    let restored = await model.restore()
+                    connected = restored && address == origin && !allowHTTP
+                }
                 catch { model.report(error) }
             }
         }
@@ -620,7 +632,7 @@ struct CollectionView: View {
                         Button("Neu laden", systemImage: "arrow.clockwise") { Task { await reloadPlaylist() } }
                         Divider()
                         Button("Playlist löschen", systemImage: "trash", role: .destructive) { deleting = true }
-                    }.disabled(busy || model.playlistBusy)
+                    }.disabled(busy || model.playlistBusy).accessibilityIdentifier("playlist-collection-options")
                 }
             }
         }
@@ -651,6 +663,7 @@ struct CollectionView: View {
             offset = max(0, offset - count)
         }
         .refreshable {
+            guard !busy else { return }
             if playlist != nil { await reloadPlaylist() }
             else { tracks = []; offset = 0; more = true; await load() }
         }
@@ -902,12 +915,13 @@ struct TrackRow: View {
                 }.contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
             Menu {
-                Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }
+                Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }.disabled(model.offlineMode)
                 playlistMenuItems
                 Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten", systemImage: "heart") { Task { await model.toggleFavorite(track) } }
+                    .disabled(model.offlineMode || model.pendingFavorites.contains(track.id))
                 #if os(iOS)
-                Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }
-                Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }.disabled(model.listeningBusy)
+                Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }.disabled(model.offlineMode)
+                Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }.disabled(model.offlineMode || model.listeningBusy)
                 #endif
                 Button("Zur Warteschlange", systemImage: "text.badge.plus") { if let client = model.client { model.player.append(track, client: client) } }
             } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Aktionen für \(track.title)")
@@ -946,7 +960,7 @@ struct TrackRow: View {
                 .accessibilityLabel("Zur Warteschlange hinzufügen").help("Zur Warteschlange hinzufügen")
             Menu {
                 Button("Jetzt abspielen", systemImage: "play.fill", action: action)
-                Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }
+                Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }.disabled(model.offlineMode)
                 playlistMenuItems
                 Divider()
                 Button("Titel und Künstler kopieren", systemImage: "doc.on.doc") {

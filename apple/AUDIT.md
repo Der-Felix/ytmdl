@@ -1,4 +1,4 @@
-# iPhone-Funktionsprüfung — 0.2.0, Build 27
+# iPhone-Funktionsprüfung — bis Kandidat 0.2.1, Build 29
 
 Stand: 5. Oktober 2026. Prüfung des nativen Clients und seiner API-Verträge;
 isolierte temporäre Daten, Loopback-Server und iPhone-Simulator mit iOS 27.
@@ -120,3 +120,55 @@ Keine Testtöne und keine Produktionsdaten als Test-Fixtures.
 
 Die offenen Hardwareprüfungen oben gelten weiter. Dieser Layoutwechsel bestätigt
 keine zusätzlichen Audiofunktionen und ist kein neuer stabiler Server-Release.
+
+## Ergänzung: Stabilisierung, 0.2.1 (29), 6. Oktober 2026
+
+Bestätigte Fehler und Korrekturen:
+
+- Titel-/Künstlerauswahl nahm Tipps in der freien Fläche einer Zeile nicht an.
+  Der gesamte Zeilenbereich ist jetzt anklickbar. Ein iPhone-UI-Test erstellt
+  eine Playlist, fügt zwei Titel hinzu, ändert ihre Reihenfolge, entfernt einen,
+  benennt die Sammlung um und löscht sie nach Bestätigung.
+- Ein vor Item-Bereitschaft ausgelöstes Spulen konnte verloren gehen. Die Position
+  wird jetzt bis zur Bereitschaft gehalten. Vor/Zurück bewahrt Pause; am Ende
+  einer pausierten Queue wird kein Radio gestartet.
+- Verspätete Radio-/Mix-Ergebnisse oder Übergabe-Bestätigungen konnten neuere
+  Wiedergabeentscheidungen überschreiben. Eine Aktivitätsrevision verwirft solche
+  Antworten nach Titelwahl, Pause, Resume oder Spulen.
+- Eine ältere Bibliotheksantwort konnte gerade bestätigte Favoritenänderungen
+  zurücksetzen. Ein eigener Änderungsstand schützt diese Änderungen; ein später
+  ausdrücklich neu gestarteter Refresh bleibt maßgeblich.
+- Bereits eingereihte Download-Abschlussmeldungen konnten nach Abmelden ein
+  abgebrochenes Audiofile veröffentlichen. Abmelden entwertet jetzt die Versuch-ID
+  und speichert das. Reguläres Benutzer-Pausieren bleibt davon unterschieden.
+  Wiederaufgenommene Systemtasks müssen zur gespeicherten Versuch-ID passen.
+- Serverformular-Ergebnisse prüfen die noch gewählte Adresse und HTTP-Zustimmung.
+  Kontowechsel schließt den großen Player; Offline-Menüs sperren Serveraktionen.
+- Privacy-Manifest ergänzt FileTimestamp/C617.1 für Metadaten im eigenen Container.
+
+Prüfungen des abschließenden Quellstands:
+
+- **43 Swift-Tests bestanden**: sieben Core- und 36 Support-Tests, einschließlich
+  authentifiziertem Offline-Transfer, verzögerten Antworten und Now-Playing-Covern.
+  Zwei signalabhängige Audio-Tap/Meter-Tests ausdrücklich übersprungen.
+- **Zehn iPhone-UI-Abläufe bestanden**, inklusive manueller Playlist-Bearbeitung,
+  Smart-Regeln mit Fehler/Retry, Suche/Favoriten, Mini-Player, Einstellungen und
+  15 wiederholten Tab-Wechseln ohne automatischen Wiedergabestart.
+- **Zwei iPad-UI-Prüfungen bestanden**: Navigation und erreichbare Player-Steuerung.
+- **Release-Builds iOS, macOS und tvOS-Simulator erfolgreich**; signierter iOS-Debug-
+  Build erstellt und Signatur geprüft. Die erfolgreiche Kompilierung ersetzt keine
+  Distributionssignierung, Installation oder Hardwarequalifikation.
+
+AVPlayer-Transporttests verwenden jetzt standardmäßig Null-PCM. Überblendung,
+Album-Schutz, Pause/Seek/Stop, Wiederholung und Timer wurden dadurch tatsächlich
+mit stillen Playern geprüft. CPU-EQ und FFT bleiben getestet. Zwei Tests benötigen
+absichtlich ein Signal und laufen nur mit `YTMDL_AUDIBLE_AUDIO_TESTS=1`; sie wurden
+hier nicht aktiviert. Die Offline-Transferprüfung erhält in CI ebenfalls einen
+isolierten Loopback-Server. Keine Testtöne oder Produktionsdaten verwendet.
+
+Build 29 ist für die Geräteinstallation vorbereitet; das echte iPhone war bei
+dieser Prüfung nicht erreichbar. Die zuvor bestätigte Installation war Build 27.
+Sperrbildschirm-Darstellung, reale Audioausgabe, AirPlay/Unterbrechungen,
+Hintergrundtransfer und Flugmodus-Neustart bleiben offen. Release benötigt HTTPS;
+eine Debug-HTTP-Verbindung qualifiziert keinen stabilen Release-Betrieb.
+Die vollständigen Freigabepunkte stehen in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md).

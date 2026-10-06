@@ -86,6 +86,70 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.alerts.firstMatch.exists)
         attach(app, name: "Favorites update and search resolves without audio")
     }
+    @MainActor func testMobileManualPlaylistCreateEditOrderRemoveDeleteWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact editor requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
+        app.tabBars.buttons["Playlists"].tap()
+        app.buttons["Neue Playlist"].tap()
+        let name = app.textFields["playlistName"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        name.tap(); name.typeText("Release check")
+        app.buttons["playlistSave"].tap()
+        XCTAssertTrue(app.staticTexts["Release check"].firstMatch.waitForExistence(timeout: 10))
+        app.staticTexts["Release check"].firstMatch.tap()
+        let options = app.buttons["playlist-collection-options"]
+        XCTAssertTrue(options.waitForExistence(timeout: 10))
+        options.tap(); app.buttons["Titel hinzufügen"].tap()
+        XCTAssertTrue(app.buttons["select-playlist-track-t0"].waitForExistence(timeout: 10))
+        app.buttons["select-playlist-track-t0"].tap()
+        XCTAssertEqual(app.buttons["playlist-add-selected"].label, "1 hinzufügen")
+        app.buttons["select-playlist-track-t1"].tap()
+        XCTAssertEqual(app.buttons["playlist-add-selected"].label, "2 hinzufügen")
+        attach(app, name: "Selected two playlist tracks")
+        app.buttons["playlist-add-selected"].tap()
+        let first = app.buttons["Aktionen für Nachtfahrt"], second = app.buttons["Aktionen für Zeitlos"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(second.waitForExistence(timeout: 10))
+        XCTAssertLessThan(first.frame.minY, second.frame.minY)
+        second.tap(); app.buttons["In Playlist nach oben"].tap()
+        expectation(for: NSPredicate { _, _ in second.frame.minY < first.frame.minY }, evaluatedWith: second)
+        waitForExpectations(timeout: 10)
+        first.tap(); app.buttons["Aus Playlist entfernen"].tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: first)
+        waitForExpectations(timeout: 10)
+        options.tap(); app.buttons["Bearbeiten"].tap()
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        name.tap(); name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 13) + "Ready playlist")
+        app.buttons["playlistSave"].tap()
+        XCTAssertTrue(app.navigationBars["Ready playlist"].waitForExistence(timeout: 10))
+        options.tap(); app.buttons["Playlist löschen"].tap()
+        app.buttons["Playlist löschen"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Neue Playlist"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Ready playlist"].exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        attach(app, name: "Manual playlist CRUD without playback")
+    }
+    @MainActor func testRepeatedMobileTabSwitchesKeepPausedMiniPlayerReachable() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact navigation requires iPhone.")
+        let app = try app(pausedPlayer: true)
+        let mini = app.buttons["mobile-mini-player-open"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 20))
+        for _ in 0..<3 {
+            for tab in ["Suche", "Bibliothek", "Playlists", "Einstellungen", "Start"] {
+                app.tabBars.buttons[tab].tap()
+                XCTAssertTrue(mini.isHittable, "Mini-player remains reachable after " + tab)
+                XCTAssertFalse(app.alerts.firstMatch.exists)
+            }
+        }
+        mini.tap()
+        XCTAssertTrue(app.buttons["mobile-player-toggle"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["mobile-player-toggle"].isHittable)
+        app.buttons["Schließen"].firstMatch.tap()
+        XCTAssertTrue(mini.isHittable)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
     @MainActor func testSilentCodecFilesDecodeWithoutStartingPlayer() async throws {
         guard let origin = ProcessInfo.processInfo.environment["YTMDL_CODEC_FIXTURE_URL"] else {
             throw XCTSkip("Requires an explicit loopback server containing synthetic silent codec files.")

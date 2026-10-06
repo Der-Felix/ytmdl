@@ -78,14 +78,14 @@ import YTMDLCore
     restored.setEnabled(false); #expect(restored.gains[0] == 5)
 }
 
-private func syntheticWave(in folder: URL, seconds: Double = 6) throws -> URL {
+private func syntheticWave(in folder: URL, seconds: Double = 6, tone: Bool = false) throws -> URL {
     let url = folder.appendingPathComponent("fixture.wav")
     let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
     let file = try AVAudioFile(forWriting: url, settings: format.settings)
     let count = AVAudioFrameCount(seconds * 48000)
     let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: count)!
     buffer.frameLength = count
-    for index in 0..<Int(count) { buffer.floatChannelData![0][index] = Float(0.1 * sin(2 * Double.pi * Double(index) / 48)) }
+    for index in 0..<Int(count) { buffer.floatChannelData![0][index] = tone ? Float(0.1 * sin(2 * Double.pi * Double(index) / 48)) : 0 }
     try file.write(from: buffer)
     return url
 }
@@ -99,11 +99,11 @@ private func syntheticWave(in folder: URL, seconds: Double = 6) throws -> URL {
     #expect(predicate())
 }
 
-@MainActor @Test func nativeAudioTapActuallyChangesDecodedSamples() async throws {
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["YTMDL_AUDIBLE_AUDIO_TESTS"] == "1")) func nativeAudioTapActuallyChangesDecodedSamples() async throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
-    let url = try syntheticWave(in: folder), suite = "org.ytmdl.tests.tap.\(UUID().uuidString)", defaults = try #require(UserDefaults(suiteName: suite))
+    let url = try syntheticWave(in: folder, tone: true), suite = "org.ytmdl.tests.tap.\(UUID().uuidString)", defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let audio = AVPlayer(), client = try fixtureClient()
     let player = PlayerModel(volumePreferences: defaults, audio: audio, itemFactory: { _, _ in AVPlayerItem(url: url) })
@@ -256,11 +256,11 @@ private func syntheticWave(in folder: URL, seconds: Double = 6) throws -> URL {
     #expect(player.current?.id == "b" && a.currentItem == nil)
 }
 
-@MainActor @Test func visualizationMetersActualAudioAndBypassesDisabledEqualizer() async throws {
+@MainActor @Test(.enabled(if: ProcessInfo.processInfo.environment["YTMDL_AUDIBLE_AUDIO_TESTS"] == "1")) func visualizationMetersActualAudioAndBypassesDisabledEqualizer() async throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
-    let url = try syntheticWave(in: folder), suite = "org.ytmdl.tests.meter.\(UUID().uuidString)"
+    let url = try syntheticWave(in: folder, tone: true), suite = "org.ytmdl.tests.meter.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let audio = AVPlayer(), client = try fixtureClient()
@@ -336,4 +336,32 @@ private func syntheticWave(in folder: URL, seconds: Double = 6) throws -> URL {
     #expect(PlayerModel.resolvedDuration(metadata: .infinity, stream: 169) == 169)
     #expect(PlayerModel.resolvedDuration(metadata: 0, stream: .infinity) == 0)
     #expect(PlayerModel.resolvedDuration(metadata: 0, stream: -1) == 0)
+}
+
+
+@MainActor @Test func earlySeekSurvivesItemLoadingAndPausedTransportStaysPaused() async throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let suite = "org.ytmdl.tests.early-seek." + UUID().uuidString, defaults = try #require(UserDefaults(suiteName: suite))
+    defer { try? FileManager.default.removeItem(at: folder); defaults.removePersistentDomain(forName: suite) }
+    let url = try syntheticWave(in: folder, seconds: 10), client = try fixtureClient(), audio = AVPlayer(), standby = AVPlayer()
+    let player = PlayerModel(volumePreferences: defaults, audio: audio, standby: standby, itemFactory: { _, _ in AVPlayerItem(url: url) })
+    defer { player.stop(); client.invalidate() }
+    let tracks = ["a", "b", "c"].map { Track(id: $0, title: $0, artists: [], album: "", durationMs: 10000) }
+    player.setPreload(false)
+    player.play(tracks, client: client)
+    player.seek(4)
+    try await waitUntil { player.isPlaying && audio.currentTime().seconds >= 4 }
+    #expect(player.position >= 4)
+    player.pause(); player.next()
+    try await waitUntil { audio.currentItem?.status == .readyToPlay }
+    #expect(player.current?.id == "b" && !player.isPlaybackRequested && audio.rate == 0)
+    player.previous()
+    try await waitUntil { audio.currentItem?.status == .readyToPlay }
+    #expect(player.current?.id == "a" && !player.isPlaybackRequested && audio.rate == 0)
+    player.select(2); player.pause(); player.setAutoplay(true)
+    var radioCalls = 0
+    player.onQueueEnded = { _ in radioCalls += 1 }
+    player.next()
+    #expect(radioCalls == 0 && !player.isPlaybackRequested)
 }

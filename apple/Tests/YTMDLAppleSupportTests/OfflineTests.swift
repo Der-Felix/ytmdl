@@ -181,3 +181,35 @@ func offlineAuthenticatedTransferCachesSidecarsAndPlayerUsesLocalFile() async th
     history.enqueueEvent(track)
     #expect(history.pendingEvents.isEmpty)
 }
+
+
+@MainActor @Test func offlineLogoutInvalidatesCompletionButUserPauseCanFinish() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let server = try ServerAddress("https://fixture.example"), user = try fixtureUser("first")
+    let profile = OfflineProfile(id: OfflineLibrary.profileID(server: server, userID: user.id), origin: server.url.absoluteString, user: user)
+    let track = Track(id: "song", title: "Fixture", artists: [], album: "", durationMs: 1000)
+    let id = OfflineLibrary.digest(profile.id + "\n" + track.id)
+    let record = OfflineTrack(id: id, scope: profile.id, track: track, state: .downloading, transferID: 42)
+    let manifest = OfflineTestManifest(profiles: [profile], tracks: [record])
+    try JSONEncoder().encode(manifest).write(to: root.appendingPathComponent("manifest.json"))
+    let response = HTTPURLResponse(url: URL(string: "https://fixture.example/media")!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "audio/ogg"])!
+    let temp = root.appendingPathComponent("transfer")
+    let store = OfflineLibrary(root: root, startTransfers: false); store.selectProfile(profile)
+    store.detach()
+    try Data("OggSfixture-media".utf8).write(to: temp)
+    store.finish(id, location: temp, response: response, taskID: 42)
+    store.selectProfile(profile)
+    #expect(store.entry(track.id)?.transferID == nil && store.entry(track.id)?.state == .paused)
+    #expect(store.audioURL(track.id) == nil && !FileManager.default.fileExists(atPath: temp.path))
+    let restart = OfflineLibrary(root: root, startTransfers: false); restart.selectProfile(profile)
+    #expect(restart.entry(track.id)?.transferID == nil)
+    // A normal pause is different: bytes already received can finish safely.
+    try JSONEncoder().encode(manifest).write(to: root.appendingPathComponent("manifest.json"))
+    let paused = OfflineLibrary(root: root, startTransfers: false); paused.selectProfile(profile)
+    paused.pause(track.id)
+    try Data("OggSfixture-media".utf8).write(to: temp)
+    paused.finish(id, location: temp, response: response, taskID: 42)
+    #expect(paused.audioURL(track.id) != nil)
+}

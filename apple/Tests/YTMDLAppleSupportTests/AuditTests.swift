@@ -15,7 +15,8 @@ private final class AuditProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() { lock.lock(); cancelled = true; lock.unlock() }
     override func startLoading() {
         let path = request.url!.path
-        let delay = path.hasSuffix("/auth/logout") || path.hasSuffix("/favorites/t0") || path.contains("/slow/") ? 0.25 : 0.01
+        let delay = path.hasSuffix("/favorites/ids") || path.hasSuffix("/playback/handoff") || path.hasSuffix("/library/radio") ? 0.4 :
+            (path.hasSuffix("/auth/logout") || path.hasSuffix("/favorites/t0") || path.contains("/slow/") ? 0.25 : 0.01)
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
             lock.lock(); defer { lock.unlock() }; guard !cancelled else { return }
             let payload: Data
@@ -38,7 +39,10 @@ private final class AuditProtocol: URLProtocol, @unchecked Sendable {
                 let json: String
                 if path.hasSuffix("/auth/status") {
                     json = #"{"data":{"authenticated":false,"setup_required":false,"user":{"id":"old","username":"old","display_name":"Old","role":"user"}}}"#
-                } else if path.hasSuffix("/lyrics") { json = #"{"data":{"state":"available_plain","content":"Fixture lyrics"}}"# }
+                } else if ["/library/releases", "/library/artists", "/library/genres", "/playlists", "/favorites/ids"].contains(where: path.hasSuffix) { json = #"{"data":[]}"# }
+                else if path.hasSuffix("/library/radio") { json = #"{"data":[{"id":"radio","title":"Radio","artists":[],"album":"","duration_ms":1000}]}"# }
+                else if path.hasSuffix("/playback/handoff") { json = #"{"data":{"id":"handoff","queue":[],"queue_index":0,"position_seconds":0,"repeat_mode":"off","source_name":"Fixture"}}"# }
+                else if path.hasSuffix("/lyrics") { json = #"{"data":{"state":"available_plain","content":"Fixture lyrics"}}"# }
                 else { json = #"{"data":{}}"# }
                 payload = Data(json.utf8)
             }
@@ -128,4 +132,67 @@ private final class AuditProtocol: URLProtocol, @unchecked Sendable {
     #expect(model.favoriteIDs == [track.id] && model.pendingFavorites.isEmpty)
     #expect(await model.restore())
     #expect(model.user == nil && model.offline.scope == nil)
+}
+
+
+@MainActor @Test func auditDelayedLibraryRefreshCannotUndoAcknowledgedFavorite() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let model = AppModel(offlineLibrary: OfflineLibrary(root: root, startTransfers: false)), client = try auditClient()
+    model.client = client; defer { client.invalidate(); model.player.stop() }
+    let refresh = Task { await model.loadLibrary() }
+    try await Task.sleep(for: .milliseconds(60))
+    let track = Track(id: "t1", title: "Favorite", artists: [], album: "", durationMs: 1000)
+    await model.toggleFavorite(track)
+    #expect(model.favoriteIDs == [track.id])
+    await refresh.value
+    #expect(model.favoriteIDs == [track.id] && !model.connecting && model.error == nil)
+    await model.loadLibrary()
+    #expect(model.favoriteIDs.isEmpty) // A subsequent explicit refresh remains authoritative.
+}
+
+@MainActor @Test func auditDelayedHandoffCannotPauseNewlySelectedPlayback() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let suite = "audit-handoff-" + UUID().uuidString, defaults = try #require(UserDefaults(suiteName: suite))
+    defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+    let model = AppModel(offlineLibrary: OfflineLibrary(root: root, startTransfers: false)), client = try auditClient()
+    model.client = client; model.player = PlayerModel(volumePreferences: defaults)
+    defer { client.invalidate(); model.player.stop() }
+    let old = Track(id: "old", title: "Old", artists: [], album: "", durationMs: 1000)
+    let new = Track(id: "new", title: "New", artists: [], album: "", durationMs: 1000)
+    model.player.previewPaused([old], client: client)
+    let pending = Task { await model.saveHandoff() }
+    try await Task.sleep(for: .milliseconds(60))
+    model.player.previewPaused([new], client: client)
+    try await waitForArtwork(model.player)
+    var metadataUpdates = 0
+    model.player.onSnapshot = { _, _, _, _ in metadataUpdates += 1 }
+    await pending.value
+    #expect(model.player.current == new && metadataUpdates == 0 && model.error == nil)
+}
+
+
+@MainActor @Test func auditDelayedRadioRespectsNewSelectionAndExplicitPause() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let suite = "audit-radio-" + UUID().uuidString, defaults = try #require(UserDefaults(suiteName: suite))
+    defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+    let model = AppModel(offlineLibrary: OfflineLibrary(root: root, startTransfers: false)), client = try auditClient()
+    model.client = client; model.player = PlayerModel(volumePreferences: defaults)
+    defer { client.invalidate(); model.player.stop() }
+    let old = Track(id: "old", title: "Old", artists: [], album: "", durationMs: 1000)
+    let new = Track(id: "new", title: "New", artists: [], album: "", durationMs: 1000)
+    model.player.previewPaused([old], client: client)
+    let radio = Task { await model.startRadio(old) }
+    try await Task.sleep(for: .milliseconds(60))
+    model.player.previewPaused([new], client: client)
+    let revision = model.player.playbackRevision
+    await radio.value
+    #expect(model.player.current == new && model.player.playbackRevision == revision && !model.listeningBusy)
+    model.player.setAutoplay(true)
+    let autoplay = Task { await model.continueRadio(after: new) }
+    try await Task.sleep(for: .milliseconds(60))
+    model.player.pause()
+    let pausedRevision = model.player.playbackRevision
+    await autoplay.value
+    #expect(model.player.current == new && model.player.playbackRevision == pausedRevision && !model.player.isPlaybackRequested)
 }

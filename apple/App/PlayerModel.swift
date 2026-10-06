@@ -70,6 +70,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         return stream.isFinite && stream > 0 ? stream : 0
     }
     var isPlaybackRequested: Bool { wantsPlayback }
+    var playbackRevision: UUID { activityRevision }
     var preparedTrackID: String? { pendingID }
     @ObservationIgnored private let volumePreferences: UserDefaults
     @ObservationIgnored var onTrackPlayed: ((Track) -> Void)?
@@ -95,6 +96,9 @@ enum SleepMode: String, CaseIterable, Identifiable {
     @ObservationIgnored private var statusObserver: NSKeyValueObservation?
     @ObservationIgnored private var timeObserver: NSKeyValueObservation?
     @ObservationIgnored private var generation = UUID()
+    @ObservationIgnored private var activityRevision = UUID()
+    @ObservationIgnored private var pendingSeek: Double?
+    @ObservationIgnored private var seekRevision = UUID()
     private var wantsPlayback = false
     @ObservationIgnored private var startedAt: ContinuousClock.Instant?
     @ObservationIgnored private var lastNowPlaying = Date.distantPast
@@ -180,7 +184,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
     // Loopback UI fixtures can inspect navigation with a selected title without
     // creating an audio item, activating the audio session or playing a tone.
     func previewPaused(_ tracks: [Track], client: APIClient) {
-        generation = UUID(); self.client = client; queue.replace(tracks)
+        generation = UUID(); activityRevision = UUID(); self.client = client; queue.replace(tracks)
         if let current { loadDetails(current, client: client) }
         else { artwork = nil; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
     }
@@ -243,14 +247,16 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     func next() {
         if promotePrepared() { return }
-        if queue.next(repeatAll: repeatAll) { loadCurrent() }
-        else { let ended = current; cancelPrepared(); pause(); seek(0); if autoplay, let ended { onQueueEnded?(ended) } }
+        let play = wantsPlayback
+        if queue.next(repeatAll: repeatAll) { loadCurrent(play: play) }
+        else { let ended = current; cancelPrepared(); pause(); seek(0); if play && autoplay, let ended { onQueueEnded?(ended) } }
     }
-    func previous() { if position > 3 { seek(0) } else { queue.previous(); loadCurrent() } }
+    func previous() { if position > 3 { seek(0) } else { let play = wantsPlayback; queue.previous(); loadCurrent(play: play) } }
     func toggle() { wantsPlayback ? pause() : resume() }
-    func pause() { wantsPlayback = false; audio.pause(); standby.pause(); isPlaying = false; loading = false; updateNowPlaying() }
+    func pause() { activityRevision = UUID(); wantsPlayback = false; audio.pause(); standby.pause(); isPlaying = false; loading = false; updateNowPlaying() }
     func resume() {
         guard current != nil else { return }
+        activityRevision = UUID()
         if error != nil || audio.currentItem == nil { loadCurrent(); return }
         wantsPlayback = true
         let token = generation
@@ -266,16 +272,29 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     func seek(_ seconds: Double) {
         guard seconds.isFinite, current != nil else { return }
+        activityRevision = UUID()
         cancelPrepared()
         // Do not create a new incoming stream for every slider drag event.
         prefetchAfter = .now.advanced(by: .milliseconds(200))
         let target = min(max(0, seconds), max(0, duration))
-        audio.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        pendingSeek = target; seekRevision = UUID()
         position = target; updateNowPlaying()
+        applyPendingSeek()
+    }
+    private func applyPendingSeek() {
+        guard let target = pendingSeek, audio.currentItem?.status == .readyToPlay else { return }
+        let token = generation, revision = seekRevision
+        audio.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
+            Task { @MainActor in
+                guard let self, self.generation == token, self.seekRevision == revision else { return }
+                self.pendingSeek = nil
+                if completed { self.position = target; self.updateNowPlaying() }
+            }
+        }
     }
     func stop() {
         visualizerTask?.cancel(); visualizerTask = nil; resetSpectrum()
-        generation = UUID(); loadTask?.cancel(); lyricsTask?.cancel(); artworkTask?.cancel(); sleepTask?.cancel()
+        generation = UUID(); pendingSeek = nil; seekRevision = UUID(); loadTask?.cancel(); lyricsTask?.cancel(); artworkTask?.cancel(); sleepTask?.cancel()
         removeItemObservers(); cancelPrepared(); pause(); audio.replaceCurrentItem(with: nil)
         queue.replace([]); position = 0; loading = false; error = nil; soundError = nil; lyrics = ""; client = nil
         artwork = nil; artworkPalette = nil; levelHistory = []; sleepMode = .off; sleepDeadline = nil; startupMilliseconds = nil
@@ -317,18 +336,19 @@ enum SleepMode: String, CaseIterable, Identifiable {
             } else { item.audioMix = nil }
         }
     }
-    private func loadCurrent() {
-        loadTask?.cancel(); removeItemObservers(); cancelPrepared(); generation = UUID()
+    private func loadCurrent(play: Bool = true) {
+        loadTask?.cancel(); removeItemObservers(); cancelPrepared(); generation = UUID(); activityRevision = UUID(); pendingSeek = nil; seekRevision = UUID()
         prefetchAfter = .now
         audio.pause(); audio.replaceCurrentItem(with: nil); isPlaying = false; position = 0; levelHistory = []; meteredFrames = equalizer.parameters.frames.load(ordering: .acquiring); error = nil; soundError = nil
         guard let current, let client else { loading = false; return }
-        loading = true; wantsPlayback = true; startedAt = .now; startupMilliseconds = nil
+        loading = play; wantsPlayback = play; startedAt = .now; startupMilliseconds = nil
         let token = generation
         do {
             audio.replaceCurrentItem(with: try makeItem(current, client: client)); observeCurrent()
             loadTask = Task { [weak self] in
                 guard let self else { return }
                 do {
+                    guard play else { return }
                     try await activateAudio(); try Task.checkCancellation()
                     guard generation == token, wantsPlayback else { return }
                     start(audio)
@@ -346,8 +366,12 @@ enum SleepMode: String, CaseIterable, Identifiable {
         resetSpectrum(); ensureVisualizerTask()
         let token = generation
         statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-            let failed = item.status == .failed
-            if failed { Task { @MainActor in guard self?.generation == token else { return }; self?.failPlayback() } }
+            let status = item.status
+            Task { @MainActor in
+                guard self?.generation == token else { return }
+                if status == .failed { self?.failPlayback() }
+                else if status == .readyToPlay { self?.applyPendingSeek() }
+            }
         }
         timeObserver = audio.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] _, _ in
             Task { @MainActor in guard self?.generation == token else { return }; self?.updatePlaybackState() }
@@ -383,7 +407,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
             if levelHistory.count > 48 { levelHistory.removeFirst(levelHistory.count - 48) }
         }
         let value = audio.currentTime().seconds
-        if value.isFinite { position = max(0, value) }
+        if pendingSeek == nil, value.isFinite { position = max(0, value) }
         updatePlaybackState()
         if isPlaying, position > 0, startupMilliseconds == nil, let startedAt {
             let elapsed = startedAt.duration(to: .now).components
@@ -462,7 +486,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         let play = wantsPlayback
         removeItemObservers(); audio.pause(); audio.replaceCurrentItem(with: nil)
         let previous = audio; audio = standby; standby = previous
-        _ = queue.next(repeatAll: repeatAll); generation = UUID(); pendingID = nil; fadeStart = nil; fadeFraction = 0; isCrossfading = false
+        _ = queue.next(repeatAll: repeatAll); generation = UUID(); activityRevision = UUID(); pendingSeek = nil; seekRevision = UUID(); pendingID = nil; fadeStart = nil; fadeFraction = 0; isCrossfading = false
         position = max(0, audio.currentTime().seconds.isFinite ? audio.currentTime().seconds : 0)
         error = nil; loading = true; startedAt = .now; startupMilliseconds = nil
         applyVolume(); observeCurrent()

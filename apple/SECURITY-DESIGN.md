@@ -92,7 +92,11 @@ References:
 ## Privacy and distribution
 
 No tracking, advertising or analytics dependencies are present. The privacy
-manifest declares the app's own UserDefaults usage (CA92.1). It is not a privacy
+manifest declares the app's own UserDefaults usage (CA92.1) and file timestamps,
+sizes and metadata inside its own container for offline storage (C617.1).
+These uses follow Apple's
+[required-reason API declarations](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype).
+It is not a privacy
 policy or an assertion that the user's server processes no personal data:
 accounts, favorites, playlists, session/IP metadata and requested audio remain
 on the configured server. Store privacy answers must reflect the actual service

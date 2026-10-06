@@ -1,9 +1,34 @@
-# Apple app handoff — preview 0.2.0, build 28
+# Apple app handoff — release candidate 0.2.1, build 29
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
 Do not promote it to a stable server release just because it builds locally.
 The server release and native preview have independent version numbers.
+
+## Build 29: stability candidate
+
+Playlist and artist selection buttons accept taps across the whole row, including
+its empty space. Manual playlist creation, adding two titles, persistent ordering,
+removal, rename and confirmed deletion are covered by an iPhone UI regression.
+Repeated tab switching retains access to the paused mini-player.
+
+Player seeks requested before AVPlayerItem readiness are retained and applied
+after loading. Next/previous preserve pause, and a paused queue boundary cannot
+start radio. A playback activity revision prevents delayed mix/radio results or
+handoff acknowledgements from replacing or pausing a newer playback decision.
+Delayed catalog snapshots cannot undo acknowledged favorite mutations.
+Logout invalidates unfinished offline transfer attempts; a completion already
+queued by URLSession cannot publish a cancelled download afterward. Ordinary
+user pause remains distinct and can accept a completed transfer.
+
+Server form results are tied to the checked origin and HTTP consent. Account
+changes close expanded player presentation. Offline track menus disable
+operations that require a server session. The privacy manifest also declares
+app-container file metadata access, reason C617.1.
+
+Use [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) before stable promotion.
+This candidate does not establish physical-device route/background qualification,
+distribution signing or Release connectivity to an HTTP-only server.
 
 ## Build 28: calmer mobile collections
 
@@ -193,10 +218,11 @@ The first decoded channel is analyzed, including AVPlayer gain. During crossfade
 callbacks from either title feed the shared display, not a final mixed-output FFT.
 EQ headroom is not title loudness normalization. Reference links are in README.
 
-Local verification must remain silent: compile the full test target, run only
-CPU/state tests without audio output, and use the default silent loopback WAV
-for layout checks. The full AVPlayer audio suite includes audible fixtures and
-must not be run through local speakers. Stateless `SpectrumCanvas` allows
+Local verification must remain silent: the default suite uses zero-valued PCM
+for actual AVPlayer transport checks and silent loopback audio for UI checks.
+Two signal-dependent tap/meter tests require explicit `YTMDL_AUDIBLE_AUDIO_TESTS=1`
+and are skipped by default. Never enable them through local speakers during
+unattended verification. Stateless `SpectrumCanvas` allows
 rendering checks with CPU-analyzed samples, without scheduling audio playback.
 
 Review wide/narrow windows, long titles, light/dark themes, queue filtering with

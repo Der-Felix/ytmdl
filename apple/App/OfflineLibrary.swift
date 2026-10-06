@@ -177,9 +177,13 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
             clients.removeValue(forKey: scope)
             for record in currentRecords where record.state != .ready {
                 pause(record.track.id); tasks.removeValue(forKey: record.id)?.cancel()
+                // Invalidate cancelled attempts before a queued completion can
+                // publish after logout. A normal user pause keeps its attempt.
+                if let index = records.firstIndex(where: { $0.id == record.id }) { records[index].transferID = nil }
             }
             clients.removeValue(forKey: scope)
             for record in currentRecords { auxiliary.removeValue(forKey: record.id)?.cancel() }
+            save()
         }
         scope = nil
     }
@@ -303,7 +307,7 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
             guard let self else { return }
             for task in all {
                 guard let download = task as? URLSessionDownloadTask, let id = task.taskDescription,
-                      let record = records.first(where: { $0.id == id }), record.state == .downloading || record.state == .paused else { task.cancel(); continue }
+                      let record = records.first(where: { $0.id == id }), (record.state == .downloading || record.state == .paused), record.transferID == task.taskIdentifier else { task.cancel(); continue }
                 tasks[id] = download
                 if record.state == .paused && task.state == .running { task.suspend() }
             }

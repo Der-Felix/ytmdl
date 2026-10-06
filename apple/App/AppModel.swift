@@ -49,6 +49,7 @@ import YTMDLCore
     }
     private var generation = UUID()
     private var catalogGeneration = UUID()
+    private var favoriteRevision = UUID()
     private(set) var playlistRevision = UUID()
     private var syncingHistory = false
 
@@ -83,7 +84,7 @@ import YTMDLCore
         }
     }
     func login(username: String, password: String) async {
-        guard let client else { return }
+        guard let client, !busy else { return }
         let generation = generation
         busy = true; error = nil; defer { if self.generation == generation { busy = false } }
         do {
@@ -100,6 +101,7 @@ import YTMDLCore
         let generation = generation
         let catalogGeneration = UUID(); self.catalogGeneration = catalogGeneration
         let playlistRevision = playlistRevision
+        let favoriteRevision = favoriteRevision
         connecting = true; defer { if self.catalogGeneration == catalogGeneration { connecting = false } }
         do {
             async let releasePage: [Release] = client.get("/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc"), .init(name: "genre", value: genre)])
@@ -113,7 +115,8 @@ import YTMDLCore
             if self.playlistRevision == playlistRevision {
                 self.playlists = playlists; self.playlistRevision = UUID()
             }
-            favoriteIDs = Set(favorites); releaseOffset = releases.count; moreReleases = releases.count == 60
+            if self.favoriteRevision == favoriteRevision { favoriteIDs = Set(favorites) }
+            releaseOffset = releases.count; moreReleases = releases.count == 60
             self.genres = genres; connecting = false
             if offline.syncFavorites { await downloadCollection(.favorites, automatic: false) }
             await refreshOfflineCollections()
@@ -160,6 +163,7 @@ import YTMDLCore
             try await client.mutate("/favorites/\(track.id)", method: wasFavorite ? "DELETE" : "PUT")
             guard self.generation == generation else { return }
             if wasFavorite { favoriteIDs.remove(track.id) } else { favoriteIDs.insert(track.id) }
+            favoriteRevision = UUID()
         } catch { if self.generation == generation { report(error) } }
     }
     private struct PlaylistInput: Encodable { let name: String; let description: String; let smartRules: SmartPlaylistRules? }
@@ -267,7 +271,7 @@ import YTMDLCore
     }
     private func clearLibrary() {
         playlistPreviews = [:]; previewRequests = []; previewRevision = nil
-        playlistBusy = false; playlistRevision = UUID(); catalogGeneration = UUID()
+        playlistBusy = false; playlistRevision = UUID(); catalogGeneration = UUID(); favoriteRevision = UUID()
         connecting = false; listeningBusy = false; handoff = nil; error = nil; pendingFavorites = []
         genres = []; genre = ""; releaseOffset = 0; moreReleases = false
         listeningHistory.configure(server: nil, userID: nil, persist: false)
@@ -375,6 +379,7 @@ import YTMDLCore
         guard !listeningBusy else { return }
         if offlineMode, let client { player.play(offline.readyTracks.shuffled(), client: client); return }
         guard let client else { return }
+        let playbackRevision = player.playbackRevision
         listeningBusy = true; defer { if self.client === client { listeningBusy = false } }
         do {
             var query: [URLQueryItem] = [.init(name: "limit", value: "100")]
@@ -384,16 +389,17 @@ import YTMDLCore
             let result: [Track]
             if !genre.isEmpty { result = try await client.get("/library/radio", query: [.init(name: "genre", value: genre), .init(name: "nonce", value: UUID().uuidString)]) }
             else { result = try await client.get("/library/tracks", query: query) }
-            guard self.client === client else { return }
+            guard self.client === client, player.playbackRevision == playbackRevision else { return }
             player.play(name == "Neu" ? result : result.shuffled(), client: client)
         } catch { if self.client === client { report(error) } }
     }
     func startRadio(_ track: Track) async {
         guard !offlineMode, let client, !listeningBusy else { return }
+        let playbackRevision = player.playbackRevision
         listeningBusy = true; defer { if self.client === client { listeningBusy = false } }
         do {
             let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
-            guard self.client === client else { return }
+            guard self.client === client, player.playbackRevision == playbackRevision else { return }
             player.play([track] + result.filter { $0.id != track.id }, client: client)
         } catch { if self.client === client { report(error) } }
     }
@@ -403,10 +409,11 @@ import YTMDLCore
             let candidates = offline.readyTracks.filter { $0.id != track.id }.shuffled()
             if !candidates.isEmpty { player.play(candidates, client: client) }; return
         }
+        let playbackRevision = player.playbackRevision
         do {
             let played = Set(player.queue.tracks.map(\.id))
             let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
-            guard self.client === client, player.autoplay, !player.isPlaybackRequested, player.current?.id == track.id else { return }
+            guard self.client === client, player.playbackRevision == playbackRevision, player.autoplay, !player.isPlaybackRequested, player.current?.id == track.id else { return }
             let candidates = result.filter { !played.contains($0.id) }
             if !candidates.isEmpty { player.play(candidates, client: client) }
         } catch { /* Autoplay must not turn normal queue completion into an alert. */ }
@@ -439,11 +446,12 @@ import YTMDLCore
     }
     func saveHandoff() async {
         guard !offlineMode, let client, player.current != nil else { return }
+        let playbackRevision = player.playbackRevision
         do {
             let payload = HandoffPayload(queue: player.queue, position: player.position,
                 repeatMode: player.repeatOne ? "track" : player.repeatAll ? "queue" : "off", sourceName: "YTMDL Apple")
             let _: PlaybackHandoff = try await client.sendJSON("/playback/handoff", method: "POST", body: payload)
-            guard self.client === client else { return }
+            guard self.client === client, player.playbackRevision == playbackRevision else { return }
             player.pause()
         } catch { if self.client === client { report(error) } }
     }
