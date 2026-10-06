@@ -147,7 +147,8 @@ Bestätigte Fehler und Korrekturen:
 - Privacy-Manifest ergänzt FileTimestamp/C617.1 für Metadaten im eigenen Container.
 - Bei maximaler Schriftgröße ragten Mini-Player-Symbole über die feste Systemleiste
   hinaus. Symbole und kompakte Metadaten bleiben jetzt begrenzt, vollständige Texte
-  im großen Player skalieren weiter. Transport hat explizite 44-Punkt-Tippflächen;
+  im großen Player skalieren weiter. Mini- und großer Player haben explizite
+  44-Punkt-Tippflächen für den Transport;
   Start-Verknüpfungen/Mixe stehen mit Accessibility-Schrift untereinander.
 
 Prüfungen des abschließenden Quellstands:
@@ -160,6 +161,8 @@ Prüfungen des abschließenden Quellstands:
   15 wiederholten Tab-Wechseln ohne automatischen Wiedergabestart. Eine zusätzliche
   Prüfung erzwingt die maximale Schriftgröße und kontrolliert erreichbare Hauptaktion,
   Mini-Player, Titelwechsel-Fläche, Tab-Navigation und Schließen des großen Players.
+  Auch die vier sekundären Transporttasten im großen Player werden auf erreichbare
+  44-Punkt-Flächen und begrenzte Größe geprüft.
 - **Zwei iPad-UI-Prüfungen bestanden**: Navigation und erreichbare Player-Steuerung.
 - **Release-Builds iOS, macOS und tvOS-Simulator erfolgreich**; signierter iOS-Debug-
   Build erstellt und Signatur geprüft. Die erfolgreiche Kompilierung ersetzt keine

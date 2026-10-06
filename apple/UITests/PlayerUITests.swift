@@ -50,6 +50,15 @@ final class PlayerUITests: XCTestCase {
         mini.tap()
         XCTAssertTrue(app.buttons["Schließen"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Schließen"].firstMatch.isHittable)
+        let previous = app.buttons["mobile-player-previous"]
+        for _ in 0..<6 where !previous.isHittable { app.swipeUp() }
+        for id in ["mobile-player-shuffle", "mobile-player-previous", "mobile-player-next", "mobile-player-repeat"] {
+            let control = app.buttons[id]
+            XCTAssertTrue(control.isHittable, id)
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44, id)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44, id)
+            XCTAssertLessThanOrEqual(control.frame.height, 50, id)
+        }
         attach(app, name: "Accessible large player")
         app.buttons["Schließen"].firstMatch.tap()
         XCTAssertTrue(mini.isHittable)

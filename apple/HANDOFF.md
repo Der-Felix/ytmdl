@@ -13,7 +13,8 @@ removal, rename and confirmed deletion are covered by an iPhone UI regression.
 Repeated tab switching retains access to the paused mini-player.
 The fixed-height system mini-player limits only its compact metadata scaling;
 full metadata remains scaled in the expanded view. Symbols retain bounded sizes
-and 44-point hit areas. Accessibility text switches Home shortcuts/mixes to one
+and 44-point hit areas, including secondary transport in the expanded player.
+Accessibility text switches Home shortcuts/mixes to one
 column and removes decorative hero art so it cannot squeeze the heading.
 
 Player seeks requested before AVPlayerItem readiness are retained and applied

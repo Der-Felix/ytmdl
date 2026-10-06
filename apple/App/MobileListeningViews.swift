@@ -373,7 +373,7 @@ struct MobilePlayerView: View {
                                 if !track.album.isEmpty && track.album != track.title { Text(track.album).font(.caption).foregroundStyle(.secondary) }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                             if !model.offlineMode {
-                                Button { Task { await model.toggleFavorite(track) } } label: { Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart").font(.title2).frame(width: 44, height: 44) }.accessibilityLabel("Favorit umschalten").disabled(model.pendingFavorites.contains(track.id))
+                                Button { Task { await model.toggleFavorite(track) } } label: { Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Favorit umschalten").disabled(model.pendingFavorites.contains(track.id))
                             }
                             Menu {
                                 if !model.offlineMode {
@@ -383,22 +383,22 @@ struct MobilePlayerView: View {
                                     Button("Wiedergabe übergeben", systemImage: "arrow.up.forward.app") { Task { await model.saveHandoff() } }
                                 }
                                 Button("Klang & Wiedergabe", systemImage: "slider.horizontal.3") { tools = true }
-                            } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Titel-Aktionen")
+                            } label: { Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Titel-Aktionen")
                         }
                         VStack(spacing: 6) {
                             Slider(value: Binding(get: { min(model.player.position, model.player.duration) }, set: { model.player.seek($0) }), in: 0...max(1, model.player.duration)).accessibilityLabel("Wiedergabeposition")
                             HStack { Text(formatTime(model.player.position)).accessibilityIdentifier("playbackElapsed"); Spacer(); Text(formatTime(model.player.duration)) }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
                         HStack(spacing: min(20, max(0, (geometry.size.width - 48 - 246) / 4))) {
-                            Button { model.player.shuffle() } label: { Image(systemName: "shuffle").frame(width: 44, height: 44) }.accessibilityLabel("Nächste Titel mischen")
-                            Button { model.player.previous() } label: { Image(systemName: "backward.end.fill").font(.title2).frame(width: 44, height: 44) }.accessibilityLabel("Vorheriger Titel")
-                            Button { model.player.toggle() } label: { Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.title).frame(width: 70, height: 70).background(accent, in: Circle()).foregroundStyle(.white) }.accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen").accessibilityIdentifier("mobile-player-toggle")
-                            Button { model.player.next() } label: { Image(systemName: "forward.end.fill").font(.title2).frame(width: 44, height: 44) }.accessibilityLabel("Nächster Titel")
+                            Button { model.player.shuffle() } label: { Image(systemName: "shuffle").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Nächste Titel mischen").accessibilityIdentifier("mobile-player-shuffle")
+                            Button { model.player.previous() } label: { Image(systemName: "backward.end.fill").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Vorheriger Titel").accessibilityIdentifier("mobile-player-previous")
+                            Button { model.player.toggle() } label: { Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 30, weight: .semibold)).frame(width: 70, height: 70).background(accent, in: Circle()).foregroundStyle(.white).contentShape(Circle()) }.accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen").accessibilityIdentifier("mobile-player-toggle")
+                            Button { model.player.next() } label: { Image(systemName: "forward.end.fill").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Nächster Titel").accessibilityIdentifier("mobile-player-next")
                             Button {
                                 if model.player.repeatOne { model.player.setRepeatOne(false); model.player.repeatAll = false }
                                 else if model.player.repeatAll { model.player.setRepeatOne(true) }
                                 else { model.player.repeatAll = true }
-                            } label: { Image(systemName: model.player.repeatOne ? "repeat.1" : "repeat").foregroundStyle(model.player.repeatAll || model.player.repeatOne ? Color.pink : Color.primary).frame(width: 44, height: 44) }.accessibilityLabel(model.player.repeatOne ? "Einzeltitel wiederholen" : model.player.repeatAll ? "Warteschlange wiederholen" : "Wiederholung aus")
+                            } label: { Image(systemName: model.player.repeatOne ? "repeat.1" : "repeat").font(.system(size: 22, weight: .semibold)).foregroundStyle(model.player.repeatAll || model.player.repeatOne ? Color.pink : Color.primary).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel(model.player.repeatOne ? "Einzeltitel wiederholen" : model.player.repeatAll ? "Warteschlange wiederholen" : "Wiederholung aus").accessibilityIdentifier("mobile-player-repeat")
                         }.buttonStyle(.plain)
                         HStack { SystemVolumeSlider().frame(height: 36); AirPlayPicker().frame(width: 44, height: 44) }.accessibilityLabel("Lautstärke und Audioausgabe")
                         HStack {
