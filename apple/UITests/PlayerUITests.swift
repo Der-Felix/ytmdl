@@ -28,6 +28,36 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "Native library")
     }
     #if os(iOS)
+    @MainActor func testWidgetLinksOpenDestinationsWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Widget routes require compact navigation.")
+        let app = try app(pausedPlayer: true)
+        XCTAssertTrue(app.buttons["mobile-mini-player-open"].waitForExistence(timeout: 20))
+        func openRoute(_ route: String) {
+            app.open(URL(string: "ytmdl-player://" + route)!)
+            // A simulator URL opened externally can leave a system confirmation
+            // across app launches. Confirm only this fixture app's open prompt.
+            let prompt = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+            if prompt.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "YTMDL")).firstMatch.exists {
+                let confirm = prompt.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "Öffnen"])).firstMatch
+                if confirm.exists { confirm.tap() }
+            }
+        }
+        openRoute("player")
+        XCTAssertTrue(app.navigationBars["Jetzt läuft"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        openRoute("favorites")
+        XCTAssertTrue(app.navigationBars["Lieblingstitel"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["collection-play"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["collection-play"].isHittable)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        attach(app, name: "Widget favorites destination")
+        openRoute("playlists")
+        XCTAssertTrue(app.staticTexts["Abends unterwegs"].firstMatch.waitForExistence(timeout: 10))
+        app.staticTexts["Abends unterwegs"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["collection-play"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        attach(app, name: "Redesigned playlist header")
+    }
     @MainActor func testLargestTextKeepsMiniPlayerAndNavigationUsableWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact accessibility requires iPhone.")
         let app = try app(pausedPlayer: true, largeText: true)
@@ -276,7 +306,16 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(mini.isHittable)
         app.tabBars.buttons["Playlists"].tap()
         app.staticTexts["Abends unterwegs"].firstMatch.tap()
+        let play = app.buttons["collection-play"], shuffle = app.buttons["collection-shuffle"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        for control in [play, shuffle] {
+            XCTAssertTrue(control.isHittable)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 52)
+            XCTAssertGreaterThanOrEqual(control.frame.width, 120)
+        }
+        app.buttons["playlist-collection-options"].tap()
         XCTAssertTrue(app.buttons["Offline speichern"].firstMatch.waitForExistence(timeout: 10))
+        app.navigationBars.firstMatch.tap()
         XCTAssertTrue(mini.isHittable, "Player must stay above tabs inside a pushed collection.")
         attach(app, name: "Playlist with anchored paused mini player")
         mini.tap()

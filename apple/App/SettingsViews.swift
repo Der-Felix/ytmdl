@@ -66,7 +66,7 @@ struct SettingsView: View {
                 }
                 Section("Datenschutz") {
                     Text("Die App verbindet sich nur mit deinem YTMDL-Server. Keine Werbung, keine Analyse-SDKs. Anmeldesitzungen werden gerätegebunden im Schlüsselbund gespeichert. Cover und Musik werden vom Server geladen.")
-                    Text("App-Vorschau 0.2 · Bibliothek, Playlists, Offline-Musik und Wiedergabe. Offline-Kopien werden auf diesem Gerät gespeichert. Die Server-Verwaltung bleibt im Web.").font(.footnote).foregroundStyle(.secondary)
+                    Text("App-Vorschau · Bibliothek, Playlists, Offline-Musik und Wiedergabe. Offline-Kopien werden auf diesem Gerät gespeichert. Die Server-Verwaltung bleibt im Web.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section {
                     #if os(iOS)

@@ -1,6 +1,6 @@
-# iPhone-Funktionsprüfung — bis Kandidat 0.2.1, Build 29
+# iPhone-Funktionsprüfung — bis Vorschau 0.3.0, Build 30
 
-Stand: 5. Oktober 2026. Prüfung des nativen Clients und seiner API-Verträge;
+Stand: 6. Oktober 2026. Prüfung des nativen Clients und seiner API-Verträge;
 isolierte temporäre Daten, Loopback-Server und iPhone-Simulator mit iOS 27.
 Die Server-Kompatibilitätsbasis ist der geprüfte Router von `v1.2.0`.
 Produktionskonten, Musik und Playlists wurden für diese Prüfung nicht verändert.
@@ -44,7 +44,32 @@ Release-Voraussetzung, kein verstecktes erfolgreiches Testergebnis.
 | Geräteübergabe | Payload geprüft; Gerätetest offen | Explizites Speichern/Pausieren und Annehmen, kein automatischer Start; angebotene fremde Übergabe wird bei Kontowechsel entfernt |
 | Apple-TV-Gerätecode | Benötigt zusätzlichen Backend-Stand | Gerätecode-Routen sind nicht in `v1.2.0`. Ein 404 zeigt jetzt eine verständliche Meldung. Normale Anmeldung bleibt verfügbar |
 | Themes und Einstellungen | Navigation und Zustandsprüfungen | System/hell/dunkel, Akzentfarben und lokale Speicherung; sämtliche Kombinationen mit großer Schrift/VoiceOver offen |
-| CarPlay, Siri, Widgets, Watch, echtes Gapless, Lautheitsnormalisierung | Nicht implementiert / nicht zugesagt | EQ-Pegelschutz ist keine Lautheitsnormalisierung; keine vollständige Produkt-Parität behaupten |
+| Home-/Sperrbildschirm-Widgets | Einstieg implementiert; Galerie am Gerät offen | Kleine/mittlere Home-Widgets und drei Sperrbildschirm-Familien. Öffnen Player/Favoriten/Playlists ohne Autoplay; keine Live-Titelanzeige oder Wiedergabetasten im Widget |
+| CarPlay, Siri, Live-Wiedergabe-Widgets, Watch, echtes Gapless, Lautheitsnormalisierung | Nicht implementiert / nicht zugesagt | EQ-Pegelschutz ist keine Lautheitsnormalisierung; keine vollständige Produkt-Parität behaupten |
+
+## Build 30: Sammlungsgestaltung und Widget-Einstiege
+
+Playlist und Favoriten erhalten einen gemeinsamen Cover-/Titel-/Metadatenkopf,
+gleich breite Abspiel-/Zufallsaktionen mit mindestens 52 Punkten Höhe und ein
+einziges Playlist-Menü. Accessibility-Schriftgrößen stapeln die Aktionen.
+Die bisherigen elf iPhone-UI-Abläufe bestanden erneut nach der Navigationsänderung.
+Ein zusätzlicher UI-Test öffnet echte App-URLs für Player → Favoriten → Playlists,
+einschließlich Wechsel aus dem geöffneten Player, und prüft das Ausbleiben von
+Autoplay. Die neue Route-Einheit prüft ungültige Hosts, Pfade und URL-Zusätze.
+
+Der erste neue Widget-UI-Test erwartete irrtümlich „Favoriten“ statt der vorhandenen
+Überschrift „Lieblingstitel“. Danach zeigte der korrekte Test einen echten Fehler:
+Beim Wechsel vom Player zum Favoriten-Einstieg blieb die Bibliotheksübersicht
+sichtbar. Explizite, getrennte Navigationspfade für die iPhone-Tabs korrigieren
+diesen Übergang; der neue Test und alle elf bestehenden Abläufe bestanden danach.
+
+iOS-Simulator-Debug, iOS-Release und signierter iPhone-Debug-Build mit eingebetteter
+Widget-Erweiterung bestanden. Die Entwicklungssignatur wurde geprüft; App und
+Erweiterung verwenden 0.3.0 (30). Die Release-Konfiguration ist ohne
+Distributionssignierung kompiliert. Die Widget-Galerie, tatsächliche Platzierung,
+Sperrbildschirm und getönte Systemdarstellung am Gerät sind noch nicht geprüft.
+Die abschließende CI dieses neuen Commits muss separat kontrolliert werden;
+die grünen Ergebnisse von Build 29 gelten nicht als neue CI für Build 30.
 
 ## Konkrete Korrekturen
 

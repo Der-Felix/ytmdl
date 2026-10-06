@@ -1,4 +1,4 @@
-# Native listening release candidate 0.2.1 — build 29
+# Native listening preview 0.3.0 — build 30
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -18,6 +18,8 @@ from implemented features and simulator verification.
 | Smart offline storage | Optional played-track cache; favorites and selected collections refresh when the library is refreshed |
 | Player access | Native mini-player above the floating iPhone tab bar, retained inside pushed collections; direct Player toolbar entry; expandable player |
 | Collection artwork | Up to four distinct album covers on collection headers; shared, bounded previews in mobile Start and Playlists |
+| Mobile collection design | Integrated cover/title/metadata header, equal-width play/shuffle actions with 52-point minimum height; playlist editing/download actions in one menu; stacked actions at accessibility text sizes |
+| Home/Lock Screen widgets (iOS/iPadOS) | Small/medium Home widgets and circular/rectangular/inline Lock Screen widgets open the player; medium Home widgets also link to favorites and playlists. Navigation only, no live song state or playback controls |
 | Mobile transport | Seeking, previous/next, shuffle, repeat queue/track, native device volume and AirPlay |
 | System artwork | Now Playing artwork published after authenticated/local loading, retained across progress updates, cleared on title change or stop; actual lock-screen review remains required |
 | Mobile sound | Ten-band EQ, presets, preamp/headroom, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer |
@@ -40,7 +42,8 @@ from implemented features and simulator verification.
 ## Offline review on a phone
 
 1. Sign in to your server. On a track's actions choose **Offline speichern**;
-   an album/artist/favorites/playlist also has a download toolbar action.
+   an album/artist/favorites also has a download toolbar action. For playlists,
+   choose **Playlist (…) → Offline speichern**.
 2. Open **Start → Offline** (also reachable from Library or Settings). Wait for
    **Offline verfügbar**. Cover/lyrics sidecars arrive separately when available.
 3. Choose a saved collection and optionally enable refresh with Library updates.
@@ -81,8 +84,29 @@ from implemented features and simulator verification.
   server metadata-based implementation, not Plex's sonic database.
 - Spotify's catalog, podcasts/audiobooks, social network, Jam, commercial AI DJs and
   proprietary Spotify Connect/Plex integrations are not part of this self-hosted client.
-  CarPlay requires Apple's approved audio entitlement; Siri/Shortcuts, widgets,
-  Live Activities and Apple Watch are separate work, not advertised as implemented.
+  CarPlay requires Apple's approved audio entitlement; Siri/Shortcuts, live
+  playback widgets, Live Activities and Apple Watch remain separate work.
+
+## Widgets and collection design review (build 30)
+
+1. Open a playlist or favorites. The cover, title and readable duration share one
+   header. **Abspielen** and **Zufall** have equal width and at least 52 points of
+   height. At accessibility text sizes they stack vertically. Empty collections
+   disable both actions. **Playlist (…)** groups download, edit, add, reload and
+   confirmed deletion instead of scattering actions across the toolbar.
+2. Add **YTMDL → Deine Musik** from the system's Home Screen widget gallery. The
+   small widget opens the player; the medium widget also opens favorites/playlists.
+   The app does not place widgets automatically. Add a YTMDL accessory from the
+   Lock Screen widget gallery to open the player after the system unlocks.
+3. Opening a widget never starts music. If signed out, authenticate in the app;
+   the pending destination is then opened. Widgets have no server requests,
+   session tokens, shared account state, or App Group. They are entry points,
+   not current-track displays or replacement system Now Playing controls.
+   In explicitly opened offline mode, collection shortcuts retain the local
+   saved-music overview; the player shortcut opens the local player.
+4. Review the actual system widget gallery, light/dark/tinted rendering and Lock
+   Screen on a physical device. Compilation and app deep-link tests do not
+   establish system widget appearance or placement on that device.
 
 ## Verification
 

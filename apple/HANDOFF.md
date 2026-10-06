@@ -1,9 +1,35 @@
-# Apple app handoff — release candidate 0.2.1, build 29
+# Apple app handoff — preview 0.3.0, build 30
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
 Do not promote it to a stable server release just because it builds locally.
 The server release and native preview have independent version numbers.
+
+## Build 30: mobile collection design and widgets
+
+`MobileCollectionHeader` in `App/MobileListeningViews.swift` owns the iOS cover,
+title/metadata and play/shuffle layout. `CollectionView` in `App/Views.swift` uses
+it as one list row, removes the duplicate large navigation heading and groups
+playlist download/edit/add/reload/delete in one toolbar menu. Regular buttons
+are equal width with 52-point minimum height; accessibility sizes stack them.
+The existing mini-player regression verifies button size, menu access and
+navigation without starting playback.
+
+`Widgets/MusicWidgets.swift` and `Widgets/Info.plist` define `YTMDLWidgets.appex`,
+embedded only in `YTMDL-iOS`. It supports small/medium Home widgets and three
+Lock Screen accessory families. These are static navigation shortcuts, not live
+Now Playing widgets. The extension has no API client, credentials, network
+requests or shared container. `Resources/Info.plist` registers `ytmdl-player`;
+`Sources/YTMDLCore/MusicWidgetRoute.swift` whitelists only player/favorites/playlists
+with no query, fragment, user info, port or extra path. The root retains a
+pending route until sign-in, dismisses the player before a different route,
+and never starts audio. Parser rejection has a core unit test.
+
+Keep app/extension version and signing identifiers aligned. Add core files to
+the package as usual; widget source belongs only to the extension, not the app
+or support target. The app and extension compile together through the existing
+iOS scheme. A build does not verify Home/Lock Screen placement or tinted widget
+rendering on hardware; these remain explicit review steps in FEATURES.md.
 
 ## Build 29: stability candidate
 

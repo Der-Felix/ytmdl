@@ -69,6 +69,39 @@ struct MobileActionStyle: ButtonStyle {
     }
 }
 
+struct MobileCollectionHeader: View {
+    var model: AppModel
+    var tracks: [Track]
+    var title: String
+    var detail: String
+    var description: String?
+    var play: () -> Void
+    var shuffle: () -> Void
+    @Environment(\.dynamicTypeSize) private var textSize
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .center, spacing: 20))
+            layout {
+                MobileCollectionArtwork(model: model, tracks: tracks, size: 128)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(title).font(.title2.bold()).foregroundStyle(.primary)
+                    Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                    if let description, !description.isEmpty {
+                        Text(description).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            let actions = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+            actions {
+                Button(action: play) { Label("Abspielen", systemImage: "play.fill") }
+                    .buttonStyle(MobileActionStyle(prominent: true)).accessibilityIdentifier("collection-play")
+                Button(action: shuffle) { Label("Zufall", systemImage: "shuffle") }
+                    .buttonStyle(MobileActionStyle()).accessibilityIdentifier("collection-shuffle")
+            }.disabled(tracks.isEmpty)
+        }.padding(.vertical, 8)
+    }
+}
+
 struct MobileLibraryShortcuts: View {
     @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {

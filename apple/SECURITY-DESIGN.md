@@ -36,6 +36,21 @@ References:
 - [Local network privacy](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy)
 - [AVURLAsset cookies](https://developer.apple.com/documentation/avfoundation/avurlassethttpcookieskey)
 
+## Navigation widgets
+
+Build 30 embeds an iOS WidgetKit extension with static Home/Lock Screen entry
+points. It has no network client, session storage, App Group, shared cookies or
+current-track data. `ytmdl-player` URLs accept only the player, favorites and
+playlists hosts; user info, ports, queries, fragments and additional paths are
+rejected. Another app can request these public navigation routes but cannot
+select an account/server, supply credentials, mutate a playlist or start audio.
+The root waits for an existing authenticated session or explicit sign-in before
+opening a destination. Offline collection shortcuts retain the saved-music
+overview and do not make authenticated API calls. Widgets supplement the app;
+they do not replace the system's media controls or bypass device unlocking.
+
+Reference: [Apple widget strategy](https://developer.apple.com/documentation/widgetkit/developing-a-widgetkit-strategy).
+
 ## Device code authorization
 
 This is a cookie-session pairing flow inspired by RFC 8628, **not an OAuth

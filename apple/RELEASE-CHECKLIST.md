@@ -1,4 +1,4 @@
-# Apple 0.2.1 (29) release checklist
+# Apple 0.3.0 (30) release checklist
 
 This is a stabilization candidate for the native client. App and server versions
 are independent. Builds and isolated tests are evidence for the tested paths;
@@ -13,6 +13,8 @@ they do not establish zero defects or certify physical-device behavior.
 - Origin-bound login form state and offline action availability.
 - Compact transport hit areas and layout at the largest accessibility text size.
 - Explicit app-container metadata privacy declaration.
+- Integrated collection headers, large play/shuffle actions and one playlist menu.
+- Home/Lock Screen navigation widgets and authenticated app destination routing.
 
 The current feature set and limits are in [FEATURES.md](FEATURES.md). Keep bundle
 identifiers, keychain, preferences and offline storage when upgrading. Do not
@@ -38,7 +40,7 @@ weaker assertions or mark unexecuted paths verified.
 ## Required before calling the mobile release stable
 
 1. Install the signed candidate on a real iPhone without removing existing data.
-   Verify **Settings → App version: 0.2.1 (29)**. Availability of a build alone
+   Verify **Settings → App version: 0.3.0 (30)**. Availability of a build alone
    does not confirm installation.
 2. Connect a Release build to the intended server over HTTPS. Release rejects HTTP;
    local HTTP consent belongs to Debug and does not qualify production transport.
@@ -53,6 +55,9 @@ weaker assertions or mark unexecuted paths verified.
    TestFlight setup, privacy/support information and authorized reviewer media.
    Compilation does not upload a build. TV distribution also needs final layered
    artwork and remote-focus/device-pairing qualification.
+7. Add Home and Lock Screen widgets through the system gallery. Check all supported
+   families, light/dark/tinted appearance, links after sign-in and links while
+   the player is already open. They must never start playback automatically.
 
 Any failed gate is a release blocker. Keep the previous signed app for rollback;
 do not label an unqualified simulator build or Debug-only HTTP installation as

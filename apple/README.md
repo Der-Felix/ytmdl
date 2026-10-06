@@ -1,7 +1,7 @@
 # YTMDL for Apple
 
 Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The current
-release candidate is **0.2.1, build 29** and requires OS 27 and Xcode 27. It is a client of the
+preview is **0.3.0, build 30** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
 
 See [HANDOFF.md](HANDOFF.md) for the code map and [FEATURES.md](FEATURES.md)
@@ -10,6 +10,10 @@ The build 27 [functional audit](AUDIT.md) separates verified behavior from
 pending hardware checks, including the corrected lock-screen artwork path.
 Build 29 adds playback, playlist hit-area and delayed-response fixes. See
 [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) for the remaining stable-release gates.
+Build 30 gives mobile collections larger play/shuffle controls and one playlist
+menu, and embeds a WidgetKit extension for Home/Lock Screen navigation shortcuts.
+Widget placement is user-controlled; live song display/control widgets are not
+implemented. Review steps and limits are in [FEATURES.md](FEATURES.md).
 
 ## Open and run
 
@@ -39,6 +43,12 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 ## Listening and layout
 
 - Compact iPhone tab navigation, expandable player and persistent mini-player.
+- Mobile playlist/favorites headers combine artwork, title, duration and large
+  play/shuffle buttons. Playlist download/edit/add/reload/delete live in one menu.
+  The iOS app embeds `YTMDLWidgets.appex`; its bundle identifier must remain a child
+  of the app identifier when changing signing settings. Both use version 0.3.0 (30).
+  Home and Lock Screen widgets link to app views without starting audio or sharing
+  authentication. No App Group capability is required.
 - iPad/Mac sidebar navigation and adaptive album grids.
   Switching sidebar sections closes the previous album/artist/playlist drilldown;
   clicking the selected Mac section again returns to its overview. The shared

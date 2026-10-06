@@ -26,6 +26,10 @@ struct RootView: View {
     @State private var destination: Destination? = .library
     #endif
     @State private var expandedPlayer = false
+    @State private var pendingWidgetRoute: MusicWidgetRoute?
+    #if os(iOS)
+    @State private var mobilePaths: [Destination: NavigationPath] = [:]
+    #endif
     @State private var detailVisit = UUID()
     @State private var detailPath = NavigationPath()
     private struct DetailIdentity: Hashable {
@@ -66,7 +70,7 @@ struct RootView: View {
                 else if sizeClass == .compact {
                     TabView(selection: $destination) {
                         ForEach([Destination.home, .search, .library, .playlists, .settings]) { item in
-                            NavigationStack {
+                            NavigationStack(path: Binding(get: { mobilePaths[item] ?? NavigationPath() }, set: { mobilePaths[item] = $0 })) {
                                 routedContent(item).toolbar {
                                     ToolbarItem(placement: .topBarTrailing) {
                                         Button { expandedPlayer = true } label: { Image(systemName: "play.circle").font(.system(size: 21, weight: .medium)).frame(width: 44, height: 44) }
@@ -87,7 +91,7 @@ struct RootView: View {
                 #endif
             }
         }
-        .sheet(isPresented: $expandedPlayer) {
+        .sheet(isPresented: $expandedPlayer, onDismiss: applyWidgetRoute) {
             NavigationStack {
                 NowPlayingView(model: model)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Schließen", systemImage: "chevron.down") { expandedPlayer = false } } }
@@ -116,7 +120,16 @@ struct RootView: View {
         .onChange(of: destination) { if !detailPath.isEmpty { detailPath = NavigationPath() } }
         .onChange(of: model.user?.id) { old, _ in
             detailPath = NavigationPath(); detailVisit = UUID()
+            #if os(iOS)
+            mobilePaths = [:]
+            #endif
             if old != nil { expandedPlayer = false }
+            applyWidgetRoute()
+        }
+        .onOpenURL { url in
+            guard let route = MusicWidgetRoute(url: url) else { return }
+            pendingWidgetRoute = route
+            applyWidgetRoute()
         }
         #if DEBUG
         .task {
@@ -136,6 +149,31 @@ struct RootView: View {
             }
         }
         #endif
+    }
+    private func applyWidgetRoute() {
+        guard model.user != nil, let route = pendingWidgetRoute else { return }
+        if expandedPlayer && route != .player { expandedPlayer = false; return }
+        pendingWidgetRoute = nil
+        // Offline browsing stays local. Collection shortcuts return to the
+        // saved-music overview instead of attempting authenticated API calls.
+        if model.offlineMode && route != .player { return }
+        switch route {
+        case .player: expandedPlayer = true
+        case .favorites:
+            #if os(iOS)
+            if sizeClass == .compact {
+                mobilePaths[.library] = NavigationPath([CollectionKind.favorites])
+                selectDestination(.library)
+            } else { selectDestination(.favorites) }
+            #else
+            selectDestination(.favorites)
+            #endif
+        case .playlists:
+            #if os(iOS)
+            mobilePaths[.playlists] = NavigationPath()
+            #endif
+            selectDestination(.playlists)
+        }
     }
     private var splitView: some View {
         NavigationSplitView {
@@ -615,16 +653,24 @@ struct CollectionView: View {
             standardCollection
             #endif
         }.navigationTitle(collectionTitle).task { if tracks.isEmpty { await load() } }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             #if os(iOS)
-            ToolbarItem {
+            if playlist == nil { ToolbarItem {
                 Button("Offline speichern", systemImage: "arrow.down.circle") { Task { await model.downloadCollection(kind) } }
                     .disabled(busy || model.offlineMode)
-            }
+            } }
             #endif
             if let playlist {
                 ToolbarItem {
-                    Menu("Playlist", systemImage: "music.note.list") {
+                    Menu {
+                        #if os(iOS)
+                        Button("Offline speichern", systemImage: "arrow.down.circle") { Task { await model.downloadCollection(kind) } }
+                            .disabled(model.offlineMode)
+                        Divider()
+                        #endif
                         Button("Bearbeiten", systemImage: "pencil") { editor = true }
                         if playlist.smartRules == nil {
                             Button("Titel hinzufügen", systemImage: "plus") { adding = true }
@@ -632,7 +678,10 @@ struct CollectionView: View {
                         Button("Neu laden", systemImage: "arrow.clockwise") { Task { await reloadPlaylist() } }
                         Divider()
                         Button("Playlist löschen", systemImage: "trash", role: .destructive) { deleting = true }
-                    }.disabled(busy || model.playlistBusy).accessibilityIdentifier("playlist-collection-options")
+                    } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold))
+                            .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }.accessibilityLabel("Playlist").disabled(busy || model.playlistBusy).accessibilityIdentifier("playlist-collection-options")
                 }
             }
         }
@@ -672,16 +721,17 @@ struct CollectionView: View {
         List {
             Section {
                 #if os(iOS)
-                MobileCollectionArtwork(model: model, tracks: tracks).frame(height: 180)
-                    .frame(maxWidth: .infinity).listRowBackground(Color.clear)
-                Text("\(tracks.count)\(more ? " geladene" : "") Titel · \(formatTime(tracks.reduce(0) { $0 + $1.duration }))")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                if let description = playlist?.description, !description.isEmpty { Text(description).font(.subheadline).foregroundStyle(.secondary) }
-                #endif
+                MobileCollectionHeader(model: model, tracks: tracks, title: collectionTitle,
+                    detail: "\(tracks.count)\(more ? " geladene" : "") Titel · \(mobileCollectionDuration(Int(tracks.reduce(0) { $0 + $1.duration }) * 1000))",
+                    description: playlist?.description, play: { play(tracks) }, shuffle: { play(tracks.shuffled()) })
+                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 16, trailing: 0))
+                #else
                 HStack {
                     Button("Abspielen", systemImage: "play.fill") { play(tracks) }.buttonStyle(.borderedProminent).disabled(tracks.isEmpty)
                     Button("Zufall", systemImage: "shuffle") { play(tracks.shuffled()) }.buttonStyle(.bordered).disabled(tracks.isEmpty)
                 }.padding(.vertical, 12)
+                #endif
             }
             Section {
                 ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
