@@ -181,3 +181,11 @@ Sperrbildschirm-Darstellung, reale Audioausgabe, AirPlay/Unterbrechungen,
 Hintergrundtransfer und Flugmodus-Neustart bleiben offen. Release benötigt HTTPS;
 eine Debug-HTTP-Verbindung qualifiziert keinen stabilen Release-Betrieb.
 Die vollständigen Freigabepunkte stehen in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md).
+
+CI-Nachprüfung: Der erste iPhone-Lauf prüfte die Fortschrittsanzeige erst ungefähr
+55 Sekunden nach Start; die synthetischen Titel dauerten 30 Sekunden. Der
+Fortschritts-Wait scheiterte, die zehn weiteren iPhone-Abläufe bestanden.
+Die Loopback-Fixture verwendet jetzt drei Minuten Null-PCM mit passender
+Metadaten-Dauer, um automatische Titelgrenzen während langsamer Accessibility-
+Snapshots zu vermeiden. Die bestehende Fortschrittsprüfung bleibt unverändert;
+das Ergebnis der erneuten abschließenden CI muss separat kontrolliert werden.

@@ -32,14 +32,18 @@ def cover(index):
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR', struct.pack('!2I5B', 256,256,8,2,0,0,0))+chunk(b'IDAT', zlib.compress(b''.join(pixels)))+chunk(b'IEND',b'')
 
 
+# Cold simulator accessibility snapshots can take longer than thirty seconds.
+# Keep the silent stream long enough that startup/transport checks do not race
+# automatic track boundaries. End-of-track behavior has separate player tests.
+FIXTURE_SECONDS = 180
 audio = io.BytesIO()
 with wave.open(audio, 'wb') as wav:
     wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(44100)
-    wav.writeframes(b'\0\0' * 44100 * 30)
+    wav.writeframes(b'\0\0' * 44100 * FIXTURE_SECONDS)
 AUDIO = audio.getvalue()
 MIME = 'audio/wav'
 TRACKS = [{'id': 't'+str(i), 'title': name, 'artists': ['Mira' if i%2 else 'Nordlicht'], 'album': name,
-           'duration_ms': 30000, 'codec': 'pcm_s16le'} for i,name in enumerate(['Nachtfahrt','Zeitlos','Fernweh','Blaue Stunde','Horizont','Lichtblick'])]
+           'duration_ms': FIXTURE_SECONDS * 1000, 'codec': 'pcm_s16le'} for i,name in enumerate(['Nachtfahrt','Zeitlos','Fernweh','Blaue Stunde','Horizont','Lichtblick'])]
 RELEASES = [{'id':'r'+str(i),'title':t['title'],'artists':t['artists'],'year':2026,'track_count_in_library':1} for i,t in enumerate(TRACKS)]
 ARTISTS = [{'id':'a0','name':'Nordlicht','genres':['Elektronisch'],'track_count':3},{'id':'a1','name':'Mira','genres':['Pop'],'track_count':3}]
 USER = {'id':'fixture','username':'fixture_user','display_name':'Design-Vorschau','role':'user'}
