@@ -254,81 +254,63 @@ struct MobileHomeView: View {
 
 struct OfflineLibraryView: View {
     var model: AppModel
+    var collectionID: String? = nil
     @State private var query = ""
     @State private var onlyReady = false
-    @State private var sorting = "date"
-    @State private var collectionID = ""
+    @State private var browsing = "collections"
+    @State private var sorting: OfflineSort = .collection
+    @AppStorage("offlineTrackSort") private var trackSort = OfflineSort.artist.rawValue
     @State private var deleting: String?
     @State private var confirmDelete = false
     @State private var options = false
     @State private var player = false
+    private var collection: OfflineCollection? { model.offline.currentCollections.first { $0.id == collectionID } }
+    private var showingTracks: Bool { collectionID != nil || browsing == "tracks" }
+    private var selectedSort: OfflineSort { collectionID != nil ? sorting : OfflineSort(rawValue: trackSort) ?? .artist }
     private var records: [OfflineTrack] {
-        let collection = model.offline.currentCollections.first { $0.id == collectionID }
-        let ids = collection.map { Set($0.trackIDs) }
-        let filtered = model.offline.currentRecords.filter {
-            (ids == nil || ids!.contains($0.track.id)) &&
-            (!onlyReady || $0.state == .ready) && (query.isEmpty || ($0.track.title + " " + $0.track.artistText + " " + $0.track.album).localizedCaseInsensitiveContains(query))
-        }
-        if sorting == "collection", let collection {
-            var positions: [String: Int] = [:]
-            for (index, id) in collection.trackIDs.enumerated() where positions[id] == nil { positions[id] = index }
-            return filtered.sorted { (positions[$0.track.id] ?? Int.max) < (positions[$1.track.id] ?? Int.max) }
-        }
-        return sorting == "title" ? filtered.sorted { $0.track.title.localizedStandardCompare($1.track.title) == .orderedAscending } : filtered.sorted { $0.date > $1.date }
+        guard collectionID == nil || collection != nil else { return [] }
+        return OfflineCatalog.records(model.offline.currentRecords, collection: collection,
+                                      sort: selectedSort, query: query, onlyReady: onlyReady)
     }
     private var playable: [Track] { model.offline.availableTracks(in: records) }
+    private var visibleCollections: [OfflineCollection] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return model.offline.currentCollections.filter { item in
+            query.isEmpty || item.name.localizedCaseInsensitiveContains(query) ||
+                !OfflineCatalog.records(model.offline.currentRecords, collection: item, sort: .collection, query: query).isEmpty
+        }.sorted {
+            let result = $0.name.localizedStandardCompare($1.name)
+            return result == .orderedSame ? $0.id < $1.id : result == .orderedAscending
+        }
+    }
     var body: some View {
         List {
-            Section {
-                Label(model.offlineMode ? "Offline-Modus · keine Server-Anfragen" : "Auf diesem Gerät", systemImage: "iphone")
-                Text("\(ByteCountFormatter.string(fromByteCount: model.offline.usedBytes, countStyle: .file)) gespeichert · \(model.offline.readyTracks.count) Titel").font(.subheadline).foregroundStyle(.secondary)
-                HStack {
-                    Button("Abspielen", systemImage: "play.fill") { play(playable) }.buttonStyle(.borderedProminent)
-                    Button("Zufall", systemImage: "shuffle") { play(playable.shuffled()) }.buttonStyle(.bordered)
-                }.disabled(playable.isEmpty)
-                if !model.offline.currentCollections.isEmpty {
-                    Picker("Sammlung", selection: $collectionID) {
-                        Text("Alle Offline-Titel").tag("")
-                        ForEach(model.offline.currentCollections) { Text($0.name).tag($0.id) }
-                    }
-                    if let collection = model.offline.currentCollections.first(where: { $0.id == collectionID }) {
-                        Toggle("Beim Bibliothek-Aktualisieren synchronisieren", isOn: Binding(get: { collection.keepUpdated }, set: { model.offline.setKeepUpdated(collection.id, enabled: $0) }))
-                            .disabled(model.offlineMode)
-                    }
-                }
-                Toggle("Nur fertige Downloads", isOn: $onlyReady)
-                Picker("Sortierung", selection: $sorting) {
-                    Text("Zuletzt hinzugefügt").tag("date"); Text("Titel A–Z").tag("title")
-                    if !collectionID.isEmpty { Text("Reihenfolge der Sammlung").tag("collection") }
+            if collectionID == nil {
+                Section {
+                    Label(model.offlineMode ? "Offline-Modus" : "Auf diesem Gerät", systemImage: "wifi.slash")
+                    Text("\(model.offline.readyTracks.count) Titel · \(ByteCountFormatter.string(fromByteCount: model.offline.usedBytes, countStyle: .file)) gespeichert")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Picker("Offline-Ansicht", selection: $browsing) {
+                        Text("Sammlungen").tag("collections")
+                        Text("Alle Titel").tag("tracks")
+                    }.pickerStyle(.segmented).accessibilityIdentifier("offline-view")
                 }
             }
-            if records.isEmpty { ContentUnavailableView("Noch keine Offline-Musik", systemImage: "arrow.down.circle", description: Text("Öffne einen Titel, ein Album oder eine Playlist und wähle „Offline speichern“.")) }
-            ForEach(records) { record in
-                HStack(spacing: 12) {
-                    Button { play(playable, selected: record.track.id) } label: {
-                        HStack(spacing: 12) {
-                            ArtworkView(model: model, kind: "tracks", id: record.track.id).frame(width: 52, height: 52)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(record.track.title).font(.headline).lineLimit(1)
-                                Text(record.track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                status(record)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }.contentShape(Rectangle())
-                    }.buttonStyle(.plain).disabled(record.state != .ready)
-                    Menu {
-                        if record.state != .ready {
-                            if record.state == .downloading || record.state == .queued { Button("Pausieren", systemImage: "pause") { model.offline.pause(record.track.id) } }
-                            else { Button("Erneut herunterladen", systemImage: "arrow.clockwise") { model.offline.enqueue([record.track]) }.disabled(model.offlineMode) }
-                        }
-                        Button("Lokale Kopie entfernen", systemImage: "trash", role: .destructive) { deleting = record.track.id; confirmDelete = true }
-                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Download-Aktionen für \(record.track.title)")
+            if showingTracks {
+                trackHeader
+                if records.isEmpty {
+                    ContentUnavailableView(query.isEmpty ? "Keine Titel in dieser Ansicht" : "Keine passenden Titel",
+                        systemImage: query.isEmpty ? "arrow.down.circle" : "magnifyingglass",
+                        description: Text(query.isEmpty ? "Gespeicherte Titel erscheinen hier. Prüfe auch den Filter für fertige Downloads." : "Suche nach Titel, Künstler oder Album oder lösche den Suchtext."))
                 }
+                Section("\(records.count) Titel") { ForEach(records) { record in trackRow(record) } }
+            } else {
+                collectionSections
             }
             if let error = model.offline.error { Section { Text(error).foregroundStyle(.red); Button("Meldung schließen") { model.offline.error = nil } } }
-            if model.offlineMode { Section { Button("Zur Anmeldung", systemImage: "network") { Task { await model.logout() } } } }
-        }.navigationTitle("Offline-Musik")
-        .onChange(of: collectionID) { _, value in sorting = value.isEmpty ? "date" : "collection" }
-        .searchable(text: $query, prompt: "Offline-Titel, Künstler, Alben")
+            if model.offlineMode && collectionID == nil { Section { Button("Zur Anmeldung", systemImage: "network") { Task { await model.logout() } } } }
+        }.navigationTitle(collection?.name ?? "Offline-Musik")
+        .searchable(text: $query, prompt: showingTracks ? "Titel, Künstler oder Album" : "Playlist, Album oder Titel")
         .toolbar {
             ToolbarItem { Button("Download-Einstellungen", systemImage: "gearshape") { options = true } }
             if model.offlineMode && model.player.current != nil { ToolbarItem { Button("Player", systemImage: "play.circle") { player = true } } }
@@ -337,12 +319,92 @@ struct OfflineLibraryView: View {
         .sheet(isPresented: $player) { NavigationStack { MobilePlayerView(model: model).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Schließen") { player = false } } } } }
         .confirmationDialog("Lokale Kopie entfernen?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Vom iPhone entfernen", role: .destructive) { if let deleting { model.offline.remove(deleting) } }
-        } message: { Text("Der Titel bleibt auf deinem Musikserver erhalten.") }
+        } message: { Text("Der Titel bleibt auf deinem Musikserver erhalten. Die lokale Kopie wird auch in anderen Offline-Sammlungen nicht mehr verfügbar sein.") }
+    }
+    @ViewBuilder private var collectionSections: some View {
+        if visibleCollections.isEmpty {
+            ContentUnavailableView(query.isEmpty ? "Noch keine Offline-Sammlungen" : "Keine passende Sammlung",
+                systemImage: query.isEmpty ? "music.note.list" : "magnifyingglass",
+                description: Text(query.isEmpty ? "Speichere eine Playlist, ein Album oder deine Favoriten über „Offline speichern“. Einzeln gespeicherte Titel findest du unter „Alle Titel“." : "Suche nach einem Namen oder einem enthaltenen Titel."))
+            if query.isEmpty { Button("Alle gespeicherten Titel anzeigen") { browsing = "tracks" } }
+        }
+        ForEach(["playlist", "favorites", "release", "artist"], id: \.self) { kind in
+            let items = visibleCollections.filter { $0.kind == kind }
+            if !items.isEmpty {
+                Section(kind == "playlist" ? "Playlists" : kind == "favorites" ? "Favoriten" : kind == "release" ? "Alben" : "Künstler") {
+                    ForEach(items) { item in
+                        let saved = OfflineCatalog.records(model.offline.currentRecords, collection: item, sort: .collection)
+                        let ready = model.offline.availableTracks(in: saved)
+                        NavigationLink {
+                            OfflineLibraryView(model: model, collectionID: item.id)
+                        } label: {
+                            HStack(spacing: 14) {
+                                MobileCollectionArtwork(model: model, tracks: saved.map(\.track), size: 64)
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(item.name).font(.headline).lineLimit(2)
+                                    Text("\(ready.count) von \(Set(item.trackIDs).count) Titeln offline")
+                                        .font(.subheadline).foregroundStyle(.secondary)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                            }.padding(.vertical, 6)
+                        }.accessibilityIdentifier("offline-collection-" + item.sourceID)
+                    }
+                }
+            }
+        }
+    }
+    private var trackHeader: some View {
+        Section {
+            if let collection {
+                MobileCollectionHeader(model: model, tracks: records.map(\.track), title: collection.name,
+                    detail: "\(playable.count) offline verfügbar · \(records.count) gespeichert",
+                    play: { play(playable) }, shuffle: { play(playable.shuffled()) })
+                    .disabled(playable.isEmpty)
+                Toggle("Beim Aktualisieren synchronisieren", isOn: Binding(get: { collection.keepUpdated }, set: { model.offline.setKeepUpdated(collection.id, enabled: $0) }))
+                    .disabled(model.offlineMode)
+            } else {
+                HStack {
+                    Button("Abspielen", systemImage: "play.fill") { play(playable) }.buttonStyle(MobileActionStyle(prominent: true))
+                    Button("Zufall", systemImage: "shuffle") { play(playable.shuffled()) }.buttonStyle(MobileActionStyle())
+                }.disabled(playable.isEmpty)
+            }
+            Toggle("Nur fertige Downloads", isOn: $onlyReady)
+            Picker("Sortierung", selection: Binding(get: { selectedSort }, set: { value in
+                if collectionID != nil { sorting = value } else { trackSort = value.rawValue }
+            })) {
+                ForEach(OfflineSort.allCases.filter { collectionID != nil || $0 != .collection }, id: \.rawValue) { Text($0.title).tag($0) }
+            }.accessibilityIdentifier("offline-sort")
+        }
+    }
+    private func trackRow(_ record: OfflineTrack) -> some View {
+        HStack(spacing: 12) {
+            Button { play(playable, selected: record.track.id) } label: {
+                HStack(spacing: 12) {
+                    ArtworkView(model: model, kind: "tracks", id: record.track.id).frame(width: 52, height: 52)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(record.track.title).font(.headline).lineLimit(1)
+                        Text(record.track.artistText).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        if !record.track.album.isEmpty { Text(record.track.album).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        status(record)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain).disabled(model.offline.audioURL(record.track.id) == nil)
+                .accessibilityIdentifier("offline-track-" + record.track.id)
+            Menu {
+                if record.state != .ready {
+                    if record.state == .downloading || record.state == .queued { Button("Pausieren", systemImage: "pause") { model.offline.pause(record.track.id) } }
+                    else { Button("Erneut herunterladen", systemImage: "arrow.clockwise") { model.offline.enqueue([record.track]) }.disabled(model.offlineMode) }
+                }
+                Button("Lokale Kopie entfernen", systemImage: "trash", role: .destructive) { deleting = record.track.id; confirmDelete = true }
+            } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Download-Aktionen für \(record.track.title)")
+        }
     }
     private func play(_ tracks: [Track], selected: String? = nil) { if let client = model.client { model.player.play(tracks, start: selected.flatMap { id in tracks.firstIndex { $0.id == id } } ?? 0, client: client) } }
     @ViewBuilder private func status(_ record: OfflineTrack) -> some View {
         switch record.state {
-        case .ready: Label(record.automatic ? "Automatisch gespeichert" : "Offline verfügbar", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+        case .ready:
+            Label(model.offline.audioURL(record.track.id) == nil ? "Lokale Datei fehlt" : record.automatic ? "Automatisch gespeichert" : "Offline verfügbar",
+                  systemImage: model.offline.audioURL(record.track.id) == nil ? "exclamationmark.circle" : "checkmark.circle.fill")
+                .font(.caption).foregroundStyle(model.offline.audioURL(record.track.id) == nil ? .orange : .green)
         case .queued: Text("Wartet auf Download").font(.caption).foregroundStyle(.secondary)
         case .paused: Text("Pausiert · Fortsetzen über Aktionen").font(.caption).foregroundStyle(.secondary)
         case .failed: Text(record.failure ?? "Download fehlgeschlagen").font(.caption).foregroundStyle(.red)

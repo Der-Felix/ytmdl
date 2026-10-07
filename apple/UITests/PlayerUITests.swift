@@ -342,6 +342,7 @@ final class PlayerUITests: XCTestCase {
         app.tabBars.buttons["Start"].tap()
         app.buttons["Offline"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Offline-Musik"].waitForExistence(timeout: 10))
+        app.buttons["offline-collection-r0"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Offline verfügbar"].firstMatch.waitForExistence(timeout: 30))
         XCTAssertFalse(app.buttons["Pause"].exists, "Downloading must not start playback.")
         attach(app, name: "Mobile Offline downloads")
@@ -351,6 +352,52 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.switches["Equalizer aktivieren"].firstMatch.exists)
         XCTAssertFalse(app.alerts.firstMatch.exists)
         attach(app, name: "Mobile EQ settings without playback")
+    }
+    @MainActor func testOfflinePlaylistsBrowseSearchAndSortWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Offline flow requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].waitForExistence(timeout: 20))
+        app.tabBars.buttons["Playlists"].tap()
+        app.staticTexts["Abends unterwegs"].firstMatch.tap()
+        app.buttons["playlist-collection-options"].tap()
+        app.buttons["Offline speichern"].firstMatch.tap()
+        app.tabBars.buttons["Start"].tap()
+        app.buttons["Offline"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["offline-collection-p0"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["6 von 6 Titeln offline"].waitForExistence(timeout: 30))
+        // Enter the same local-only mode available without a server session.
+        app.tabBars.buttons["Einstellungen"].tap()
+        for _ in 0..<8 where !app.buttons["Abmelden"].firstMatch.isHittable { app.swipeUp() }
+        app.buttons["Abmelden"].firstMatch.tap()
+        app.buttons["Abmelden"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Offline-Musik öffnen"].waitForExistence(timeout: 10))
+        app.buttons["Offline-Musik öffnen"].tap()
+        app.buttons.containing(.staticText, identifier: "Design-Vorschau").firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Offline-Modus"].waitForExistence(timeout: 10))
+        attach(app, name: "Offline playlists with cached covers")
+        app.buttons["offline-collection-p0"].tap()
+        XCTAssertTrue(app.navigationBars["Abends unterwegs"].waitForExistence(timeout: 10))
+        let first = app.buttons["offline-track-t0"].firstMatch
+        let second = app.buttons["offline-track-t1"].firstMatch
+        // The saved playlist order is t0, t1; alphabetical order differs.
+        for _ in 0..<4 where !first.isHittable { app.swipeUp() }
+        XCTAssertTrue(first.exists); XCTAssertTrue(second.exists)
+        XCTAssertLessThan(first.frame.minY, second.frame.minY)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        app.navigationBars.buttons.firstMatch.tap()
+        app.buttons["Alle Titel"].tap()
+        XCTAssertTrue(app.buttons["offline-sort"].firstMatch.waitForExistence(timeout: 10))
+        app.buttons["offline-sort"].firstMatch.tap()
+        app.buttons["Titel A–Z"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Blaue Stunde"].firstMatch.exists)
+        attach(app, name: "Offline tracks sorted by title")
+        app.swipeDown()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap(); search.typeText("no such song")
+        XCTAssertTrue(app.staticTexts["Keine passenden Titel"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
     }
     @MainActor func testTabletPlayerControlsFitWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tablet layout requires iPad.")

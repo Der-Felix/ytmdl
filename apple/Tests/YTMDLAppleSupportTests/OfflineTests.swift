@@ -8,9 +8,51 @@ import YTMDLCore
 private struct OfflineTestManifest: Encodable {
     let profiles: [OfflineProfile]
     let tracks: [OfflineTrack]
+    var collections: [OfflineCollection]? = nil
 }
 private func fixtureUser(_ id: String) throws -> User {
     try JSONDecoder().decode(User.self, from: Data("{\"id\":\"\(id)\",\"username\":\"fixture\",\"displayName\":\"Fixture\",\"role\":\"user\"}".utf8))
+}
+@MainActor @Test func offlineCollectionsSurviveRestartWithOriginalOrderAndSharedTracks() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let server = try ServerAddress("https://fixture.example"), user = try fixtureUser("first"), other = try fixtureUser("second")
+    let profile = OfflineProfile(id: OfflineLibrary.profileID(server: server, userID: user.id), origin: server.url.absoluteString, user: user)
+    let otherProfile = OfflineProfile(id: OfflineLibrary.profileID(server: server, userID: other.id), origin: server.url.absoluteString, user: other)
+    let entries = [
+        Track(id: "a", title: "Track 10", artists: ["Zulu"], album: "A", durationMs: 1000),
+        Track(id: "b", title: "Track 2", artists: ["Alpha"], album: "B", durationMs: 1000),
+        Track(id: "c", title: "Track 1", artists: ["Alpha"], album: "A", durationMs: 1000)
+    ].enumerated().map { index, track in
+        OfflineTrack(id: OfflineLibrary.digest(profile.id + "\n" + track.id), scope: profile.id,
+                     track: track, state: .paused, date: Date(timeIntervalSince1970: Double(index)))
+    }
+    let playlist = OfflineCollection(id: "playlist", scope: profile.id, kind: "playlist", sourceID: "p1", name: "Road trip", trackIDs: ["b", "a", "b", "missing"], keepUpdated: true)
+    let favorites = OfflineCollection(id: "favorites", scope: profile.id, kind: "favorites", sourceID: "", name: "Favoriten", trackIDs: ["a", "c"], keepUpdated: false)
+    try JSONEncoder().encode(OfflineTestManifest(profiles: [profile, otherProfile], tracks: entries, collections: [playlist, favorites]))
+        .write(to: root.appendingPathComponent("manifest.json"))
+    let store = OfflineLibrary(root: root, startTransfers: false); store.selectProfile(profile)
+    #expect(store.currentCollections.count == 2)
+    #expect(OfflineCatalog.records(store.currentRecords, collection: playlist, sort: .collection).map(\.track.id) == ["b", "a"])
+    #expect(OfflineCatalog.records(store.currentRecords, sort: .artist).map(\.track.id) == ["c", "b", "a"])
+    #expect(OfflineCatalog.records(store.currentRecords, sort: .title).map(\.track.id) == ["c", "b", "a"])
+    #expect(OfflineCatalog.records(store.currentRecords, sort: .album).map(\.track.id) == ["c", "a", "b"])
+    #expect(OfflineCatalog.records(store.currentRecords, sort: .date).map(\.track.id) == ["c", "b", "a"])
+    #expect(OfflineCatalog.records(store.currentRecords, collection: playlist, sort: .collection, query: " ZULU ").map(\.track.id) == ["a"])
+    #expect(OfflineCatalog.records(store.currentRecords, sort: .title, onlyReady: true).isEmpty)
+    store.selectProfile(otherProfile)
+    #expect(store.currentCollections.isEmpty)
+    #expect(OfflineCatalog.records(entries, collection: OfflineCollection(id: "other", scope: otherProfile.id, kind: "playlist", sourceID: "p1", name: "Other", trackIDs: ["a"], keepUpdated: false), sort: .collection).isEmpty)
+    store.selectProfile(profile); store.setKeepUpdated(playlist.id, enabled: false)
+    let restart = OfflineLibrary(root: root, startTransfers: false); restart.selectProfile(profile)
+    #expect(restart.currentCollections.first { $0.id == playlist.id }?.keepUpdated == false)
+    #expect(OfflineCatalog.records(restart.currentRecords, collection: favorites, sort: .collection).map(\.track.id) == ["a", "c"])
+    // Removing one local file never rewrites the playlist membership or removes
+    // another song. Missing downloads remain honest in the collection count.
+    restart.remove("a")
+    #expect(restart.currentRecords.map(\.track.id).sorted() == ["b", "c"])
+    #expect(restart.currentCollections.first { $0.id == playlist.id }?.trackIDs == playlist.trackIDs)
 }
 @MainActor @Test func offlineRestartAccountIsolationAndLocalRemoval() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

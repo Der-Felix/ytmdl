@@ -1,7 +1,7 @@
 # YTMDL for Apple
 
 Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The current
-preview is **0.3.0, build 30** and requires OS 27 and Xcode 27. It is a client of the
+preview is **0.3.0, build 31** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
 
 See [HANDOFF.md](HANDOFF.md) for the code map and [FEATURES.md](FEATURES.md)
@@ -14,6 +14,10 @@ Build 30 gives mobile collections larger play/shuffle controls and one playlist
 menu, and embeds a WidgetKit extension for Home/Lock Screen navigation shortcuts.
 Widget placement is user-controlled; live song display/control widgets are not
 implemented. Review steps and limits are in [FEATURES.md](FEATURES.md).
+
+Build 31 makes saved offline playlists/albums/favorites visible with cover previews,
+original collection order, searchable tracks and artist/album/title/date sorting.
+Offline playback retains an anchored mini-player; existing downloads are preserved.
 
 ## Open and run
 

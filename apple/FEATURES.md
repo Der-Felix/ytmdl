@@ -1,4 +1,4 @@
-# Native listening preview 0.3.0 — build 30
+# Native listening preview 0.3.0 — build 31
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -13,7 +13,7 @@ from implemented features and simulator verification.
 | iPhone/iPad Start | Recent albums, local recent listening, favorites, genre mixes, playlist shortcuts, resume last queue |
 | Library/search | Existing library artists, albums, tracks, genre filter and authenticated artwork |
 | Favorites/playlists | Native editing, ordering, membership, smart server rules and favorites |
-| Offline music (iOS/iPadOS) | Track, album, artist, favorites and playlist snapshots; local search, collection filter, sorting and shuffle |
+| Offline music (iOS/iPadOS) | Track, album, artist, favorites and playlist snapshots; visible collection groups, cached covers, saved playlist order, local search, artist/album/title/date sorting and shuffle |
 | Downloads | Background URLSession on real iOS, progress, pause/retry, Wi-Fi preference, music storage cap, remove local copies |
 | Smart offline storage | Optional played-track cache; favorites and selected collections refresh when the library is refreshed |
 | Player access | Native mini-player above the floating iPhone tab bar, retained inside pushed collections; direct Player toolbar entry; expandable player |
@@ -44,10 +44,15 @@ from implemented features and simulator verification.
 1. Sign in to your server. On a track's actions choose **Offline speichern**;
    an album/artist/favorites also has a download toolbar action. For playlists,
    choose **Playlist (…) → Offline speichern**.
-2. Open **Start → Offline** (also reachable from Library or Settings). Wait for
-   **Offline verfügbar**. Cover/lyrics sidecars arrive separately when available.
-3. Choose a saved collection and optionally enable refresh with Library updates.
-   This downloads newly resolved members, preserving earlier local files.
+2. Open **Start → Offline** (also reachable from Library or Settings). The
+   **Sammlungen** view groups saved playlists, favorites, albums and artists. Wait
+   until the card says all intended tracks are offline; open it to inspect titles
+   and cached covers. Cover/lyrics sidecars arrive separately when available.
+3. Verify the playlist's original order. Try **Sortierung** (title, artist, album,
+   date) and search for an artist or a nonexistent title. Return to the overview
+   and choose **Alle Titel** for individually saved/legacy downloads. The all-title
+   sort preference persists. Refresh synchronization is optional while online;
+   it downloads newly resolved members, preserving earlier local files.
 4. Turn on airplane mode. Play a downloaded title, seek and skip between downloaded
    titles. Quit and reopen the app. From the connection screen choose
    **Offline-Musik öffnen**, then your saved account. This path requires no login

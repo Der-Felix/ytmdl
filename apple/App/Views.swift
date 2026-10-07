@@ -66,7 +66,15 @@ struct RootView: View {
                     }
                 }
                 #elseif os(iOS)
-                if model.offlineMode { NavigationStack { OfflineLibraryView(model: model) } }
+                if model.offlineMode {
+                    NavigationStack { OfflineLibraryView(model: model) }
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            if model.player.current != nil {
+                                MobileMiniPlayer(model: model) { expandedPlayer = true }
+                                    .background(.regularMaterial)
+                            }
+                        }
+                }
                 else if sizeClass == .compact {
                     TabView(selection: $destination) {
                         ForEach([Destination.home, .search, .library, .playlists, .settings]) { item in

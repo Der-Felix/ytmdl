@@ -1,9 +1,37 @@
-# Apple app handoff — preview 0.3.0, build 30
+# Apple app handoff — preview 0.3.0, build 31
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
 Do not promote it to a stable server release just because it builds locally.
 The server release and native preview have independent version numbers.
+
+## Build 31: offline library browsing
+
+`OfflineLibraryView` in `App/MobileListeningViews.swift` opens on visible local
+collections: playlists, favorites, albums and artists, with cached cover collages,
+ready/total counts and collection drilldowns. “Alle Titel” retains legacy and
+individually downloaded music. A playlist opens in saved membership order;
+`OfflineCatalog` in `App/OfflineLibrary.swift` handles local search and deterministic
+artist/album/title/date sorting with ID tie-breaks. All-title sorting is remembered.
+A persistent mini-player in the offline root keeps transport reachable while browsing.
+
+The manifest format and audio files are unchanged. No collection is inferred from
+individual downloads: an existing playlist must have been saved as a collection.
+If an older download has no collection metadata, use “Alle Titel”; when online,
+choose the playlist's “Offline speichern” action to save its membership. Already
+ready tracks are reused. No automatic server requests run in offline browsing.
+Local-file removal also affects other collections sharing that file; confirmation
+now explains this, while saved membership and server playlists remain intact.
+
+Verification (7 October): signed iOS Debug build and two silent iPhone simulator
+flows pass, including playlist download, logout, local-only entry, cover preview,
+original order, alphabetical sorting and no-match search. Offline tests cover
+restart, account isolation, shared membership and old manifests without collections.
+The Swift tests were also run individually: 44 pass, three optional fixture tests
+are skipped. An initial concurrent run exposed existing shared fixture/Now Playing
+interference; both affected cases pass in isolation. Do not treat that concurrent
+run as green. Physical-phone installation/review is pending: the paired iPhone
+was unavailable during this change.
 
 ## Build 30: mobile collection design and widgets
 

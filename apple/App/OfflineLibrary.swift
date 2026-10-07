@@ -31,6 +31,53 @@ struct OfflineCollection: Codable, Identifiable, Sendable {
     var trackIDs: [String]
     var keepUpdated: Bool
 }
+
+enum OfflineSort: String, CaseIterable {
+    case collection, artist, album, title, date
+    var title: String {
+        switch self {
+        case .collection: "Playlist-Reihenfolge"
+        case .artist: "Künstler A–Z"
+        case .album: "Album A–Z"
+        case .title: "Titel A–Z"
+        case .date: "Zuletzt gespeichert"
+        }
+    }
+}
+
+// The manifest's transfer order is not a browsing order. Collection order is
+// retained separately; every other ordering has a stable ID tie-breaker.
+enum OfflineCatalog {
+    static func records(_ entries: [OfflineTrack], collection: OfflineCollection? = nil,
+                        sort: OfflineSort, query: String = "", onlyReady: Bool = false) -> [OfflineTrack] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var positions: [String: Int] = [:]
+        for (index, id) in (collection?.trackIDs ?? []).enumerated() where positions[id] == nil { positions[id] = index }
+        let filtered = entries.filter {
+            (collection == nil || ($0.scope == collection?.scope && positions[$0.track.id] != nil)) &&
+            (!onlyReady || $0.state == .ready) &&
+            (query.isEmpty || [$0.track.title, $0.track.artistText, $0.track.album].joined(separator: " ").localizedCaseInsensitiveContains(query))
+        }
+        return filtered.sorted { a, b in
+            if sort == .collection, collection != nil {
+                let left = positions[a.track.id] ?? Int.max, right = positions[b.track.id] ?? Int.max
+                if left != right { return left < right }
+            }
+            if sort == .date, a.date != b.date { return a.date > b.date }
+            let left: [String], right: [String]
+            switch sort {
+            case .artist: left = [a.track.artistText, a.track.album, a.track.title]; right = [b.track.artistText, b.track.album, b.track.title]
+            case .album: left = [a.track.album, a.track.artistText, a.track.title]; right = [b.track.album, b.track.artistText, b.track.title]
+            default: left = [a.track.title, a.track.artistText, a.track.album]; right = [b.track.title, b.track.artistText, b.track.album]
+            }
+            for (x, y) in zip(left, right) {
+                let result = x.localizedStandardCompare(y)
+                if result != .orderedSame { return result == .orderedAscending }
+            }
+            return a.id < b.id
+        }
+    }
+}
 private struct OfflineManifest: Codable {
     var profiles: [OfflineProfile] = []
     var tracks: [OfflineTrack] = []

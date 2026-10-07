@@ -1,6 +1,6 @@
-# iPhone-Funktionsprüfung — bis Vorschau 0.3.0, Build 30
+# iPhone-Funktionsprüfung — bis Vorschau 0.3.0, Build 31
 
-Stand: 6. Oktober 2026. Prüfung des nativen Clients und seiner API-Verträge;
+Stand: 7. Oktober 2026. Prüfung des nativen Clients und seiner API-Verträge;
 isolierte temporäre Daten, Loopback-Server und iPhone-Simulator mit iOS 27.
 Die Server-Kompatibilitätsbasis ist der geprüfte Router von `v1.2.0`.
 Produktionskonten, Musik und Playlists wurden für diese Prüfung nicht verändert.
@@ -236,3 +236,19 @@ weiter aus. Der Bilderexport wird korrigiert: `--only-failures` exportierte hier
 nur die Issue-Beschreibung und ließ Aktivitäts-Screenshots weg. Ein PNG-Filter
 exportiert die Fixture-Bilder, das Upload-Glob schließt alle anderen Dateitypen
 aus. Dieser Export wurde lokal an einem Result-Bundle mit drei PNGs geprüft.
+
+## Build 31: Offline-Bibliothek
+
+Zwei stille iPhone-Simulator-Abläufe bestanden: Album speichern/öffnen sowie
+Playlist speichern, abmelden, Offline-Sammlung öffnen, Originalreihenfolge prüfen,
+Titel sortieren und erfolglos suchen. Die Sammlungsansicht hat lokale Cover,
+Verfügbarkeitszahlen und sichtbare Gruppen. Einzelne alte Downloads bleiben unter
+„Alle Titel“ erreichbar. Ein zusätzlicher Test prüft Sammlung/Sortierung nach
+Neustart, Kontotrennung und geteilte Titel. Manifest und Audiodateien bleiben erhalten.
+Der signierte iOS-Debug-Build mit App/Widget-Buildnummer 31 ist erstellt.
+Installation und Review auf dem physischen iPhone stehen noch aus.
+
+Der initiale gemeinsame Swift-Testlauf hatte zwei Fehler durch gemeinsam genutzte
+Playlist-Fixtures bzw. Now-Playing-Zustand. In getrennten Läufen bestehen alle
+44 nicht optionalen Tests; drei weitere Tests benötigen explizite Fixtures und
+wurden ausgelassen. Der gemeinsame Lauf wird nicht als erfolgreich ausgewiesen.
