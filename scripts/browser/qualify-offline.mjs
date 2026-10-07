@@ -259,6 +259,7 @@ try {
       page.setDefaultTimeout(20000)
       step = 'copy'
       await page.goto(base + '/playlists/' + playlist.id)
+      await page.getByText('Offline mitnehmen · Download-Optionen', { exact: true }).click()
       const copy = page.getByRole('button', {
         name: 'Offline-Kopie speichern / erneuern',
         exact: true,
@@ -495,6 +496,7 @@ try {
       })
       const httpPage = await httpContext.newPage()
       await httpPage.goto(base + '/playlists/' + playlist.id)
+      await httpPage.getByText('Offline mitnehmen · Download-Optionen', { exact: true }).click()
       await httpPage
         .getByLabel('Musik und Metadaten in diesem Browserprofil aufbewahren.')
         .check()

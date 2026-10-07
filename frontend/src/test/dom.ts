@@ -9,7 +9,9 @@
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
-GlobalRegistrator.register()
+// Relative artwork URLs need a valid origin. Keep file loading disabled so
+// component tests cannot contact a real server; errors are dispatched explicitly.
+GlobalRegistrator.register({ url: 'http://localhost:59590', settings: { enableImageFileLoading: false } })
 
 // React 19 reads this to decide whether it may use the DOM-only paths.
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
