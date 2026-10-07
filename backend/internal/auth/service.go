@@ -49,6 +49,7 @@ type Service struct {
 
 	sessionDuration  time.Duration
 	inactivityPeriod time.Duration
+	devices          deviceGrants
 }
 
 // NewService creates a new authentication service.
