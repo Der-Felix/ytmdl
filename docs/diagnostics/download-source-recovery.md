@@ -32,3 +32,27 @@ completed/skipped items and operator-paused jobs. Back up the affected job state
 first, and review final item outcomes rather than interpreting a queued job as a
 successful download. Never lower the matching threshold or delete existing music
 just to clear the failure list.
+
+## Recording runtime validation
+
+A direct-source search can fall back to ordinary text results if the source
+runtime is implausible. The orchestrator trusts only the exact requested source
+ID on its fast path; every replacement must pass normal matching. Known
+runtimes differing by more than 15 seconds are rejected even if title, credits,
+album or ISRC otherwise match. Unknown candidate runtime still requires the
+normal matching threshold and downloaded-audio verification. This is a runtime
+comparison, not a minimum-length rule; valid short full recordings remain usable.
+
+The worker verifies audio against the requested recording's runtime rather than
+the selected source's own runtime. Skip-existing requires a file with a compatible
+measured runtime when the request carries one. An incompatible or unmeasured old
+file is preserved; a verified correction is committed under the stable source
+suffix instead of replacing that file. Old incorrect catalog associations are
+not silently deleted or automatically re-downloaded by the code change. They
+need a scoped audit/retry with a before-state backup.
+
+When the original source fails and no replacement is attempted, its safe error
+message is retained. Failures of actual source resolutions take precedence over
+weak, unrelated search hits, which must not turn unavailable or restricted
+sources into a misleading MATCH_FAILED or zero-source summary. Provider
+protection and cooldown behavior is unchanged.
