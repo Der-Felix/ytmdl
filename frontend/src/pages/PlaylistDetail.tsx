@@ -392,7 +392,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       </section>
       <Dialog open={removing !== null} onOpenChange={(open) => { if (!open) setRemoving(null) }}>
         <DialogContent><DialogHeader><DialogTitle>Titel aus Playlist entfernen?</DialogTitle><DialogDescription>{removing?.title} bleibt in deiner Bibliothek. Nur der Eintrag in dieser Playlist wird entfernt.</DialogDescription></DialogHeader><DialogFooter>
-          <Button variant="ghost" onClick={() => setRemoving(null)}>Abbrechen</Button><Button variant="destructive" onClick={() => { if (removing) void handleRemoveTrack(removing.id); setRemoving(null) }}>Aus Playlist entfernen</Button>
+          <Button variant="ghost" onClick={() => setRemoving(null)}>Abbrechen</Button><Button variant="destructive" disabled={reordering || !!actionTrackId} onClick={() => { if (removing) void handleRemoveTrack(removing.id); setRemoving(null) }}>Aus Playlist entfernen</Button>
         </DialogFooter></DialogContent>
       </Dialog>
 

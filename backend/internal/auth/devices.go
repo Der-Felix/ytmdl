@@ -80,9 +80,18 @@ func (d *deviceGrants) prune(now time.Time) {
 
 // start/confirmation admission is atomic and bounded, including distinct-IP
 // floods. Unknown codes get the same answer as expired or already-used codes.
+// The key set is bounded by dropping one record, not by refusing new keys: keys
+// derive from a forwarded client address, so refusing them would let a flood of
+// forged addresses lock every genuine client out for the whole expiry window.
 func deviceAdmit(records map[string][]time.Time, key string, now time.Time, maximum int) bool {
-	if len(records[key]) >= maximum || (len(records) >= 1024 && records[key] == nil) {
+	if len(records[key]) >= maximum {
 		return false
+	}
+	if records[key] == nil && len(records) >= 1024 {
+		for evicted := range records {
+			delete(records, evicted)
+			break
+		}
 	}
 	records[key] = append(records[key], now)
 	return true
@@ -105,7 +114,8 @@ func (s *Service) StartDevice(name, ip string) (*DeviceStart, error) {
 	defer d.mu.Unlock()
 	now := time.Now().UTC()
 	d.prune(now)
-	if !deviceAdmit(d.starts, ip, now, 10) || len(d.grants) >= maxDeviceGrants {
+	// Check capacity first so a refused start does not use up the caller's quota.
+	if len(d.grants) >= maxDeviceGrants || !deviceAdmit(d.starts, ip, now, 10) {
 		return nil, deviceLimited()
 	}
 	raw, hash, err := GenerateSessionToken()
@@ -177,44 +187,55 @@ func (s *Service) ConfirmDevice(code string, user *User, session *Session) error
 	return deviceInvalid()
 }
 
-// PollDevice consumes a grant exactly once, under the same lock that protects
-// confirmations. The granting session must still exist and be valid at exchange.
+// PollDevice consumes a grant exactly once: an approved grant is removed under
+// the lock before any database work, so concurrent polls cannot both exchange it
+// and the lock is not held across database round trips. The granting session must
+// still exist and be valid at exchange.
 func (s *Service) PollDevice(ctx context.Context, raw, ip string) (*AuthResult, string, error) {
 	if len(raw) != 64 {
 		return nil, "", deviceInvalid()
 	}
 	d := &s.devices
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	now := time.Now().UTC()
 	d.prune(now)
 	key := HashToken(raw)
 	g := d.grants[key]
 	if g == nil {
+		d.mu.Unlock()
 		return nil, "", deviceInvalid()
 	}
 	if now.Before(g.nextPoll) {
 		g.nextPoll = now.Add(2 * deviceInterval)
+		d.mu.Unlock()
 		return nil, "slow_down", nil
 	}
 	g.nextPoll = now.Add(deviceInterval)
 	if g.userID == "" {
+		d.mu.Unlock()
 		return nil, "authorization_pending", nil
 	}
-	session, err := s.sessions.GetByID(ctx, g.sessionID)
-	if err != nil || session == nil || session.UserID != g.userID || !now.Before(session.ExpiresAt) || now.Sub(session.LastSeenAt) > s.inactivityPeriod {
-		delete(d.grants, key)
+	delete(d.grants, key)
+	userID, sessionID, name := g.userID, g.sessionID, g.name
+	d.mu.Unlock()
+
+	session, err := s.sessions.GetByID(ctx, sessionID)
+	if err != nil || session == nil || session.UserID != userID || !now.Before(session.ExpiresAt) || now.Sub(session.LastSeenAt) > s.inactivityPeriod {
 		return nil, "", deviceInvalid()
 	}
-	user, err := s.users.GetByID(ctx, g.userID)
+	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil || !user.Enabled {
-		delete(d.grants, key)
 		return nil, "", deviceInvalid()
 	}
-	result, err := s.createSession(ctx, *user, ip, "YTMDL Apple · "+g.name)
+	result, err := s.createSession(ctx, *user, ip, "YTMDL Apple · "+name)
 	if err != nil {
+		// Nothing was issued: put the grant back so the device can retry.
+		d.mu.Lock()
+		if time.Now().Before(g.expires) {
+			d.grants[key] = g
+		}
+		d.mu.Unlock()
 		return nil, "", err
 	}
-	delete(d.grants, key)
 	return result, "authorized", nil
 }

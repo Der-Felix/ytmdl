@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -91,5 +92,38 @@ func TestDeviceSecretSeparatedAndPollingBackoff(t *testing.T) {
 	}
 	if _, err := svc.PreviewDevice(start.UserCode, "user"); apperr.CodeOf(err) != apperr.CodeRateLimited {
 		t.Fatal("guess limit missing")
+	}
+}
+
+func TestDeviceStartRefusedAtCapacityKeepsCallerQuota(t *testing.T) {
+	svc := &Service{}
+	svc.devices.grants = make(map[string]*deviceGrant)
+	for i := 0; i < maxDeviceGrants; i++ {
+		svc.devices.grants[fmt.Sprint(i)] = &deviceGrant{expires: time.Now().Add(time.Minute)}
+	}
+	for i := 0; i < 15; i++ {
+		if _, err := svc.StartDevice("Apple TV", "ip"); apperr.CodeOf(err) != apperr.CodeRateLimited {
+			t.Fatal("start accepted while the grant table is full")
+		}
+	}
+	svc.devices.grants = make(map[string]*deviceGrant)
+	for i := 0; i < 10; i++ {
+		if _, err := svc.StartDevice("Apple TV", "ip"); err != nil {
+			t.Fatalf("refused starts consumed the caller's quota: %v", err)
+		}
+	}
+}
+
+func TestDeviceAdmissionKeyCapEvictsInsteadOfRefusingNewKeys(t *testing.T) {
+	records := make(map[string][]time.Time)
+	now := time.Now()
+	for i := 0; i < 1024; i++ {
+		records[fmt.Sprint(i)] = []time.Time{now}
+	}
+	if !deviceAdmit(records, "new-client", now, 10) {
+		t.Fatal("a full key table locked out a new client")
+	}
+	if len(records) != 1024 || len(records["new-client"]) != 1 {
+		t.Fatalf("key table not bounded: %d keys", len(records))
 	}
 }

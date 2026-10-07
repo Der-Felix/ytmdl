@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ListMusic, Loader2, Play, Plus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -50,17 +50,22 @@ export function Playlists() {
   const visible = useMemo(() => filtered.slice((page - 1) * 12, page * 12), [filtered, page])
   // The legacy API has no preview field. Bound detail requests to the current
   // page and three concurrent transfers; retain only four covers per playlist.
+  // A playlist is fetched once per change: typing, sorting or paging back must
+  // not download every visible track list again.
+  const requested = useRef(new Set<string>())
   useEffect(() => {
     const controller = new AbortController()
     async function load() {
       for (let start = 0; start < visible.length; start += 3) {
         if (controller.signal.aborted) return
         await Promise.all(visible.slice(start, start + 3).map(async (playlist) => {
-          if (playlist.track_count === 0) return
+          const key = `${playlist.id}:${playlist.updated_at}`
+          if (playlist.track_count === 0 || requested.current.has(key)) return
+          requested.current.add(key)
           try {
             const detail = await getPlaylist(playlist.id, controller.signal)
             if (!controller.signal.aborted) setPreviews((previous) => ({ ...previous, [playlist.id]: playlistPreview(detail.tracks || []) }))
-          } catch { /* Broken previews retain their placeholder. */ }
+          } catch { requested.current.delete(key) /* Retry later; the placeholder stays meanwhile. */ }
         }))
       }
     }
