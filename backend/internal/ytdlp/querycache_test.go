@@ -128,7 +128,7 @@ func TestQueryCacheReplaysItemFailureUntilExpiry(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		_, err := client.Query(context.Background(), target, "--no-playlist")
-		if apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+		if apperr.CodeOf(err) != apperr.CodeMediaUnavailable {
 			t.Fatalf("attempt %d: code = %s", i, apperr.CodeOf(err))
 		}
 	}
@@ -137,7 +137,7 @@ func TestQueryCacheReplaysItemFailureUntilExpiry(t *testing.T) {
 	}
 
 	clock = clock.Add(time.Minute + time.Second)
-	if _, err := client.Query(context.Background(), target, "--no-playlist"); apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+	if _, err := client.Query(context.Background(), target, "--no-playlist"); apperr.CodeOf(err) != apperr.CodeMediaUnavailable {
 		t.Fatalf("code after expiry = %s", apperr.CodeOf(err))
 	}
 	if got := processStarts(t, binary); got != 2 {

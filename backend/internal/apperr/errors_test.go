@@ -250,3 +250,15 @@ func TestRetryAfterMetadata(t *testing.T) {
 		t.Fatalf("RetryAfter = %v/%v", got, ok)
 	}
 }
+
+func TestMediaAvailabilityErrorsRemainCandidateScoped(t *testing.T) {
+	for _, code := range []apperr.Code{apperr.CodeMediaAgeRestricted, apperr.CodeMediaPremiumRequired, apperr.CodeMediaUnavailable} {
+		err := apperr.New(code, "item access unavailable")
+		if apperr.Retryable(err) || apperr.ScopeOf(err) != apperr.ScopeCandidate || apperr.StopsCandidateFanout(err) {
+			t.Fatalf("item access changed scheduling or scope: %v", err)
+		}
+		if apperr.HTTPStatus(code) != 422 {
+			t.Fatalf("HTTP status = %d", apperr.HTTPStatus(code))
+		}
+	}
+}

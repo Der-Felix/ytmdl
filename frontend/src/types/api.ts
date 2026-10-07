@@ -47,6 +47,9 @@ export const ERROR_CODES = [
   'ARTIST_NOT_FOUND',
   'RELEASE_NOT_FOUND',
   'TRACK_NOT_FOUND',
+  'MEDIA_AGE_RESTRICTED',
+  'MEDIA_PREMIUM_REQUIRED',
+  'MEDIA_UNAVAILABLE',
   'JOB_NOT_FOUND',
   'SUBSCRIPTION_NOT_FOUND',
   'MATCH_FAILED',
@@ -237,7 +240,14 @@ export interface ReleaseFilter {
 export const JOB_PRIORITIES = ['low', 'normal', 'high', 'very_high'] as const
 export type JobPriority = (typeof JOB_PRIORITIES)[number]
 
+export interface ReleaseAnnouncement {
+  date: string
+  source: string
+  checked_at: string
+}
+
 export interface JobOptions {
+  release_announcement?: ReleaseAnnouncement
   release_filter: ReleaseFilter
   skip_existing: boolean
   release_id?: string

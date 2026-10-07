@@ -689,14 +689,14 @@ func ClassifyError(stderr string, cause error) error {
 	// above and keep precedence; a sign-in prompt does not, because naming an
 	// age gate is how the platform words that gate.
 	case isContentAgeRestriction(stderr):
-		return apperr.Wrap(apperr.CodeTrackNotFound, ageRestrictedMessage, fmt.Errorf("%w: %w", ErrAgeRestricted, cause))
+		return apperr.Wrap(apperr.CodeMediaAgeRestricted, ageRestrictedMessage, fmt.Errorf("%w: %w", ErrAgeRestricted, cause))
 
 	// A paid-tier gate on the requested item: the platform refuses this one
 	// item to any non-subscriber session, never the provider or the session
 	// itself. It is skipped like an unavailable item - it does not pause the
 	// family and does not touch the session's health.
 	case isPremiumRequired(stderr):
-		return apperr.Wrap(apperr.CodeTrackNotFound, premiumRequiredMessage, fmt.Errorf("%w: %w", ErrPremiumRequired, cause))
+		return apperr.Wrap(apperr.CodeMediaPremiumRequired, premiumRequiredMessage, fmt.Errorf("%w: %w", ErrPremiumRequired, cause))
 
 	case strings.Contains(lower, "sign in to confirm") ||
 		strings.Contains(lower, "login required") ||
@@ -728,7 +728,7 @@ func ClassifyError(stderr string, cause error) error {
 	// every ambiguity hint, so a credential prompt next to it keeps its
 	// session-scoped classification.
 	case isItemUnavailable(stderr):
-		return apperr.Wrap(apperr.CodeTrackNotFound, itemUnavailableMessage, fmt.Errorf("%w: %w", ErrItemUnavailable, cause))
+		return apperr.Wrap(apperr.CodeMediaUnavailable, itemUnavailableMessage, fmt.Errorf("%w: %w", ErrItemUnavailable, cause))
 
 	case strings.Contains(lower, "video unavailable") ||
 		strings.Contains(lower, "is not available") ||
@@ -736,7 +736,7 @@ func ClassifyError(stderr string, cause error) error {
 		strings.Contains(lower, "removed by the uploader") ||
 		strings.Contains(lower, "this video has been removed") ||
 		strings.Contains(lower, "account associated with this video has been terminated"):
-		return apperr.Wrapf(apperr.CodeTrackNotFound, cause, "The media item is unavailable: %s", message)
+		return apperr.Wrap(apperr.CodeMediaUnavailable, itemUnavailableMessage, fmt.Errorf("%w: %w", ErrItemUnavailable, cause))
 
 	// 6. Unsupported URL
 	case strings.Contains(lower, "unsupported url"):

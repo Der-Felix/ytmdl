@@ -246,3 +246,22 @@ func TestResolvingACombinedStreamDoesNotHealTheSession(t *testing.T) {
 		t.Fatal("a verified acquisition did not certify the session")
 	}
 }
+
+func TestAvailabilitySummaryRequiresAgreementAcrossCandidates(t *testing.T) {
+	for _, code := range []apperr.Code{apperr.CodeMediaAgeRestricted, apperr.CodeMediaPremiumRequired, apperr.CodeMediaUnavailable} {
+		t.Run(string(code), func(t *testing.T) {
+			cause := apperr.New(code, "item restriction")
+			err := exhaustCandidates(t, cause, cause)
+			if apperr.CodeOf(err) != code || apperr.Retryable(err) || apperr.ScopeOf(err) != apperr.ScopeCandidate || apperr.StopsCandidateFanout(err) {
+				t.Fatalf("unexpected summary: %v", err)
+			}
+			if !errors.Is(err, cause) {
+				t.Fatal("cause lost")
+			}
+			mixed := exhaustCandidates(t, cause, absent())
+			if apperr.CodeOf(mixed) != apperr.CodeTrackNotFound {
+				t.Fatalf("mixed causes misrepresented: %v", mixed)
+			}
+		})
+	}
+}
