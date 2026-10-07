@@ -50,7 +50,7 @@ func TestKnownSourceFailureIsNotHiddenByWeakSearchHits(t *testing.T) {
 		track.SourceProvider = "ytmusic"
 		orch := newOrchestrator(pool, cooldown, ytm, yt, sc)
 		_, err := orch.ResolveMedia(context.Background(), "ytmusic", track, 5)
-		if apperr.CodeOf(err) != apperr.CodeTrackNotFound || apperr.MessageOf(err) != apperr.MessageOf(cause) {
+		if apperr.CodeOf(err) != apperr.CodeOf(cause) || apperr.MessageOf(err) != apperr.MessageOf(cause) {
 			t.Fatalf("source cause hidden: %v", err)
 		}
 		if !errors.Is(err, ytdlp.ErrItemUnavailable) && !errors.Is(err, ytdlp.ErrAgeRestricted) {
@@ -68,7 +68,7 @@ func TestResolvedCandidateFailuresOutrankUnrelatedWeakHit(t *testing.T) {
 	yt.SetCandidates([]provider.MediaCandidate{{Provider: "youtube", ID: "unrelated", Title: "Wrong Recording"}})
 	orch := newOrchestrator(pool, cooldown, ytm, yt, sc)
 	_, err := orch.ResolveMedia(manualCtx(), "ytmusic", auditTrack(), 5)
-	if apperr.CodeOf(err) != apperr.CodeTrackNotFound || !errors.Is(err, ytdlp.ErrAgeRestricted) {
+	if apperr.CodeOf(err) != apperr.CodeMediaAgeRestricted || !errors.Is(err, ytdlp.ErrAgeRestricted) {
 		t.Fatalf("restricted source hidden by weak hit: %v", err)
 	}
 	assertNoFamilyPause(t, pool, cooldown)

@@ -325,10 +325,20 @@ func resolutionOrigin(job Job) orchestrator.Origin {
 	return orchestrator.OriginSubscription
 }
 
+// ReleaseAnnouncement records a checked catalogue/label announcement. It is
+// informational, not evidence that every source is unavailable until this date,
+// and does not schedule work or change a job's status.
+type ReleaseAnnouncement struct {
+	Date      string `json:"date"`
+	Source    string `json:"source"`
+	CheckedAt string `json:"checked_at"`
+}
+
 // Options are the per job settings taken from the API request.
 type Options struct {
-	ReleaseFilter music.ReleaseFilter `json:"release_filter"`
-	SkipExisting  bool                `json:"skip_existing"`
+	ReleaseAnnouncement *ReleaseAnnouncement `json:"release_announcement,omitempty"`
+	ReleaseFilter       music.ReleaseFilter  `json:"release_filter"`
+	SkipExisting        bool                 `json:"skip_existing"`
 	// ReleaseID narrows a track job to the release the track belongs to. It is
 	// needed for metadata providers that cannot resolve a single track id.
 	ReleaseID string `json:"release_id,omitempty"`

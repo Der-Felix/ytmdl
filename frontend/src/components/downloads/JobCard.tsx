@@ -1,3 +1,4 @@
+import { ReleaseAnnouncementNotice } from './ReleaseAnnouncementNotice'
 import { useState } from 'react'
 import {
   ChevronDownIcon,
@@ -206,6 +207,8 @@ function JobCard({
       )}
 
       <Outcome job={job} />
+
+      {(job.failed > 0 || job.status === 'failed') && <ReleaseAnnouncementNotice announcement={job.options.release_announcement} />}
 
       {(job.error_code || job.error_message || job.status === 'failed') && (
         <ProblemNotice

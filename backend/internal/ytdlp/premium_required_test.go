@@ -20,7 +20,7 @@ func TestPremiumRequiredIsACandidateFailure(t *testing.T) {
 		"WARNING: [youtube] x: Some formats may be missing\n" + stderrMusicPremiumRequired,
 	} {
 		err := ClassifyError(stderr, cause)
-		if apperr.CodeOf(err) != apperr.CodeTrackNotFound || !errors.Is(err, ErrPremiumRequired) {
+		if apperr.CodeOf(err) != apperr.CodeMediaPremiumRequired || !errors.Is(err, ErrPremiumRequired) {
 			t.Fatalf("%q: %v", stderr, err)
 		}
 		if apperr.ScopeOf(err) != apperr.ScopeCandidate || apperr.StopsCandidateFanout(err) || apperr.Retryable(err) {

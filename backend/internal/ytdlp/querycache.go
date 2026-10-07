@@ -219,7 +219,8 @@ func (q *queryCache) lead(ctx context.Context, key string, kind queryKind, call 
 // network errors, timeouts, session and tool problems - are never stored.
 func (q *queryCache) ttlFor(kind queryKind, infos []Info, err error) time.Duration {
 	if err != nil {
-		if kind == queryExtract && apperr.CodeOf(err) == apperr.CodeTrackNotFound {
+		code := apperr.CodeOf(err)
+		if kind == queryExtract && (code == apperr.CodeTrackNotFound || code == apperr.CodeMediaAgeRestricted || code == apperr.CodeMediaPremiumRequired || code == apperr.CodeMediaUnavailable) {
 			return q.opts.NegativeTTL
 		}
 		return 0

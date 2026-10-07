@@ -75,7 +75,7 @@ func TestWorker_RestrictionReportedByDownload_EndsWithoutReselection(t *testing.
 		if updated.Status != ItemFailed || updated.NextRetryAt != nil {
 			t.Fatalf("status = %v, next retry = %v, want failed without retry", updated.Status, updated.NextRetryAt)
 		}
-		if updated.ErrorCode != string(apperr.CodeTrackNotFound) || updated.MediaID != "c1" {
+		if updated.ErrorCode != string(apperr.CodeOf(late)) || updated.MediaID != "c1" {
 			t.Fatalf("error code = %s, media = %q", updated.ErrorCode, updated.MediaID)
 		}
 		if strings.Contains(updated.ErrorMessage, "Keine der") {

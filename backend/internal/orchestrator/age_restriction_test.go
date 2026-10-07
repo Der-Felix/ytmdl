@@ -99,8 +99,8 @@ func TestAllCandidatesAgeRestrictedEndCleanly(t *testing.T) {
 	ytm.SetResolveErr("vid-3", ageRestricted())
 
 	_, err := orch.ResolveMedia(context.Background(), "ytmusic", auditTrackABBA(), 5)
-	if apperr.CodeOf(err) != apperr.CodeTrackNotFound {
-		t.Fatalf("code = %s, want %s (%v)", apperr.CodeOf(err), apperr.CodeTrackNotFound, err)
+	if apperr.CodeOf(err) != apperr.CodeMediaAgeRestricted {
+		t.Fatalf("code = %s, want %s (%v)", apperr.CodeOf(err), apperr.CodeMediaAgeRestricted, err)
 	}
 	if apperr.Retryable(err) {
 		t.Fatal("an attempt whose candidates are all restricted must not be scheduled for an immediate retry")
@@ -151,7 +151,7 @@ func TestAgeRestrictedAttemptKeepsOtherWorkRunnable(t *testing.T) {
 	ytm.SetCandidates(abbaCandidates("ytmusic")[:1])
 	ytm.SetResolveErr("vid-1", ageRestricted())
 
-	if _, err := orch.ResolveMedia(context.Background(), "ytmusic", auditTrackABBA(), 5); apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+	if _, err := orch.ResolveMedia(context.Background(), "ytmusic", auditTrackABBA(), 5); apperr.CodeOf(err) != apperr.CodeMediaAgeRestricted {
 		t.Fatalf("first attempt: %v", err)
 	}
 	assertNoLeaseHeld(t, pool)
@@ -259,7 +259,7 @@ func TestAgeRestrictionDoesNotLiftActiveLocks(t *testing.T) {
 	ytm.SetCandidates(abbaCandidates("ytmusic")[:1])
 	ytm.SetResolveErr("vid-1", ageRestricted())
 
-	if _, err := orch.ResolveMedia(context.Background(), "ytmusic", auditTrackABBA(), 5); apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+	if _, err := orch.ResolveMedia(context.Background(), "ytmusic", auditTrackABBA(), 5); apperr.CodeOf(err) != apperr.CodeMediaAgeRestricted {
 		t.Fatalf("attempt: %v", err)
 	}
 	for _, s := range pool.Sessions() {
@@ -314,7 +314,7 @@ func TestRestrictedDirectSourceSurvivesWeakGenericMatches(t *testing.T) {
 	track := auditTrackABBA()
 	track.SourceID = "vid-1"
 	_, err := orch.ResolveMedia(context.Background(), "ytmusic", track, 5)
-	if !errors.Is(err, ytdlp.ErrAgeRestricted) || apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+	if !errors.Is(err, ytdlp.ErrAgeRestricted) || apperr.CodeOf(err) != apperr.CodeMediaAgeRestricted {
 		t.Fatalf("restriction masked: %v", err)
 	}
 	if ytm.ResolveCalls() != 1 || yt.ResolveCalls() != 0 {

@@ -469,3 +469,25 @@ describe('JobCard – Failed Job Error Presentation', () => {
     ).toBeNull()
   })
 })
+
+describe('checked download causes', () => {
+ for (const [code, title] of [
+  ['MEDIA_AGE_RESTRICTED', 'Altersfreigabe für diese Aufnahme fehlt'],
+  ['MEDIA_PREMIUM_REQUIRED', 'Premium-Zugang für diese Aufnahme erforderlich'],
+  ['MEDIA_UNAVAILABLE', 'Quelle derzeit nicht verfügbar'],
+ ]) {
+  it(`shows ${code} without raw provider output`, () => {
+   render(<JobCard job={mockJob({ status: 'failed', failed: 1, error_code: code, error_message: 'SECRET provider output' })} />)
+   expect(screen.getByText(title!)).toBeTruthy()
+   expect(screen.queryByText(/SECRET/)).toBeNull()
+   expect(screen.getByRole('button', { name: /Erneut|Wiederholen/i })).toBeTruthy()
+  })
+ }
+ it('shows announcements only while failures remain', () => {
+  const options = { ...mockJob().options, release_announcement: { date: '2099-10-23', source: 'Labelkatalog', checked_at: '2026-10-07T12:00:00Z' } }
+  const { rerender } = render(<JobCard job={mockJob({ status: 'failed', failed: 1, options })} />)
+  expect(screen.getByText(/Veröffentlichung angekündigt/)).toBeTruthy()
+  rerender(<JobCard job={mockJob({ status: 'completed', completed: 1, options })} />)
+  expect(screen.queryByText(/Veröffentlichung angekündigt/)).toBeNull()
+ })
+})

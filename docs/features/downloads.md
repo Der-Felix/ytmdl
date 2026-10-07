@@ -103,3 +103,24 @@ Automatic continuation is shown for a download scheduled for retry, with its
 continuation time when available. Failed search requests do not promise an
 automatic repeat. Provider/session cooldown notices offer no immediate retry
 button; new cookies do not lift an active protective pause.
+
+### Ursachen bei nicht verfügbaren Aufnahmen
+
+Die Downloadansicht unterscheidet `MEDIA_AGE_RESTRICTED` (fehlende
+Altersfreigabe), `MEDIA_PREMIUM_REQUIRED` (Premium-Anforderung) und
+`MEDIA_UNAVAILABLE` (Aufnahme zum Prüfzeitpunkt nicht verfügbar). Diese Fehler
+betreffen einzelne Quellen. Sie lösen keine Provider-Pause aus und werden nicht
+unverändert automatisch wiederholt. Ein manueller Versuch bleibt möglich, wenn
+sich der Zugang oder die Verfügbarkeit geändert hat.
+
+Nur wenn die fehlgeschlagenen Kandidaten dieselbe Ursache melden, übernimmt der
+Auftrag diesen spezifischen Fehlercode. Gemischte oder unbekannte Ursachen
+bleiben `TRACK_NOT_FOUND`; Format- und Schutzfehler behalten ihre bisherige
+Priorität. Die Oberfläche interpretiert keine rohen Provider-Meldungen.
+
+Optional kann eine geprüfte Veröffentlichung als `options.release_announcement`
+mit `date` (`YYYY-MM-DD`), `source` und `checked_at` (ISO-Zeitstempel) hinterlegt
+werden. Der Hinweis erscheint bei noch vorhandenen Fehlern mit Quelle und
+Prüfdatum. Ein angekündigter Termin beweist nicht, dass alle Aufnahmen erst dann
+verfügbar werden. Nach dem Termin fordert die Ansicht eine erneute Prüfung an;
+allein der Hinweis plant keinen Neustart. Es ist keine Datenbankmigration nötig.

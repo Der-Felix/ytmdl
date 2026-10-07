@@ -23,8 +23,8 @@ func TestRestrictedSourceTriesExistingEntitledSession(t *testing.T) {
 	}{
 		{"existing age-verified session", "Sign in to confirm your age", 5, 4, 4, ""},
 		{"existing premium session", "This video is only available to Music Premium members", 5, 4, 4, ""},
-		{"bounded attempts", "Sign in to confirm your age", 2, 4, 3, apperr.CodeTrackNotFound},
-		{"all restricted", "Sign in to confirm your age", 5, 0, 6, apperr.CodeTrackNotFound},
+		{"bounded attempts", "Sign in to confirm your age", 2, 4, 3, apperr.CodeMediaAgeRestricted},
+		{"all restricted", "Sign in to confirm your age", 5, 0, 6, apperr.CodeMediaAgeRestricted},
 		{"bot never rotates", "Sign in to confirm you are not a bot", 5, 4, 1, apperr.CodeSessionBotChallenge},
 		{"throttling never rotates", "HTTP Error 429: Too Many Requests", 5, 4, 1, apperr.CodeProviderRateLimited},
 	} {
@@ -74,7 +74,7 @@ esac
 				t.Fatalf("process count=%d,want=%d", got, tc.wantCalls)
 			}
 			assertNoLeaseHeld(t, pool)
-			if tc.want == apperr.CodeTrackNotFound || tc.want == "" {
+			if tc.want == apperr.CodeMediaAgeRestricted || tc.want == "" {
 				assertNoFamilyPause(t, pool, cooldown)
 				for _, s := range pool.Sessions() {
 					if s.HealthStatus != mediasession.HealthHealthy {
