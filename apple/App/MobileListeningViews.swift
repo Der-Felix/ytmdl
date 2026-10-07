@@ -31,6 +31,8 @@ struct MobileMiniPlayer: View {
     }
 }
 
+#endif
+
 struct MobileCollectionArtwork: View {
     var model: AppModel
     var tracks: [Track]
@@ -55,6 +57,13 @@ struct MobileCollectionArtwork: View {
 // Consistent touch surfaces: accent is reserved for the main action and icons.
 struct MobileActionStyle: ButtonStyle {
     var prominent = false
+    private var collectionSurface: Color {
+        #if os(iOS)
+        Color(uiColor: .secondarySystemGroupedBackground)
+        #else
+        Color.primary.opacity(0.06)
+        #endif
+    }
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.headline).fixedSize(horizontal: false, vertical: true)
@@ -62,7 +71,7 @@ struct MobileActionStyle: ButtonStyle {
             .foregroundStyle(prominent ? Color.white : Color.primary)
             .background {
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(prominent ? AnyShapeStyle(.tint) : AnyShapeStyle(Color(uiColor: .secondarySystemGroupedBackground)))
+                    .fill(prominent ? AnyShapeStyle(.tint) : AnyShapeStyle(collectionSurface))
             }
             .opacity(!enabled ? 0.45 : configuration.isPressed ? 0.75 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 16))
@@ -102,6 +111,7 @@ struct MobileCollectionHeader: View {
     }
 }
 
+#if os(iOS)
 struct MobileLibraryShortcuts: View {
     @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {
@@ -252,6 +262,9 @@ struct MobileHomeView: View {
     }
 }
 
+#endif
+
+#if !os(tvOS)
 struct OfflineLibraryView: View {
     var model: AppModel
     var collectionID: String? = nil
@@ -316,9 +329,9 @@ struct OfflineLibraryView: View {
             if model.offlineMode && model.player.current != nil { ToolbarItem { Button("Player", systemImage: "play.circle") { player = true } } }
         }
         .sheet(isPresented: $options) { NavigationStack { Form { DownloadPreferences(model: model) }.navigationTitle("Downloads").toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fertig") { options = false } } } } }
-        .sheet(isPresented: $player) { NavigationStack { MobilePlayerView(model: model).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Schließen") { player = false } } } } }
+        .sheet(isPresented: $player) { NavigationStack { NowPlayingView(model: model).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Schließen") { player = false } } } } }
         .confirmationDialog("Lokale Kopie entfernen?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Vom iPhone entfernen", role: .destructive) { if let deleting { model.offline.remove(deleting) } }
+            Button("Vom Gerät entfernen", role: .destructive) { if let deleting { model.offline.remove(deleting) } }
         } message: { Text("Der Titel bleibt auf deinem Musikserver erhalten. Die lokale Kopie wird auch in anderen Offline-Sammlungen nicht mehr verfügbar sein.") }
     }
     @ViewBuilder private var collectionSections: some View {
@@ -390,6 +403,12 @@ struct OfflineLibraryView: View {
             }.buttonStyle(.plain).disabled(model.offline.audioURL(record.track.id) == nil)
                 .accessibilityIdentifier("offline-track-" + record.track.id)
             Menu {
+                Button("Als Nächstes abspielen", systemImage: "text.insert") {
+                    if let client = model.client { model.player.insertNext(record.track, client: client) }
+                }.disabled(model.offline.audioURL(record.track.id) == nil || model.player.queue.tracks.count >= 500)
+                Button("Zur Warteschlange hinzufügen", systemImage: "text.badge.plus") {
+                    if let client = model.client { model.player.append(record.track, client: client) }
+                }.disabled(model.offline.audioURL(record.track.id) == nil || model.player.queue.tracks.count >= 500)
                 if record.state != .ready {
                     if record.state == .downloading || record.state == .queued { Button("Pausieren", systemImage: "pause") { model.offline.pause(record.track.id) } }
                     else { Button("Erneut herunterladen", systemImage: "arrow.clockwise") { model.offline.enqueue([record.track]) }.disabled(model.offlineMode) }
@@ -433,10 +452,15 @@ struct DownloadPreferences: View {
     }
 }
 
+#endif
+
+#if os(iOS)
 struct MobilePlayerView: View {
     var model: AppModel
     @State private var tab = "Warteschlange"
     @State private var adding = false
+    @State private var playlistSelection: [Track] = []
+    @State private var queueQuery = ""
     @State private var tools = false
     @AppStorage("mobileCoverColors") private var coverColors = true
     @AppStorage("mobileVisualizerPlacement") private var placement = "overlay"
@@ -472,7 +496,7 @@ struct MobilePlayerView: View {
                             }
                             Menu {
                                 if !model.offlineMode {
-                                    Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { adding = true }
+                                    Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; adding = true }
                                     Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
                                     Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }
                                     Button("Wiedergabe übergeben", systemImage: "arrow.up.forward.app") { Task { await model.saveHandoff() } }
@@ -516,12 +540,26 @@ struct MobilePlayerView: View {
             }
         }.navigationTitle("Jetzt läuft").navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $tools) { NavigationStack { MobileAudioSettings(model: model).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fertig") { tools = false } } } } }
-        .sheet(isPresented: $adding) { AddToPlaylistSheet(model: model, tracks: model.player.current.map { [$0] } ?? []) }
+        .sheet(isPresented: $adding) { AddToPlaylistSheet(model: model, tracks: playlistSelection) }
     }
     private var mobileQueue: some View {
         LazyVStack(spacing: 8) {
-            HStack { Text("\(model.player.queue.tracks.count) Titel").font(.subheadline).foregroundStyle(.secondary); Spacer(); Button("Nächste leeren") { model.player.clearUpcoming() }.font(.caption) }
-            ForEach(Array(model.player.queue.tracks.enumerated()), id: \.offset) { index, track in
+            HStack {
+                Text("\(model.player.queue.tracks.count) Titel").font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+                Menu("Warteschlange", systemImage: "ellipsis.circle") {
+                    if !model.offlineMode {
+                        Button("Als Playlist speichern", systemImage: "music.note.list") { playlistSelection = model.player.queue.tracks; adding = true }
+                    }
+                    Button("Nächste leeren") { model.player.clearUpcoming() }.disabled(model.player.queue.index + 1 >= model.player.queue.tracks.count)
+                    Button("Leeren und stoppen", role: .destructive) { model.player.clearQueue() }
+                }.accessibilityIdentifier("mobile-queue-tools")
+            }
+            TextField("Warteschlange filtern", text: $queueQuery).textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("mobile-queue-filter")
+            ForEach(Array(model.player.queue.tracks.enumerated()).filter {
+                queueQuery.isEmpty || [$0.element.title, $0.element.artistText, $0.element.album].joined(separator: " ").localizedCaseInsensitiveContains(queueQuery)
+            }, id: \.offset) { index, track in
                 HStack(spacing: 12) {
                     Button { model.player.select(index) } label: {
                         HStack(spacing: 12) {
@@ -530,12 +568,18 @@ struct MobilePlayerView: View {
                             Spacer()
                             if index == model.player.queue.index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink) }
                         }.contentShape(Rectangle())
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).accessibilityIdentifier("mobile-queue-track-\(index)")
                     Menu {
+                        Button("Nach oben", systemImage: "arrow.up") { model.player.moveInQueue(from: index, to: index - 1) }.disabled(index == 0)
+                        Button("Nach unten", systemImage: "arrow.down") { model.player.moveInQueue(from: index, to: index + 1) }.disabled(index + 1 >= model.player.queue.tracks.count)
+                        if !model.offlineMode {
+                            Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; adding = true }
+                            Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", systemImage: "heart") { Task { await model.toggleFavorite(track) } }.disabled(model.pendingFavorites.contains(track.id))
+                        }
                         Button("Als Nächstes", systemImage: "text.insert") { model.player.playNextInQueue(index) }.disabled(index <= model.player.queue.index + 1)
                         Button("Aus Warteschlange entfernen", systemImage: "minus.circle", role: .destructive) { model.player.removeFromQueue(index) }.disabled(index == model.player.queue.index)
                         if !model.offlineMode { Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) } }
-                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Warteschlangen-Aktionen für \(track.title)")
+                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Warteschlangen-Aktionen für \(track.title)").accessibilityIdentifier("mobile-queue-actions-\(index)")
                 }.padding(10).background(index == model.player.queue.index ? Color.pink.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 14))
             }
         }
@@ -547,8 +591,11 @@ struct SystemVolumeSlider: UIViewRepresentable {
     func updateUIView(_ uiView: MPVolumeView, context: Context) { }
 }
 
+#endif
+
 struct MobileLyricsView: View {
     var player: PlayerModel
+    var viewportHeight: CGFloat = 360
     @State private var following = true
     @State private var timeline = LyricsTimeline("")
     var body: some View {
@@ -566,7 +613,7 @@ struct MobileLyricsView: View {
                                 .buttonStyle(.plain).id(line.id).accessibilityLabel("\(line.text), ab \(formatTime(line.seconds))")
                         }
                     }.padding(.vertical, 24)
-                }.frame(height: 360)
+                }.frame(height: viewportHeight)
                 .onChange(of: active) { if following, let active { withAnimation(.easeInOut(duration: 0.3)) { reader.scrollTo(active, anchor: .center) } } }
             }
         }
@@ -574,6 +621,7 @@ struct MobileLyricsView: View {
     }
 }
 
+#if os(iOS)
 struct MobileAudioSettings: View {
     var model: AppModel
     @AppStorage("mobileVisualizerStyle") private var style = "bars"
@@ -583,6 +631,14 @@ struct MobileAudioSettings: View {
     @AppStorage("mobileCoverColors") private var coverColors = true
     var body: some View {
         Form {
+            Section("Lautstärke") {
+                Toggle("Lautstärke-Normalisierung", isOn: Binding(get: { model.player.normalizationEnabled }, set: { model.player.setNormalization($0) }))
+                    .accessibilityIdentifier("playback-normalization")
+                if model.player.normalizationEnabled {
+                    Text(model.player.normalizationMessage).font(.footnote).foregroundStyle(.secondary)
+                    Button("Lautheit erneut prüfen") { model.player.setNormalization(true) }.disabled(model.offlineMode)
+                }
+            }
             Section("Equalizer") {
                 Toggle("Equalizer aktivieren", isOn: Binding(get: { model.player.equalizer.enabled }, set: { model.player.equalizer.setEnabled($0) }))
                 Picker("Klangprofil", selection: Binding(get: { model.player.equalizer.preset }, set: { if let preset = EqualizerPreset(rawValue: $0) { model.player.equalizer.select(preset) } })) {
@@ -609,7 +665,7 @@ struct MobileAudioSettings: View {
                 Toggle("Nächsten Titel vorladen", isOn: Binding(get: { model.player.preloadEnabled }, set: { model.player.setPreload($0) }))
                 Toggle("Schneller Abspielstart", isOn: Binding(get: { model.player.fastStart }, set: { model.player.setFastStart($0) }))
                 Picker("Sleep-Timer", selection: Binding(get: { model.player.sleepMode }, set: { model.player.setSleepMode($0) })) { ForEach(SleepMode.allCases) { Text($0.name).tag($0) } }
-                Picker("Tempo", selection: Binding(get: { model.player.playbackRate }, set: { model.player.setPlaybackRate($0) })) { ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { Text("\($0, specifier: "%g")×").tag($0) } }
+                Picker("Tempo", selection: Binding(get: { model.player.playbackRate }, set: { model.player.setPlaybackRate($0) })) { ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { Text("\($0, specifier: "%g")×").tag($0) } }
             }
             Section("Visualizer") {
                 Toggle("Visualizer aktivieren", isOn: Binding(get: { model.player.visualizationEnabled }, set: { model.player.setVisualization($0) }))
@@ -618,7 +674,7 @@ struct MobileAudioSettings: View {
                 Picker("Farben", selection: $color) { Text("Cover").tag("cover"); Text("Rose").tag("rose"); Text("Ozean").tag("ocean"); Text("Wald").tag("forest"); Text("Lavendel").tag("violet"); Text("Eigene Farbe").tag("custom") }
                 if color == "custom" { ColorPicker("Eigene Farbe", selection: Binding(get: { Self.customColor(custom) }, set: { custom = Self.hex($0) }), supportsOpacity: false) }
                 Toggle("Player-Farben aus dem Cover", isOn: $coverColors)
-                Text("Die Anzeige reagiert auf die echte Frequenzanalyse der Musik. Ohne EQ und Visualizer entfällt die Klangverarbeitung.").font(.footnote).foregroundStyle(.secondary)
+                Text("Die Anzeige reagiert auf die echte Frequenzanalyse der Musik. Ohne EQ, Visualizer und Normalisierung entfällt die Klangverarbeitung.").font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("Klang & Wiedergabe")
     }

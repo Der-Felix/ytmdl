@@ -95,7 +95,10 @@ struct RootView: View {
                         }
                 } else { splitView }
                 #else
-                splitView
+                if model.offlineMode {
+                    NavigationStack { OfflineLibraryView(model: model) }
+                        .safeAreaInset(edge: .bottom, spacing: 0) { miniPlayer }
+                } else { splitView }
                 #endif
             }
         }
@@ -259,7 +262,7 @@ struct RootView: View {
         case .playlists: PlaylistListView(model: model)
         case .player: NowPlayingView(model: model)
         case .downloads:
-            #if os(iOS)
+            #if !os(tvOS)
             OfflineLibraryView(model: model)
             #else
             ContentUnavailableView("Offline-Musik", systemImage: "arrow.down.circle", description: Text("Offline-Verwaltung ist derzeit auf iPhone und iPad verfügbar."))
@@ -302,7 +305,7 @@ struct RootView: View {
                         }
                     }.padding(.top, 16).padding(.bottom, 8)
                     sidebarGroup("FÜR DICH", items: [.home, .search, .favorites, .playlists])
-                    sidebarGroup("DEINE SAMMLUNG", items: [.library, .artists])
+                    sidebarGroup("DEINE SAMMLUNG", items: [.library, .artists, .downloads])
                     sidebarGroup("WIEDERGABE", items: [.player])
                 }.padding(18)
             }
@@ -400,7 +403,7 @@ struct ConnectView: View {
                     }.textFieldStyle(.roundedBorder)
                     #endif
                 }
-                #if os(iOS)
+                #if !os(tvOS)
                 if !model.offline.profiles.isEmpty {
                     Button("Offline-Musik öffnen", systemImage: "arrow.down.circle") { offlinePicker = true }.buttonStyle(.bordered)
                         .sheet(isPresented: $offlinePicker) {
@@ -665,7 +668,7 @@ struct CollectionView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            #if os(iOS)
+            #if !os(tvOS)
             if playlist == nil { ToolbarItem {
                 Button("Offline speichern", systemImage: "arrow.down.circle") { Task { await model.downloadCollection(kind) } }
                     .disabled(busy || model.offlineMode)
@@ -674,7 +677,7 @@ struct CollectionView: View {
             if let playlist {
                 ToolbarItem {
                     Menu {
-                        #if os(iOS)
+                        #if !os(tvOS)
                         Button("Offline speichern", systemImage: "arrow.down.circle") { Task { await model.downloadCollection(kind) } }
                             .disabled(model.offlineMode)
                         Divider()
@@ -981,7 +984,8 @@ struct TrackRow: View {
                 Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }.disabled(model.offlineMode)
                 Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }.disabled(model.offlineMode || model.listeningBusy)
                 #endif
-                Button("Zur Warteschlange", systemImage: "text.badge.plus") { if let client = model.client { model.player.append(track, client: client) } }
+                Button("Als Nächstes abspielen", systemImage: "text.insert") { if let client = model.client { model.player.insertNext(track, client: client) } }.disabled(model.player.queue.tracks.count >= 500)
+                Button("Zur Warteschlange", systemImage: "text.badge.plus") { if let client = model.client { model.player.append(track, client: client) } }.disabled(model.player.queue.tracks.count >= 500)
             } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Aktionen für \(track.title)")
         }.padding(.vertical, 4)
     }
@@ -1018,6 +1022,7 @@ struct TrackRow: View {
                 .accessibilityLabel("Zur Warteschlange hinzufügen").help("Zur Warteschlange hinzufügen")
             Menu {
                 Button("Jetzt abspielen", systemImage: "play.fill", action: action)
+                Button("Als Nächstes abspielen", systemImage: "text.insert") { if let client = model.client { model.player.insertNext(track, client: client) } }.disabled(model.player.queue.tracks.count >= 500)
                 Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }.disabled(model.offlineMode)
                 playlistMenuItems
                 Divider()
@@ -1446,11 +1451,7 @@ struct NowPlayingView: View {
                 }
             }
         } else {
-            Text(model.player.lyrics.isEmpty ? "Lyrics werden geladen …" : cleanLyrics(model.player.lyrics)).font(.title3).lineSpacing(12)
-                #if !os(tvOS)
-                .textSelection(.enabled)
-                #endif
-                .frame(maxWidth: .infinity, alignment: .leading)
+            MobileLyricsView(player: model.player)
         }
     }
 }

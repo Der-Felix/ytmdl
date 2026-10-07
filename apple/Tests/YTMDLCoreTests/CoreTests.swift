@@ -67,3 +67,27 @@ import Testing
     let emptyClear = queue.clearUpcoming(), emptyRemove = queue.remove(at: 0), emptyMove = queue.playNext(at: 0)
     #expect(!emptyClear && !emptyRemove && !emptyMove)
 }
+
+@Test func queueReorderingPreservesCurrentOccurrenceWithDuplicateTracks() {
+    let tracks = ["same", "b", "same", "c"].map { Track(id: $0, title: $0, artists: [], album: "", durationMs: 1000) }
+    var queue = PlaybackQueue(); queue.replace(tracks, start: 2)
+    let movedFirst = queue.move(from: 0, to: 3); #expect(movedFirst)
+    #expect(queue.index == 1 && queue.current == tracks[2])
+    let movedBack = queue.move(from: 3, to: 0); #expect(movedBack)
+    #expect(queue.index == 2)
+    let movedCurrent = queue.move(from: 2, to: 0); #expect(movedCurrent)
+    #expect(queue.index == 0 && queue.tracks.map(\.id) == ["same", "same", "b", "c"])
+    let invalidSource = queue.move(from: -1, to: 0), invalidTarget = queue.move(from: 0, to: 4); #expect(!invalidSource && !invalidTarget)
+    let unchanged = queue.move(from: 0, to: 0); #expect(!unchanged)
+}
+
+@Test func insertingNextRetainsDuplicatesCurrentAndQueueBound() {
+    let track = Track(id: "same", title: "Fixture", artists: [], album: "", durationMs: 1000)
+    var queue = PlaybackQueue(); queue.replace([track, track], start: 1)
+    let inserted = queue.insertNext(track)
+    #expect(inserted && queue.index == 1 && queue.tracks.count == 3)
+    queue.replace(Array(repeating: track, count: 500))
+    let overLimit = queue.insertNext(track); #expect(!overLimit && queue.tracks.count == 500)
+    queue.replace([]); let first = queue.insertNext(track)
+    #expect(first && queue.current == track && queue.index == 0)
+}

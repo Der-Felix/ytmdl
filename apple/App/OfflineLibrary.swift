@@ -19,6 +19,7 @@ struct OfflineTrack: Codable, Identifiable, Sendable {
     var fileName: String?
     var transferID: Int?
     var failure: String?
+    var loudnessDB: Double?
     var automatic = false
     var date = Date()
 }
@@ -166,6 +167,16 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
     var readyTracks: [Track] { availableTracks(in: currentRecords) }
     func availableTracks(in entries: [OfflineTrack]) -> [Track] {
         entries.filter { $0.scope == scope && storedAudioURL($0) != nil }.map(\.track)
+    }
+    func loudnessGain(_ trackID: String) -> Double? {
+        guard let record = currentRecords.first(where: { $0.track.id == trackID }), storedAudioURL(record) != nil,
+              let gain = record.loudnessDB, gain.isFinite, (-24...6).contains(gain) else { return nil }
+        return gain
+    }
+    func rememberLoudness(_ trackID: String, gain: Double) {
+        guard gain.isFinite, (-24...6).contains(gain),
+              let index = records.firstIndex(where: { $0.scope == scope && $0.track.id == trackID }) else { return }
+        records[index].loudnessDB = gain; save()
     }
     var usedBytes: Int64 { currentRecords.filter { $0.state == .ready }.reduce(0) { $0 + $1.bytes } }
     var totalBytes: Int64 { records.filter { $0.state == .ready }.reduce(0) { $0 + $1.bytes } }

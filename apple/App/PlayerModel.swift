@@ -11,13 +11,28 @@ import AppKit
 #endif
 
 enum SleepMode: String, CaseIterable, Identifiable {
-    case off, minutes15, minutes30, minutes60, endOfTrack, endOfAlbum
+    case off, minutes15, minutes30, minutes45, minutes60, endOfTrack, endOfAlbum
     var id: String { rawValue }
-    var name: String { switch self { case .off: "Aus"; case .minutes15: "15 Minuten"; case .minutes30: "30 Minuten"; case .minutes60: "60 Minuten"; case .endOfTrack: "Nach diesem Titel"; case .endOfAlbum: "Nach diesem Album" } }
-    var minutes: Double? { switch self { case .minutes15: 15; case .minutes30: 30; case .minutes60: 60; default: nil } }
+    var name: String { switch self { case .off: "Aus"; case .minutes15: "15 Minuten"; case .minutes30: "30 Minuten"; case .minutes45: "45 Minuten"; case .minutes60: "60 Minuten"; case .endOfTrack: "Nach diesem Titel"; case .endOfAlbum: "Nach diesem Album" } }
+    var minutes: Double? { switch self { case .minutes15: 15; case .minutes30: 30; case .minutes45: 45; case .minutes60: 60; default: nil } }
 }
 
 @MainActor @Observable final class PlayerModel {
+    private(set) var normalizationEnabled = false
+    private(set) var normalizationMessage = "Normalisierung ausgeschaltet"
+    @ObservationIgnored private var normalizationTask: Task<Void, Never>?
+    @ObservationIgnored private var loudnessValues: [String: Double] = [:]
+    @ObservationIgnored private var loudnessParameters: [String: LoudnessParameters] = [:]
+    private struct LoudnessMeasurement: Decodable, Sendable {
+        let gainDb: Double
+        let integratedLufs: Double
+        let truePeakDb: Double
+        var safeGain: Double? {
+            guard gainDb.isFinite, integratedLufs.isFinite, truePeakDb.isFinite,
+                  (-24...6).contains(gainDb) else { return nil }
+            return max(-24, min(gainDb, -truePeakDb))
+        }
+    }
     private(set) var queue = PlaybackQueue()
     private(set) var isPlaying = false
     private(set) var loading = false
@@ -108,6 +123,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
     init(volumePreferences: UserDefaults = .standard, audio: AVPlayer = AVPlayer(), standby: AVPlayer = AVPlayer(), itemFactory: ((Track, APIClient) throws -> AVPlayerItem)? = nil) {
         self.audio = audio; self.standby = standby; self.volumePreferences = volumePreferences; self.itemFactory = itemFactory
         equalizer = EqualizerModel(preferences: volumePreferences)
+        normalizationEnabled = volumePreferences.bool(forKey: "playerNormalization")
         if let value = volumePreferences.object(forKey: "crossfadeSeconds") as? Double, value.isFinite { crossfadeSeconds = min(12, max(0, value)) }
         smartAlbumTransition = volumePreferences.object(forKey: "smartAlbumTransition") as? Bool ?? true
         preloadEnabled = volumePreferences.object(forKey: "preloadNextTrack") as? Bool ?? true
@@ -178,6 +194,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     func play(_ tracks: [Track], start: Int = 0, client: APIClient) {
         guard !tracks.isEmpty else { stop(); return }
+        if self.client !== client { loudnessValues.removeAll(); loudnessParameters.removeAll() }
         self.client = client; queue.replace(tracks, start: start); loadCurrent()
     }
     #if DEBUG
@@ -189,20 +206,79 @@ enum SleepMode: String, CaseIterable, Identifiable {
         else { artwork = nil; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
     }
     #endif
-    func append(_ track: Track, client: APIClient) { self.client = client; queue.append(track); prepareNext() }
+    func append(_ track: Track, client: APIClient) {
+        self.client = client; queue.append(track); prepareNext(); updateNowPlaying(); refreshNormalization()
+    }
+    func insertNext(_ track: Track, client: APIClient) {
+        guard queue.insertNext(track) else { return }
+        self.client = client; cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
+    }
     func select(_ index: Int) { guard queue.tracks.indices.contains(index) else { return }; queue.select(index); loadCurrent() }
-    func shuffle() { queue.shuffleUpcoming(); cancelPrepared(); prepareNext() }
+    func shuffle() { queue.shuffleUpcoming(); cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization() }
     func removeFromQueue(_ index: Int) {
         guard queue.remove(at: index) else { return }
-        cancelPrepared(); prepareNext()
+        cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
     }
     func playNextInQueue(_ index: Int) {
         guard queue.playNext(at: index) else { return }
-        cancelPrepared(); prepareNext()
+        cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
     }
+    func moveInQueue(from source: Int, to destination: Int) {
+        guard queue.move(from: source, to: destination) else { return }
+        cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
+    }
+    func clearQueue() { stop(); onSnapshot?(queue, 0, "off", true) }
     func clearUpcoming() {
         guard queue.clearUpcoming() else { return }
-        cancelPrepared(); prepareNext()
+        cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
+    }
+    func setNormalization(_ value: Bool) {
+        normalizationEnabled = value; volumePreferences.set(value, forKey: "playerNormalization")
+        normalizationTask?.cancel()
+        for (id, parameters) in loudnessParameters { parameters.set(value ? loudnessValues[id] ?? offlineLibrary?.loudnessGain(id) ?? 0 : 0) }
+        updateEqualizerAttachment(); refreshNormalization()
+    }
+    private func parameters(for id: String) -> LoudnessParameters {
+        if let value = loudnessParameters[id] { return value }
+        if loudnessParameters.count >= 512 {
+            loudnessParameters = loudnessParameters.filter { $0.key == current?.id || $0.key == pendingID }
+        }
+        let value = LoudnessParameters()
+        value.set(normalizationEnabled ? loudnessValues[id] ?? offlineLibrary?.loudnessGain(id) ?? 0 : 0)
+        loudnessParameters[id] = value
+        return value
+    }
+    private func refreshNormalization() {
+        normalizationTask?.cancel()
+        guard normalizationEnabled, let current, let client else { normalizationMessage = "Normalisierung ausgeschaltet"; return }
+        let cached = loudnessValues[current.id] ?? offlineLibrary?.loudnessGain(current.id)
+        parameters(for: current.id).set(cached ?? 0)
+        if let cached { normalizationMessage = String(format: "Aktueller Titel: %+.1f dB", cached) }
+        else { normalizationMessage = offlineOnly ? "Offline: für diesen Titel ist noch kein Lautheitswert gespeichert." : "Lautstärke wird gemessen …" }
+        guard !offlineOnly else { return }
+        let token = generation
+        let candidates = [current] + (upcomingIndex.map { [queue.tracks[$0]] } ?? [])
+        normalizationTask = Task { [weak self] in
+            for track in candidates {
+                guard let self, !Task.isCancelled, self.generation == token, self.normalizationEnabled else { return }
+                if let cached = self.loudnessValues[track.id] ?? self.offlineLibrary?.loudnessGain(track.id) {
+                    self.parameters(for: track.id).set(cached); continue
+                }
+                do {
+                    let measurement: LoudnessMeasurement = try await client.send(client.server.itemPath("tracks", id: track.id, suffix: "/loudness"), method: "POST", body: [:])
+                    try Task.checkCancellation()
+                    guard self.generation == token, self.normalizationEnabled, self.client === client else { return }
+                    guard let gain = measurement.safeGain else { throw PlayerError.badResponse }
+                    if self.loudnessValues.count >= 512 { self.loudnessValues = self.loudnessValues.filter { $0.key == self.current?.id || $0.key == self.pendingID } }
+                    self.loudnessValues[track.id] = gain; self.parameters(for: track.id).set(gain)
+                    self.offlineLibrary?.rememberLoudness(track.id, gain: gain)
+                    if track.id == self.current?.id { self.normalizationMessage = String(format: "Aktueller Titel: %+.1f dB", gain) }
+                } catch {
+                    guard !Task.isCancelled, self.generation == token else { return }
+                    if track.id == self.current?.id { self.normalizationMessage = "Lautheitswert nicht verfügbar. Wiedergabe ohne Normalisierung." }
+                }
+            }
+        }
     }
     func setVisualization(_ value: Bool) {
         guard visualizationEnabled != value else { return }
@@ -293,6 +369,8 @@ enum SleepMode: String, CaseIterable, Identifiable {
         }
     }
     func stop() {
+        normalizationTask?.cancel(); normalizationTask = nil
+        loudnessValues.removeAll(); loudnessParameters.removeAll(); normalizationMessage = "Normalisierung ausgeschaltet"
         visualizerTask?.cancel(); visualizerTask = nil; resetSpectrum()
         generation = UUID(); pendingSeek = nil; seekRevision = UUID(); loadTask?.cancel(); lyricsTask?.cancel(); artworkTask?.cancel(); sleepTask?.cancel()
         removeItemObservers(); cancelPrepared(); pause(); audio.replaceCurrentItem(with: nil)
@@ -316,23 +394,24 @@ enum SleepMode: String, CaseIterable, Identifiable {
         item.preferredForwardBufferDuration = fastStart ? 5 : 20
         // Pitch correction adds latency and is only needed at a changed speed.
         item.audioTimePitchAlgorithm = playbackRate == 1 ? .varispeed : .spectral
-        if equalizer.enabled || visualizationEnabled { attachSound(to: item) }
+        if equalizer.enabled || visualizationEnabled || normalizationEnabled { attachSound(to: item, trackID: track.id) }
         return item
     }
-    private func attachSound(to item: AVPlayerItem) {
-        do { try attachEqualizer(to: item, parameters: equalizer.parameters) }
-        catch { soundError = "Die Klangverarbeitung konnte nicht gestartet werden. Der Titel wird ohne Equalizer abgespielt." }
+    private func attachSound(to item: AVPlayerItem, trackID: String) {
+        do { try attachEqualizer(to: item, parameters: equalizer.parameters, loudness: parameters(for: trackID)) }
+        catch { soundError = "Die Klangverarbeitung konnte nicht gestartet werden. Der Titel wird ohne Klangverarbeitung abgespielt." }
     }
     private func updateEqualizerAttachment() {
-        let needsTap = equalizer.enabled || visualizationEnabled
+        let needsTap = equalizer.enabled || visualizationEnabled || normalizationEnabled
         if !needsTap {
             soundError = nil; equalizerFormat = 0; equalizer.parameters.format.store(0, ordering: .releasing)
         }
-        for item in [audio.currentItem, standby.currentItem].compactMap({ $0 }) {
+        for (item, id) in [(audio.currentItem, current?.id), (standby.currentItem, pendingID)] {
+            guard let item, let id else { continue }
             if needsTap {
                 // EQ changes already reach the callback atomically. Keep a live
                 // meter's tap rather than rebuilding the audio graph on toggles.
-                if item.audioMix == nil { soundError = nil; attachSound(to: item) }
+                if item.audioMix == nil { soundError = nil; attachSound(to: item, trackID: id) }
             } else { item.audioMix = nil }
         }
     }
@@ -357,6 +436,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
             }
         } catch { failPlayback() }
         loadDetails(current, client: client)
+        refreshNormalization()
     }
     private func start(_ player: AVPlayer) {
         if fastStart { player.playImmediately(atRate: Float(playbackRate)) } else { player.rate = Float(playbackRate) }
@@ -491,7 +571,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         error = nil; loading = true; startedAt = .now; startupMilliseconds = nil
         applyVolume(); observeCurrent()
         if play { start(audio) } else { audio.pause() }
-        if let current, let client { loadDetails(current, client: client) }
+        if let current, let client { loadDetails(current, client: client); refreshNormalization() }
         return true
     }
     private func cancelPrepared() {

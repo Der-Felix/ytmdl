@@ -1,9 +1,9 @@
-# Native listening preview 0.3.0 — build 31
+# Native listening preview 0.3.0 — build 32
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
-See [AUDIT.md](AUDIT.md) for the build 27 functional audit, test evidence,
+See [AUDIT.md](AUDIT.md) for the dated functional audit through build 32, test evidence,
 corrected defects and the remaining real-device release checks.
 The [release checklist](RELEASE-CHECKLIST.md) tracks qualification separately
 from implemented features and simulator verification.
@@ -13,7 +13,7 @@ from implemented features and simulator verification.
 | iPhone/iPad Start | Recent albums, local recent listening, favorites, genre mixes, playlist shortcuts, resume last queue |
 | Library/search | Existing library artists, albums, tracks, genre filter and authenticated artwork |
 | Favorites/playlists | Native editing, ordering, membership, smart server rules and favorites |
-| Offline music (iOS/iPadOS) | Track, album, artist, favorites and playlist snapshots; visible collection groups, cached covers, saved playlist order, local search, artist/album/title/date sorting and shuffle |
+| Offline music (iOS/iPadOS/macOS) | Track, album, artist, favorites and playlist snapshots; visible collection groups, cached covers, saved playlist order, local search, artist/album/title/date sorting and shuffle |
 | Downloads | Background URLSession on real iOS, progress, pause/retry, Wi-Fi preference, music storage cap, remove local copies |
 | Smart offline storage | Optional played-track cache; favorites and selected collections refresh when the library is refreshed |
 | Player access | Native mini-player above the floating iPhone tab bar, retained inside pushed collections; direct Player toolbar entry; expandable player |
@@ -22,10 +22,10 @@ from implemented features and simulator verification.
 | Home/Lock Screen widgets (iOS/iPadOS) | Small/medium Home widgets and circular/rectangular/inline Lock Screen widgets open the player; medium Home widgets also link to favorites and playlists. Navigation only, no live song state or playback controls |
 | Mobile transport | Seeking, previous/next, shuffle, repeat queue/track, native device volume and AirPlay |
 | System artwork | Now Playing artwork published after authenticated/local loading, retained across progress updates, cleared on title change or stop; actual lock-screen review remains required |
-| Mobile sound | Ten-band EQ, presets, preamp/headroom, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer |
-| Mobile visualization | Four FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
+| Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer |
+| Mobile visualization | Four mobile FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
 | Lyrics | Cached/plain text; LRC timing, optional following and tap-to-seek when time tags exist |
-| Queue | Occurrence-based play/remove/play-next, clear upcoming, save local queue, restore explicitly |
+| Queue | Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all, save as playlist, local resume state and explicit restore |
 | Song/genre radio | Existing local-library server recommendations; optional autoplay after the queue ends |
 | Listening history | Local recent metadata and queue; optional idempotent server events, queued while offline, scoped to origin/account |
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
@@ -84,8 +84,9 @@ from implemented features and simulator verification.
   need physical-device qualification. No library audio is re-encoded or downloaded
   from an external provider by the client.
 - Adjacent album tracks skip crossfade; sample-perfect gapless playback is **not**
-  promised. True loudness normalization and acoustic recommendations require separate
-  analysis; EQ headroom is not loudness normalization. Radio uses the existing
+  promised. Loudness normalization uses the existing server analysis and cached offline
+  measurements; missing or invalid measurements bypass normalization. EQ headroom is
+  separate. Acoustic recommendations require separate analysis. Radio uses the existing
   server metadata-based implementation, not Plex's sonic database.
 - Spotify's catalog, podcasts/audiobooks, social network, Jam, commercial AI DJs and
   proprietary Spotify Connect/Plex integrations are not part of this self-hosted client.
@@ -140,3 +141,12 @@ Sources used for the design: [Apple background downloads](https://developer.appl
 [Spotify offline listening](https://support.spotify.com/ly-en/article/listen-offline/),
 [Plexamp overview](https://www.plex.tv/en-gb/plexamp/),
 [Plex sonic analysis](https://support.plex.tv/articles/sonic-analysis-music/).
+
+## Web parity audit (build 32)
+
+See [WEB-PARITY.md](WEB-PARITY.md) for the complete listening-feature inventory,
+closed gaps and explicit remaining differences. Build 32 adds occurrence-safe queue
+reordering, insert-next, mobile queue filter/save/clear, measured normalization, Mac
+offline browsing and synchronized lyrics, and the missing 45-minute/1.75× choices.
+Advanced web DSP, reversible shuffle and tvOS parity remain open; this preview is
+not a complete web-parity or hardware-qualified stable release.

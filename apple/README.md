@@ -251,8 +251,11 @@ The DSP uses [Apple’s OS 27 mixed-output audio tap](https://developer.apple.co
 and the [W3C Audio EQ Cookbook](https://www.w3.org/TR/audio-eq-cookbook/).
 Render callbacks use preallocated channel state and atomic settings; automatic
 headroom compensation estimates the combined filter response, and processed
-samples are bounded to the PCM range. This is not server-side ReplayGain or
-library normalization.
+samples are bounded to the PCM range. EQ headroom is separate from the optional
+track loudness normalization: build 32 uses the existing server loudness analysis,
+independent per-item gain, and account-scoped cached measurements for offline music.
+Missing measurements bypass normalization. See [WEB-PARITY.md](WEB-PARITY.md) for
+the listening audit and remaining web-only controls.
 
 The included iPhone/iPad/Mac icon adapts the repository music-note mark.
 Regenerate it with `swift apple/Scripts/generate-icons.swift` from the repo root.

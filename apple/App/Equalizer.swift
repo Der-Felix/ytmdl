@@ -172,6 +172,15 @@ final class EqualizerParameters: @unchecked Sendable {
     }
 }
 
+/// Per-item gain: outgoing and incoming tracks must retain independent levels
+/// during a crossfade. Only atomics are read by the real-time render callback.
+final class LoudnessParameters: Sendable {
+    let decibels = Atomic<UInt64>(Double(0).bitPattern)
+    func set(_ value: Double) {
+        decibels.store((value.isFinite ? min(6, max(-24, value)) : 0).bitPattern, ordering: .releasing)
+    }
+}
+
 /// Cascaded peaking filters (W3C Audio EQ Cookbook), with separate delay lines
 /// per channel. Storage is allocated in prepare, never in the render callback.
 final class EqualizerKernel {
@@ -182,6 +191,9 @@ final class EqualizerKernel {
     private var lastLow: UInt64 = .max, lastHigh: UInt64 = .max
     private var targetLevel: Double = 1, level: Double = 1
     private(set) var enabled = false
+    private var loudness: Double = 1
+    var processesAudio: Bool { enabled || loudness != 1 }
+    func setLoudness(_ decibels: Double) { loudness = pow(10, (decibels.isFinite ? min(6, max(-24, decibels)) : 0) / 20) }
     init() { coefficients.initialize(repeating: 0, count: 50) }
     deinit { coefficients.deallocate(); delays?.deallocate() }
     func prepare(rate: Double, channels: Int) {
@@ -234,7 +246,8 @@ final class EqualizerKernel {
         level = min(level, targetLevel)
     }
     func sample(_ input: Double, channel: Int) -> Double {
-        guard enabled, let delays, channel < channels else { return input }
+        guard let delays, channel < channels else { return input }
+        if !enabled { return loudness == 1 ? input : min(1, max(-1, input * loudness)) }
         var value = input
         for band in 0..<10 {
             let c = coefficients.advanced(by: band * 5), d = delays.advanced(by: channel * 20 + band * 2)
@@ -243,7 +256,7 @@ final class EqualizerKernel {
             value = output
         }
         level += 0.002 * (targetLevel - level)
-        let result = value * level
+        let result = value * level * loudness
         return result.isFinite ? min(1, max(-1, result)) : 0
     }
 }
@@ -251,11 +264,12 @@ private enum EqualizerFrequencies { static let values: [Double] = [31.5, 63, 125
 
 private final class EqualizerTapState {
     let parameters: EqualizerParameters
+    let loudness: LoudnessParameters
     let kernel = EqualizerKernel()
     let spectrum = AudioSpectrumAnalyzer()
     var format = AudioStreamBasicDescription()
     var supported = false
-    init(_ parameters: EqualizerParameters) { self.parameters = parameters }
+    init(_ parameters: EqualizerParameters, loudness: LoudnessParameters) { self.parameters = parameters; self.loudness = loudness }
     func prepare(_ format: AudioStreamBasicDescription) {
         self.format = format
         supported = format.mFormatID == kAudioFormatLinearPCM && format.mChannelsPerFrame > 0 && format.mChannelsPerFrame <= 32
@@ -271,6 +285,7 @@ private final class EqualizerTapState {
     func process(_ buffers: UnsafeMutablePointer<AudioBufferList>, frames: Int, discontinuity: Bool) {
         guard supported else { return }
         kernel.refresh(parameters)
+        kernel.setLoudness(Double(bitPattern: loudness.decibels.load(ordering: .acquiring)))
         let visualize = parameters.visualizationEnabled.load(ordering: .relaxed)
         if discontinuity { kernel.reset(); spectrum.reset() }
         if !visualize { spectrum.reset() }
@@ -289,7 +304,7 @@ private final class EqualizerTapState {
                 else { input = Double(data.assumingMemoryBound(to: Int32.self)[index]) / 2147483648 }
                 let output = kernel.sample(input, channel: channelBase + index % max(1, channels))
                 if visualize && channelBase + index % max(1, channels) == 0 { spectrum.append(output, to: parameters.spectrum) }
-                if kernel.enabled {
+                if kernel.processesAudio {
                     if floating && format.mBitsPerChannel == 32 { data.assumingMemoryBound(to: Float.self)[index] = Float(output) }
                     else if floating { data.assumingMemoryBound(to: Double.self)[index] = output }
                     else if format.mBitsPerChannel == 16 { data.assumingMemoryBound(to: Int16.self)[index] = Int16(min(32767, max(-32768, output * 32768))) }
@@ -306,8 +321,8 @@ private final class EqualizerTapState {
     }
 }
 
-@MainActor func attachEqualizer(to item: AVPlayerItem, parameters: EqualizerParameters) throws {
-    let retained = Unmanaged.passRetained(EqualizerTapState(parameters))
+@MainActor func attachEqualizer(to item: AVPlayerItem, parameters: EqualizerParameters, loudness: LoudnessParameters = LoudnessParameters()) throws {
+    let retained = Unmanaged.passRetained(EqualizerTapState(parameters, loudness: loudness))
     var callbacks = MTAudioProcessingTapCallbacks(version: kMTAudioProcessingTapCallbacksVersion_0, clientInfo: retained.toOpaque(),
         init: { _, info, storage in storage.pointee = info },
         finalize: { tap in Unmanaged<EqualizerTapState>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release() },

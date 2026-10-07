@@ -73,6 +73,10 @@ struct PlaybackOptions: View {
     var player: PlayerModel
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
+            Toggle("Lautstärke-Normalisierung", isOn: Binding(get: { player.normalizationEnabled }, set: { player.setNormalization($0) }))
+            if player.normalizationEnabled {
+                Text(player.normalizationMessage).desktopScaledFont(15).foregroundStyle(.secondary)
+            }
             HStack { Text("Überblendung"); Spacer(); Text(player.crossfadeSeconds == 0 ? "Aus" : "\(Int(player.crossfadeSeconds)) s").monospacedDigit().foregroundStyle(.secondary) }
             Slider(value: Binding(get: { player.crossfadeSeconds }, set: { player.setCrossfade($0) }), in: 0...12, step: 1).accessibilityLabel("Überblendung zwischen Titeln")
             Toggle("Albentitel ohne Überblendung", isOn: Binding(get: { player.smartAlbumTransition }, set: { player.setSmartAlbumTransition($0) }))
@@ -88,7 +92,7 @@ struct PlaybackOptions: View {
             Toggle("Schneller Abspielstart", isOn: Binding(get: { player.fastStart }, set: { player.setFastStart($0) }))
             Text("Beginnt mit verfügbaren Audiodaten. Bei schwachen Verbindungen ausschalten, um mehr vor dem Start zu puffern.").desktopScaledFont(15).foregroundStyle(.secondary)
             Picker("Geschwindigkeit", selection: Binding(get: { player.playbackRate }, set: { player.setPlaybackRate($0) })) {
-                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
+                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
             }.controlSize(.large)
             Picker("Sleep-Timer", selection: Binding(get: { player.sleepMode }, set: { player.setSleepMode($0) })) {
                 ForEach(SleepMode.allCases) { Text($0.name).tag($0) }

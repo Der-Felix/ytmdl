@@ -255,3 +255,28 @@ func offlineAuthenticatedTransferCachesSidecarsAndPlayerUsesLocalFile() async th
     paused.finish(id, location: temp, response: response, taskID: 42)
     #expect(paused.audioURL(track.id) != nil)
 }
+
+@MainActor @Test func offlineLoudnessSurvivesRestartAndCannotLeakBetweenAccounts() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let server = try ServerAddress("https://fixture.example"), user = try fixtureUser("gain-a"), other = try fixtureUser("gain-b")
+    let a = OfflineProfile(id: OfflineLibrary.profileID(server: server, userID: user.id), origin: server.url.absoluteString, user: user)
+    let b = OfflineProfile(id: OfflineLibrary.profileID(server: server, userID: other.id), origin: server.url.absoluteString, user: other)
+    let track = Track(id: "same", title: "Fixture", artists: [], album: "", durationMs: 1000)
+    let id = OfflineLibrary.digest(a.id + "\n" + track.id), file = id + ".ogg", directory = root.appendingPathComponent(a.id)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let bytes = Data("OggSfixture-media".utf8); try bytes.write(to: directory.appendingPathComponent(file))
+    let record = OfflineTrack(id: id, scope: a.id, track: track, state: .ready, bytes: Int64(bytes.count), fileName: file)
+    try JSONEncoder().encode(OfflineTestManifest(profiles: [a, b], tracks: [record])).write(to: root.appendingPathComponent("manifest.json"))
+    let store = OfflineLibrary(root: root, startTransfers: false); store.selectProfile(a)
+    #expect(store.loudnessGain(track.id) == nil)
+    store.rememberLoudness(track.id, gain: -6)
+    let restart = OfflineLibrary(root: root, startTransfers: false); restart.selectProfile(a)
+    #expect(restart.loudnessGain(track.id) == -6)
+    restart.rememberLoudness(track.id, gain: .infinity)
+    #expect(restart.loudnessGain(track.id) == -6)
+    restart.selectProfile(b); #expect(restart.loudnessGain(track.id) == nil)
+    restart.selectProfile(a); restart.remove(track.id)
+    #expect(restart.loudnessGain(track.id) == nil)
+}

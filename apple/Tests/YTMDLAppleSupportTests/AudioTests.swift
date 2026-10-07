@@ -365,3 +365,16 @@ private func syntheticWave(in folder: URL, seconds: Double = 6, tone: Bool = fal
     player.next()
     #expect(radioCalls == 0 && !player.isPlaybackRequested)
 }
+
+@Test func loudnessGainWorksWithoutEqualizerAndIsIndependentForEachCrossfadeItem() {
+    let parameters = EqualizerParameters(), quiet = EqualizerKernel(), loud = EqualizerKernel()
+    quiet.prepare(rate: 48000, channels: 1); loud.prepare(rate: 48000, channels: 1)
+    quiet.refresh(parameters); loud.refresh(parameters)
+    quiet.setLoudness(-6); loud.setLoudness(6)
+    #expect(!quiet.enabled && quiet.processesAudio)
+    #expect(abs(quiet.sample(0.25, channel: 0) - 0.25 * pow(10, -6.0 / 20)) < 0.000001)
+    #expect(abs(loud.sample(0.25, channel: 0) - 0.25 * pow(10, 6.0 / 20)) < 0.000001)
+    #expect(loud.sample(0.9, channel: 0) == 1)
+    quiet.setLoudness(.nan)
+    #expect(quiet.sample(0.25, channel: 0) == 0.25 && !quiet.processesAudio)
+}

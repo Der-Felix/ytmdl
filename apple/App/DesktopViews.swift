@@ -592,12 +592,13 @@ struct DesktopListeningView: View {
                             .desktopScaledFont(26).foregroundStyle(playerAccent).frame(width: 44, height: 44)
                     }.buttonStyle(DesktopControlStyle()).accessibilityLabel("Favorit umschalten")
                     Menu {
-                        Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; addingToPlaylist = true }
-                        Button("Warteschlange als Playlist speichern", systemImage: "square.and.arrow.down") { playlistSelection = model.player.queue.tracks; addingToPlaylist = true }
+                        Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; addingToPlaylist = true }.disabled(model.offlineMode)
+                        Button("Warteschlange als Playlist speichern", systemImage: "square.and.arrow.down") { playlistSelection = model.player.queue.tracks; addingToPlaylist = true }.disabled(model.offlineMode)
                         Button("Titel und Künstler kopieren") { copyTrack(track) }
                         Button("Cover vergrößern") { expandedArtwork = true }
                         Button("Lyrics anzeigen") { tab = 1 }
                         Divider()
+                        Button("Warteschlange leeren und stoppen", role: .destructive) { model.player.clearQueue() }
                         Button("Kommende Titel aus Warteschlange entfernen") { model.player.clearUpcoming() }
                             .disabled(model.player.queue.index + 1 >= model.player.queue.tracks.count)
                     } label: { Image(systemName: "ellipsis").desktopScaledFont(23).frame(width: 44, height: 44) }
@@ -987,10 +988,12 @@ struct DesktopListeningView: View {
                                     }.padding(8).contentShape(Rectangle())
                                 }.buttonStyle(DesktopHoverStyle(radius: 10)).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
                                 Menu {
-                                    Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; addingToPlaylist = true }
+                                    Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; addingToPlaylist = true }.disabled(model.offlineMode)
                                     Button("Jetzt abspielen") { model.player.select(index) }
+                                    Button("Nach oben", systemImage: "arrow.up") { model.player.moveInQueue(from: index, to: index - 1) }.disabled(index == 0)
+                                    Button("Nach unten", systemImage: "arrow.down") { model.player.moveInQueue(from: index, to: index + 1) }.disabled(index + 1 >= model.player.queue.tracks.count)
                                     Button("Als Nächstes abspielen") { model.player.playNextInQueue(index) }.disabled(index <= model.player.queue.index + 1)
-                                    Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen") { Task { await model.toggleFavorite(track) } }
+                                    Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen") { Task { await model.toggleFavorite(track) } }.disabled(model.offlineMode || model.pendingFavorites.contains(track.id))
                                     Button("Titel und Künstler kopieren") { copyTrack(track) }
                                     Divider()
                                     Button("Aus Warteschlange entfernen") { model.player.removeFromQueue(index) }.disabled(index == model.player.queue.index)
@@ -1008,11 +1011,10 @@ struct DesktopListeningView: View {
                         EqualizerControls(player: model.player)
                         Divider()
                         PlaybackOptions(player: model.player)
-                        Text("Titel-Normalisierung benötigt verlässliche Lautheitswerte pro Titel und ist noch nicht verfügbar. Der EQ-Pegelschutz gleicht nur Verstärkungen durch den Equalizer aus.").desktopScaledFont(15).foregroundStyle(.secondary)
+                        Text("Normalisierung verwendet gemessene Lautheitswerte. Gespeicherte Werte stehen auch für lokale Musik zur Verfügung; ohne Messwert wird unverändert abgespielt.").desktopScaledFont(15).foregroundStyle(.secondary)
                     }
                 } else {
-                    Text(model.player.lyrics.isEmpty ? "Lyrics werden geladen …" : cleanLyrics(model.player.lyrics))
-                        .desktopScaledFont(24).lineSpacing(14).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    MobileLyricsView(player: model.player, viewportHeight: 500)
                 }
             }
         }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

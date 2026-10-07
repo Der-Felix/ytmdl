@@ -1,10 +1,26 @@
-# iPhone-Funktionsprüfung — bis Vorschau 0.3.0, Build 31
+# iPhone-Funktionsprüfung — bis Vorschau 0.3.0, Build 32
 
 Stand: 7. Oktober 2026. Prüfung des nativen Clients und seiner API-Verträge;
 isolierte temporäre Daten, Loopback-Server und iPhone-Simulator mit iOS 27.
 Die Server-Kompatibilitätsbasis ist der geprüfte Router von `v1.2.0`.
 Produktionskonten, Musik und Playlists wurden für diese Prüfung nicht verändert.
 Dieser Bericht ist keine Freigabe als fehlerfreie oder vollständige Spotify/Plexamp-App.
+
+## Build 32: Abgleich mit dem Web
+
+Der vollständige Funktionsvergleich mit offenen Unterschieden steht in
+[WEB-PARITY.md](WEB-PARITY.md). Neu geprüft sind Queue-Verschiebung mit doppelten
+Song-IDs, Einfügen als Nächstes, leere Resume-Daten nach ausdrücklichem Leeren,
+Lautheitsmessung inklusive ungültiger/später Antworten und kontoabhängige
+Offline-Lautheitswerte. Die App kann jetzt auch am Mac gespeicherte Sammlungen
+öffnen und synchronisierte Lyrics anzeigen.
+
+50 Swift-Core-/Support-Tests bestehen in einem gemeinsamen seriellen Lauf,
+einschließlich des authentifizierten stummen Offline-Transfers. Zwei mögliche
+hörbare Audio-Tap-Tests bleiben ausdrücklich übersprungen. Vier gezielte
+Simulator-Abläufe bestehen: Playlist-Erstellen/Bearbeiten/Ordnen/Entfernen/Löschen,
+Favoriten/Suche, gespeicherte Offline-Playlist sowie Queue-Tools/Normalisierung.
+Das ist keine vollständige neue Hardware- oder tvOS-Freigabe.
 
 ## Ergebnisse und verbleibende Grenzen
 
@@ -45,7 +61,8 @@ Release-Voraussetzung, kein verstecktes erfolgreiches Testergebnis.
 | Apple-TV-Gerätecode | Benötigt zusätzlichen Backend-Stand | Gerätecode-Routen sind nicht in `v1.2.0`. Ein 404 zeigt jetzt eine verständliche Meldung. Normale Anmeldung bleibt verfügbar |
 | Themes und Einstellungen | Navigation und Zustandsprüfungen | System/hell/dunkel, Akzentfarben und lokale Speicherung; sämtliche Kombinationen mit großer Schrift/VoiceOver offen |
 | Home-/Sperrbildschirm-Widgets | Einstieg implementiert; Galerie am Gerät offen | Kleine/mittlere Home-Widgets und drei Sperrbildschirm-Familien. Öffnen Player/Favoriten/Playlists ohne Autoplay; keine Live-Titelanzeige oder Wiedergabetasten im Widget |
-| CarPlay, Siri, Live-Wiedergabe-Widgets, Watch, echtes Gapless, Lautheitsnormalisierung | Nicht implementiert / nicht zugesagt | EQ-Pegelschutz ist keine Lautheitsnormalisierung; keine vollständige Produkt-Parität behaupten |
+| Lautstärke-Normalisierung | Neu in Build 32; API/CPU/UI geprüft | Bestehende Servermessung, separate Gains bei Überblendung, Offline-Cache; fehlende Werte transparent umgehen. Echte Audio-Ausgabe weiterhin offen |
+| CarPlay, Siri, Live-Wiedergabe-Widgets, Watch, echtes Gapless | Nicht implementiert / nicht zugesagt | Keine vollständige Produkt-Parität behaupten |
 
 ## Build 30: Sammlungsgestaltung und Widget-Einstiege
 

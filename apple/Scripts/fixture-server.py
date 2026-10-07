@@ -138,6 +138,9 @@ class Handler(BaseHTTPRequestHandler):
         self.response({},404)
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))) or b'{}')
+        if self.path.endswith('/loudness'):
+            if self.headers.get('X-CSRF-Token') != 'fixture-csrf': return self.response({},403)
+            return self.response({'gain_db': -3, 'integrated_lufs': -11, 'true_peak_db': -1})
         if '/playlists' in self.path: return self.mutate_playlist(body)
         if self.path.endswith('/auth/logout'):return self.response({})
         if self.path.endswith('/device'):return self.response({'device_code':'fixture-only-opaque-secret','user_code':'ABCD-EFGH','expires_in':300,'interval':5},201)

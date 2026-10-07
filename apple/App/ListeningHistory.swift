@@ -57,7 +57,11 @@ struct ListeningEvent: Codable, Sendable { let eventID: String; let trackID: Str
         if persistent, let key { for suffix in ["", ".queue", ".events"] { preferences.removeObject(forKey: key + suffix) } }
     }
     func saveSnapshot(queue: PlaybackQueue, position: Double, repeatMode: String, force: Bool) {
-        guard enabled, let key, queue.current != nil, position.isFinite else { return }
+        guard enabled, let key, position.isFinite else { return }
+        guard queue.current != nil else {
+            if force { snapshot = nil; if persistent { preferences.removeObject(forKey: key + ".queue") } }
+            return
+        }
         guard force || snapshot?.tracks != queue.tracks || Date().timeIntervalSince(lastSnapshot) >= 5 else { return }
         snapshot = ListeningSnapshot(tracks: queue.tracks, index: queue.index, position: max(0, position), repeatMode: repeatMode); lastSnapshot = Date()
         if persistent, let data = try? JSONEncoder().encode(snapshot), data.count <= 1024 * 1024 { preferences.set(data, forKey: key + ".queue") }

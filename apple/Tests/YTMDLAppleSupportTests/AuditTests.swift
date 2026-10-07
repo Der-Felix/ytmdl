@@ -42,6 +42,9 @@ private final class AuditProtocol: URLProtocol, @unchecked Sendable {
                 } else if ["/library/releases", "/library/artists", "/library/genres", "/playlists", "/favorites/ids"].contains(where: path.hasSuffix) { json = #"{"data":[]}"# }
                 else if path.hasSuffix("/library/radio") { json = #"{"data":[{"id":"radio","title":"Radio","artists":[],"album":"","duration_ms":1000}]}"# }
                 else if path.hasSuffix("/playback/handoff") { json = #"{"data":{"id":"handoff","queue":[],"queue_index":0,"position_seconds":0,"repeat_mode":"off","source_name":"Fixture"}}"# }
+                else if path.hasSuffix("/loudness") {
+                    json = path.contains("/missing/") ? #"{"data":{"gain_db":99,"integrated_lufs":-10,"true_peak_db":-1}}"# : #"{"data":{"gain_db":3,"integrated_lufs":-20,"true_peak_db":-1}}"#
+                }
                 else if path.hasSuffix("/lyrics") { json = #"{"data":{"state":"available_plain","content":"Fixture lyrics"}}"# }
                 else { json = #"{"data":{}}"# }
                 payload = Data(json.utf8)
@@ -195,4 +198,43 @@ private final class AuditProtocol: URLProtocol, @unchecked Sendable {
     let pausedRevision = model.player.playbackRevision
     await autoplay.value
     #expect(model.player.current == new && model.player.playbackRevision == pausedRevision && !model.player.isPlaybackRequested)
+}
+
+@MainActor @Test func normalizationUsesVerifiedGainRejectsInvalidValuesAndNeverQueriesOffline() async throws {
+    let suite = "audit-normalization-" + UUID().uuidString, preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let client = try auditClient(), player = PlayerModel(volumePreferences: preferences)
+    defer { player.stop(); client.invalidate() }
+    let track = Track(id: "t0", title: "Fixture", artists: [], album: "", durationMs: 1000)
+    player.previewPaused([track], client: client); player.setNormalization(true)
+    for _ in 0..<100 { if player.normalizationMessage.contains("+1.0") { break }; try await Task.sleep(for: .milliseconds(10)) }
+    #expect(player.normalizationMessage.contains("+1.0"), "True peak caps the server's requested +3 dB to +1 dB.")
+    #expect(!player.isPlaybackRequested)
+    player.previewPaused([Track(id: "missing", title: "Missing", artists: [], album: "", durationMs: 1000)], client: client)
+    player.setNormalization(true)
+    for _ in 0..<100 { if player.normalizationMessage.contains("nicht verfügbar") { break }; try await Task.sleep(for: .milliseconds(10)) }
+    #expect(player.normalizationMessage.contains("nicht verfügbar"))
+    player.previewPaused([Track(id: "slow", title: "Slow", artists: [], album: "", durationMs: 1000)], client: client)
+    player.setNormalization(true); player.stop()
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(player.normalizationMessage == "Normalisierung ausgeschaltet")
+    player.offlineOnly = true; player.previewPaused([track], client: client); player.setNormalization(true)
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(player.normalizationMessage.hasPrefix("Offline:"))
+    player.setNormalization(false)
+    #expect(!player.normalizationEnabled && !preferences.bool(forKey: "playerNormalization"))
+}
+
+@MainActor @Test func clearingQueueAlsoRemovesPersistedResumeSnapshot() throws {
+    let suite = "audit-clear-queue-" + UUID().uuidString, preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let server = try ServerAddress("https://fixture.example"), history = ListeningHistory(preferences: preferences)
+    history.configure(server: server, userID: "fixture", persist: true); history.setEnabled(true)
+    var queue = PlaybackQueue(); queue.replace([Track(id: "t0", title: "Fixture", artists: [], album: "", durationMs: 1000)])
+    history.saveSnapshot(queue: queue, position: 1, repeatMode: "off", force: true)
+    #expect(history.snapshot != nil)
+    queue.replace([]); history.saveSnapshot(queue: queue, position: 0, repeatMode: "off", force: true)
+    #expect(history.snapshot == nil)
+    let reload = ListeningHistory(preferences: preferences); reload.configure(server: server, userID: "fixture", persist: true)
+    #expect(reload.snapshot == nil)
 }

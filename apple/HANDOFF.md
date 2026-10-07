@@ -1,9 +1,44 @@
-# Apple app handoff — preview 0.3.0, build 31
+# Apple app handoff — preview 0.3.0, build 32
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
 Do not promote it to a stable server release just because it builds locally.
 The server release and native preview have independent version numbers.
+
+## Build 32: listening parity audit
+
+[WEB-PARITY.md](WEB-PARITY.md) is the authoritative inventory, including remaining
+web-only DSP/sort/shuffle features and hardware/tvOS qualification gaps. This is
+still a preview, not a declaration of complete parity.
+
+`PlaybackQueue.move` and `insertNext` preserve queue occurrences/current selection.
+`PlayerModel` invalidates prefetch and persists explicit queue edits; empty forced
+snapshots now clear stale resume state. Mobile queue tools expose filtering,
+playlist save and full clear. Existing playlist/server operations remain online-only.
+
+Normalization uses the existing loudness API with CSRF, finite/range/peak validation,
+generation/client checks and bounded session/parameter caches. `Equalizer.swift` gives each
+item its own atomic `LoudnessParameters`, independent during crossfade and active
+without EQ. `OfflineTrack.loudnessDB` is an optional, account-scoped field; old
+manifests remain readable. Missing measurements bypass processing with a status.
+There is no audio rewrite or database migration. Mac now shares offline browsing,
+collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
+
+Keep the app and widget at 0.3.0 (32). Use Xcode 27; an older selected Xcode cannot
+build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
+to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
+audible-test opt-in disabled. The fixture server supports deterministic loudness
+responses as well as its existing silent WAV/covers.
+
+Verification for build 32: 50 Core/Support tests pass in one serial run, with
+only the two opt-in audible tests skipped. Four targeted iPhone simulator flows
+pass: playlist mutations, favorites/search, offline playlist navigation and queue
+management/normalization. Tests use isolated metadata, account scopes and silent
+synthetic transfers. This does not qualify real background downloads or audio
+routes; use the parity inventory and release checklist for the remaining work.
+iOS simulator, macOS and tvOS simulator Debug builds and the signed iOS Debug
+build pass under Xcode 27. Build 32 is installed as an in-place physical iPhone
+update; no launch or playback was triggered. Final-commit GitHub CI is separate.
 
 ## Build 31: offline library browsing
 

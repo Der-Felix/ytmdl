@@ -28,6 +28,39 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "Native library")
     }
     #if os(iOS)
+    @MainActor func testQueueManagementAndNormalizationSettingsWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact player test requires iPhone.")
+        let app = try app(pausedPlayer: true)
+        XCTAssertTrue(app.buttons["mobile-mini-player-open"].waitForExistence(timeout: 20))
+        app.buttons["mobile-mini-player-open"].tap()
+        let row = app.buttons["mobile-queue-track-0"]
+        for _ in 0..<5 { if row.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        let title = row.label
+        app.buttons["mobile-queue-actions-0"].tap()
+        XCTAssertTrue(app.buttons["Nach unten"].waitForExistence(timeout: 5))
+        app.buttons["Nach unten"].tap()
+        XCTAssertEqual(app.buttons["mobile-queue-track-1"].label, title)
+        XCTAssertTrue(app.buttons["mobile-player-toggle"].label == "Abspielen")
+        app.buttons["mobile-queue-tools"].tap()
+        XCTAssertTrue(app.buttons["Als Playlist speichern"].waitForExistence(timeout: 5))
+        app.buttons["Als Playlist speichern"].tap()
+        XCTAssertTrue(app.buttons["Erstellen und Titel hinzufügen"].waitForExistence(timeout: 5))
+        app.navigationBars["Zur Playlist hinzufügen"].buttons["Schließen"].tap()
+        for _ in 0..<5 { if app.buttons["Werkzeuge"].isHittable { break }; app.swipeDown() }
+        app.buttons["Werkzeuge"].tap()
+        let normalization = app.switches["playback-normalization"]
+        XCTAssertTrue(normalization.waitForExistence(timeout: 5))
+        XCTAssertTrue(normalization.isHittable)
+        if normalization.value as? String == "1" { normalization.tap() }
+        normalization.tap()
+        let measured = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Aktueller Titel:", "-3")).firstMatch
+        XCTAssertTrue(measured.waitForExistence(timeout: 10))
+        attach(app, name: "Native playback normalization")
+        app.buttons["Fertig"].tap(); app.navigationBars["Jetzt läuft"].buttons["Schließen"].tap()
+        XCTAssertTrue(app.buttons["mobile-mini-player-open"].isHittable)
+    }
+
     @MainActor func testWidgetLinksOpenDestinationsWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Widget routes require compact navigation.")
         let app = try app(pausedPlayer: true)
