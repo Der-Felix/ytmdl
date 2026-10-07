@@ -6,9 +6,11 @@ artist and duration. Such a result does not provide enough evidence to relax the
 matching threshold.
 
 When a directly identified source explicitly reports an age or Premium gate,
-resolution can try another already configured, immediately eligible session.
+resolution can try another already configured, eligible session.
 Each session is checked once, up to the lower of the candidate limit and five.
-Cookie files are not replaced, session health is not penalised, and the winning
+The restricted lease is released before waiting for alternate capacity, so
+concurrent downloads cannot deadlock by holding all session slots. Cookie files
+are not replaced, session health is not penalised, and the winning
 session remains attached to the download. Bot challenges, authentication failures
 and rate limits stop the attempt immediately; they never trigger this rotation.
 If no session can access the recording, normal candidate search still runs. When

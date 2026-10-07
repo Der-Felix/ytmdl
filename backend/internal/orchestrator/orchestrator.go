@@ -446,20 +446,23 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 				break
 			}
 			alternates, supports := o.sessionPool.(interface {
-				TryAcquireExcluding(context.Context, map[string]struct{}) (*mediasession.Lease, error)
+				AcquireExcluding(context.Context, map[string]struct{}) (*mediasession.Lease, error)
 			})
 			if !supports {
 				break
 			}
 			checkedSessions[sessionID] = struct{}{}
-			next, acquireErr := alternates.TryAcquireExcluding(ctx, checkedSessions)
+			// Free the restricted session before waiting; otherwise simultaneous
+			// restricted items could hold every slot while waiting for each other.
+			lease.ReleaseNeutral()
+			lease, cookiePath, sessionID = nil, "", ""
+			next, acquireErr := alternates.AcquireExcluding(ctx, checkedSessions)
 			if acquireErr != nil {
 				return nil, acquireErr
 			}
 			if next == nil {
 				break
 			}
-			lease.ReleaseNeutral()
 			lease, cookiePath, sessionID = next, next.CookiePath(), next.SessionID()
 		}
 		o.logger.Info("direct-ID candidate unavailable, falling back to generic search",
