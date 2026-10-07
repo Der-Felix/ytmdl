@@ -2,13 +2,16 @@ package jobs
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/downloader"
@@ -492,7 +495,7 @@ func (m *Manager) placeSafe(ctx context.Context, release music.Release, track mu
 				return music.File{}, err
 			}
 		} else {
-			alreadyPlaced, err := m.library.CommitStaged(download.Path, target, expectedSHA256, expectedSize)
+			alreadyPlaced, err := m.commitRecording(download.Path, &target, source, expectedSHA256, expectedSize)
 			if err != nil {
 				return music.File{}, err
 			}
@@ -502,7 +505,7 @@ func (m *Manager) placeSafe(ctx context.Context, release music.Release, track mu
 			}
 		}
 	} else {
-		alreadyPlaced, err := m.library.CommitStaged(download.Path, target, expectedSHA256, expectedSize)
+		alreadyPlaced, err := m.commitRecording(download.Path, &target, source, expectedSHA256, expectedSize)
 		if err != nil {
 			return music.File{}, err
 		}
@@ -529,6 +532,31 @@ func (m *Manager) placeSafe(ctx context.Context, release music.Release, track mu
 		SourceID:       source.ID,
 		SourceURL:      source.URL,
 	}, nil
+}
+
+// commitRecording preserves a different recording at the conventional filename.
+// A stable source suffix prevents collisions without adopting or deleting the
+// existing file. The alternate path uses the same verified, no-overwrite commit;
+// a conflict there still fails rather than generating an unbounded set of copies.
+func (m *Manager) commitRecording(staged string, target *string, source provider.MediaSource, checksum string, size int64) (bool, error) {
+	recovered, err := m.library.CommitStaged(staged, *target, checksum, size)
+	if apperr.CodeOf(err) != apperr.CodePathConflict || strings.TrimSpace(source.ID) == "" || strings.TrimSpace(source.Provider) == "" {
+		return recovered, err
+	}
+	ext := filepath.Ext(*target)
+	key := sha256.Sum256([]byte(source.Provider + "\x00" + source.ID))
+	suffix := fmt.Sprintf(" [source-%x]", key[:8])
+	base := strings.TrimSuffix(filepath.Base(*target), ext)
+	for len(base)+len(suffix)+len(ext) > storage.MaxComponentLength {
+		_, width := utf8.DecodeLastRuneInString(base)
+		base = base[:len(base)-width]
+	}
+	alternative := filepath.Join(filepath.Dir(*target), base+suffix+ext)
+	recovered, err = m.library.CommitStaged(staged, alternative, checksum, size)
+	if err == nil {
+		*target = alternative
+	}
+	return recovered, err
 }
 
 // ownsTarget reports whether a library path already belongs to the recording

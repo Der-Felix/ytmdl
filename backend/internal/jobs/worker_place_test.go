@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -358,5 +359,55 @@ func TestAttachLyricsInstrumentalWritesNoSidecar(t *testing.T) {
 		if _, err := os.Stat(storage.SidecarPathFor(audio, ext)); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("an instrumental track wrote a %s sidecar", ext)
 		}
+	}
+}
+
+func TestPlacePreservesConflictingRecordingAndRecoversVariant(t *testing.T) {
+	for _, registered := range []bool{false, true} {
+		t.Run(fmt.Sprint(registered), func(t *testing.T) {
+			rel := filepath.Join("Artist", "2001 - Album", "01 - Song.opus")
+			files := &fakeFiles{byPath: map[string]*music.File{}}
+			if registered {
+				files.byPath[rel] = &music.File{TrackID: "older-recording", Path: rel}
+			}
+			m, root := newPlaceManager(t, &fakeCatalog{}, files)
+			original := filepath.Join(root, rel)
+			if err := os.MkdirAll(filepath.Dir(original), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(original, []byte("existing recording"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			source := provider.MediaSource{Provider: "ytmusic", ID: "full-version"}
+			first, err := m.place(context.Background(), aRelease(), aWorkerTrack(), aDownload(t, "verified full audio"), nil, source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Path == rel {
+				t.Fatal("collision was not disambiguated")
+			}
+			recovered, err := m.place(context.Background(), aRelease(), aWorkerTrack(), aDownload(t, "verified full audio"), nil, source)
+			if err != nil || recovered.Path != first.Path {
+				t.Fatalf("crash recovery: %v", err)
+			}
+			_, err = m.place(context.Background(), aRelease(), aWorkerTrack(), aDownload(t, "unexpected different audio"), nil, source)
+			if apperr.CodeOf(err) != apperr.CodePathConflict {
+				t.Fatalf("variant conflict must fail: %v", err)
+			}
+			for path, want := range map[string]string{original: "existing recording", filepath.Join(root, first.Path): "verified full audio"} {
+				got, err := os.ReadFile(path)
+				if err != nil || string(got) != want {
+					t.Fatalf("recording changed: %v", err)
+				}
+			}
+			other, err := m.place(context.Background(), aRelease(), aWorkerTrack(), aDownload(t, "another verified source"), nil, provider.MediaSource{Provider: "youtube", ID: "other-version"})
+			if err != nil || other.Path == first.Path {
+				t.Fatalf("distinct source: %v", err)
+			}
+			entries, err := os.ReadDir(filepath.Dir(original))
+			if err != nil || len(entries) != 3 {
+				t.Fatalf("unexpected copies: %v", err)
+			}
+		})
 	}
 }

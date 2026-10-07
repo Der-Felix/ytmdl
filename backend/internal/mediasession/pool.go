@@ -535,6 +535,17 @@ func (l *Lease) ReleaseNeutral() {
 // It blocks until a session is available, or until ctx is done.
 // Process pacing happens later at the yt-dlp execution boundary.
 func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
+	return p.acquire(ctx, nil, true)
+}
+
+// TryAcquireExcluding requests an immediately eligible alternate session for an
+// item-specific restriction. It never waits, changes health, or drains unrelated
+// waiters. A nil lease means no alternate is available right now.
+func (p *SessionPool) TryAcquireExcluding(ctx context.Context, excluded map[string]struct{}) (*Lease, error) {
+	return p.acquire(ctx, excluded, false)
+}
+
+func (p *SessionPool) acquire(ctx context.Context, excluded map[string]struct{}, wait bool) (*Lease, error) {
 	if p == nil {
 		return nil, apperr.New(apperr.CodeInvalidRequest, "session pool is nil")
 	}
@@ -552,6 +563,9 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 		candidateList := make([]*RuntimeSession, 0, len(p.sessions))
 
 		for _, id := range p.sessionOrder {
+			if _, skip := excluded[id]; skip {
+				continue
+			}
 			rs := p.sessions[id]
 			if rs == nil {
 				continue
@@ -565,6 +579,10 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 		}
 
 		if !hasAny || !hasConfigured {
+			if !wait {
+				p.mu.Unlock()
+				return nil, nil
+			}
 			p.drainWaitersLocked()
 			p.mu.Unlock()
 			return nil, apperr.New(apperr.CodeSessionNotFound, "no eligible media sessions available in pool")
@@ -606,6 +624,11 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 				pool:       p,
 				cookiePath: cookiePath,
 			}, nil
+		}
+
+		if !wait {
+			p.mu.Unlock()
+			return nil, nil
 		}
 
 		totalActiveLeases := 0
