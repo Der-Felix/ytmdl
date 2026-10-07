@@ -25,11 +25,7 @@ audio.writeUInt16LE(2, 32)
 audio.writeUInt16LE(16, 34)
 audio.write('data', 36)
 audio.writeUInt32LE(audio.length - 44, 40)
-for (let i = 0; i < (audio.length - 44) / 2; i++)
-  audio.writeInt16LE(
-    Math.round(Math.sin((i * 2 * Math.PI * 440) / 22050) * 3000),
-    44 + i * 2,
-  )
+// Zero PCM preserves real decoding, duration and playback events without a tone.
 const tracks = [1, 2].map((n) => ({
   id: 'offline-fixture-' + n,
   title: 'Offline Test ' + n,

@@ -1,0 +1,344 @@
+import AVFoundation
+import MediaToolbox
+import Synchronization
+import Observation
+import YTMDLCore
+import Accelerate
+
+/// Four atomic words publish 32 quantized bands without locking the render thread.
+final class SpectrumSnapshot: @unchecked Sendable {
+    let sequence = Atomic<UInt64>(0)
+    private let a = Atomic<UInt64>(0), b = Atomic<UInt64>(0), c = Atomic<UInt64>(0), d = Atomic<UInt64>(0)
+    func publish(_ levels: UnsafePointer<Float>) {
+        var words = (UInt64(0), UInt64(0), UInt64(0), UInt64(0))
+        for band in 0..<32 {
+            let value = UInt64((max(0, min(1, levels[band])) * 255).rounded()) << ((band % 8) * 8)
+            switch band / 8 { case 0: words.0 |= value; case 1: words.1 |= value; case 2: words.2 |= value; default: words.3 |= value }
+        }
+        a.store(words.0, ordering: .relaxed); b.store(words.1, ordering: .relaxed)
+        c.store(words.2, ordering: .relaxed); d.store(words.3, ordering: .relaxed)
+        sequence.wrappingAdd(1, ordering: .releasing)
+    }
+    // Called on the main actor; array allocation never happens in the audio callback.
+    func read() -> [Double] {
+        let words = [a.load(ordering: .relaxed), b.load(ordering: .relaxed), c.load(ordering: .relaxed), d.load(ordering: .relaxed)]
+        return (0..<32).map { Double((words[$0 / 8] >> (($0 % 8) * 8)) & 255) / 255 }
+    }
+}
+
+/// Hann-windowed, 2048-point real FFT. All storage/setup is prepared before
+/// rendering; analysis uses the first decoded channel to avoid phase cancellation.
+final class AudioSpectrumAnalyzer {
+    static let count = 2048, bands = 32
+    private let samples = UnsafeMutablePointer<Float>.allocate(capacity: count)
+    private let window = UnsafeMutablePointer<Float>.allocate(capacity: count)
+    private let work = UnsafeMutablePointer<Float>.allocate(capacity: count)
+    private let real = UnsafeMutablePointer<Float>.allocate(capacity: count / 2)
+    private let imaginary = UnsafeMutablePointer<Float>.allocate(capacity: count / 2)
+    private let levels = UnsafeMutablePointer<Float>.allocate(capacity: bands)
+    private let starts = UnsafeMutablePointer<Int>.allocate(capacity: bands)
+    private let ends = UnsafeMutablePointer<Int>.allocate(capacity: bands)
+    private var setup: FFTSetup?
+    private var cursor = 0
+    init() {
+        samples.initialize(repeating: 0, count: Self.count); window.initialize(repeating: 0, count: Self.count)
+        work.initialize(repeating: 0, count: Self.count); real.initialize(repeating: 0, count: Self.count / 2)
+        imaginary.initialize(repeating: 0, count: Self.count / 2); levels.initialize(repeating: 0, count: Self.bands)
+        starts.initialize(repeating: 1, count: Self.bands); ends.initialize(repeating: 2, count: Self.bands)
+        vDSP_hann_window(window, vDSP_Length(Self.count), Int32(vDSP_HANN_DENORM))
+        setup = vDSP_create_fftsetup(11, FFTRadix(kFFTRadix2))
+    }
+    deinit {
+        if let setup { vDSP_destroy_fftsetup(setup) }
+        samples.deallocate(); window.deallocate(); work.deallocate(); real.deallocate(); imaginary.deallocate()
+        levels.deallocate(); starts.deallocate(); ends.deallocate()
+    }
+    func prepare(sampleRate: Double) {
+        let rate = sampleRate.isFinite && sampleRate > 0 ? sampleRate : 48000
+        let upper = min(20000, rate / 2), lower = min(40, upper / 2)
+        for band in 0..<Self.bands {
+            let low = lower * pow(upper / lower, Double(band) / Double(Self.bands))
+            let high = lower * pow(upper / lower, Double(band + 1) / Double(Self.bands))
+            starts[band] = min(Self.count / 2 - 1, max(1, Int(low * Double(Self.count) / rate)))
+            ends[band] = min(Self.count / 2, max(starts[band] + 1, Int(high * Double(Self.count) / rate)))
+        }
+        reset()
+    }
+    func reset() { cursor = 0 }
+    func append(_ sample: Double, to snapshot: SpectrumSnapshot) {
+        samples[cursor] = sample.isFinite ? Float(min(1, max(-1, sample))) : 0
+        cursor += 1
+        guard cursor == Self.count else { return }
+        cursor = 0
+        guard let setup else { return }
+        vDSP_vmul(samples, 1, window, 1, work, 1, vDSP_Length(Self.count))
+        var split = DSPSplitComplex(realp: real, imagp: imaginary)
+        work.withMemoryRebound(to: DSPComplex.self, capacity: Self.count / 2) {
+            vDSP_ctoz($0, 2, &split, 1, vDSP_Length(Self.count / 2))
+        }
+        vDSP_fft_zrip(setup, &split, 1, 11, FFTDirection(FFT_FORWARD))
+        // Real FFT's factor of two and Hann's coherent gain are compensated here.
+        for band in 0..<Self.bands {
+            var power: Float = 0
+            for bin in starts[band]..<ends[band] { power = max(power, real[bin] * real[bin] + imaginary[bin] * imaginary[bin]) }
+            let amplitude = sqrt(power) * (2 / Float(Self.count))
+            levels[band] = amplitude.isFinite ? max(0, min(1, (20 * log10(max(1e-8, amplitude)) + 84) / 84)) : 0
+        }
+        snapshot.publish(levels)
+    }
+}
+
+enum EqualizerPreset: String, CaseIterable, Identifiable {
+    case flat, bass, vocal, acoustic, electronic
+    var id: String { rawValue }
+    var name: String { switch self { case .flat: "Neutral"; case .bass: "Mehr Bass"; case .vocal: "Stimmen"; case .acoustic: "Akustisch"; case .electronic: "Elektronisch" } }
+    var gains: [Double] {
+        switch self {
+        case .flat: Array(repeating: 0, count: 10)
+        case .bass: [5, 4, 3, 1, 0, 0, 0, 0, 0, 0]
+        case .vocal: [-2, -2, -1, 0, 2, 3, 3, 2, 0, -1]
+        case .acoustic: [2, 2, 1, 0, 1, 1, 2, 3, 2, 1]
+        case .electronic: [4, 3, 1, 0, -1, 0, 1, 2, 3, 2]
+        }
+    }
+}
+
+/// The render callback reads packed atomic values. No locks, UI objects or
+/// allocations are used while processing samples.
+final class EqualizerParameters: @unchecked Sendable {
+    let low = Atomic<UInt64>(0)
+    let high = Atomic<UInt64>(0)
+    let frames = Atomic<UInt64>(0)
+    let format = Atomic<Int>(0) // 0: awaiting audio, 1: supported, 2: bypassed format
+    let meterRMS = Atomic<UInt64>(0)
+    let visualizationEnabled = Atomic<Bool>(false)
+    let spectrum = SpectrumSnapshot()
+    let inputEnergy = Atomic<UInt64>(0)
+    let outputEnergy = Atomic<UInt64>(0)
+    init() { publish(gains: Array(repeating: 0, count: 10), enabled: false, preamp: 0, headroom: true) }
+    func publish(gains: [Double], enabled: Bool, preamp: Double, headroom: Bool) {
+        var a: UInt64 = 0, b: UInt64 = 0
+        for index in 0..<10 {
+            let gain = gains.indices.contains(index) && gains[index].isFinite ? gains[index] : 0
+            let encoded = UInt64((min(12, max(-12, gain)) * 2 + 24).rounded())
+            if index < 8 { a |= encoded << (index * 8) } else { b |= encoded << ((index - 8) * 8) }
+        }
+        let safePreamp = preamp.isFinite ? min(6, max(-12, preamp)) : 0
+        b |= UInt64((safePreamp * 2 + 24).rounded()) << 16
+        if enabled { b |= 1 << 24 }
+        if headroom { b |= 1 << 25 }
+        low.store(a, ordering: .releasing); high.store(b, ordering: .releasing)
+    }
+}
+
+@MainActor @Observable final class EqualizerModel {
+    static let frequencies: [Double] = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+    private(set) var enabled: Bool
+    private(set) var gains: [Double]
+    private(set) var preamp: Double
+    private(set) var headroom: Bool
+    private(set) var preset: String
+    @ObservationIgnored let parameters = EqualizerParameters()
+    @ObservationIgnored var onEnabledChange: ((Bool) -> Void)?
+    @ObservationIgnored private let preferences: UserDefaults
+    init(preferences: UserDefaults = .standard) {
+        self.preferences = preferences
+        enabled = preferences.bool(forKey: "eqEnabled")
+        let saved = preferences.array(forKey: "eqGains") as? [Double]
+        gains = saved?.count == 10 ? saved!.map { $0.isFinite ? min(12, max(-12, $0)) : 0 } : Array(repeating: 0, count: 10)
+        let level = preferences.double(forKey: "eqPreamp")
+        preamp = level.isFinite ? min(6, max(-12, level)) : 0
+        headroom = preferences.object(forKey: "eqHeadroom") as? Bool ?? true
+        preset = preferences.string(forKey: "eqPreset") ?? "flat"
+        publish()
+    }
+    func setEnabled(_ value: Bool) {
+        let changed = enabled != value
+        enabled = value; publish()
+        if changed { onEnabledChange?(value) }
+    }
+    func setGain(_ value: Double, band: Int) {
+        guard gains.indices.contains(band), value.isFinite else { return }
+        gains[band] = min(12, max(-12, value)); preset = "custom"; publish()
+    }
+    func setPreamp(_ value: Double) { guard value.isFinite else { return }; preamp = min(6, max(-12, value)); publish() }
+    func setHeadroom(_ value: Bool) { headroom = value; publish() }
+    func select(_ preset: EqualizerPreset) { gains = preset.gains; self.preset = preset.rawValue; publish() }
+    private func publish() {
+        parameters.publish(gains: gains, enabled: enabled, preamp: preamp, headroom: headroom)
+        preferences.set(enabled, forKey: "eqEnabled"); preferences.set(gains, forKey: "eqGains")
+        preferences.set(preamp, forKey: "eqPreamp"); preferences.set(headroom, forKey: "eqHeadroom")
+        preferences.set(preset, forKey: "eqPreset")
+    }
+}
+
+/// Per-item gain: outgoing and incoming tracks must retain independent levels
+/// during a crossfade. Only atomics are read by the real-time render callback.
+final class LoudnessParameters: Sendable {
+    let decibels = Atomic<UInt64>(Double(0).bitPattern)
+    func set(_ value: Double) {
+        decibels.store((value.isFinite ? min(6, max(-24, value)) : 0).bitPattern, ordering: .releasing)
+    }
+}
+
+/// Cascaded peaking filters (W3C Audio EQ Cookbook), with separate delay lines
+/// per channel. Storage is allocated in prepare, never in the render callback.
+final class EqualizerKernel {
+    private let coefficients = UnsafeMutablePointer<Double>.allocate(capacity: 50)
+    private var delays: UnsafeMutablePointer<Double>?
+    private var channels = 0
+    private var sampleRate: Double = 48000
+    private var lastLow: UInt64 = .max, lastHigh: UInt64 = .max
+    private var targetLevel: Double = 1, level: Double = 1
+    private(set) var enabled = false
+    private var loudness: Double = 1
+    var processesAudio: Bool { enabled || loudness != 1 }
+    func setLoudness(_ decibels: Double) { loudness = pow(10, (decibels.isFinite ? min(6, max(-24, decibels)) : 0) / 20) }
+    init() { coefficients.initialize(repeating: 0, count: 50) }
+    deinit { coefficients.deallocate(); delays?.deallocate() }
+    func prepare(rate: Double, channels: Int) {
+        _ = EqualizerFrequencies.values[0]
+        delays?.deallocate(); delays = nil
+        self.channels = max(1, min(32, channels)); sampleRate = rate.isFinite && rate > 0 ? rate : 48000
+        delays = .allocate(capacity: self.channels * 20); delays!.initialize(repeating: 0, count: self.channels * 20)
+        lastLow = .max; lastHigh = .max; level = 1
+    }
+    func reset() { delays?.update(repeating: 0, count: channels * 20) }
+    func refresh(_ parameters: EqualizerParameters) {
+        let low = parameters.low.load(ordering: .acquiring), high = parameters.high.load(ordering: .acquiring)
+        guard low != lastLow || high != lastHigh else { return }
+        lastLow = low; lastHigh = high
+        enabled = high & (1 << 24) != 0
+        for band in 0..<10 {
+            let encoded = band < 8 ? (low >> (band * 8)) & 255 : (high >> ((band - 8) * 8)) & 255
+            let gain = Double(encoded) / 2 - 12
+            let frequency = EqualizerFrequencies.values[band]
+            let c = coefficients.advanced(by: band * 5)
+            if frequency >= sampleRate * 0.49 {
+                c[0] = 1; c[1] = 0; c[2] = 0; c[3] = 0; c[4] = 0
+                continue // A band above Nyquist must not shift into the audible range.
+            }
+            let omega = 2 * Double.pi * frequency / sampleRate, a = pow(10, gain / 40)
+            let alpha = sin(omega) / (2 * 1.41421356237), cosine = cos(omega)
+            let a0 = 1 + alpha / a
+            c[0] = (1 + alpha * a) / a0; c[1] = -2 * cosine / a0
+            c[2] = (1 - alpha * a) / a0; c[3] = -2 * cosine / a0; c[4] = (1 - alpha / a) / a0
+        }
+        let preamp = Double((high >> 16) & 255) / 2 - 12
+        var peak = 1.0
+        if high & (1 << 25) != 0 {
+            // Evaluate the complete response, including overlaps between bands.
+            for step in 0..<128 {
+                let f = min(sampleRate * 0.49, 20 * pow(1000, Double(step) / 127))
+                let w = 2 * Double.pi * f / sampleRate
+                let cr = cos(w), ci = -sin(w), dr = cos(2 * w), di = -sin(2 * w)
+                var response = 1.0
+                for band in 0..<10 {
+                    let c = coefficients.advanced(by: band * 5)
+                    let nr = c[0] + c[1] * cr + c[2] * dr, ni = c[1] * ci + c[2] * di
+                    let ar = 1 + c[3] * cr + c[4] * dr, ai = c[3] * ci + c[4] * di
+                    response *= sqrt((nr * nr + ni * ni) / max(1e-20, ar * ar + ai * ai))
+                }
+                peak = max(peak, response * pow(10, preamp / 20))
+            }
+        }
+        targetLevel = pow(10, preamp / 20) / peak
+        level = min(level, targetLevel)
+    }
+    func sample(_ input: Double, channel: Int) -> Double {
+        guard let delays, channel < channels else { return input }
+        if !enabled { return loudness == 1 ? input : min(1, max(-1, input * loudness)) }
+        var value = input
+        for band in 0..<10 {
+            let c = coefficients.advanced(by: band * 5), d = delays.advanced(by: channel * 20 + band * 2)
+            let output = c[0] * value + d[0]
+            d[0] = c[1] * value - c[3] * output + d[1]; d[1] = c[2] * value - c[4] * output
+            value = output
+        }
+        level += 0.002 * (targetLevel - level)
+        let result = value * level * loudness
+        return result.isFinite ? min(1, max(-1, result)) : 0
+    }
+}
+private enum EqualizerFrequencies { static let values: [Double] = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] }
+
+private final class EqualizerTapState {
+    let parameters: EqualizerParameters
+    let loudness: LoudnessParameters
+    let kernel = EqualizerKernel()
+    let spectrum = AudioSpectrumAnalyzer()
+    var format = AudioStreamBasicDescription()
+    var supported = false
+    init(_ parameters: EqualizerParameters, loudness: LoudnessParameters) { self.parameters = parameters; self.loudness = loudness }
+    func prepare(_ format: AudioStreamBasicDescription) {
+        self.format = format
+        supported = format.mFormatID == kAudioFormatLinearPCM && format.mChannelsPerFrame > 0 && format.mChannelsPerFrame <= 32
+            && format.mFormatFlags & kAudioFormatFlagIsBigEndian == 0
+            && ((format.mFormatFlags & kAudioFormatFlagIsFloat != 0 && [32, 64].contains(format.mBitsPerChannel))
+                || (format.mFormatFlags & kAudioFormatFlagIsSignedInteger != 0 && [16, 32].contains(format.mBitsPerChannel)))
+        let packedChannels = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0 ? 1 : format.mChannelsPerFrame
+        supported = supported && format.mBytesPerFrame == packedChannels * format.mBitsPerChannel / 8
+        kernel.prepare(rate: format.mSampleRate, channels: Int(format.mChannelsPerFrame))
+        spectrum.prepare(sampleRate: format.mSampleRate)
+        parameters.format.store(supported ? 1 : 2, ordering: .releasing)
+    }
+    func process(_ buffers: UnsafeMutablePointer<AudioBufferList>, frames: Int, discontinuity: Bool) {
+        guard supported else { return }
+        kernel.refresh(parameters)
+        kernel.setLoudness(Double(bitPattern: loudness.decibels.load(ordering: .acquiring)))
+        let visualize = parameters.visualizationEnabled.load(ordering: .relaxed)
+        if discontinuity { kernel.reset(); spectrum.reset() }
+        if !visualize { spectrum.reset() }
+        let list = UnsafeMutableAudioBufferListPointer(buffers)
+        var channelBase = 0, sampleCount = 0, inputEnergy = 0.0, outputEnergy = 0.0
+        for buffer in list {
+            guard let data = buffer.mData else { continue }
+            let channels = Int(buffer.mNumberChannels)
+            let count = min(frames * channels, Int(buffer.mDataByteSize) / Int(format.mBitsPerChannel / 8))
+            for index in 0..<count {
+                let input: Double
+                let floating = format.mFormatFlags & kAudioFormatFlagIsFloat != 0
+                if floating && format.mBitsPerChannel == 32 { input = Double(data.assumingMemoryBound(to: Float.self)[index]) }
+                else if floating { input = data.assumingMemoryBound(to: Double.self)[index] }
+                else if format.mBitsPerChannel == 16 { input = Double(data.assumingMemoryBound(to: Int16.self)[index]) / 32768 }
+                else { input = Double(data.assumingMemoryBound(to: Int32.self)[index]) / 2147483648 }
+                let output = kernel.sample(input, channel: channelBase + index % max(1, channels))
+                if visualize && channelBase + index % max(1, channels) == 0 { spectrum.append(output, to: parameters.spectrum) }
+                if kernel.processesAudio {
+                    if floating && format.mBitsPerChannel == 32 { data.assumingMemoryBound(to: Float.self)[index] = Float(output) }
+                    else if floating { data.assumingMemoryBound(to: Double.self)[index] = output }
+                    else if format.mBitsPerChannel == 16 { data.assumingMemoryBound(to: Int16.self)[index] = Int16(min(32767, max(-32768, output * 32768))) }
+                    else { data.assumingMemoryBound(to: Int32.self)[index] = Int32(min(2147483647, max(-2147483648, output * 2147483648))) }
+                }
+                inputEnergy += input * input; outputEnergy += output * output; sampleCount += 1
+            }
+            channelBase += channels
+        }
+        parameters.inputEnergy.store(inputEnergy.bitPattern, ordering: .relaxed)
+        parameters.outputEnergy.store(outputEnergy.bitPattern, ordering: .relaxed)
+        parameters.meterRMS.store((sqrt(outputEnergy / Double(max(1, sampleCount)))).bitPattern, ordering: .relaxed)
+        parameters.frames.wrappingAdd(UInt64(frames), ordering: .releasing)
+    }
+}
+
+@MainActor func attachEqualizer(to item: AVPlayerItem, parameters: EqualizerParameters, loudness: LoudnessParameters = LoudnessParameters()) throws {
+    let retained = Unmanaged.passRetained(EqualizerTapState(parameters, loudness: loudness))
+    var callbacks = MTAudioProcessingTapCallbacks(version: kMTAudioProcessingTapCallbacksVersion_0, clientInfo: retained.toOpaque(),
+        init: { _, info, storage in storage.pointee = info },
+        finalize: { tap in Unmanaged<EqualizerTapState>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release() },
+        prepare: { tap, _, format in Unmanaged<EqualizerTapState>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue().prepare(format.pointee) },
+        unprepare: { _ in },
+        process: { tap, count, _, buffers, outputCount, outputFlags in
+            var range = CMTimeRange.zero
+            let status = MTAudioProcessingTapGetSourceAudio(tap, count, buffers, outputFlags, &range, outputCount)
+            guard status == noErr else { outputCount.pointee = 0; return }
+            let state = Unmanaged<EqualizerTapState>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
+            state.process(buffers, frames: outputCount.pointee, discontinuity: outputFlags.pointee & kMTAudioProcessingTapFlag_StartOfStream != 0)
+        })
+    var tap: MTAudioProcessingTap?
+    let status = MTAudioProcessingTapCreateWithPreferredFormat(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, nil, &tap)
+    guard status == noErr, let tap else { retained.release(); throw PlayerError.badResponse }
+    let input = AVMutableAudioMixInputParameters()
+    input.audioTapProcessor = tap
+    let mix = AVMutableAudioMix(); mix.inputParameters = [input]; item.audioMix = mix
+}
