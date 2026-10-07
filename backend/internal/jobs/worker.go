@@ -325,7 +325,9 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		Score:     resolved.Score,
 	}
 	source := resolved.Source
-	if source.DurationMS == 0 {
+	// Verification must compare the audio to the requested recording, rather
+	// than letting a wrongly matched source certify its own runtime.
+	if track.DurationMS > 0 {
 		source.DurationMS = track.DurationMS
 	}
 
@@ -569,6 +571,11 @@ func (m *Manager) ownsTarget(ctx context.Context, track music.Track, relPath str
 	if existing == nil || existing.TrackID == "" {
 		return false, nil
 	}
+	// Retain an incorrectly associated old recording instead of replacing it.
+	// A verified correction is published at the stable source-suffixed path.
+	if track.DurationMS > 0 && (existing.DurationMS <= 0 || !music.CompatibleDuration(track.DurationMS, existing.DurationMS)) {
+		return false, nil
+	}
 	known, err := m.catalog.FindTrack(ctx, track, m.toleranceMS)
 	if err != nil {
 		return false, err
@@ -664,6 +671,9 @@ func (m *Manager) alreadyInLibrary(ctx context.Context, track music.Track) (bool
 		return false, err
 	}
 	for _, file := range files {
+		if track.DurationMS > 0 && (file.DurationMS <= 0 || !music.CompatibleDuration(track.DurationMS, file.DurationMS)) {
+			continue
+		}
 		if m.library.Exists(filepath.Join(m.library.Root(), file.Path)) {
 			return true, nil
 		}

@@ -340,14 +340,8 @@ func (p *MediaProvider) probeDirectID(ctx context.Context, track music.Track) (p
 
 	// Validate plausibility: if track duration is known and candidate duration is known,
 	// ensure they don't deviate wildly (e.g. max 15 seconds)
-	if track.DurationMS > 0 && candidate.DurationMS > 0 {
-		diff := track.DurationMS - candidate.DurationMS
-		if diff < 0 {
-			diff = -diff
-		}
-		if diff > 15000 {
-			return provider.MediaCandidate{}, false, nil
-		}
+	if !music.CompatibleDuration(track.DurationMS, candidate.DurationMS) {
+		return provider.MediaCandidate{}, false, nil
 	}
 
 	return candidate, true, nil

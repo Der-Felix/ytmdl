@@ -35,11 +35,14 @@ func (c *fakeCatalog) FindArtistBySource(context.Context, string, string) (*musi
 
 // fakeFiles answers who owns a library path.
 type fakeFiles struct {
-	byPath map[string]*music.File
-	err    error
+	byPath  map[string]*music.File
+	byTrack []music.File
+	err     error
 }
 
-func (f *fakeFiles) ListByTrack(context.Context, string) ([]music.File, error) { return nil, nil }
+func (f *fakeFiles) ListByTrack(context.Context, string) ([]music.File, error) {
+	return f.byTrack, f.err
+}
 
 func (f *fakeFiles) FindByPath(_ context.Context, path string) (*music.File, error) {
 	if f.err != nil {
@@ -134,7 +137,7 @@ func TestPlaceReplacesTheRecordingsOwnFile(t *testing.T) {
 	relPath := filepath.Join("Artist", "2001 - Album", "01 - Song.opus")
 	catalog := &fakeCatalog{known: &music.Track{ID: "track-1"}}
 	files := &fakeFiles{byPath: map[string]*music.File{
-		relPath: {ID: "file-1", TrackID: "track-1", Path: relPath},
+		relPath: {ID: "file-1", TrackID: "track-1", Path: relPath, DurationMS: 200000},
 	}}
 	m, root := newPlaceManager(t, catalog, files)
 

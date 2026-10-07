@@ -37,16 +37,17 @@ const (
 // Breakdown records how a score came about. It is attached to every result so
 // that matching decisions stay explainable in logs and tests.
 type Breakdown struct {
-	Title           float64 `json:"title"`
-	Artist          float64 `json:"artist"`
-	Duration        float64 `json:"duration"`
-	Album           float64 `json:"album"`
-	Base            float64 `json:"base"`
-	VersionPenalty  float64 `json:"version_penalty"`
-	ISRCMatch       bool    `json:"isrc_match"`
-	ISRCMismatch    bool    `json:"isrc_mismatch"`
-	WantedVersions  string  `json:"wanted_versions,omitempty"`
-	OfferedVersions string  `json:"offered_versions,omitempty"`
+	DurationMismatch bool    `json:"duration_mismatch,omitempty"`
+	Title            float64 `json:"title"`
+	Artist           float64 `json:"artist"`
+	Duration         float64 `json:"duration"`
+	Album            float64 `json:"album"`
+	Base             float64 `json:"base"`
+	VersionPenalty   float64 `json:"version_penalty"`
+	ISRCMatch        bool    `json:"isrc_match"`
+	ISRCMismatch     bool    `json:"isrc_mismatch"`
+	WantedVersions   string  `json:"wanted_versions,omitempty"`
+	OfferedVersions  string  `json:"offered_versions,omitempty"`
 }
 
 // Result is a scored candidate.
@@ -59,6 +60,8 @@ type Result struct {
 // Reason renders a short human readable explanation of the score.
 func (r Result) Reason() string {
 	switch {
+	case r.Breakdown.DurationMismatch:
+		return "recording duration mismatch"
 	case r.Breakdown.ISRCMatch:
 		return "ISRC match"
 	case r.Breakdown.ISRCMismatch:
@@ -127,6 +130,12 @@ func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Re
 	var bd Breakdown
 	bd.WantedVersions = wantInfo.Versions.String()
 	bd.OfferedVersions = haveInfo.Versions.String()
+	// Matching title/credits (even an ISRC) cannot compensate for a known
+	// runtime that describes a different section or recording.
+	if !music.CompatibleDuration(track.DurationMS, candidate.DurationMS) {
+		bd.DurationMismatch = true
+		return Result{Candidate: candidate, Breakdown: bd}
+	}
 
 	// An ISRC identifies the exact recording; nothing else can outweigh it.
 	wantISRC := normaliseISRC(track.ISRC)

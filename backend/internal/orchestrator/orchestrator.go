@@ -713,18 +713,19 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 			"Configured media providers are temporarily unavailable; deferred until provider recovery.", retryWait)
 	}
 
-	if sourceRestriction(directErr) && attemptedCount == 0 {
+	// A rejected, unrelated search hit must not hide the known source's
+	// availability/access failure or produce a misleading zero-source summary.
+	if directErr != nil && attemptedCount == 0 {
 		return nil, directErr
+	}
+	if lastResolveErr != nil {
+		return nil, failures.exhausted(attemptedCount, lastResolveErr)
 	}
 
 	if bestCandidate != nil {
 		return nil, apperr.Newf(apperr.CodeMatchFailed,
 			"No sufficiently accurate media match found for %q (best score %.1f, required %.1f).",
 			track.Label(), bestCandidate.Score, o.matcher.MinScore())
-	}
-
-	if lastResolveErr != nil {
-		return nil, failures.exhausted(attemptedCount, lastResolveErr)
 	}
 
 	return nil, apperr.Newf(apperr.CodeTrackNotFound, "No media candidates were found for %q.", track.Label())
@@ -766,6 +767,12 @@ func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, tra
 	}
 
 	directCand := candidates[0]
+	// Search may fall back to text search after an implausible direct result.
+	// That first hit is not the requested source and must pass normal matching.
+	if strings.TrimSpace(directCand.ID) != strings.TrimSpace(track.SourceID) ||
+		!music.CompatibleDuration(track.DurationMS, directCand.DurationMS) {
+		return nil, false, "", nil
+	}
 	source, err := bp.Resolve(ctx, directCand)
 	if err == nil {
 		source.SessionID = sessionID
