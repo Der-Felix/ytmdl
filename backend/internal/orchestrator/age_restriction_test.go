@@ -305,3 +305,34 @@ func TestAgeRestrictionDoesNotLiftActiveLocks(t *testing.T) {
 func auditTrackABBA() music.Track {
 	return music.Track{Title: "Dancing Queen", Artists: []string{"ABBA"}, DurationMS: 231000}
 }
+
+func TestRestrictedDirectSourceSurvivesWeakGenericMatches(t *testing.T) {
+	orch, pool, ytm, yt, cooldown := setupTestEnvironment(t, healthyAuditSession())
+	ytm.SetCandidates(abbaCandidates("ytmusic")[:1])
+	ytm.SetResolveErr("vid-1", ageRestricted())
+	yt.SetCandidates([]provider.MediaCandidate{{Provider: "youtube", ID: "weak", Title: "Dancing Queen"}})
+	track := auditTrackABBA()
+	track.SourceID = "vid-1"
+	_, err := orch.ResolveMedia(context.Background(), "ytmusic", track, 5)
+	if !errors.Is(err, ytdlp.ErrAgeRestricted) || apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+		t.Fatalf("restriction masked: %v", err)
+	}
+	if ytm.ResolveCalls() != 1 || yt.ResolveCalls() != 0 {
+		t.Fatal("restricted source or unsafe substitute resolved again")
+	}
+	assertNoFamilyPause(t, pool, cooldown)
+	assertNoLeaseHeld(t, pool)
+}
+
+func TestRestrictedDirectProbeStillSearchesOtherProviders(t *testing.T) {
+	orch, pool, ytm, yt, cooldown := setupTestEnvironment(t, healthyAuditSession())
+	ytm.SetSearchErr(ageRestricted())
+	yt.SetCandidates(abbaCandidates("youtube")[1:2])
+	track := auditTrackABBA()
+	track.SourceID = "vid-1"
+	res, err := orch.ResolveMedia(context.Background(), "ytmusic", track, 5)
+	if err != nil || res.Candidate.ID != "vid-2" {
+		t.Fatalf("alternative failed: %v", err)
+	}
+	assertNoFamilyPause(t, pool, cooldown)
+}

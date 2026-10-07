@@ -321,13 +321,10 @@ func (p *MediaProvider) probeDirectID(ctx context.Context, track music.Track) (p
 	target := watchURL(sourceID)
 	results, err := p.client.Query(ctx, target, "--no-playlist")
 	if err != nil {
-		// If resolution encountered systemic/session error (rate limit, bot challenge, auth failure),
-		// stop candidate fanout immediately rather than falling back to generic query search.
-		if apperr.StopsCandidateFanout(err) {
-			return provider.MediaCandidate{}, false, err
-		}
-		// Candidate-specific failure (e.g. video unavailable) -> allow fallback to generic search
-		return provider.MediaCandidate{}, false, nil
+		// Let the orchestrator retain candidate-specific causes while searching
+		// alternatives. Swallowing an age gate here turned it into MATCH_FAILED
+		// after a flat result with missing artist/duration was ranked.
+		return provider.MediaCandidate{}, false, err
 	}
 	if len(results) == 0 {
 		return provider.MediaCandidate{}, false, nil
