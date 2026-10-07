@@ -158,7 +158,7 @@ func (r *Playlists) GetPlaylistForUser(ctx context.Context, userID, playlistID s
 			ROW_NUMBER() OVER (ORDER BY pt.position ASC)::integer AS position, pt.added_at
 		FROM playlist_tracks pt
 		JOIN tracks t ON t.id = pt.track_id LEFT JOIN track_overrides o ON o.track_id=t.id
-		LEFT JOIN files f ON f.track_id = t.id
+		` + primaryFileJoin + `
 		WHERE pt.playlist_id = $1
 		ORDER BY pt.position ASC`
 
@@ -573,7 +573,7 @@ func (r *Playlists) ListFavoriteTracks(ctx context.Context, userID string) ([]mu
 			COALESCE(f.path, ''), COALESCE(f.size_bytes, 0), COALESCE(f.codec, ''), COALESCE(f.bitrate_kbps, 0)
 		FROM favorite_tracks ft
 		JOIN tracks t ON t.id = ft.track_id LEFT JOIN track_overrides o ON o.track_id=t.id
-		LEFT JOIN files f ON f.track_id = t.id
+		` + primaryFileJoin + `
 		WHERE ft.user_id = $1
 		ORDER BY ft.created_at DESC`
 
