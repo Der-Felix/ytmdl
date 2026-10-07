@@ -52,8 +52,16 @@ final class PlayerUITests: XCTestCase {
         let normalization = app.switches["playback-normalization"]
         XCTAssertTrue(normalization.waitForExistence(timeout: 5))
         XCTAssertTrue(normalization.isHittable)
-        if normalization.value as? String == "1" { normalization.tap() }
-        normalization.tap()
+        // Settings persist across fixture launches. Test the rendered enabled
+        // state instead of assuming the OS encodes a switch value as "1".
+        let recheck = app.buttons["Lautheit erneut prüfen"]
+        if recheck.exists {
+            normalization.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+            expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: recheck)
+            waitForExpectations(timeout: 5)
+        }
+        normalization.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        XCTAssertTrue(recheck.waitForExistence(timeout: 5), "The switch must actually enable normalization.")
         let measured = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Aktueller Titel:", "-3")).firstMatch
         XCTAssertTrue(measured.waitForExistence(timeout: 10))
         attach(app, name: "Native playback normalization")
@@ -486,19 +494,27 @@ final class PlayerUITests: XCTestCase {
             play.tap()
         }
         #else
-        let app = try app(player: true)
+        let app = try app(pausedPlayer: true)
         #endif
         #if os(tvOS)
-        // Navigate with the remote like a user. Initial TV focus may select
-        // Library while the asynchronous fixture session is restored.
+        // Wait for the restored catalogue before moving focus into the tab bar.
+        // Foreground Play follows navigation; it must not race cold launch.
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
         let playerTab = app.buttons["Player"].firstMatch
         XCTAssertTrue(playerTab.waitForExistence(timeout: 20))
+        XCUIRemote.shared.press(.up)
+        for _ in 0..<8 {
+            if app.buttons["Bibliothek"].firstMatch.hasFocus { break }
+            XCUIRemote.shared.press(.left)
+        }
         for _ in 0..<8 {
             if playerTab.hasFocus { break }
             XCUIRemote.shared.press(.right)
         }
         XCTAssertTrue(playerTab.hasFocus)
         XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.buttons["Abspielen"].firstMatch.waitForExistence(timeout: 10))
+        XCUIRemote.shared.press(.playPause)
         #endif
         #if os(iOS)
         let toggle = app.buttons["mobile-player-toggle"]

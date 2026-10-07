@@ -5,6 +5,29 @@ The Apple client lives on `feat/apple-native-player` in draft
 Do not promote it to a stable server release just because it builds locally.
 The server release and native preview have independent version numbers.
 
+## 7 October: integration and UI-test repair
+
+The branch now integrates current `dev`, including the recent download and
+availability fixes. Backend device-code sign-in and web playlist controls are
+also delivered separately in [PR #47](https://github.com/Der-Felix/ytmdl/pull/47).
+Integrate that server/web delivery before shipping TV login. The API contract,
+expiry, revocation and single-process limitation are documented in
+[`docs/features/device-sign-in.md`](../docs/features/device-sign-in.md).
+
+The failed iPhone UI regression was toggling persisted normalization settings
+without reliably identifying the enabled state. It now checks the rendered
+recheck action and still requires the measured current-track gain. The TV
+regression now waits for catalogue restoration, explicitly establishes tab-bar
+focus and starts the paused silent fixture in the foreground; the real clock
+progress and Pause assertions remain intact. These are test orchestration
+repairs, not evidence of a runtime audio fix.
+
+Local verification: the targeted iPhone normalization flow and both TV test
+cases pass. Serial Swift tests include the authenticated silent offline transfer;
+only the two opt-in audible tests are skipped. Final-head CI is a separate gate.
+App/widget remain 0.3.0 (32); no device installation, production mutation,
+stable promotion or deployment was performed for this integration.
+
 ## Build 32: listening parity audit
 
 [WEB-PARITY.md](WEB-PARITY.md) is the authoritative inventory, including remaining
