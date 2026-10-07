@@ -36,6 +36,11 @@ it('bounds preview loading to a page, filters playlists and exposes play failure
   await screen.findByText('Playlist 0')
   await waitFor(() => expect(detailReads.length).toBe(12))
   expect(screen.queryByText('Playlist 24')).toBeNull()
+  // Narrowing to an already previewed playlist must not download it again.
+  fireEvent.change(screen.getByLabelText('Playlists durchsuchen'), { target: { value: 'Playlist 0' } })
+  await waitFor(() => expect(screen.queryByText('Playlist 1')).toBeNull())
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(detailReads.length).toBe(12)
   fireEvent.change(screen.getByLabelText('Playlists durchsuchen'), { target: { value: 'Playlist 24' } })
   await screen.findByText('Playlist 24')
   await waitFor(() => expect(detailReads.some(url => url.endsWith('/list-24'))).toBe(true))
