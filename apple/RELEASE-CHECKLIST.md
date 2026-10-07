@@ -51,10 +51,13 @@ weaker assertions or mark unexecuted paths verified.
    unfinished transfers; intentionally retained offline copies remain available.
 5. Review large text, VoiceOver, long names, landscape and compact player controls
    on physical devices. Check EQ, transition, timer and selected visualizer settings.
-6. For remote distribution, finish signing/provisioning and App Store Connect /
-   TestFlight setup, privacy/support information and authorized reviewer media.
+6. For App Store or TestFlight distribution, finish signing/provisioning and App Store
+   Connect setup, privacy/support information and authorized reviewer media.
    Compilation does not upload a build. TV distribution also needs final layered
-   artwork and remote-focus/device-pairing qualification.
+   artwork and remote-focus/device-pairing qualification. The direct downloads need
+   none of this: run `Scripts/package-ipa.sh` and `Scripts/package-dmg.sh` (or the
+   `Apple packages` workflow), check the `.ipa` and `.dmg` as described in
+   [INSTALL.md](INSTALL.md), and install both on a real device before tagging.
 7. Add Home and Lock Screen widgets through the system gallery. Check all supported
    families, light/dark/tinted appearance, links after sign-in and links while
    the player is already open. They must never start playback automatically.

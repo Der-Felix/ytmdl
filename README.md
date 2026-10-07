@@ -133,11 +133,14 @@ Full documentation, configuration guides, and architecture references are availa
 
 ## Native Apple Client Preview
 
-The [native Apple client](apple/README.md) is a separate 0.1.0 review build for
-iPhone, iPad, Mac and Apple TV, requiring OS 27 and Xcode 27. It focuses on the
-existing music library and playback. Device-code sign-in requires the backend
-routes described in its setup guide. Distribution signing and physical-device
-qualification are still required; this is not an App Store release.
+The [native Apple client](apple/README.md) is a separate preview for iPhone, iPad,
+Mac and Apple TV, requiring OS 27. It focuses on the existing music library and
+playback. It is not in the App Store. Each release on the
+[Releases page](https://github.com/Der-Felix/ytmdl/releases) tagged `apple-v…` offers an
+unsigned iPhone/iPad `.ipa` for sideloading with your own Apple ID and a Mac `.dmg`
+that is not notarized; Apple TV is built from source. See
+[apple/INSTALL.md](apple/INSTALL.md). Device-code sign-in requires the backend routes
+described in its setup guide.
 
 ## Container Distribution
 
