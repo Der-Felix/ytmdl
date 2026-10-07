@@ -389,7 +389,9 @@ struct OfflineLibraryView: View {
         }
     }
     private func trackRow(_ record: OfflineTrack) -> some View {
-        HStack(spacing: 12) {
+        // One file check per row and render; each lookup stats the stored file.
+        let available = model.offline.audioURL(record.track.id) != nil
+        return HStack(spacing: 12) {
             Button { play(playable, selected: record.track.id) } label: {
                 HStack(spacing: 12) {
                     ArtworkView(model: model, kind: "tracks", id: record.track.id).frame(width: 52, height: 52)
@@ -397,18 +399,18 @@ struct OfflineLibraryView: View {
                         Text(record.track.title).font(.headline).lineLimit(1)
                         Text(record.track.artistText).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                         if !record.track.album.isEmpty { Text(record.track.album).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                        status(record)
+                        status(record, available: available)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.contentShape(Rectangle())
-            }.buttonStyle(.plain).disabled(model.offline.audioURL(record.track.id) == nil)
+            }.buttonStyle(.plain).disabled(!available)
                 .accessibilityIdentifier("offline-track-" + record.track.id)
             Menu {
                 Button("Als Nächstes abspielen", systemImage: "text.insert") {
                     if let client = model.client { model.player.insertNext(record.track, client: client) }
-                }.disabled(model.offline.audioURL(record.track.id) == nil || model.player.queue.tracks.count >= 500)
+                }.disabled(!available || model.player.queue.tracks.count >= 500)
                 Button("Zur Warteschlange hinzufügen", systemImage: "text.badge.plus") {
                     if let client = model.client { model.player.append(record.track, client: client) }
-                }.disabled(model.offline.audioURL(record.track.id) == nil || model.player.queue.tracks.count >= 500)
+                }.disabled(!available || model.player.queue.tracks.count >= 500)
                 if record.state != .ready {
                     if record.state == .downloading || record.state == .queued { Button("Pausieren", systemImage: "pause") { model.offline.pause(record.track.id) } }
                     else { Button("Erneut herunterladen", systemImage: "arrow.clockwise") { model.offline.enqueue([record.track]) }.disabled(model.offlineMode) }
@@ -418,12 +420,12 @@ struct OfflineLibraryView: View {
         }
     }
     private func play(_ tracks: [Track], selected: String? = nil) { if let client = model.client { model.player.play(tracks, start: selected.flatMap { id in tracks.firstIndex { $0.id == id } } ?? 0, client: client) } }
-    @ViewBuilder private func status(_ record: OfflineTrack) -> some View {
+    @ViewBuilder private func status(_ record: OfflineTrack, available: Bool) -> some View {
         switch record.state {
         case .ready:
-            Label(model.offline.audioURL(record.track.id) == nil ? "Lokale Datei fehlt" : record.automatic ? "Automatisch gespeichert" : "Offline verfügbar",
-                  systemImage: model.offline.audioURL(record.track.id) == nil ? "exclamationmark.circle" : "checkmark.circle.fill")
-                .font(.caption).foregroundStyle(model.offline.audioURL(record.track.id) == nil ? .orange : .green)
+            Label(!available ? "Lokale Datei fehlt" : record.automatic ? "Automatisch gespeichert" : "Offline verfügbar",
+                  systemImage: !available ? "exclamationmark.circle" : "checkmark.circle.fill")
+                .font(.caption).foregroundStyle(!available ? .orange : .green)
         case .queued: Text("Wartet auf Download").font(.caption).foregroundStyle(.secondary)
         case .paused: Text("Pausiert · Fortsetzen über Aktionen").font(.caption).foregroundStyle(.secondary)
         case .failed: Text(record.failure ?? "Download fehlgeschlagen").font(.caption).foregroundStyle(.red)

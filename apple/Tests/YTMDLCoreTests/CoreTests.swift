@@ -91,3 +91,15 @@ import Testing
     queue.replace([]); let first = queue.insertNext(track)
     #expect(first && queue.current == track && queue.index == 0)
 }
+
+@Test func nullOrMissingArtistsDoNotBreakAWholePageOfTracksOrReleases() throws {
+    let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+    let tracks = try decoder.decode(Envelope<[Track]>.self, from: Data(#"{"data":[{"id":"a","title":"Tagless","artists":null,"album":"","duration_ms":1000},{"id":"b","title":"Missing","duration_ms":2000},{"id":"c","title":"Tagged","artists":["Artist"],"album":"Album","duration_ms":3000,"codec":"opus"}]}"#.utf8)).data
+    #expect(tracks.map(\.artists) == [[], [], ["Artist"]])
+    #expect(tracks[1].album.isEmpty && tracks[2].codec == "opus")
+    let releases = try decoder.decode(Envelope<[Release]>.self, from: Data(#"{"data":[{"id":"r","title":"Untagged","artists":null,"year":2026,"track_count_in_library":2}]}"#.utf8)).data
+    #expect(releases.first?.artists == [] && releases.first?.trackCountInLibrary == 2)
+    // Snapshots persisted with the default encoder still round-trip.
+    let stored = try JSONDecoder().decode(Track.self, from: JSONEncoder().encode(tracks[2]))
+    #expect(stored == tracks[2])
+}

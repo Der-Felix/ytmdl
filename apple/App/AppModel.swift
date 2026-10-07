@@ -96,6 +96,29 @@ import YTMDLCore
             await loadLibrary()
         } catch { if self.generation == generation { report(error) } }
     }
+    /// Polls until the displayed code is approved (then restores the session) or expires.
+    /// A timeout, dropped connection or 5xx answer is retried at the next interval; only
+    /// a definite server answer (invalid/expired code, unsupported server) ends the wait.
+    func completeDeviceSignIn(_ start: DeviceStart, wait: (Int) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }) async throws -> Bool {
+        guard let client else { throw CancellationError() }
+        let deadline = Date().addingTimeInterval(Double(start.expiresIn))
+        var interval = max(5, start.interval)
+        while Date() < deadline {
+            try await wait(interval); try Task.checkCancellation()
+            let state: DevicePoll
+            do { state = try await client.send("/auth/device/poll", body: ["device_code": start.deviceCode]) }
+            catch let error as PlayerError {
+                if case .server(let status, _, _) = error, status >= 500 { continue }
+                throw error
+            }
+            catch is CancellationError { throw CancellationError() }
+            catch { continue }
+            try Task.checkCancellation()
+            if state.status == "authorized" { await restore(); return true }
+            if state.status == "slow_down" { interval = min(30, interval + 5) }
+        }
+        return false
+    }
     func loadLibrary() async {
         guard !offlineMode, let client, !connecting else { return }
         let generation = generation
@@ -118,7 +141,7 @@ import YTMDLCore
             if self.favoriteRevision == favoriteRevision { favoriteIDs = Set(favorites) }
             releaseOffset = releases.count; moreReleases = releases.count == 60
             self.genres = genres; connecting = false
-            if offline.syncFavorites { await downloadCollection(.favorites, automatic: false) }
+            if offline.syncFavorites { await downloadCollection(.favorites, automatic: false, announceLimit: false) }
             await refreshOfflineCollections()
             await flushListeningHistory()
         } catch { if self.generation == generation, self.catalogGeneration == catalogGeneration { report(error) } }
@@ -319,7 +342,8 @@ import YTMDLCore
             listeningHistory.configure(server: address, userID: profile.user.id, persist: true)
         } catch { report(error) }
     }
-    func downloadCollection(_ kind: CollectionKind, automatic: Bool = false) async {
+    // `announceLimit` is false for the silent favorites sync on every library load.
+    func downloadCollection(_ kind: CollectionKind, automatic: Bool = false, announceLimit: Bool = true) async {
         guard !offlineMode, let client else { return }
         do {
             var collected: [Track] = []
@@ -327,7 +351,8 @@ import YTMDLCore
                 let result: PlaylistDetail = try await client.get(try client.playlistPath(playlist.id))
                 collected = result.tracks
             } else {
-                while collected.count < 500 {
+                // Read one page past 500 so an exactly-500 collection is not reported as cut.
+                while collected.count <= 500 {
                     var query: [URLQueryItem] = [.init(name: "limit", value: "100"), .init(name: "offset", value: String(collected.count))]
                     switch kind {
                     case .favorites: query.append(.init(name: "favorite", value: "true"))
@@ -342,9 +367,11 @@ import YTMDLCore
                 }
             }
             guard self.client === client, !offlineMode else { return }
+            let truncated = collected.count > 500
+            collected = Array(collected.prefix(500))
             offline.rememberCollection(kind, tracks: collected)
             offline.enqueue(collected, automatic: automatic)
-            if collected.count >= 500 { error = "Die ersten 500 Titel wurden für offline vorgemerkt. Größere Sammlungen bitte in mehrere Playlists aufteilen." }
+            if truncated && announceLimit { error = "Die ersten 500 Titel wurden für offline vorgemerkt. Größere Sammlungen bitte in mehrere Playlists aufteilen." }
         } catch { if self.client === client { report(error) } }
     }
     func refreshOfflineCollections() async {
@@ -471,6 +498,13 @@ import YTMDLCore
     func report(_ failure: Error) {
         if failure is CancellationError { return }
         if let transport = failure as? URLError, transport.code == .cancelled { return }
+        // An expired or revoked session cannot recover by itself: leave the library
+        // UI and drop the dead cookies, like a local sign-out without a server call.
+        if case PlayerError.server(let status, _, _) = failure, status == 401, !offlineMode, user != nil, let client {
+            offline.detach()
+            try? client.forget()
+            client.invalidate(); self.client = nil; user = nil; generation = UUID(); clearLibrary(); player.stop()
+        }
         if failure is PlayerError || failure is VaultError { error = failure.localizedDescription }
         else { error = "Der Server ist nicht erreichbar oder die Antwort passt nicht zur App. Bitte Verbindung und Server-Version prüfen." }
     }

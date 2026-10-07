@@ -58,9 +58,9 @@ struct ArtworkPalette: Equatable, Sendable {
         }
         return ArtworkPalette(dominant: dominant, secondary: second.map { color($0.value) } ?? dominant, accent: dominant)
     }
-    static func thumbnail(_ data: Data) -> CGImage? {
+    static func thumbnail(_ data: Data, maxPixelSize: Int = 1400) -> CGImage? {
         guard data.count <= 8 * 1024 * 1024, let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         return CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 1400, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary)
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary)
     }
 }

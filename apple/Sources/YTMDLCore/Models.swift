@@ -29,6 +29,17 @@ public struct Release: Decodable, Identifiable, Sendable {
     public let year: Int
     public let trackCountInLibrary: Int?
 }
+extension Release {
+    private enum CodingKeys: String, CodingKey { case id, title, artists, year, trackCountInLibrary }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        artists = try c.decodeIfPresent([String].self, forKey: .artists) ?? []
+        year = try c.decode(Int.self, forKey: .year)
+        trackCountInLibrary = try c.decodeIfPresent(Int.self, forKey: .trackCountInLibrary)
+    }
+}
 public struct Track: Codable, Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
@@ -41,6 +52,18 @@ public struct Track: Codable, Identifiable, Equatable, Sendable {
     public init(id: String, title: String, artists: [String], album: String, durationMs: Int, codec: String? = nil) {
         self.id = id; self.title = title; self.artists = artists
         self.album = album; self.durationMs = durationMs; self.codec = codec
+    }
+    enum CodingKeys: String, CodingKey { case id, title, artists, album, durationMs, codec }
+    // The server serializes a track without artist tags as `"artists": null`.
+    // One such row must not make a whole page of tracks undecodable.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        artists = try c.decodeIfPresent([String].self, forKey: .artists) ?? []
+        album = try c.decodeIfPresent(String.self, forKey: .album) ?? ""
+        durationMs = try c.decode(Int.self, forKey: .durationMs)
+        codec = try c.decodeIfPresent(String.self, forKey: .codec)
     }
 }
 public struct SmartPlaylistRules: Codable, Equatable, Sendable {

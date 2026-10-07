@@ -280,3 +280,54 @@ func offlineAuthenticatedTransferCachesSidecarsAndPlayerUsesLocalFile() async th
     restart.selectProfile(a); restart.remove(track.id)
     #expect(restart.loudnessGain(track.id) == nil)
 }
+
+@MainActor @Test func unreadableManifestIsKeptAndNeverOverwrittenByTheNextSave() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let broken = Data(#"{"profiles":[truncated"#.utf8)
+    try broken.write(to: root.appendingPathComponent("manifest.json"))
+    let store = OfflineLibrary(root: root, startTransfers: false)
+    #expect(store.error != nil && store.records.isEmpty)
+    let kept = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix("manifest.unreadable-") }
+    #expect(kept.count == 1)
+    #expect(try Data(contentsOf: root.appendingPathComponent(kept[0])) == broken)
+    // Signing in writes a fresh manifest; the unreadable one stays untouched beside it.
+    let client = try APIClient(server: ServerAddress("https://fixture.example"), persist: false)
+    defer { client.invalidate() }
+    store.configure(client: client, user: try fixtureUser("first"))
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("manifest.json").path))
+    #expect(try Data(contentsOf: root.appendingPathComponent(kept[0])) == broken)
+}
+
+@MainActor @Test func clearingAnAccountRemovesItsFilesRecordsAndCollectionsAndSparesOthers() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let server = try ServerAddress("https://fixture.example")
+    let first = try fixtureUser("first"), second = try fixtureUser("second")
+    let a = OfflineProfile(id: OfflineLibrary.profileID(server: server, userID: first.id), origin: server.url.absoluteString, user: first)
+    let b = OfflineProfile(id: OfflineLibrary.profileID(server: server, userID: second.id), origin: server.url.absoluteString, user: second)
+    func record(_ profile: OfflineProfile, _ name: String) throws -> OfflineTrack {
+        let track = Track(id: name, title: name, artists: ["Artist"], album: "Album", durationMs: 1000)
+        let id = OfflineLibrary.digest(profile.id + "\n" + track.id)
+        let directory = root.appendingPathComponent(profile.id)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("OggSfixture".utf8).write(to: directory.appendingPathComponent(id + ".ogg"))
+        try Data("art".utf8).write(to: directory.appendingPathComponent(id + ".artwork"))
+        return OfflineTrack(id: id, scope: profile.id, track: track, state: .ready, bytes: 11, fileName: id + ".ogg")
+    }
+    let mine = [try record(a, "one"), try record(a, "two")], other = try record(b, "one")
+    let collections = [OfflineCollection(id: "c-a", scope: a.id, kind: "favorites", sourceID: "", name: "Favoriten", trackIDs: ["one", "two"], keepUpdated: false),
+                       OfflineCollection(id: "c-b", scope: b.id, kind: "favorites", sourceID: "", name: "Favoriten", trackIDs: ["one"], keepUpdated: false)]
+    try JSONEncoder().encode(OfflineTestManifest(profiles: [a, b], tracks: mine + [other], collections: collections)).write(to: root.appendingPathComponent("manifest.json"))
+    let store = OfflineLibrary(root: root, startTransfers: false)
+    store.selectProfile(a)
+    #expect(store.readyTracks.count == 2)
+    store.clearCurrent()
+    #expect(store.records.map(\.id) == [other.id] && store.collections.map(\.id) == ["c-b"])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent(a.id).path).isEmpty)
+    let restart = OfflineLibrary(root: root, startTransfers: false)
+    restart.selectProfile(b)
+    #expect(restart.readyTracks.count == 1 && restart.audioURL("one") != nil)
+}

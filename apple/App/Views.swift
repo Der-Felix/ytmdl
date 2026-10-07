@@ -447,17 +447,50 @@ struct ArtworkView: View {
         Group {
             if kind == "tracks", model.player.current?.id == id, let image = model.player.artwork {
                 Image(decorative: image, scale: 1).resizable().scaledToFill()
-            } else if kind == "tracks", let url = model.offline.artworkURL(id), let data = try? Data(contentsOf: url), let image = ArtworkPalette.thumbnail(data) {
-                Image(decorative: image, scale: 1).resizable().scaledToFill()
-            } else if !model.offlineMode, let client = model.client, let request = try? client.artworkRequest(kind: kind, id: id) {
-                AsyncImage(request: request) { image in image.resizable().scaledToFill() } placeholder: { placeholder }
-                    .asyncImageURLSession(client.session)
-            } else { placeholder }
+            } else if kind == "tracks", let url = model.offline.artworkURL(id) {
+                OfflineArtworkImage(url: url) { online }
+            } else { online }
         }.aspectRatio(1, contentMode: .fit).clipped().clipShape(RoundedRectangle(cornerRadius: cornerRadius)).accessibilityHidden(true)
+    }
+    @ViewBuilder private var online: some View {
+        if !model.offlineMode, let client = model.client, let request = try? client.artworkRequest(kind: kind, id: id) {
+            AsyncImage(request: request) { image in image.resizable().scaledToFill() } placeholder: { placeholder }
+                .asyncImageURLSession(client.session)
+        } else { placeholder }
     }
     private var placeholder: some View {
         RoundedRectangle(cornerRadius: 12).fill(.quaternary)
             .overlay { Image(systemName: kind == "artists" ? "person.crop.circle" : "music.note").font(.largeTitle).foregroundStyle(.secondary) }
+    }
+}
+
+// Offline cover art is read and decoded once, off the main thread, at row size.
+// Doing this in `body` re-read and re-decoded a 1400 px image per row per render.
+@MainActor private enum OfflineArtworkCache {
+    final class Box { let image: CGImage; init(_ image: CGImage) { self.image = image } }
+    static let images: NSCache<NSURL, Box> = { let cache = NSCache<NSURL, Box>(); cache.countLimit = 300; return cache }()
+}
+private struct OfflineArtworkImage: View {
+    let url: URL
+    let fallback: AnyView
+    @State private var image: CGImage?
+    @State private var failed = false
+    init(url: URL, @ViewBuilder fallback: () -> some View) { self.url = url; self.fallback = AnyView(fallback()) }
+    var body: some View {
+        Group {
+            if let image { Image(decorative: image, scale: 1).resizable().scaledToFill() }
+            else if failed { fallback }
+            else { Rectangle().fill(.quaternary) }
+        }.task(id: url) {
+            if let cached = OfflineArtworkCache.images.object(forKey: url as NSURL) { image = cached.image; failed = false; return }
+            image = nil; failed = false
+            let decoded = await Task.detached(priority: .utility) { () -> CGImage? in
+                guard let data = try? Data(contentsOf: url) else { return nil }
+                return ArtworkPalette.thumbnail(data, maxPixelSize: 512)
+            }.value
+            guard !Task.isCancelled else { return }
+            if let decoded { OfflineArtworkCache.images.setObject(.init(decoded), forKey: url as NSURL); image = decoded } else { failed = true }
+        }
     }
 }
 

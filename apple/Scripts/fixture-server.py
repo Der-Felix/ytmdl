@@ -51,6 +51,7 @@ STATE_LOCK = threading.RLock()
 PLAYLISTS = {}
 FAVORITES = set()
 FAILED_COLLECTIONS = set()
+DEVICE_POLLS = {}
 AUDIT_FAILURES = False
 
 
@@ -143,8 +144,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.response({'gain_db': -3, 'integrated_lufs': -11, 'true_peak_db': -1})
         if '/playlists' in self.path: return self.mutate_playlist(body)
         if self.path.endswith('/auth/logout'):return self.response({})
-        if self.path.endswith('/device'):return self.response({'device_code':'fixture-only-opaque-secret','user_code':'ABCD-EFGH','expires_in':300,'interval':5},201)
-        if self.path.endswith('/device/poll'):return self.response({'status':'authorization_pending'})
+        if self.path.endswith('/device'):
+            with STATE_LOCK: DEVICE_POLLS.clear()
+            return self.response({'device_code':'fixture-only-opaque-secret','user_code':'ABCD-EFGH','expires_in':300,'interval':5},201)
+        if self.path.endswith('/device/poll'):
+            # The backend contract: pending, then a too-fast poll is told to slow down,
+            # then the approved grant is exchanged for the session cookies.
+            with STATE_LOCK:
+                DEVICE_POLLS[body.get('device_code')] = polls = DEVICE_POLLS.get(body.get('device_code'), 0) + 1
+            if polls < 3: return self.response({'status':['authorization_pending','slow_down'][polls-1]})
+            return self.response({'status':'authorized'},cookies=True)
         self.response({})
     def do_PATCH(self):
         return self.mutate_playlist(json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))) or b'{}'))

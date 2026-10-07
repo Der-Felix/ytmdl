@@ -262,7 +262,8 @@ struct ConfirmDeviceView: View {
                 #if os(iOS)
                 .textInputAutocapitalization(.characters).autocorrectionDisabled()
                 #endif
-                .onChange(of: code) { preview = nil; message = nil }
+                // Clearing the field after an approval is not an edit: keep its confirmation.
+                .onChange(of: code) { preview = nil; if !code.isEmpty { message = nil } }
             Button("Gerät prüfen") {
                 Task {
                     guard let client = model.client else { return }
@@ -332,16 +333,9 @@ struct DeviceSignInView: View {
             let _: AuthStatus = try await client.get("/auth/status")
             let result: DeviceStart = try await client.send("/auth/device", body: ["device_name": "Apple TV"])
             try Task.checkCancellation(); request = result; message = "Code gilt fünf Minuten. Warte auf deine Freigabe …"
-            let deadline = Date().addingTimeInterval(Double(result.expiresIn))
-            var interval = max(5, result.interval)
-            while Date() < deadline {
-                try await Task.sleep(for: .seconds(interval)); try Task.checkCancellation()
-                let state: DevicePoll = try await client.send("/auth/device/poll", body: ["device_code": result.deviceCode])
-                try Task.checkCancellation()
-                if state.status == "authorized" { request = nil; await model.restore(); return }
-                if state.status == "slow_down" { interval = min(30, interval+5) }
-            }
-            request = nil; message = "Der Code ist abgelaufen. Bitte einen neuen anfordern."
+            let authorized = try await model.completeDeviceSignIn(result)
+            request = nil
+            if !authorized { message = "Der Code ist abgelaufen. Bitte einen neuen anfordern." }
         } catch is CancellationError { }
         catch {
             request = nil

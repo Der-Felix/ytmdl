@@ -143,7 +143,7 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
     nonisolated static let maximumFileBytes: Int64 = 256 * 1024 * 1024
     nonisolated static let backgroundIdentifier = "org.ytmdl.player.offline.v1"
     private(set) var profiles: [OfflineProfile] = []
-    private(set) var records: [OfflineTrack] = []
+    private(set) var records: [OfflineTrack] = [] { didSet { recordPositions = nil } }
     private(set) var collections: [OfflineCollection] = []
     private(set) var scope: String?
     var protectedTrackIDs: Set<String> = []
@@ -162,6 +162,19 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
     @ObservationIgnored var backgroundCompletion: (() -> Void)?
     @ObservationIgnored private var auxiliary: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var reconciling = true
+    // Record ID -> position, rebuilt lazily after any change. Views look tracks up per
+    // row and per render; scanning (and copying) all records each time does not scale.
+    @ObservationIgnored private var recordPositions: [String: Int]?
+    private func position(ofRecord id: String) -> Int? {
+        if recordPositions == nil {
+            recordPositions = Dictionary(records.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+        return recordPositions?[id]
+    }
+    private func position(ofTrack trackID: String) -> Int? {
+        guard let scope else { return nil }
+        return position(ofRecord: Self.digest(scope + "\n" + trackID))
+    }
     var currentRecords: [OfflineTrack] { records.filter { $0.scope == scope } }
     var currentCollections: [OfflineCollection] { collections.filter { $0.scope == scope } }
     var readyTracks: [Track] { availableTracks(in: currentRecords) }
@@ -169,13 +182,12 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
         entries.filter { $0.scope == scope && storedAudioURL($0) != nil }.map(\.track)
     }
     func loudnessGain(_ trackID: String) -> Double? {
-        guard let record = currentRecords.first(where: { $0.track.id == trackID }), storedAudioURL(record) != nil,
+        guard let record = entry(trackID), storedAudioURL(record) != nil,
               let gain = record.loudnessDB, gain.isFinite, (-24...6).contains(gain) else { return nil }
         return gain
     }
     func rememberLoudness(_ trackID: String, gain: Double) {
-        guard gain.isFinite, (-24...6).contains(gain),
-              let index = records.firstIndex(where: { $0.scope == scope && $0.track.id == trackID }) else { return }
+        guard gain.isFinite, (-24...6).contains(gain), let index = position(ofTrack: trackID) else { return }
         records[index].loudnessDB = gain; save()
     }
     var usedBytes: Int64 { currentRecords.filter { $0.state == .ready }.reduce(0) { $0 + $1.bytes } }
@@ -201,13 +213,22 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
             try directory.setResourceValues(resources)
             let manifest = self.root.appendingPathComponent("manifest.json")
             if FileManager.default.fileExists(atPath: manifest.path) {
-                let size = try manifest.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                guard size < 16 * 1024 * 1024 else { throw OfflineError.storage }
-                let saved = try JSONDecoder().decode(OfflineManifest.self, from: Data(contentsOf: manifest))
-                profiles = saved.profiles.filter { $0.id == Self.digestCanonicalProfile($0) }
-                let scopes = Set(profiles.map(\.id))
-                collections = (saved.collections ?? []).filter { scopes.contains($0.scope) }
-                records = saved.tracks.filter { scopes.contains($0.scope) && $0.id == Self.digest($0.scope + "\n" + $0.track.id) }
+                do {
+                    let size = try manifest.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                    guard size < 16 * 1024 * 1024 else { throw OfflineError.storage }
+                    let saved = try JSONDecoder().decode(OfflineManifest.self, from: Data(contentsOf: manifest))
+                    profiles = saved.profiles.filter { $0.id == Self.digestCanonicalProfile($0) }
+                    let scopes = Set(profiles.map(\.id))
+                    collections = (saved.collections ?? []).filter { scopes.contains($0.scope) }
+                    records = saved.tracks.filter { scopes.contains($0.scope) && $0.id == Self.digest($0.scope + "\n" + $0.track.id) }
+                } catch {
+                    // The next save() would replace this file with an empty manifest and orphan
+                    // the downloaded music. Keep the unreadable copy for recovery and carry on
+                    // (transfers still start); the user is told that the list could not be read.
+                    let kept = self.root.appendingPathComponent("manifest.unreadable-" + UUID().uuidString + ".json")
+                    try? FileManager.default.moveItem(at: manifest, to: kept)
+                    self.error = OfflineError.storage.localizedDescription
+                }
             }
             let staging = self.root.appendingPathComponent("staging")
             for url in (try? FileManager.default.contentsOfDirectory(at: staging, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
@@ -233,19 +254,22 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
     func detach() {
         if let scope {
             clients.removeValue(forKey: scope)
-            for record in currentRecords where record.state != .ready {
-                pause(record.track.id); tasks.removeValue(forKey: record.id)?.cancel()
+            // One pass and one save: per-record pause() rewrote the whole manifest each time.
+            for index in records.indices where records[index].scope == scope {
+                auxiliary.removeValue(forKey: records[index].id)?.cancel()
+                guard records[index].state != .ready else { continue }
+                records[index].state = .paused
+                tasks.removeValue(forKey: records[index].id)?.cancel()
                 // Invalidate cancelled attempts before a queued completion can
                 // publish after logout. A normal user pause keeps its attempt.
-                if let index = records.firstIndex(where: { $0.id == record.id }) { records[index].transferID = nil }
+                records[index].transferID = nil
             }
-            clients.removeValue(forKey: scope)
-            for record in currentRecords { auxiliary.removeValue(forKey: record.id)?.cancel() }
             save()
+            pump()
         }
         scope = nil
     }
-    func entry(_ trackID: String) -> OfflineTrack? { currentRecords.first { $0.track.id == trackID } }
+    func entry(_ trackID: String) -> OfflineTrack? { position(ofTrack: trackID).map { records[$0] } }
     func audioURL(_ trackID: String) -> URL? {
         guard let entry = entry(trackID) else { return nil }
         return storedAudioURL(entry)
@@ -302,9 +326,23 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
         } catch { if FileManager.default.fileExists(atPath: directory.path) { self.error = OfflineError.storage.localizedDescription; return } }
         records.removeAll { $0.id == record.id }; save(); pump()
     }
+    // Removes the whole account in one directory listing and one manifest write;
+    // calling remove() per track listed the folder and rewrote the manifest each time.
     func clearCurrent() {
-        for record in currentRecords { remove(record.track.id) }
-        collections.removeAll { $0.scope == scope }; save()
+        guard let scope else { return }
+        let doomed = Set(currentRecords.map(\.id))
+        for id in doomed { tasks.removeValue(forKey: id)?.cancel(); auxiliary.removeValue(forKey: id)?.cancel() }
+        var kept = Set<String>()
+        let directory = root.appendingPathComponent(scope)
+        do {
+            for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+                guard let id = url.lastPathComponent.split(separator: ".", maxSplits: 1).first.map(String.init), doomed.contains(id) else { continue }
+                do { try FileManager.default.removeItem(at: url) } catch { kept.insert(id) }
+            }
+        } catch { if FileManager.default.fileExists(atPath: directory.path) { self.error = OfflineError.storage.localizedDescription; return } }
+        if !kept.isEmpty { self.error = OfflineError.storage.localizedDescription }
+        records.removeAll { doomed.contains($0.id) && !kept.contains($0.id) }
+        collections.removeAll { $0.scope == scope }; save(); pump()
     }
     func rememberCollection(_ kind: CollectionKind, tracks: [Track]) {
         guard let scope else { return }
