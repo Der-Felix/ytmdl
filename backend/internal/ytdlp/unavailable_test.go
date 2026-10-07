@@ -23,7 +23,7 @@ func TestThisVideoIsUnavailableIsACandidateFailure(t *testing.T) {
 		"ERROR: [youtube] xLaterLogin: This video is unavailable",
 	} {
 		err := ClassifyError(stderr, cause)
-		if apperr.CodeOf(err) != apperr.CodeTrackNotFound || !errors.Is(err, ErrItemUnavailable) {
+		if apperr.CodeOf(err) != apperr.CodeMediaUnavailable || !errors.Is(err, ErrItemUnavailable) {
 			t.Fatalf("%q: %v", stderr, err)
 		}
 		if apperr.ScopeOf(err) != apperr.ScopeCandidate || apperr.StopsCandidateFanout(err) || apperr.Retryable(err) {
@@ -53,7 +53,7 @@ func TestUnavailableWordingNeverMasksProtectionOrOutages(t *testing.T) {
 		// Naming the age gate decides the item, so this one is covered by
 		// TestAgeRestrictionIsACandidateFailure and only asserted here to stay
 		// out of the unavailable-item category.
-		{"sign in to confirm an age gate", "ERROR: [youtube] x: This video is unavailable. Sign in to confirm your age", apperr.CodeTrackNotFound},
+		{"sign in to confirm an age gate", "ERROR: [youtube] x: This video is unavailable. Sign in to confirm your age", apperr.CodeMediaAgeRestricted},
 		{"sign in to confirm an identity", "ERROR: [youtube] x: This video is unavailable. Sign in to confirm your identity", apperr.CodeSessionAuthFailed},
 		{"network", "WARNING: [youtube] x: This video is unavailable\nERROR: [youtube] x: Unable to download API page: [Errno -2] Name does not resolve", apperr.CodeProviderUnavailable},
 		{"service unavailable", "ERROR: [youtube] x: HTTP Error 503: Service Unavailable", apperr.CodeProviderUnavailable},
@@ -111,18 +111,19 @@ func TestCandidateFailuresAreCountedPerPhase(t *testing.T) {
 	for _, tc := range []struct {
 		stderr string
 		what   string
+		code   apperr.Code
 	}{
-		{stderrSorryAgeRestricted, "candidate.age_restricted"},
-		{stderrThisVideoIsUnavailable, "candidate.unavailable"},
+		{stderrSorryAgeRestricted, "candidate.age_restricted", apperr.CodeMediaAgeRestricted},
+		{stderrThisVideoIsUnavailable, "candidate.unavailable", apperr.CodeMediaUnavailable},
 	} {
 		binary := fakeBinary(t, "echo '"+tc.stderr+"' >&2\nexit 1\n")
 		rec := throughput.New()
 		client := New(Options{Binary: binary, Recorder: rec, Label: "youtube"})
 
-		if _, err := client.Query(context.Background(), "https://www.youtube.com/watch?v=AAAAAAAAAAA", "--no-playlist"); apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+		if _, err := client.Query(context.Background(), "https://www.youtube.com/watch?v=AAAAAAAAAAA", "--no-playlist"); apperr.CodeOf(err) != tc.code {
 			t.Fatalf("resolve: %v", err)
 		}
-		if _, err := client.Download(context.Background(), DownloadRequest{URL: "https://www.youtube.com/watch?v=AAAAAAAAAAA", Dir: t.TempDir()}, nil); apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+		if _, err := client.Download(context.Background(), DownloadRequest{URL: "https://www.youtube.com/watch?v=AAAAAAAAAAA", Dir: t.TempDir()}, nil); apperr.CodeOf(err) != tc.code {
 			t.Fatalf("download: %v", err)
 		}
 
@@ -130,7 +131,7 @@ func TestCandidateFailuresAreCountedPerPhase(t *testing.T) {
 		if counts["ytdlp.youtube.extract."+tc.what] != 1 || counts["ytdlp.youtube.download."+tc.what] != 1 {
 			t.Fatalf("%s per phase: %v", tc.what, counts)
 		}
-		if counts["ytdlp.youtube.extract.error.TRACK_NOT_FOUND"] != 1 || counts["ytdlp.youtube.download.error.TRACK_NOT_FOUND"] != 1 {
+		if counts["ytdlp.youtube.extract.error."+string(tc.code)] != 1 || counts["ytdlp.youtube.download.error."+string(tc.code)] != 1 {
 			t.Fatalf("error codes per phase: %v", counts)
 		}
 	}

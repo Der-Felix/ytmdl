@@ -65,7 +65,7 @@ func TestScoreISRCMatchWins(t *testing.T) {
 
 	res := m.Score(track, provider.MediaCandidate{
 		ID: "isrc", Title: "Completely Different Title",
-		Artists: []string{"Someone Else"}, DurationMS: 1000,
+		Artists: []string{"Someone Else"}, DurationMS: 205000,
 		ISRC: "de-a12-34-56789",
 	})
 	if res.Score != 100 {

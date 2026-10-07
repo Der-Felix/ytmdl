@@ -147,7 +147,11 @@ func newCombinedEnv(t *testing.T, script string, budget time.Duration) *combined
 		t.Fatal(err)
 	}
 
-	prov := newMockFallbackMediaProvider("youtube", timeoutCandidates())
+	candidates := timeoutCandidates()
+	for i := range candidates {
+		candidates[i].DurationMS = 3000 // the offline muxed fixture is three seconds
+	}
+	prov := newMockFallbackMediaProvider("youtube", candidates)
 	prov.resolveResults["c1"] = &provider.MediaSource{
 		Provider: "youtube", ID: "c1", URL: "https://www.youtube.com/watch?v=c1", DurationMS: 3000,
 		Formats: []provider.AudioFormat{{
@@ -159,6 +163,7 @@ func newCombinedEnv(t *testing.T, script string, budget time.Duration) *combined
 	mgr.downloader = withSession{next: real}
 
 	item := store.items["item-1"]
+	item.Track.DurationMS = 3000
 	item.ID = music.NewID()
 	delete(store.items, "item-1")
 	store.items[item.ID] = item

@@ -2,13 +2,16 @@ package jobs
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/downloader"
@@ -322,7 +325,9 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		Score:     resolved.Score,
 	}
 	source := resolved.Source
-	if source.DurationMS == 0 {
+	// Verification must compare the audio to the requested recording, rather
+	// than letting a wrongly matched source certify its own runtime.
+	if track.DurationMS > 0 {
 		source.DurationMS = track.DurationMS
 	}
 
@@ -492,7 +497,7 @@ func (m *Manager) placeSafe(ctx context.Context, release music.Release, track mu
 				return music.File{}, err
 			}
 		} else {
-			alreadyPlaced, err := m.library.CommitStaged(download.Path, target, expectedSHA256, expectedSize)
+			alreadyPlaced, err := m.commitRecording(download.Path, &target, source, expectedSHA256, expectedSize)
 			if err != nil {
 				return music.File{}, err
 			}
@@ -502,7 +507,7 @@ func (m *Manager) placeSafe(ctx context.Context, release music.Release, track mu
 			}
 		}
 	} else {
-		alreadyPlaced, err := m.library.CommitStaged(download.Path, target, expectedSHA256, expectedSize)
+		alreadyPlaced, err := m.commitRecording(download.Path, &target, source, expectedSHA256, expectedSize)
 		if err != nil {
 			return music.File{}, err
 		}
@@ -531,6 +536,31 @@ func (m *Manager) placeSafe(ctx context.Context, release music.Release, track mu
 	}, nil
 }
 
+// commitRecording preserves a different recording at the conventional filename.
+// A stable source suffix prevents collisions without adopting or deleting the
+// existing file. The alternate path uses the same verified, no-overwrite commit;
+// a conflict there still fails rather than generating an unbounded set of copies.
+func (m *Manager) commitRecording(staged string, target *string, source provider.MediaSource, checksum string, size int64) (bool, error) {
+	recovered, err := m.library.CommitStaged(staged, *target, checksum, size)
+	if apperr.CodeOf(err) != apperr.CodePathConflict || strings.TrimSpace(source.ID) == "" || strings.TrimSpace(source.Provider) == "" {
+		return recovered, err
+	}
+	ext := filepath.Ext(*target)
+	key := sha256.Sum256([]byte(source.Provider + "\x00" + source.ID))
+	suffix := fmt.Sprintf(" [source-%x]", key[:8])
+	base := strings.TrimSuffix(filepath.Base(*target), ext)
+	for len(base)+len(suffix)+len(ext) > storage.MaxComponentLength {
+		_, width := utf8.DecodeLastRuneInString(base)
+		base = base[:len(base)-width]
+	}
+	alternative := filepath.Join(filepath.Dir(*target), base+suffix+ext)
+	recovered, err = m.library.CommitStaged(staged, alternative, checksum, size)
+	if err == nil {
+		*target = alternative
+	}
+	return recovered, err
+}
+
 // ownsTarget reports whether a library path already belongs to the recording
 // that is about to be written there.
 func (m *Manager) ownsTarget(ctx context.Context, track music.Track, relPath string) (bool, error) {
@@ -539,6 +569,11 @@ func (m *Manager) ownsTarget(ctx context.Context, track music.Track, relPath str
 		return false, err
 	}
 	if existing == nil || existing.TrackID == "" {
+		return false, nil
+	}
+	// Retain an incorrectly associated old recording instead of replacing it.
+	// A verified correction is published at the stable source-suffixed path.
+	if track.DurationMS > 0 && (existing.DurationMS <= 0 || !music.CompatibleDuration(track.DurationMS, existing.DurationMS)) {
 		return false, nil
 	}
 	known, err := m.catalog.FindTrack(ctx, track, m.toleranceMS)
@@ -636,6 +671,9 @@ func (m *Manager) alreadyInLibrary(ctx context.Context, track music.Track) (bool
 		return false, err
 	}
 	for _, file := range files {
+		if track.DurationMS > 0 && (file.DurationMS <= 0 || !music.CompatibleDuration(track.DurationMS, file.DurationMS)) {
+			continue
+		}
 		if m.library.Exists(filepath.Join(m.library.Root(), file.Path)) {
 			return true, nil
 		}

@@ -114,6 +114,7 @@ type SessionPool struct {
 	sessions        map[string]*RuntimeSession
 	sessionOrder    []string
 	waiters         []chan struct{}
+	capacityChanged chan struct{}
 	platformFailure PlatformFailure
 	now             func() time.Time
 	syncPersist     bool
@@ -198,15 +199,16 @@ func NewSessionPool(cfg PoolConfig, storage *CookieStorage, repo SessionReposito
 	}
 
 	p := &SessionPool{
-		family:        cfg.Family,
-		cfg:           cfg,
-		storage:       storage,
-		repo:          repo,
-		legacy:        legacy,
-		globalLimiter: NewLimiter(cfg.GlobalRequestsPerSec, cfg.GlobalBurst),
-		sessions:      make(map[string]*RuntimeSession),
-		now:           time.Now,
-		jitter:        rand.Float64,
+		family:          cfg.Family,
+		cfg:             cfg,
+		storage:         storage,
+		repo:            repo,
+		legacy:          legacy,
+		globalLimiter:   NewLimiter(cfg.GlobalRequestsPerSec, cfg.GlobalBurst),
+		sessions:        make(map[string]*RuntimeSession),
+		capacityChanged: make(chan struct{}),
+		now:             time.Now,
+		jitter:          rand.Float64,
 	}
 	return p
 }
@@ -348,6 +350,7 @@ func (p *SessionPool) RuntimeSessions() []*RuntimeSession {
 func (p *SessionPool) ReloadSessions(sessions []Session) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	defer p.notifyCapacityChangedLocked()
 
 	newMap := make(map[string]*RuntimeSession, len(sessions))
 	var newOrder []string
@@ -535,6 +538,26 @@ func (l *Lease) ReleaseNeutral() {
 // It blocks until a session is available, or until ctx is done.
 // Process pacing happens later at the yt-dlp execution boundary.
 func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
+	return p.acquire(ctx, nil, true)
+}
+
+// TryAcquireExcluding requests an immediately eligible alternate session for an
+// item-specific restriction. It never waits, changes health, or drains unrelated
+// waiters. A nil lease means no alternate is available right now.
+func (p *SessionPool) TryAcquireExcluding(ctx context.Context, excluded map[string]struct{}) (*Lease, error) {
+	return p.acquire(ctx, excluded, false)
+}
+
+// AcquireExcluding waits for capacity on an unchecked eligible session. Unlike
+// Acquire, it returns a nil lease when no unchecked session can currently qualify.
+func (p *SessionPool) AcquireExcluding(ctx context.Context, excluded map[string]struct{}) (*Lease, error) {
+	if excluded == nil {
+		excluded = make(map[string]struct{})
+	}
+	return p.acquire(ctx, excluded, true)
+}
+
+func (p *SessionPool) acquire(ctx context.Context, excluded map[string]struct{}, wait bool) (*Lease, error) {
 	if p == nil {
 		return nil, apperr.New(apperr.CodeInvalidRequest, "session pool is nil")
 	}
@@ -552,6 +575,9 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 		candidateList := make([]*RuntimeSession, 0, len(p.sessions))
 
 		for _, id := range p.sessionOrder {
+			if _, skip := excluded[id]; skip {
+				continue
+			}
 			rs := p.sessions[id]
 			if rs == nil {
 				continue
@@ -565,6 +591,10 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 		}
 
 		if !hasAny || !hasConfigured {
+			if !wait || excluded != nil {
+				p.mu.Unlock()
+				return nil, nil
+			}
 			p.drainWaitersLocked()
 			p.mu.Unlock()
 			return nil, apperr.New(apperr.CodeSessionNotFound, "no eligible media sessions available in pool")
@@ -608,16 +638,42 @@ func (p *SessionPool) Acquire(ctx context.Context) (*Lease, error) {
 			}, nil
 		}
 
+		if !wait {
+			p.mu.Unlock()
+			return nil, nil
+		}
+
 		totalActiveLeases := 0
 		for _, rs := range candidateList {
 			totalActiveLeases += rs.CurrentLeases()
 		}
 
 		if totalActiveLeases == 0 {
+			if excluded != nil {
+				p.mu.Unlock()
+				return nil, nil
+			}
 			p.drainWaitersLocked()
 			err := p.sessionUnavailableLocked(now)
 			p.mu.Unlock()
 			return nil, err
+		}
+
+		// Scoped alternate waiters observe capacity changes separately. They
+		// must not consume the FIFO wakeup of a normal waiter when the released
+		// session is one they have excluded.
+		if excluded != nil {
+			if p.capacityChanged == nil {
+				p.capacityChanged = make(chan struct{})
+			}
+			changed := p.capacityChanged
+			p.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-changed:
+				continue
+			}
 		}
 
 		// All eligible sessions are currently leased to capacity. Wait for a release.
@@ -670,6 +726,15 @@ func (p *SessionPool) sessionUnavailableLocked(now time.Time) error {
 	}
 	return apperr.NewRetryAfter(apperr.CodeSessionUnavailable,
 		"Configured YouTube sessions are temporarily unavailable; the item will wait for session eligibility.", retryAfter)
+}
+
+// notifyCapacityChangedLocked wakes scoped waiters without altering the normal
+// FIFO queue. p.mu must be held.
+func (p *SessionPool) notifyCapacityChangedLocked() {
+	if p.capacityChanged != nil {
+		close(p.capacityChanged)
+	}
+	p.capacityChanged = make(chan struct{})
 }
 
 // selectBestSession implements health-aware least-loaded selection with LRU tie-break
@@ -773,6 +838,7 @@ func (p *SessionPool) releaseLease(rs *RuntimeSession, err error, attributeHealt
 	p.mu.Lock()
 	now := p.now()
 	rs.Release()
+	p.notifyCapacityChangedLocked()
 	var notify func()
 	if attributeHealth {
 		notify = p.updateSessionHealthLocked(rs, err, now, p.syncPersist)
@@ -824,6 +890,7 @@ func (p *SessionPool) RecordOutcome(sessionID string, err error) {
 		return
 	}
 	p.mu.Lock()
+	p.notifyCapacityChangedLocked()
 	rs, ok := p.sessions[sessionID]
 	if !ok || rs == nil {
 		p.mu.Unlock()
@@ -855,6 +922,7 @@ func (p *SessionPool) UpsertSession(s *Session) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	defer p.notifyCapacityChangedLocked()
 
 	if old, ok := p.sessions[s.ID]; ok && old != nil {
 		old.UpdateSession(*s)
@@ -893,6 +961,7 @@ func (p *SessionPool) ClearPlatformFailure() {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	defer p.notifyCapacityChangedLocked()
 	p.platformFailure = PlatformFailure{}
 }
 
@@ -903,6 +972,7 @@ func (p *SessionPool) RemoveSession(sessionID string) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	defer p.notifyCapacityChangedLocked()
 
 	// The row is already gone by the time the service gets here, so queued or
 	// recorded health state for it can never reach the database again.
