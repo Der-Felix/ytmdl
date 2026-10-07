@@ -1,13 +1,13 @@
 # Apple app handoff — preview 0.3.0, build 33
 
-The Apple client lives on `feat/apple-native-player` in draft
-[PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
+The Apple client arrived in `dev` with
+[PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
 Do not promote it to a stable server release just because it builds locally.
 The server release and native preview have independent version numbers.
 
 ## Direct distribution without the App Store
 
-Branch `feat/apple-direct-distribution`, stacked on `feat/apple-native-player`.
+Added after the preview itself, with the packaging scripts and workflow below.
 [INSTALL.md](INSTALL.md) is the user and maintainer guide. No Apple developer account,
 certificate, profile or secret is used anywhere; the project does not sign or notarize.
 
@@ -63,7 +63,7 @@ The same review fixed the backend (`auth/devices.go`: refused starts keep the ca
 quota, a full admission table evicts instead of refusing, `PollDevice` no longer holds
 its lock during database calls) and the web (`Playlists.tsx` fetches each preview once,
 `PlaylistDetail.tsx` disables the remove confirmation while busy). Those files belong to
-PR #47's branch and arrive here by merge.
+[PR #47](https://github.com/Der-Felix/ytmdl/pull/47) (merged into `dev` before #42).
 
 Verification (7 October, local, Xcode 27, serial, silent): the Swift package tests ran
 without failure (7 new tests; the two opt-in audible tests stay disabled), and the iOS
