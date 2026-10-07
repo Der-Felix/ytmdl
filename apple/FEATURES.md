@@ -1,8 +1,9 @@
-# Native listening preview 0.3.0 — build 32
+# Native listening preview 0.3.0 — build 33
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
+Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)); the feature matrix below is the build 32 state.
 See [AUDIT.md](AUDIT.md) for the dated functional audit through build 32, test evidence,
 corrected defects and the remaining real-device release checks.
 The [release checklist](RELEASE-CHECKLIST.md) tracks qualification separately

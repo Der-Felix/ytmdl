@@ -1,9 +1,45 @@
-# Apple app handoff — preview 0.3.0, build 32
+# Apple app handoff — preview 0.3.0, build 33
 
 The Apple client lives on `feat/apple-native-player` in draft
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
 Do not promote it to a stable server release just because it builds locally.
 The server release and native preview have independent version numbers.
+
+## Build 33: review fixes (not committed, not installed)
+
+Defect fixes from a code review of the branch; no new features and no audio-runtime
+rewrite. App and widget are now 0.3.0 (33); the physical iPhone still has build 32.
+
+- **Session loss:** `AppModel.report` treats a 401 on a signed-in online session as
+  sign-out (cookies and Keychain entry dropped, offline detached, playback stopped)
+  instead of raising an alert on every request.
+- **Device sign-in:** polling lives in `AppModel.completeDeviceSignIn`. A timeout,
+  dropped connection or 5xx is retried at the next interval; a definite server answer
+  (expired code, unsupported server) ends it. `ConfirmDeviceView` keeps its approval message.
+- **Offline library:** an unreadable `manifest.json` is moved aside as
+  `manifest.unreadable-<uuid>.json` instead of being overwritten by the next save, and
+  transfers still start. Record lookups use a lazily rebuilt index, `clearCurrent` and
+  `detach` write the manifest once, and offline cover art is decoded once, off the main
+  thread, at 512 px and cached (`OfflineArtworkImage` in `Views.swift`).
+- **Collections:** `downloadCollection` reads one page past 500, so the "first 500"
+  notice appears only when tracks were cut; the favorites sync in `loadLibrary` never
+  shows it (`announceLimit: false`).
+- **Decoding:** `Track` and `Release` accept `"artists": null` or a missing key as empty.
+- **Privacy docs:** listening-history sync is on by default; SECURITY-DESIGN.md now says so.
+- **Fixture server:** `/auth/device/poll` answers pending, slow_down, authorized (with
+  cookies). No UI test uses it yet.
+
+The same review fixed the backend (`auth/devices.go`: refused starts keep the caller's
+quota, a full admission table evicts instead of refusing, `PollDevice` no longer holds
+its lock during database calls) and the web (`Playlists.tsx` fetches each preview once,
+`PlaylistDetail.tsx` disables the remove confirmation while busy). Those files belong to
+PR #47 and must be ported there, not copied wholesale.
+
+Verification (7 October, local, Xcode 27, serial, silent): the Swift package tests ran
+without failure (7 new tests; the two opt-in audible tests stay disabled), and the iOS
+Debug, tvOS Release and macOS Release targets build unsigned. Not run: iPhone, iPad or
+tvOS simulator UI tests, a physical-device install or playback, final-commit CI.
+Open: a first-run notice for history sync.
 
 ## 7 October: integration and UI-test repair
 
@@ -47,7 +83,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget at 0.3.0 (32). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.3.0 (33)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness
