@@ -3,6 +3,8 @@
 Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The current
 preview is **0.3.0, build 33** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
+It is not in the App Store: [INSTALL.md](INSTALL.md) explains the downloads (unsigned
+`.ipa` for sideloading, un-notarized `.dmg`), and how releases are made.
 
 See [HANDOFF.md](HANDOFF.md) for the code map and [FEATURES.md](FEATURES.md)
 for the mobile/offline feature matrix, review steps, limits and open work.

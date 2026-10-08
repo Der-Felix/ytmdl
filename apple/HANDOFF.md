@@ -1,11 +1,41 @@
 # Apple app handoff — preview 0.3.0, build 33
 
-The Apple client lives on `feat/apple-native-player` in draft
-[PR #42](https://github.com/Der-Felix/ytmdl/pull/42), based on `dev`.
+The Apple client arrived in `dev` with
+[PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
 Do not promote it to a stable server release just because it builds locally.
 The server release and native preview have independent version numbers.
 
-## Build 33: review fixes (not committed, not installed)
+## Direct distribution without the App Store
+
+Added after the preview itself, with the packaging scripts and workflow below.
+[INSTALL.md](INSTALL.md) is the user and maintainer guide. No Apple developer account,
+certificate, profile or secret is used anywhere; the project does not sign or notarize.
+
+- `Scripts/package-ipa.sh`: unsigned iPhone/iPad `.ipa` (app plus widget) from an
+  unsigned `xcodebuild archive`; it checks the widget, the absence of signing material
+  and the packed version. `Scripts/package-dmg.sh`: ad-hoc signed `YTMDL.app` with the
+  sandbox entitlements in a `.dmg`; it checks signature, entitlements and version.
+  `Scripts/release-info.sh` reads the version from both Info.plist files (they must match),
+  requires Xcode 27 and derives the tag `apple-v<version>-<build>`.
+- `.github/workflows/apple-release.yml`: on a pushed `apple-v*` tag it builds both,
+  re-verifies the checksums and creates a *draft pre-release* (`--latest=false`); a manual
+  run only keeps a workflow artifact. The tag must equal the plists and sit on `origin/dev`
+  or `origin/main`. Publishing the draft is a manual step.
+- The server's update check reads GitHub releases. `apple-v…` is not SemVer, so
+  `update.Eligible` ignores it on both channels (`TestAppleReleaseTagsAreNeverServerUpdates`);
+  the development channel only looks at the 30 newest releases, so keep Apple releases rare.
+- Apple TV has no download (tvOS cannot install from a file): build from source.
+
+Verified locally with Xcode 27: both scripts run; the `.ipa` is 1.4 MB, arm64, unsigned,
+with app and widget at 0.3.0 (33), minimum OS 27.0 and no machine paths; the `.dmg` mounts,
+the app is ad-hoc signed with hardened runtime and sandbox plus network entitlements, no
+team identifier, and Gatekeeper rejects it as documented. Not verified: the workflow has
+never run on GitHub (a manually dispatched workflow is only listed once the file is on the
+default branch; a tag triggers it from any commit), no sideloading tool was used to install
+the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
+bundle identifier with the installed Mac preview.
+
+## Build 33: review fixes (committed, not installed)
 
 Defect fixes from a code review of the branch; no new features and no audio-runtime
 rewrite. App and widget are now 0.3.0 (33); the physical iPhone still has build 32.
@@ -33,7 +63,7 @@ The same review fixed the backend (`auth/devices.go`: refused starts keep the ca
 quota, a full admission table evicts instead of refusing, `PollDevice` no longer holds
 its lock during database calls) and the web (`Playlists.tsx` fetches each preview once,
 `PlaylistDetail.tsx` disables the remove confirmation while busy). Those files belong to
-PR #47 and must be ported there, not copied wholesale.
+[PR #47](https://github.com/Der-Felix/ytmdl/pull/47) (merged into `dev` before #42).
 
 Verification (7 October, local, Xcode 27, serial, silent): the Swift package tests ran
 without failure (7 new tests; the two opt-in audible tests stay disabled), and the iOS
