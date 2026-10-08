@@ -116,3 +116,115 @@ jobs:
           bunx playwright install --with-deps chromium firefox
       - name: Qualify browser-local copies and offline restart
         run: bun scripts/browser/qualify-offline.mjs frontend/dist
+
+  apple:
+    # Official Xcode 27 image (macOS 27, Apple Silicon).
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check Xcode and test the native client core
+        run: |
+          xcodebuild -version
+          xcodebuild -version | head -n 1 | grep -Eq '^Xcode 27([.]|$)'
+          python3 apple/Scripts/fixture-server.py --port 59583 > "$RUNNER_TEMP/apple-core-fixture.log" 2>&1 &
+          ytmdl_fixture_pid=$!
+          trap 'kill "$ytmdl_fixture_pid"' EXIT
+          ytmdl_fixture_ready=false
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:59583/api/v1/health > /dev/null; then
+              ytmdl_fixture_ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ytmdl_fixture_ready" != true ]; then exit 1; fi
+          # MediaPlayer metadata and remote commands are process-wide singletons.
+          YTMDL_OFFLINE_FIXTURE_URL=http://127.0.0.1:59583 swift test --package-path apple --scratch-path "$RUNNER_TEMP/apple-tests" --no-parallel
+      - name: Build production configurations without distribution signing
+        run: |
+          xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-macOS -configuration Release -destination 'platform=macOS,arch=arm64' -derivedDataPath "$RUNNER_TEMP/apple-mac" CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-iOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/apple-ios-release" CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project apple/YTMDL.xcodeproj -scheme YTMDL-tvOS -configuration Release -destination 'generic/platform=tvOS' -derivedDataPath "$RUNNER_TEMP/apple-tv-release" CODE_SIGNING_ALLOWED=NO build
+
+  apple-ui:
+    # Each runner boots one simulator. Three simultaneously booted simulators
+    # exhausted the build job's time budget before UI checks could finish.
+    runs-on: xcode-27
+    needs: apple
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: iPhone
+            runtime: iOS-27-
+            scheme: YTMDL-iOS
+            platform: iOS Simulator
+          - device: iPad
+            runtime: iOS-27-
+            scheme: YTMDL-iOS
+            platform: iOS Simulator
+          - device: Apple TV
+            runtime: tvOS-27-
+            scheme: YTMDL-tvOS
+            platform: tvOS Simulator
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Boot the selected OS 27 simulator
+        timeout-minutes: 10
+        env:
+          YTMDL_SIM_RUNTIME: ${{ matrix.runtime }}
+          YTMDL_SIM_DEVICE: ${{ matrix.device }}
+        run: |
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/apple-simulators.json"
+          python3 - "$RUNNER_TEMP/apple-simulators.json" > "$RUNNER_TEMP/apple-selected.env" <<'PYTHON'
+          import json, os, sys
+          devices = json.load(open(sys.argv[1]))['devices']
+          match = next((d['udid'] for r, ds in devices.items()
+                        if os.environ['YTMDL_SIM_RUNTIME'] in r
+                        for d in ds if d['name'].startswith(os.environ['YTMDL_SIM_DEVICE'])), None)
+          if not match:
+              raise SystemExit('Required OS 27 simulator is missing')
+          print('YTMDL_TEST_SIM=' + match)
+          PYTHON
+          cat "$RUNNER_TEMP/apple-selected.env" >> "$GITHUB_ENV"
+          source "$RUNNER_TEMP/apple-selected.env"
+          xcrun simctl bootstatus "$YTMDL_TEST_SIM" -b
+      - name: Test native playback and navigation against loopback fixtures
+        env:
+          YTMDL_TEST_SCHEME: ${{ matrix.scheme }}
+          YTMDL_TEST_PLATFORM: ${{ matrix.platform }}
+        run: |
+          python3 apple/Scripts/fixture-server.py --port 59583 --audit-failures > "$RUNNER_TEMP/apple-fixture.log" 2>&1 &
+          ytmdl_fixture_pid=$!
+          trap 'kill "$ytmdl_fixture_pid"' EXIT
+          ytmdl_fixture_ready=false
+          for attempt in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:59583/api/v1/health > /dev/null; then
+              ytmdl_fixture_ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ytmdl_fixture_ready" != true ]; then exit 1; fi
+          xcodebuild -project apple/YTMDL.xcodeproj -scheme "$YTMDL_TEST_SCHEME" -destination "platform=$YTMDL_TEST_PLATFORM,id=$YTMDL_TEST_SIM" -derivedDataPath "$RUNNER_TEMP/apple-ui" -resultBundlePath "$RUNNER_TEMP/apple-ui-results.xcresult" CODE_SIGNING_ALLOWED=NO -collect-test-diagnostics never -parallel-testing-enabled NO test
+      - name: Export failed fixture screenshots
+        if: failure()
+        run: |
+          if [ -d "$RUNNER_TEMP/apple-ui-results.xcresult" ]; then
+            # Screenshots attached to test activities are omitted by
+            # --only-failures on this Xcode version. Export PNGs from the
+            # fixture run; upload excludes manifests and issue descriptions.
+            xcrun xcresulttool export attachments --filter '*.png' --path "$RUNNER_TEMP/apple-ui-results.xcresult" --output-path "$RUNNER_TEMP/apple-ui-failure-images"
+          fi
+      - name: Preserve fixture screenshots for diagnosis
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: apple-ui-failure-${{ matrix.device }}
+          # Only PNGs from loopback fixture tests: no raw result bundles,
+          # simulator diagnostics, attachment manifests or logs.
+          path: ${{ runner.temp }}/apple-ui-failure-images/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7

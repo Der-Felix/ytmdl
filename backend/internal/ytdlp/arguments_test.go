@@ -237,22 +237,22 @@ func TestClassifyError_Taxonomy(t *testing.T) {
 		{
 			name:     "clean video unavailable",
 			stderr:   "ERROR: [youtube] 2vQYmGkynmc: Video unavailable",
-			wantCode: apperr.CodeTrackNotFound,
+			wantCode: apperr.CodeMediaUnavailable,
 		},
 		{
 			name:     "private video",
 			stderr:   "ERROR: [youtube] 2vQYmGkynmc: Private video. Sign in if you've been granted access",
-			wantCode: apperr.CodeTrackNotFound,
+			wantCode: apperr.CodeMediaUnavailable,
 		},
 		{
 			name:     "removed by uploader",
 			stderr:   "ERROR: [youtube] 2vQYmGkynmc: Video removed by the uploader",
-			wantCode: apperr.CodeTrackNotFound,
+			wantCode: apperr.CodeMediaUnavailable,
 		},
 		{
 			name:     "account terminated",
 			stderr:   "ERROR: [youtube] 2vQYmGkynmc: The account associated with this video has been terminated",
-			wantCode: apperr.CodeTrackNotFound,
+			wantCode: apperr.CodeMediaUnavailable,
 		},
 
 		// Unsupported URL

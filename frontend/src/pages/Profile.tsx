@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
+import { DevicePairing } from '@/components/DevicePairing'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -305,6 +306,8 @@ export function Profile() {
           </form>
         </Panel>
       </section>
+
+      <DevicePairing />
 
       {/* Active Sessions */}
       <section aria-labelledby="sessions-heading" className="space-y-3">

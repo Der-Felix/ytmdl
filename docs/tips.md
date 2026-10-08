@@ -13,8 +13,10 @@ each item prevents a class of problem.
   tracked `compose.ghcr.yaml`. It is git-ignored and survives updates. See
   [Deployment → Local customisations](/deployment#lokale-anpassungen-mit-compose-ghcr-override-yaml).
 - **Serve over HTTPS** behind your own reverse proxy and set
-  `MUSICDL_COOKIE_SECURE=true`. Add your proxy's IP/CIDR to
-  `MUSICDL_TRUSTED_PROXIES` so client IPs in logs and rate limiting are correct.
+  `MUSICDL_COOKIE_SECURE=true`. The bundled frontend overwrites `X-Forwarded-For`
+  with the address it sees, so a client cannot forge its own address. Behind your
+  own proxy, logs and per-address rate limits (login, device sign-in) therefore
+  see that proxy's address, not the browser's.
 - **Don't publish the database or backend port.** Only the frontend needs a host
   port. The bundled compose files already follow this.
 

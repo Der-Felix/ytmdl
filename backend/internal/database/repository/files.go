@@ -118,7 +118,7 @@ func (r *Files) FindByPath(ctx context.Context, path string) (*music.File, error
 // ListByTrack returns every file that belongs to a track.
 func (r *Files) ListByTrack(ctx context.Context, trackID string) ([]music.File, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT `+fileColumns+` FROM files WHERE track_id = $1 ORDER BY path`, trackID)
+		`SELECT `+fileColumns+` FROM files WHERE track_id = $1 ORDER BY `+fileDurationRankSQL("COALESCE((SELECT duration_ms FROM tracks WHERE id = $1), 0)", "files.duration_ms")+`, path`, trackID)
 	if err != nil {
 		return nil, wrapDB("list files by track", err)
 	}

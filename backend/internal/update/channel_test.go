@@ -340,3 +340,33 @@ func TestDevelopmentChannelWithoutQualifiedPrerelease(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 }
+
+// The native Apple apps are published as GitHub releases tagged apple-v<version>-<build>.
+// They share the repository's release list with the server, so neither channel may
+// ever offer one as a server update, whatever flags or assets it carries.
+func TestAppleReleaseTagsAreNeverServerUpdates(t *testing.T) {
+	for _, tag := range []string{"apple-v0.3.0-33", "apple-v0.3.0", "apple-v1.0.0-1", "apple-0.3.0-33"} {
+		for _, c := range []ReleaseCandidate{
+			{Tag: tag},
+			{Tag: tag, Prerelease: true},
+			{Tag: tag, Prerelease: true, AssetNames: allAssets},
+		} {
+			for _, channel := range []Channel{ChannelStable, ChannelDevelopment} {
+				if _, ok := c.Eligible(channel); ok {
+					t.Errorf("%s (prerelease=%v, assets=%d) is eligible on the %v channel", tag, c.Prerelease, len(c.AssetNames), channel)
+				}
+			}
+		}
+	}
+	candidates := []ReleaseCandidate{
+		{Tag: "apple-v9.9.9-99", Prerelease: true, AssetNames: allAssets},
+		{Tag: "v0.27.2-rc.1", Prerelease: true, AssetNames: allAssets},
+		{Tag: "v0.27.1"},
+	}
+	if got := SelectLatest(candidates, ChannelDevelopment); got != 1 {
+		t.Errorf("development channel selected %d, want the server prerelease at 1", got)
+	}
+	if got := SelectLatest(candidates, ChannelStable); got != 2 {
+		t.Errorf("stable channel selected %d, want the server release at 2", got)
+	}
+}

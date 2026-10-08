@@ -28,3 +28,4 @@ backend/musicdl
 
 # The frontend uses its own build context.
 frontend
+apple

@@ -162,3 +162,18 @@ func TestNoAudioStreamErrorCarriesOnlyFormatCounts(t *testing.T) {
 		t.Fatalf("message leaks an address: %q", msg)
 	}
 }
+
+func TestDirectSourceRestrictionIsReturnedWithoutFlatSearch(t *testing.T) {
+	binary := offlineYTDLP(t, "echo 'ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm your age' >&2\nexit 1\n")
+	p, err := New(Config{Name: ProviderName, Client: ytdlp.New(ytdlp.Options{Binary: binary})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.Search(context.Background(), music.Track{Title: "Song", Artists: []string{"Artist"}, SourceProvider: "ytmusic", SourceID: "dQw4w9WgXcQ"})
+	if !errors.Is(err, ytdlp.ErrAgeRestricted) {
+		t.Fatalf("lost restriction: %v", err)
+	}
+	if len(starts(t, binary)) != 1 {
+		t.Fatal("provider swallowed the restriction and searched again")
+	}
+}

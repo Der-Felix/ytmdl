@@ -37,16 +37,18 @@ const (
 // Breakdown records how a score came about. It is attached to every result so
 // that matching decisions stay explainable in logs and tests.
 type Breakdown struct {
-	Title           float64 `json:"title"`
-	Artist          float64 `json:"artist"`
-	Duration        float64 `json:"duration"`
-	Album           float64 `json:"album"`
-	Base            float64 `json:"base"`
-	VersionPenalty  float64 `json:"version_penalty"`
-	ISRCMatch       bool    `json:"isrc_match"`
-	ISRCMismatch    bool    `json:"isrc_mismatch"`
-	WantedVersions  string  `json:"wanted_versions,omitempty"`
-	OfferedVersions string  `json:"offered_versions,omitempty"`
+	PrimaryArtistUnconfirmed bool    `json:"primary_artist_unconfirmed,omitempty"`
+	DurationMismatch         bool    `json:"duration_mismatch,omitempty"`
+	Title                    float64 `json:"title"`
+	Artist                   float64 `json:"artist"`
+	Duration                 float64 `json:"duration"`
+	Album                    float64 `json:"album"`
+	Base                     float64 `json:"base"`
+	VersionPenalty           float64 `json:"version_penalty"`
+	ISRCMatch                bool    `json:"isrc_match"`
+	ISRCMismatch             bool    `json:"isrc_mismatch"`
+	WantedVersions           string  `json:"wanted_versions,omitempty"`
+	OfferedVersions          string  `json:"offered_versions,omitempty"`
 }
 
 // Result is a scored candidate.
@@ -59,6 +61,10 @@ type Result struct {
 // Reason renders a short human readable explanation of the score.
 func (r Result) Reason() string {
 	switch {
+	case r.Breakdown.DurationMismatch:
+		return "recording duration mismatch"
+	case r.Breakdown.PrimaryArtistUnconfirmed:
+		return "requested primary artist is not confirmed"
 	case r.Breakdown.ISRCMatch:
 		return "ISRC match"
 	case r.Breakdown.ISRCMismatch:
@@ -127,6 +133,12 @@ func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Re
 	var bd Breakdown
 	bd.WantedVersions = wantInfo.Versions.String()
 	bd.OfferedVersions = haveInfo.Versions.String()
+	// Matching title/credits (even an ISRC) cannot compensate for a known
+	// runtime that describes a different section or recording.
+	if !music.CompatibleDuration(track.DurationMS, candidate.DurationMS) {
+		bd.DurationMismatch = true
+		return Result{Candidate: candidate, Breakdown: bd}
+	}
 
 	// An ISRC identifies the exact recording; nothing else can outweigh it.
 	wantISRC := normaliseISRC(track.ISRC)
@@ -139,6 +151,10 @@ func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Re
 			return Result{Candidate: candidate, Score: 100, Breakdown: bd}
 		}
 		bd.ISRCMismatch = true
+	}
+	if !primaryArtistConfirmed(track, candidate) {
+		bd.PrimaryArtistUnconfirmed = true
+		return Result{Candidate: candidate, Breakdown: bd}
 	}
 
 	weights := 0.0
@@ -182,6 +198,39 @@ func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Re
 	}
 
 	return Result{Candidate: candidate, Score: clampScore(score), Breakdown: bd}
+}
+
+// Composer/work credits alone cannot establish the requested performance.
+// Require the album's primary artist when that artist is also a track credit.
+// Exact ISRCs and direct source IDs establish identity separately; generic
+// compilation credits and missing primary metadata do not add this constraint.
+func primaryArtistConfirmed(track music.Track, candidate provider.MediaCandidate) bool {
+	primary := NormalizeArtist(track.AlbumArtist)
+	switch primary {
+	case "", "various artists", "various", "va", "v a", "verschiedene interpreten", "diverse interpreten":
+		return true
+	}
+	required := false
+	for _, credit := range track.Artists {
+		if containsArtist(credit, primary) {
+			required = true
+			break
+		}
+	}
+	if !required {
+		return true
+	}
+	credits := append(append([]string(nil), candidate.Artists...), stripChannelSuffix(candidate.Uploader))
+	for _, credit := range credits {
+		if containsArtist(credit, primary) || Similarity(primary, NormalizeArtist(credit)) >= 0.8 {
+			return true
+		}
+	}
+	return containsArtist(candidate.Title, primary)
+}
+
+func containsArtist(credit, primary string) bool {
+	return strings.Contains(" "+NormalizeArtist(credit)+" ", " "+primary+" ")
 }
 
 // Rank scores every candidate and returns them sorted by descending score.

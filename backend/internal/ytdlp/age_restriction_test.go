@@ -41,8 +41,8 @@ func TestAgeRestrictionIsACandidateFailure(t *testing.T) {
 		"ERROR: [youtube] x: This video is unavailable. Sign in to confirm your age",
 	} {
 		err := ClassifyError(stderr, cause)
-		if apperr.CodeOf(err) != apperr.CodeTrackNotFound {
-			t.Fatalf("%q: code = %s, want %s", stderr, apperr.CodeOf(err), apperr.CodeTrackNotFound)
+		if apperr.CodeOf(err) != apperr.CodeMediaAgeRestricted {
+			t.Fatalf("%q: code = %s, want %s", stderr, apperr.CodeOf(err), apperr.CodeMediaAgeRestricted)
 		}
 		if !errors.Is(err, ErrAgeRestricted) {
 			t.Fatalf("%q: not marked as age restricted: %v", stderr, err)
@@ -60,7 +60,7 @@ func TestAgeRestrictionIsACandidateFailure(t *testing.T) {
 // failure: it is not a generic, retryable download error.
 func TestAgeRestrictionReportedByDownloadIsACandidateFailure(t *testing.T) {
 	err := classifyDownloadError(stderrSorryAgeRestricted, errors.New("exit status 1"))
-	if apperr.CodeOf(err) != apperr.CodeTrackNotFound || !errors.Is(err, ErrAgeRestricted) {
+	if apperr.CodeOf(err) != apperr.CodeMediaAgeRestricted || !errors.Is(err, ErrAgeRestricted) {
 		t.Fatalf("download classification = %v", err)
 	}
 	if apperr.Retryable(err) || apperr.ScopeOf(err) != apperr.ScopeCandidate {
@@ -133,7 +133,7 @@ func TestAgeRestrictionUsesBoundedPerSessionReuse(t *testing.T) {
 	query := func(c *Client) {
 		t.Helper()
 		_, err := c.Query(context.Background(), target, "--no-playlist")
-		if !errors.Is(err, ErrAgeRestricted) || apperr.CodeOf(err) != apperr.CodeTrackNotFound {
+		if !errors.Is(err, ErrAgeRestricted) || apperr.CodeOf(err) != apperr.CodeMediaAgeRestricted {
 			t.Fatalf("unexpected answer: %v", err)
 		}
 	}
@@ -155,7 +155,7 @@ func TestAgeRestrictionUsesBoundedPerSessionReuse(t *testing.T) {
 	}
 
 	counts := rec.Drain().Counts
-	if counts["ytdlp.youtube.extract.candidate.age_restricted"] != 3 || counts["ytdlp.youtube.extract.error.TRACK_NOT_FOUND"] != 3 {
+	if counts["ytdlp.youtube.extract.candidate.age_restricted"] != 3 || counts["ytdlp.youtube.extract.error.MEDIA_AGE_RESTRICTED"] != 3 {
 		t.Fatalf("counters: %v", counts)
 	}
 	if counts["ytdlp.youtube.extract.cache_hit"] != 1 {
@@ -196,7 +196,7 @@ func TestAgeStatementNeverMasksSystemicEvidence(t *testing.T) {
 			if apperr.CodeOf(err) != tc.want {
 				t.Fatalf("code = %s, want %s (%v)", apperr.CodeOf(err), tc.want, err)
 			}
-			if apperr.CodeOf(err) == apperr.CodeTrackNotFound {
+			if apperr.CodeOf(err) == apperr.CodeMediaAgeRestricted {
 				t.Fatal("a systemic failure must not become a candidate failure")
 			}
 			if errors.Is(err, ErrAgeRestricted) {
@@ -225,9 +225,9 @@ func TestSystemicVetoLeavesTheAgeGatePolicyIntact(t *testing.T) {
 		want   apperr.Code
 		age    bool
 	}{
-		{"plain age gate", "ERROR: [youtube] x: Sign in to confirm your age", apperr.CodeTrackNotFound, true},
-		{"age gate with expired cookies", "ERROR: [youtube] x: This video is age-restricted. Your cookies are expired.", apperr.CodeTrackNotFound, true},
-		{"age gate with a login prompt", "ERROR: [youtube] x: This video is age-restricted. Please log in to continue", apperr.CodeTrackNotFound, true},
+		{"plain age gate", "ERROR: [youtube] x: Sign in to confirm your age", apperr.CodeMediaAgeRestricted, true},
+		{"age gate with expired cookies", "ERROR: [youtube] x: This video is age-restricted. Your cookies are expired.", apperr.CodeMediaAgeRestricted, true},
+		{"age gate with a login prompt", "ERROR: [youtube] x: This video is age-restricted. Please log in to continue", apperr.CodeMediaAgeRestricted, true},
 		{"auth without an age gate", "ERROR: [youtube] x: Sign in to confirm your identity", apperr.CodeSessionAuthFailed, false},
 		{"expired cookies without an age gate", "ERROR: [youtube] x: Your cookies are expired", apperr.CodeSessionAuthFailed, false},
 		{"bot challenge beside an age gate", "ERROR: [youtube] x: Sorry, this content is age-restricted. Sign in to confirm you're not a bot", apperr.CodeSessionBotChallenge, false},

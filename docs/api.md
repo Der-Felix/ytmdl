@@ -15,6 +15,23 @@ State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid CSRF 
 | `POST` | `/api/v1/auth/login` | Public | Authenticate user credentials and issue session cookie. |
 | `GET` | `/api/v1/auth/me` | User | Get current authenticated user details and role. |
 | `POST` | `/api/v1/auth/logout` | User | Terminate current session and invalidate cookie. |
+| `POST` | `/api/v1/auth/device` | Public | Request a short-lived device sign-in code. |
+| `POST` | `/api/v1/auth/device/poll` | Public | Poll the opaque secret; exchange an approved code for a session cookie. |
+| `POST` | `/api/v1/auth/device/preview` | User | Inspect the requesting device without approving it. |
+| `POST` | `/api/v1/auth/device/confirm` | User | Explicitly approve a device using the short code. |
+
+Device routes also require CSRF. See [device-code sign-in](features/device-sign-in.md)
+for expiry, polling intervals, confirmation and revocation.
+
+Native Apple clients reuse cookie authentication and CSRF. Device pairing adds
+`POST /api/v1/auth/device` (start), `POST /api/v1/auth/device/poll` (exchange),
+and authenticated `POST /api/v1/auth/device/preview` and
+`POST /api/v1/auth/device/confirm`. Every POST requires the normal CSRF cookie
+and header, including pre-auth start/poll. Codes expire after five minutes;
+poll no faster than the returned interval and back off on `slow_down`.
+See the [Apple client security design](https://github.com/Der-Felix/ytmdl/blob/dev/apple/SECURITY-DESIGN.md)
+for the one-time exchange, limits and account permissions.
+
 
 ---
 

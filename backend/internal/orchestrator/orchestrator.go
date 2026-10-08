@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -407,6 +408,8 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		return string(fam) + "\x00" + strings.TrimSpace(id)
 	}
 
+	var directErr error
+
 	// 4. Direct-ID Fast Path
 	// Only runs if YouTube is eligible and track carries a direct video ID.
 	// If YouTube is pre-attempt skipped, fast path is skipped without YouTube contact.
@@ -414,24 +417,53 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 		if err := acquireYouTubeSession(); err != nil {
 			return nil, err
 		}
-		res, ok, triedID, err := o.tryDirectID(ctx, pref, track, lease, cookiePath, sessionID, provider.FamilyYouTube)
-		if err != nil {
-			// tryDirectID only surfaces session/provider protection failures, and
-			// they were produced by this YouTube session - unless the execution
-			// gate refused to start the request at all, which proves nothing.
-			if !isWaitState(err) {
-				outcome, sessionErr = sessionOutcomeFailure, err
+		checkedSessions := make(map[string]struct{})
+		maxSessionAttempts := min(maxCandidates, DefaultMaxCandidates)
+		for sessionAttempt := 0; sessionAttempt < maxSessionAttempts; sessionAttempt++ {
+			res, ok, triedID, err := o.tryDirectID(ctx, pref, track, lease, cookiePath, sessionID, provider.FamilyYouTube)
+			if err != nil {
+				if apperr.StopsCandidateFanout(err) {
+					if !isWaitState(err) {
+						outcome, sessionErr = sessionOutcomeFailure, err
+					}
+					return nil, err
+				}
+				directErr = err
 			}
-			return nil, err
-		}
-		if ok {
-			if o.sessionPool != nil && sessionID != "" {
-				o.sessionPool.RetainDataPlane(sessionID)
+			if ok {
+				if o.sessionPool != nil && sessionID != "" {
+					o.sessionPool.RetainDataPlane(sessionID)
+				}
+				return res, nil
 			}
-			return res, nil
-		}
-		if triedID != "" {
-			tried[triedKey(provider.FamilyYouTube, triedID)] = struct{}{}
+			if triedID != "" {
+				tried[triedKey(provider.FamilyYouTube, triedID)] = struct{}{}
+			}
+			// Account-specific entitlement can differ between existing sessions.
+			// Only explicit restrictions permit a bounded alternate; a protection
+			// response always returns above without rotating credentials.
+			if lease == nil || !sourceRestriction(err) || sessionAttempt+1 >= maxSessionAttempts {
+				break
+			}
+			alternates, supports := o.sessionPool.(interface {
+				AcquireExcluding(context.Context, map[string]struct{}) (*mediasession.Lease, error)
+			})
+			if !supports {
+				break
+			}
+			checkedSessions[sessionID] = struct{}{}
+			// Free the restricted session before waiting; otherwise simultaneous
+			// restricted items could hold every slot while waiting for each other.
+			lease.ReleaseNeutral()
+			lease, cookiePath, sessionID = nil, "", ""
+			next, acquireErr := alternates.AcquireExcluding(ctx, checkedSessions)
+			if acquireErr != nil {
+				return nil, acquireErr
+			}
+			if next == nil {
+				break
+			}
+			lease, cookiePath, sessionID = next, next.CookiePath(), next.SessionID()
 		}
 		o.logger.Info("direct-ID candidate unavailable, falling back to generic search",
 			logging.KeyProvider, pref,
@@ -460,6 +492,10 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 	recordFailure := func(err error) {
 		lastResolveErr = err
 		failures.record(err)
+	}
+
+	if directErr != nil {
+		recordFailure(directErr)
 	}
 
 	recordDeferred := func(reason string, retryAfter time.Duration) {
@@ -677,17 +713,28 @@ func (o *ProviderOrchestrator) ResolveMedia(ctx context.Context, preferredProvid
 			"Configured media providers are temporarily unavailable; deferred until provider recovery.", retryWait)
 	}
 
+	// A rejected, unrelated search hit must not hide the known source's
+	// availability/access failure or produce a misleading zero-source summary.
+	if directErr != nil && attemptedCount == 0 {
+		return nil, directErr
+	}
+	if lastResolveErr != nil {
+		return nil, failures.exhausted(attemptedCount, lastResolveErr)
+	}
+
 	if bestCandidate != nil {
 		return nil, apperr.Newf(apperr.CodeMatchFailed,
 			"No sufficiently accurate media match found for %q (best score %.1f, required %.1f).",
 			track.Label(), bestCandidate.Score, o.matcher.MinScore())
 	}
 
-	if lastResolveErr != nil {
-		return nil, failures.exhausted(attemptedCount, lastResolveErr)
-	}
-
 	return nil, apperr.Newf(apperr.CodeTrackNotFound, "No media candidates were found for %q.", track.Label())
+}
+
+// sourceRestriction names explicit item/account access restrictions. Bot,
+// authentication and throttling signals retain systemic precedence.
+func sourceRestriction(err error) bool {
+	return errors.Is(err, ytdlp.ErrAgeRestricted) || errors.Is(err, ytdlp.ErrPremiumRequired)
 }
 
 // tryDirectID resolves the video the metadata already names. Besides the
@@ -711,8 +758,8 @@ func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, tra
 			}
 			return nil, false, "", err
 		}
-		// Candidate-specific error
-		return nil, false, "", nil
+		// Preserve the source failure for final diagnostics and avoid probing it twice.
+		return nil, false, track.SourceID, err
 	}
 
 	if len(candidates) == 0 {
@@ -720,6 +767,12 @@ func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, tra
 	}
 
 	directCand := candidates[0]
+	// Search may fall back to text search after an implausible direct result.
+	// That first hit is not the requested source and must pass normal matching.
+	if strings.TrimSpace(directCand.ID) != strings.TrimSpace(track.SourceID) ||
+		!music.CompatibleDuration(track.DurationMS, directCand.DurationMS) {
+		return nil, false, "", nil
+	}
 	source, err := bp.Resolve(ctx, directCand)
 	if err == nil {
 		source.SessionID = sessionID
@@ -743,7 +796,7 @@ func (o *ProviderOrchestrator) tryDirectID(ctx context.Context, pref string, tra
 	}
 
 	// Candidate-specific resolution failure
-	return nil, false, directCand.ID, nil
+	return nil, false, directCand.ID, err
 }
 
 // youTubePaused is the wait answer for a YouTube cooldown that began during

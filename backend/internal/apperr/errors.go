@@ -14,12 +14,16 @@ import (
 type Code string
 
 const (
-	CodeProviderUnavailable  Code = "PROVIDER_UNAVAILABLE"
-	CodeProviderRateLimited  Code = "PROVIDER_RATE_LIMITED"
-	CodeProviderNotFound     Code = "PROVIDER_NOT_FOUND"
-	CodeArtistNotFound       Code = "ARTIST_NOT_FOUND"
-	CodeReleaseNotFound      Code = "RELEASE_NOT_FOUND"
-	CodeTrackNotFound        Code = "TRACK_NOT_FOUND"
+	CodeProviderUnavailable Code = "PROVIDER_UNAVAILABLE"
+	CodeProviderRateLimited Code = "PROVIDER_RATE_LIMITED"
+	CodeProviderNotFound    Code = "PROVIDER_NOT_FOUND"
+	CodeArtistNotFound      Code = "ARTIST_NOT_FOUND"
+	CodeReleaseNotFound     Code = "RELEASE_NOT_FOUND"
+	CodeTrackNotFound       Code = "TRACK_NOT_FOUND"
+	// Item-specific access restrictions; never provider or session failures.
+	CodeMediaAgeRestricted   Code = "MEDIA_AGE_RESTRICTED"
+	CodeMediaPremiumRequired Code = "MEDIA_PREMIUM_REQUIRED"
+	CodeMediaUnavailable     Code = "MEDIA_UNAVAILABLE"
 	CodeJobNotFound          Code = "JOB_NOT_FOUND"
 	CodeSubscriptionNotFound Code = "SUBSCRIPTION_NOT_FOUND"
 	CodeFileNotFound         Code = "FILE_NOT_FOUND"
@@ -177,7 +181,8 @@ func HTTPStatus(code Code) int {
 		CodeJobNotFound, CodeSubscriptionNotFound, CodeProviderNotFound,
 		CodeFileNotFound, CodeUserNotFound, CodeSessionNotFound, CodePlaylistNotFound:
 		return http.StatusNotFound
-	case CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded:
+	case CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded,
+		CodeMediaAgeRestricted, CodeMediaPremiumRequired, CodeMediaUnavailable:
 		return http.StatusUnprocessableEntity
 
 	case CodeUnauthenticated, CodeInvalidCredentials:
@@ -237,7 +242,8 @@ const (
 // ScopeOf reports the operational scope of an error.
 func ScopeOf(err error) Scope {
 	switch CodeOf(err) {
-	case CodeTrackNotFound, CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType,
+	case CodeTrackNotFound, CodeMediaAgeRestricted, CodeMediaPremiumRequired, CodeMediaUnavailable,
+		CodeMatchFailed, CodeInvalidAudio, CodeUnsupportedMediaType,
 		CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded, CodeTrackTimeout, CodePlaylistNotFound:
 		return ScopeCandidate
 	case CodeSessionAuthFailed, CodeSessionBotChallenge, CodeSessionRateLimited, CodeSessionUnavailable:

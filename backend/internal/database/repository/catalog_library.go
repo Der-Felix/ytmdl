@@ -322,7 +322,7 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 			t.lyrics_checked_at, t.created_at,
 			COALESCE(f.path, ''), COALESCE(f.size_bytes, 0), COALESCE(f.codec, ''), COALESCE(f.bitrate_kbps, 0)
 		FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id
-		LEFT JOIN files f ON f.track_id = t.id
+		`+primaryFileJoin+`
 		%s
 		ORDER BY %s
 		LIMIT $%d OFFSET $%d`, whereSQL, orderBy, argIdx, argIdx+1)
@@ -531,7 +531,7 @@ func (c *Catalog) ListArtistsFiltered(ctx context.Context, filter ArtistListFilt
 		FROM artists a
 		LEFT JOIN releases r ON r.artist_id = a.id
 		LEFT JOIN (
-			SELECT t.artist_id, COUNT(t.id) AS track_count, COALESCE(SUM(f.size_bytes), 0) AS total_size
+			SELECT t.artist_id, COUNT(DISTINCT t.id) AS track_count, COALESCE(SUM(f.size_bytes), 0) AS total_size
 			FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id
 			LEFT JOIN files f ON f.track_id = t.id
 			GROUP BY t.artist_id
@@ -745,7 +745,7 @@ func (c *Catalog) GetLibraryTrackDetail(ctx context.Context, id string) (*music.
 		lyricsPath string
 	)
 
-	row := c.db.QueryRowContext(ctx, `SELECT `+fileColumns+` FROM files WHERE track_id = $1`, id)
+	row := c.db.QueryRowContext(ctx, `SELECT `+fileColumns+` FROM files WHERE track_id = $1 ORDER BY `+fileDurationRankSQL("COALESCE((SELECT duration_ms FROM tracks WHERE id = $1), 0)", "files.duration_ms")+`, path LIMIT 1`, id)
 	f, err := scanFile(row.Scan)
 	if err == nil {
 		file = &f
@@ -808,7 +808,7 @@ func (c *Catalog) SearchArtists(ctx context.Context, query string, limit int) ([
 		FROM artists a
 		LEFT JOIN releases r ON r.artist_id = a.id
 		LEFT JOIN (
-			SELECT t.artist_id, COUNT(t.id) AS track_count, COALESCE(SUM(f.size_bytes), 0) AS total_size
+			SELECT t.artist_id, COUNT(DISTINCT t.id) AS track_count, COALESCE(SUM(f.size_bytes), 0) AS total_size
 			FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id
 			LEFT JOIN files f ON f.track_id = t.id
 			GROUP BY t.artist_id
@@ -951,7 +951,7 @@ func (c *Catalog) SearchTracks(ctx context.Context, query string, limit int) ([]
 			t.lyrics_checked_at, t.created_at,
 			COALESCE(f.path, ''), COALESCE(f.size_bytes, 0), COALESCE(f.codec, ''), COALESCE(f.bitrate_kbps, 0)
 		FROM tracks t LEFT JOIN track_overrides o ON o.track_id=t.id
-		LEFT JOIN files f ON f.track_id = t.id
+		` + primaryFileJoin + `
 		WHERE (t.title COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR COALESCE(o.album,t.album) COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR COALESCE(o.album_artist,t.album_artist) COLLATE "pg_c_utf8" ILIKE $1 ESCAPE '\' OR LOWER(t.isrc) = LOWER($2))
 		ORDER BY
 			CASE
