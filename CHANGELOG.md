@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.3.0 — 2026-10-08
+
+### Highlights
+
+- **Device-code sign-in:** A TV client such as the native Apple TV app requests a short code and receives its own account session after you approve it on a signed-in browser, iPhone, iPad or Mac (**Profile & Security → Apple TV & Devices**). Codes expire after five minutes, work once and are bounded in memory; no password is typed on the remote.
+- **Usable web playlists:** Playlists show cover collages and track artwork, with filtering, sorting, pagination and labeled track actions. Removing a playlist track asks for confirmation; the offline-copy controls stay available in a collapsed section.
+- **Clearer download failures:** Age gates, subscription requirements and unavailable recordings are no longer shown as the same generic "no audio source" error. Jobs that still contain failures can carry an optional checked release announcement with source and date.
+
+### Changes
+
+- Downloads recover when an already configured session can access a restricted recording: at most five eligible sessions are asked, once each. Bot, authentication and throttling responses stop immediately as before.
+- A verified recording that collides with a different file at the conventional library name gets a deterministic source suffix; both files are preserved.
+- Matching no longer credits a text hit with direct-source confidence. Known runtime differences above the 15-second verification allowance are rejected, downloaded audio is verified against the requested recording, and a requested performer is checked for fallback performances. Incompatible originals are preserved when a verified correction is published.
+- When corrected audio is kept beside an original, library and search rows, track details and playback use one compatible primary file. Playlists and favorites show one row per recording and artist counts no longer count physical copies. Nothing is deleted; originals stay reachable by file ID.
+- Cancelling an offline playlist copy stays effective until the new copy is published atomically; the previous complete copy is kept.
+- The bundled frontend now overwrites `X-Forwarded-For` with the connecting address instead of appending to it, so a client can no longer forge its address to avoid the login and device-sign-in limits.
+- Device sign-in admission is bounded: a refused start keeps the caller's quota, a full address table drops one entry instead of refusing new callers, and a poll no longer holds its lock during database calls.
+- Qualify v1.2.0 upgrades as well as v0.28.1, v1.0.0 and v1.1.1.
+- **Database Schema:** Remains at schema 18; no database migration is required. Full schema rollback is therefore not needed to return to v1.2.0, but keep a verified backup before any update.
+
+### Upgrade from v1.2.0
+
+Use the checksum-verified v1.3.0 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.3.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.3.0`. Protect the media separately;
+the database dump does not contain music files.
+
+If you run your own reverse proxy in front of the bundled frontend, the backend
+now sees the proxy's address for every client, so per-address limits share one
+key. See [Tips](docs/tips.md).
+
+### Known Limits
+
+- Pending device codes live in the memory of one backend process. A restart invalidates them; several replicas would need shared storage or sticky routing. An older backend cannot complete device sign-in, so update the server before offering it to a TV client.
+- A device approved by an administrator receives administrator permissions too. Revoke it under **Profile → Sessions**.
+- A release announcement is an annotation with a source and a check date. It never schedules a retry and does not guarantee that the source becomes available.
+- The native Apple apps are not part of this release. They are a separate preview with their own `apple-v…` downloads and version numbers.
+- All limits of v1.2.0 still apply.
+
 ## 1.2.0 — 2026-10-03
 
 ### Highlights
