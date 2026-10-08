@@ -412,8 +412,8 @@ final class PlayerUITests: XCTestCase {
         app.buttons["Abmelden"].firstMatch.tap()
         app.buttons["Abmelden"].firstMatch.tap()
         XCTAssertTrue(app.buttons["Offline-Musik öffnen"].waitForExistence(timeout: 10))
+        // One saved account opens directly; the account picker only appears for several.
         app.buttons["Offline-Musik öffnen"].tap()
-        app.buttons.containing(.staticText, identifier: "Design-Vorschau").firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Offline-Modus"].waitForExistence(timeout: 10))
         attach(app, name: "Offline playlists with cached covers")
         app.buttons["offline-collection-p0"].tap()

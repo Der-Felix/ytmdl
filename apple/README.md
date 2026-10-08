@@ -1,7 +1,7 @@
 # YTMDL for Apple
 
 Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The current
-preview is **0.3.0, build 34** and requires OS 27 and Xcode 27. It is a client of the
+preview is **0.3.0, build 35** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
 It is not in the App Store: [INSTALL.md](INSTALL.md) explains the downloads (unsigned
 `.ipa` for sideloading, un-notarized `.dmg`), and how releases are made.
@@ -52,7 +52,7 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 - Mobile playlist/favorites headers combine artwork, title, duration and large
   play/shuffle buttons. Playlist download/edit/add/reload/delete live in one menu.
   The iOS app embeds `YTMDLWidgets.appex`; its bundle identifier must remain a child
-  of the app identifier when changing signing settings. Both use the same version, currently 0.3.0 (34).
+  of the app identifier when changing signing settings. Both use the same version, currently 0.3.0 (35).
   Home and Lock Screen widgets link to app views without starting audio or sharing
   authentication. No App Group capability is required.
 - iPad/Mac sidebar navigation and adaptive album grids.

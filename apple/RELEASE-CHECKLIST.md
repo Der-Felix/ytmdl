@@ -1,4 +1,4 @@
-# Apple 0.3.0 (34) release checklist
+# Apple 0.3.0 (35) release checklist
 
 This is a stabilization candidate for the native client. App and server versions
 are independent. Builds and isolated tests are evidence for the tested paths;
@@ -40,7 +40,7 @@ weaker assertions or mark unexecuted paths verified.
 ## Required before calling the mobile release stable
 
 1. Install the signed candidate on a real iPhone without removing existing data.
-   Verify **Settings → App version: 0.3.0 (34)**. Availability of a build alone
+   Verify **Settings → App version: 0.3.0 (35)**. Availability of a build alone
    does not confirm installation.
 2. Connect a Release build to the intended server over HTTPS. Release rejects HTTP;
    local HTTP consent belongs to Debug and does not qualify production transport.

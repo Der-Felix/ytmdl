@@ -300,7 +300,10 @@ struct OfflineLibraryView: View {
         List {
             if collectionID == nil {
                 Section {
-                    Label(model.canReconnect ? "Keine Verbindung zum Server" : model.offlineMode ? "Offline-Modus" : "Auf diesem Gerät", systemImage: "wifi.slash")
+                    Label(model.canReconnect ? "Server nicht erreichbar" : model.offlineMode ? "Offline-Modus" : "Auf diesem Gerät", systemImage: "wifi.slash")
+                    if model.canReconnect {
+                        Text("Deine gespeicherte Musik ist trotzdem verfügbar.").font(.subheadline).foregroundStyle(.secondary)
+                    }
                     Text("\(model.offline.readyTracks.count) Titel · \(ByteCountFormatter.string(fromByteCount: model.offline.usedBytes, countStyle: .file)) gespeichert")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Picker("Offline-Ansicht", selection: $browsing) {

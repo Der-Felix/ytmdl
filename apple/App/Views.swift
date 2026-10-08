@@ -353,7 +353,7 @@ struct ConnectView: View {
     @State private var username = ""
     @State private var password = ""
     #if DEBUG
-    @State private var allowHTTP = UserDefaults.standard.bool(forKey: "serverAllowHTTP")
+    @State private var allowHTTP = AppModel.savedTarget()?.localHTTP ?? false
     #else
     @State private var allowHTTP = false
     #endif
@@ -366,6 +366,26 @@ struct ConnectView: View {
                 Image("BrandMark").resizable().scaledToFit().frame(width: 84, height: 96).accessibilityHidden(true)
                 Text("Deine Musik.\nDein Server.").font(.largeTitle.bold())
                 Text("Verbinde YTMDL mit deiner bestehenden Musikbibliothek.").foregroundStyle(.secondary)
+                #if !os(tvOS)
+                if !model.offline.profiles.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Auf diesem Gerät ist Musik gespeichert. Sie ist auch ohne Server verfügbar.").font(.subheadline).foregroundStyle(.secondary)
+                        Button("Offline-Musik öffnen", systemImage: "arrow.down.circle") {
+                            if let only = model.offline.profiles.first, model.offline.profiles.count == 1 { model.openOffline(only) }
+                            else { offlinePicker = true }
+                        }.buttonStyle(.borderedProminent)
+                    }
+                    .sheet(isPresented: $offlinePicker) {
+                        NavigationStack {
+                            List(model.offline.profiles) { profile in
+                                Button { model.openOffline(profile); offlinePicker = false } label: {
+                                    VStack(alignment: .leading) { Text(profile.user.displayName).font(.headline); Text(profile.origin).font(.caption).foregroundStyle(.secondary) }
+                                }
+                            }.navigationTitle("Offline-Sammlungen").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { offlinePicker = false } } }
+                        }
+                    }
+                }
+                #endif
                 VStack(alignment: .leading, spacing: 12) {
                     TextField("Server-Adresse · https://…", text: $address)
                         .textContentType(.URL)
@@ -412,20 +432,6 @@ struct ConnectView: View {
                     }.textFieldStyle(.roundedBorder)
                     #endif
                 }
-                #if !os(tvOS)
-                if !model.offline.profiles.isEmpty {
-                    Button("Offline-Musik öffnen", systemImage: "arrow.down.circle") { offlinePicker = true }.buttonStyle(.bordered)
-                        .sheet(isPresented: $offlinePicker) {
-                            NavigationStack {
-                                List(model.offline.profiles) { profile in
-                                    Button { model.openOffline(profile); offlinePicker = false } label: {
-                                        VStack(alignment: .leading) { Text(profile.user.displayName).font(.headline); Text(profile.origin).font(.caption).foregroundStyle(.secondary) }
-                                    }
-                                }.navigationTitle("Offline-Sammlungen").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { offlinePicker = false } } }
-                            }
-                        }
-                }
-                #endif
                 Text("Keine Analyse- oder Werbe-SDKs. Sitzungen bleiben im Schlüsselbund dieses Geräts.").font(.footnote).foregroundStyle(.secondary)
             }.padding(32).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }

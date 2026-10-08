@@ -34,7 +34,7 @@ private struct ManifestFixture: Codable { var profiles: [OfflineProfile]; var tr
 private let target = ResumeTarget(text: "https://first.fixture.example", localHTTP: false)
 
 /// A model that talks to the scripted server, with one saved account and, optionally, one stored song.
-@MainActor private func model(root: URL, session: Bool = true, storedSong: Bool = true) throws -> AppModel {
+@MainActor private func model(root: URL, storedSong: Bool = true) throws -> AppModel {
     let server = try ServerAddress(target.text)
     let user = try JSONDecoder().decode(User.self, from: Data(#"{"id":"first","username":"fixture_user","displayName":"Fixture","role":"user"}"#.utf8))
     let profile = OfflineProfile(id: OfflineLibrary.profileID(server: server, userID: user.id), origin: server.url.absoluteString, user: user)
@@ -50,12 +50,11 @@ private let target = ResumeTarget(text: "https://first.fixture.example", localHT
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try JSONEncoder().encode(ManifestFixture(profiles: [profile], tracks: records)).write(to: root.appendingPathComponent("manifest.json"))
     let model = AppModel(offlineLibrary: OfflineLibrary(root: root, startTransfers: false))
+    model.preferences = UserDefaults(suiteName: "ytmdl.offline-first.\(UUID().uuidString)")!
+    model.watchesNetwork = false
     model.makeClient = { address, _ in
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [FirstProtocol.self]
-        if session {
-            configuration.httpCookieStorage!.setCookie(HTTPCookie(properties: [.domain: "first.fixture.example", .path: "/", .name: "ytmdl_session", .value: "fixture-only", .secure: "TRUE"])!)
-        }
         return try APIClient(server: address, persist: false, configuration: configuration)
     }
     return model
@@ -87,15 +86,40 @@ private func scratchRoot() -> URL { FileManager.default.temporaryDirectory.appen
         #expect(app.offline.readyTracks.count == 1)
     }
 
-    @Test func withoutASavedSignInTheAppStaysOnTheSignInScreen() async throws {
-        // After signing out the cookies are gone: being offline must not reopen the account.
+    @Test func aLostSessionStillOpensTheSavedMusicWhenOffline() async throws {
+        // An expired or revoked session drops the cookies, which is not a sign-out.
         let root = scratchRoot(); defer { try? FileManager.default.removeItem(at: root) }
         FirstProtocol.server.reachable = false
-        let app = try model(root: root, session: false)
+        let app = try model(root: root)
+        await app.resumeLastSession(target, persist: false)
+        #expect(app.offlineMode && app.canReconnect)
+    }
+
+    @Test func signingOutOnPurposeKeepsTheMusicFromReopeningByItself() async throws {
+        let root = scratchRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        FirstProtocol.server.reachable = false
+        let app = try model(root: root)
+        await app.resumeLastSession(target, persist: false)
+        #expect(app.offlineMode)
+        await app.logout()
+        #expect(!app.offlineMode && app.user == nil)
+        // The next start with the server away stays on the connection screen.
         await app.resumeLastSession(target, persist: false)
         #expect(!app.offlineMode)
         #expect(app.user == nil)
-        #expect(app.error != nil)
+    }
+
+    @Test func theRememberedServerKeepsTheDebugHTTPChoice() throws {
+        let defaults = UserDefaults(suiteName: "ytmdl.saved-target.\(UUID().uuidString)")!
+        #expect(AppModel.savedTarget(defaults) == nil)
+        // Builds before 34 saved only the address; plain http can only have come from the debug choice.
+        defaults.set("http://172.20.21.4:8080", forKey: "serverAddress")
+        #expect(AppModel.savedTarget(defaults) == ResumeTarget(text: "http://172.20.21.4:8080", localHTTP: true))
+        defaults.set("https://music.example", forKey: "serverAddress")
+        #expect(AppModel.savedTarget(defaults) == ResumeTarget(text: "https://music.example", localHTTP: false))
+        defaults.set(false, forKey: "serverAllowHTTP")
+        defaults.set("http://172.20.21.4:8080", forKey: "serverAddress")
+        #expect(AppModel.savedTarget(defaults)?.localHTTP == false)
     }
 
     @Test func anAccountWithoutStoredMusicHasNothingToOpen() async throws {

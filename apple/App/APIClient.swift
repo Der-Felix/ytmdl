@@ -20,8 +20,6 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     private let persist: Bool
     private let cookies: HTTPCookieStorage
     private var valid = true
-    /// True while this client holds a sign-in (from the saved one or a fresh login) that a password is not needed for.
-    var hasSession: Bool { authenticationCookies.contains { $0.name == "ytmdl_session" } }
     init(server: ServerAddress, persist: Bool = true, configuration: URLSessionConfiguration = .ephemeral) throws {
         self.server = server; self.persist = persist
         configuration.urlCache = nil
@@ -94,8 +92,10 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
         try saveCookies()
         return data
     }
-    func get<T: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
-        let data = try await perform(request(path, query: query))
+    func get<T: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = [], timeout: TimeInterval? = nil) async throws -> T {
+        var request = try request(path, query: query)
+        if let timeout { request.timeoutInterval = timeout }
+        let data = try await perform(request)
         return try decoder.decode(Envelope<T>.self, from: data).data
     }
     func send<T: Decodable & Sendable>(_ path: String, method: String = "POST", body: [String: String]) async throws -> T {

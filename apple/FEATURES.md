@@ -1,9 +1,9 @@
-# Native listening preview 0.3.0 — build 34
+# Native listening preview 0.3.0 — build 35
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
-Builds 33 and 34 only fix defects and change how the app starts without a connection (see
+Builds 33 to 35 only fix defects and change how the app starts without a connection (see
 [HANDOFF.md](HANDOFF.md)); the feature matrix below is the build 32 state.
 See [AUDIT.md](AUDIT.md) for the dated functional audit through build 32, test evidence,
 corrected defects and the remaining real-device release checks.
@@ -56,11 +56,12 @@ from implemented features and simulator verification.
    sort preference persists. Refresh synchronization is optional while online;
    it downloads newly resolved members, preserving earlier local files.
 4. Turn on airplane mode. Play a downloaded title, seek and skip between downloaded
-   titles. Quit and reopen the app. While you are signed in it reopens your server and,
-   when the server cannot be reached, shows your downloaded music by itself, with a
-   **Erneut verbinden** button (it also retries when the app returns to the foreground
-   and nothing is loaded in the player). Signed out, choose **Offline-Musik öffnen** on the
-   connection screen and then your saved account. Offline music needs no login request,
+   titles. Quit and reopen the app. It reopens your server and, when the server cannot be
+   reached, shows your downloaded music by itself ("Server nicht erreichbar"), with a
+   **Erneut verbinden** button. It also retries when the network returns or the app comes back
+   to the foreground, but only while nothing is loaded in the player. After you sign out on
+   purpose the music does not open by itself: choose **Offline-Musik öffnen** on the connection
+   screen (a single saved account opens directly). Offline music needs no login request,
    keychain token or reachable server; it displays only local music.
 5. Online again, sign in and refresh the library. Pending listening events use the
    same account and stable event IDs. Server sync and local recording can be disabled.

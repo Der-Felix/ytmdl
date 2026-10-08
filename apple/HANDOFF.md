@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.3.0, build 34
+# Apple app handoff — preview 0.3.0, build 35
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -35,31 +35,36 @@ default branch; a tag triggers it from any commit), no sideloading tool was used
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
 
-## Build 34: start without choosing a mode (committed, not installed)
+## Builds 34-35: start without choosing a mode (committed, not merged)
 
 Offline music is no longer something to pick at launch. The app behaves like a streaming
 player: it opens your server and, when that is not possible, plays what is on the device.
+Build 34 was installed on the phone first; build 35 follows the first device feedback (the
+fallback depended on a saved sign-in cookie, the debug HTTP choice was not remembered by older
+installs, and the offline button sat behind a picker).
 
-- **Start:** `ConnectView` calls `AppModel.resumeLastSession()` on launch, also for the debug
-  HTTP server (the "allow local HTTP" choice is now remembered with the address). A saved
-  sign-in reopens the library as before.
-- **Server not reachable:** if the saved sign-in exists (`APIClient.hasSession`), the failure is a
-  connectivity or 5xx error (`AppModel.isUnreachable`; certificate errors are not) and the account has
-  at least one playable stored song, `restore(resuming:)` opens that account's offline music
-  (`fallBackToOffline`) without an error alert. After a sign-out there is no session, so nothing
-  reopens by itself.
-- **Back online:** `OfflineLibraryView` shows "Keine Verbindung zum Server" and **Erneut verbinden**
-  in place of "Zur Anmeldung" (which signed the user out). `reconnect()` probes the server with a
-  throwaway client first, so a failed attempt never stops playback. `reconnectIfIdle()` runs when the
-  scene becomes active and only while the player holds no song.
-- **Unchanged:** the manual path (sign-in screen → **Offline-Musik öffnen** → account) and its
-  "Offline-Modus" label; there is no reconnect button there because no server session exists.
-- Tests: `OfflineFirstTests` (8, scripted URLProtocol, nothing persisted); the session guard was
-  mutation-checked. Not covered: the SwiftUI screens (no UI test for the new start) and a
-  network-path monitor (a return of connectivity while the app stays in the foreground is only picked
-  up by the button or the next foreground).
-- Not verified on a device: start in airplane mode, reconnect with the server back, and the debug
-  HTTP server resuming at launch.
+- **Start:** `ConnectView` calls `AppModel.resumeLastSession()` on launch, also for the debug HTTP
+  server. `AppModel.savedTarget` remembers the address and the HTTP choice; an address saved by an
+  older build that starts with `http://` implies the choice. The check uses a 6 second timeout.
+- **Server not reachable:** a connectivity or 5xx failure (`AppModel.isUnreachable`; certificate
+  errors are not) opens the offline music of the remembered account (`fallBackToOffline`) without an
+  error alert, if that account has at least one playable stored song. A lost session (401, expired
+  cookie) does not prevent this. `logout()` stores an empty `lastOfflineProfile`, which keeps the
+  music from reopening by itself until the next sign-in.
+- **Back online:** `OfflineLibraryView` shows "Server nicht erreichbar", "Deine gespeicherte Musik ist
+  trotzdem verfügbar" and **Erneut verbinden** (in place of "Zur Anmeldung", which signed the user
+  out). `reconnect()` probes the server with a throwaway client first, so a failed attempt never stops
+  playback. `reconnectIfIdle()` runs when the scene becomes active and when `NWPathMonitor` reports a
+  satisfied path, and only while the player holds no song.
+- **Sign-in screen:** with saved music, "Offline-Musik öffnen" is the first control; one saved account
+  opens directly, several open the picker. The manual path keeps its "Offline-Modus" label and has no
+  reconnect button because no server session exists.
+- Tests: `OfflineFirstTests` (10, scripted URLProtocol, isolated `UserDefaults` suite, nothing
+  persisted); the session-loss and sign-out guards were mutation-checked. The UI test for the manual
+  path was adjusted (no picker for one account) and passed locally on the iPhone 17 simulator. Not
+  covered: UI tests for the automatic start.
+- Not verified on a device (as of build 35): start in airplane mode, reconnect with the server back,
+  the 6 second wait on a foreign network, and the debug HTTP server resuming at launch.
 
 ## Build 33: review fixes (committed, not installed)
 
@@ -140,7 +145,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.3.0 (34)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.3.0 (35)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness

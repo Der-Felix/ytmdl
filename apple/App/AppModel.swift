@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 import YTMDLCore
 
@@ -38,6 +39,11 @@ struct ResumeTarget: Equatable, Sendable {
     private(set) var resumeTarget: ResumeTarget?
     var reconnecting = false
     var canReconnect: Bool { offlineMode && resumeTarget != nil }
+    /// Where the server address, the debug HTTP choice and the last account are remembered.
+    @ObservationIgnored var preferences = UserDefaults.standard
+    /// While the saved music is open for lack of a server, retry when the network comes back.
+    @ObservationIgnored var watchesNetwork = true
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
     /// How a client is built for a server and whether its sign-in is kept; tests replace it with a scripted one.
     @ObservationIgnored var makeClient: (ServerAddress, Bool) throws -> APIClient = { try APIClient(server: $0, persist: $1) }
     var handoff: PlaybackHandoff?
@@ -76,22 +82,25 @@ struct ResumeTarget: Equatable, Sendable {
         client?.invalidate(); client = replacement; player.stop(); persistsSession = persist
         listeningHistory.configure(server: nil, userID: nil, persist: false)
         generation = UUID(); catalogGeneration = UUID(); clearLibrary(); user = nil; connecting = false; busy = false
+        watchNetwork(false)
         if persist {
-            UserDefaults.standard.set(text, forKey: "serverAddress")
-            UserDefaults.standard.set(allowHTTP, forKey: "serverAllowHTTP")
+            preferences.set(text, forKey: "serverAddress")
+            preferences.set(allowHTTP, forKey: "serverAllowHTTP")
         }
     }
     /// Reopens the server used last time, so the app starts in the library and not on the sign-in
-    /// screen. If a saved sign-in exists but the server cannot be reached, the music saved on this
-    /// device for that account opens instead.
-    @discardableResult func resumeLastSession(_ target: ResumeTarget? = AppModel.savedTarget(), persist: Bool = true) async -> Bool {
-        guard let target, user == nil, !offlineMode, !busy else { return false }
+    /// screen. If that server cannot be reached and this device holds music for the account that
+    /// used it, that music opens instead (unless the user signed out on purpose).
+    @discardableResult func resumeLastSession(_ target: ResumeTarget? = nil, persist: Bool = true) async -> Bool {
+        guard let target = target ?? Self.savedTarget(preferences), user == nil, !offlineMode, !busy else { return false }
         do { try connect(target.text, localHTTP: target.localHTTP, persist: persist) } catch { return false }
         return await restore(resuming: target)
     }
-    static func savedTarget() -> ResumeTarget? {
-        guard let text = UserDefaults.standard.string(forKey: "serverAddress"), !text.isEmpty else { return nil }
-        return ResumeTarget(text: text, localHTTP: UserDefaults.standard.bool(forKey: "serverAllowHTTP"))
+    /// The remembered server. Builds before 34 saved only the address; a plain `http://` address could
+    /// only have been connected with the debug HTTP choice, so it implies it.
+    static func savedTarget(_ defaults: UserDefaults = .standard) -> ResumeTarget? {
+        guard let text = defaults.string(forKey: "serverAddress"), !text.isEmpty else { return nil }
+        return ResumeTarget(text: text, localHTTP: defaults.object(forKey: "serverAllowHTTP") as? Bool ?? text.hasPrefix("http://"))
     }
     /// A server that cannot be reached right now (no network, timeout, server down), as opposed to
     /// an answer such as an expired session.
@@ -107,18 +116,32 @@ struct ResumeTarget: Equatable, Sendable {
         return false
     }
     private func fallBackToOffline(_ client: APIClient, target: ResumeTarget) -> Bool {
-        guard client.hasSession else { return false }
+        // An empty entry means the user signed out on purpose: their music stays, but it does not
+        // open by itself. A lost session (expired, revoked) is not a sign-out.
+        let last = preferences.string(forKey: "lastOfflineProfile")
+        guard last != "" else { return false }
         let origin = client.server.url.absoluteString
         let candidates = offline.profiles.filter { $0.origin == origin }
-        let last = UserDefaults.standard.string(forKey: "lastOfflineProfile")
         guard let profile = candidates.first(where: { $0.id == last }) ?? (candidates.count == 1 ? candidates.first : nil),
               offline.hasMusic(for: profile) else { return false }
         openOffline(profile)
         resumeTarget = target
+        watchNetwork(true)
         return true
     }
     private func rememberProfile() {
-        if persistsSession, let scope = offline.scope { UserDefaults.standard.set(scope, forKey: "lastOfflineProfile") }
+        if persistsSession, let scope = offline.scope { preferences.set(scope, forKey: "lastOfflineProfile") }
+    }
+    private func watchNetwork(_ on: Bool) {
+        pathMonitor?.cancel(); pathMonitor = nil
+        guard on, watchesNetwork else { return }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard path.status == .satisfied else { return }
+            Task { @MainActor in await self?.reconnectIfIdle() }
+        }
+        monitor.start(queue: .main)
+        pathMonitor = monitor
     }
     /// Tries the saved server again from the offline music. A server that still cannot be reached
     /// changes nothing, so a failed attempt never interrupts what is playing.
@@ -128,7 +151,7 @@ struct ResumeTarget: Equatable, Sendable {
         guard let address = try? ServerAddress(target.text, allowLocalHTTP: target.localHTTP),
               let probe = try? makeClient(address, false) else { return }
         defer { probe.invalidate() }
-        do { let _: AuthStatus = try await probe.get("/auth/status") } catch { return }
+        do { let _: AuthStatus = try await probe.get("/auth/status", timeout: 6) } catch { return }
         guard offlineMode, resumeTarget == target else { return }
         // The server answered: open it for real. This replaces the offline session and its playback.
         do { try connect(target.text, localHTTP: target.localHTTP, persist: persistsSession) } catch { return }
@@ -143,7 +166,8 @@ struct ResumeTarget: Equatable, Sendable {
         guard let client else { return false }
         let generation = generation
         do {
-            let status: AuthStatus = try await client.get("/auth/status")
+            // Reopening by itself must not keep the user waiting when the server is out of reach.
+            let status: AuthStatus = try await client.get("/auth/status", timeout: target == nil ? nil : 6)
             guard self.generation == generation else { return false }
             user = status.authenticated ? status.user : nil
             if let user { offline.configure(client: client, user: user); rememberProfile() }
@@ -364,6 +388,7 @@ struct ResumeTarget: Equatable, Sendable {
         offline.detach()
         do { if !offlineMode { try client.forget() } } catch { failure = error }
         offlineMode = false; resumeTarget = nil; player.offlineOnly = false
+        watchNetwork(false); preferences.set("", forKey: "lastOfflineProfile")
         client.invalidate(); self.client = nil; user = nil; generation = UUID(); clearLibrary(); player.stop()
         if let failure { report(failure) }
     }
