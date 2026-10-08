@@ -13,6 +13,7 @@ enum Destination: String, CaseIterable, Identifiable, Hashable {
 
 struct RootView: View {
     @Bindable var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
     #if os(macOS)
     @State private var destination: Destination? = Destination(rawValue: UserDefaults.standard.string(forKey: "desktopStartView") ?? "Start") ?? .home
     @AppStorage("desktopTheme") private var themeName = "rose"
@@ -141,6 +142,10 @@ struct RootView: View {
             guard let route = MusicWidgetRoute(url: url) else { return }
             pendingWidgetRoute = route
             applyWidgetRoute()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Back in the foreground: try the server again if the saved music was opened for lack of it.
+            if phase == .active { Task { await model.reconnectIfIdle() } }
         }
         #if DEBUG
         .task {
@@ -347,7 +352,11 @@ struct ConnectView: View {
     @State private var address = UserDefaults.standard.string(forKey: "serverAddress") ?? ""
     @State private var username = ""
     @State private var password = ""
+    #if DEBUG
+    @State private var allowHTTP = UserDefaults.standard.bool(forKey: "serverAllowHTTP")
+    #else
     @State private var allowHTTP = false
+    #endif
     @State private var connected = false
     @State private var checkingServer = false
     @State private var offlinePicker = false
@@ -423,17 +432,13 @@ struct ConnectView: View {
         .onChange(of: address) { _, _ in connected = false; password = "" }
         .onChange(of: allowHTTP) { _, _ in connected = false; password = "" }
         .task {
-            if address.hasPrefix("https://") {
-                checkingServer = true
-                defer { checkingServer = false }
-                let origin = address
-                do {
-                    try model.connect(origin, localHTTP: false)
-                    let restored = await model.restore()
-                    connected = restored && address == origin && !allowHTTP
-                }
-                catch { model.report(error) }
-            }
+            // Reopen the last server by itself; the saved music opens if it cannot be reached.
+            guard address.hasPrefix("https://") || allowHTTP else { return }
+            checkingServer = true
+            defer { checkingServer = false }
+            let origin = address; let localHTTP = allowHTTP
+            let restored = await model.resumeLastSession()
+            connected = restored && address == origin && allowHTTP == localHTTP
         }
     }
 }

@@ -1,7 +1,7 @@
 # Web/App-Abgleich: Musik hören und Sammlungen verwalten
 
-Stand: 7. Oktober 2026, native Vorschau 0.3.0 (33), PR #42. Build 33 behebt nur Fehler;
-die Funktionsübersicht entspricht Build 32, installiert ist weiterhin Build 32.
+Stand: 7. Oktober 2026, native Vorschau 0.3.0 (34), PR #42. Die Builds 33 und 34 beheben Fehler und ändern den Start
+ohne Verbindung (kein neuer Funktionsumfang); die Funktionsübersicht entspricht Build 32.
 Dies ist eine Funktionsprüfung, keine Freigabe als vollständiges oder fehlerfreies
 Stable-Release. Downloads vom Provider, Serververwaltung und Bibliothekswartung
 gehören nicht zum Umfang. „Offline speichern“ auf dem eigenen Gerät gehört dazu.

@@ -1,9 +1,10 @@
-# Native listening preview 0.3.0 — build 33
+# Native listening preview 0.3.0 — build 34
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
-Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)); the feature matrix below is the build 32 state.
+Builds 33 and 34 only fix defects and change how the app starts without a connection (see
+[HANDOFF.md](HANDOFF.md)); the feature matrix below is the build 32 state.
 See [AUDIT.md](AUDIT.md) for the dated functional audit through build 32, test evidence,
 corrected defects and the remaining real-device release checks.
 The [release checklist](RELEASE-CHECKLIST.md) tracks qualification separately
@@ -55,9 +56,12 @@ from implemented features and simulator verification.
    sort preference persists. Refresh synchronization is optional while online;
    it downloads newly resolved members, preserving earlier local files.
 4. Turn on airplane mode. Play a downloaded title, seek and skip between downloaded
-   titles. Quit and reopen the app. From the connection screen choose
-   **Offline-Musik öffnen**, then your saved account. This path requires no login
-   request, keychain token or reachable server; it displays only local music.
+   titles. Quit and reopen the app. While you are signed in it reopens your server and,
+   when the server cannot be reached, shows your downloaded music by itself, with a
+   **Erneut verbinden** button (it also retries when the app returns to the foreground
+   and nothing is loaded in the player). Signed out, choose **Offline-Musik öffnen** on the
+   connection screen and then your saved account. Offline music needs no login request,
+   keychain token or reachable server; it displays only local music.
 5. Online again, sign in and refresh the library. Pending listening events use the
    same account and stable event IDs. Server sync and local recording can be disabled.
 6. Removing a local copy affects only the device. Logout can optionally remove this

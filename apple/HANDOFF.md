@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.3.0, build 33
+# Apple app handoff — preview 0.3.0, build 34
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -35,10 +35,37 @@ default branch; a tag triggers it from any commit), no sideloading tool was used
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
 
+## Build 34: start without choosing a mode (committed, not installed)
+
+Offline music is no longer something to pick at launch. The app behaves like a streaming
+player: it opens your server and, when that is not possible, plays what is on the device.
+
+- **Start:** `ConnectView` calls `AppModel.resumeLastSession()` on launch, also for the debug
+  HTTP server (the "allow local HTTP" choice is now remembered with the address). A saved
+  sign-in reopens the library as before.
+- **Server not reachable:** if the saved sign-in exists (`APIClient.hasSession`), the failure is a
+  connectivity or 5xx error (`AppModel.isUnreachable`; certificate errors are not) and the account has
+  at least one playable stored song, `restore(resuming:)` opens that account's offline music
+  (`fallBackToOffline`) without an error alert. After a sign-out there is no session, so nothing
+  reopens by itself.
+- **Back online:** `OfflineLibraryView` shows "Keine Verbindung zum Server" and **Erneut verbinden**
+  in place of "Zur Anmeldung" (which signed the user out). `reconnect()` probes the server with a
+  throwaway client first, so a failed attempt never stops playback. `reconnectIfIdle()` runs when the
+  scene becomes active and only while the player holds no song.
+- **Unchanged:** the manual path (sign-in screen → **Offline-Musik öffnen** → account) and its
+  "Offline-Modus" label; there is no reconnect button there because no server session exists.
+- Tests: `OfflineFirstTests` (8, scripted URLProtocol, nothing persisted); the session guard was
+  mutation-checked. Not covered: the SwiftUI screens (no UI test for the new start) and a
+  network-path monitor (a return of connectivity while the app stays in the foreground is only picked
+  up by the button or the next foreground).
+- Not verified on a device: start in airplane mode, reconnect with the server back, and the debug
+  HTTP server resuming at launch.
+
 ## Build 33: review fixes (committed, not installed)
 
 Defect fixes from a code review of the branch; no new features and no audio-runtime
-rewrite. App and widget are now 0.3.0 (33); the physical iPhone still has build 32.
+rewrite. App and widget were raised to 0.3.0 (33); that build was installed on the physical iPhone on
+8 October 2026 (signed debug build, not launched). Build 34 follows below.
 
 - **Session loss:** `AppModel.report` treats a 401 on a signed-in online session as
   sign-out (cookies and Keychain entry dropped, offline detached, playback stopped)
@@ -113,7 +140,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.3.0 (33)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.3.0 (34)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness

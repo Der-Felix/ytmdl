@@ -300,7 +300,7 @@ struct OfflineLibraryView: View {
         List {
             if collectionID == nil {
                 Section {
-                    Label(model.offlineMode ? "Offline-Modus" : "Auf diesem Gerät", systemImage: "wifi.slash")
+                    Label(model.canReconnect ? "Keine Verbindung zum Server" : model.offlineMode ? "Offline-Modus" : "Auf diesem Gerät", systemImage: "wifi.slash")
                     Text("\(model.offline.readyTracks.count) Titel · \(ByteCountFormatter.string(fromByteCount: model.offline.usedBytes, countStyle: .file)) gespeichert")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Picker("Offline-Ansicht", selection: $browsing) {
@@ -321,7 +321,14 @@ struct OfflineLibraryView: View {
                 collectionSections
             }
             if let error = model.offline.error { Section { Text(error).foregroundStyle(.red); Button("Meldung schließen") { model.offline.error = nil } } }
-            if model.offlineMode && collectionID == nil { Section { Button("Zur Anmeldung", systemImage: "network") { Task { await model.logout() } } } }
+            if model.offlineMode && collectionID == nil {
+                Section {
+                    if model.canReconnect {
+                        Button(model.reconnecting ? "Verbinde …" : "Erneut verbinden", systemImage: "arrow.clockwise") { Task { await model.reconnect() } }
+                            .disabled(model.reconnecting).accessibilityIdentifier("offline-reconnect")
+                    } else { Button("Zur Anmeldung", systemImage: "network") { Task { await model.logout() } } }
+                }
+            }
         }.navigationTitle(collection?.name ?? "Offline-Musik")
         .searchable(text: $query, prompt: showingTracks ? "Titel, Künstler oder Album" : "Playlist, Album oder Titel")
         .toolbar {

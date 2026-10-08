@@ -20,6 +20,8 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     private let persist: Bool
     private let cookies: HTTPCookieStorage
     private var valid = true
+    /// True while this client holds a sign-in (from the saved one or a fresh login) that a password is not needed for.
+    var hasSession: Bool { authenticationCookies.contains { $0.name == "ytmdl_session" } }
     init(server: ServerAddress, persist: Bool = true, configuration: URLSessionConfiguration = .ephemeral) throws {
         self.server = server; self.persist = persist
         configuration.urlCache = nil
