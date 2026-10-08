@@ -91,7 +91,7 @@ struct ResumeTarget: Equatable, Sendable {
     /// Reopens the server used last time, so the app starts in the library and not on the sign-in
     /// screen. If that server cannot be reached and this device holds music for the account that
     /// used it, that music opens instead (unless the user signed out on purpose).
-    @discardableResult func resumeLastSession(_ target: ResumeTarget? = nil, persist: Bool = true) async -> Bool {
+    @discardableResult func reopenLastServer(_ target: ResumeTarget? = nil, persist: Bool = true) async -> Bool {
         guard let target = target ?? Self.savedTarget(preferences), user == nil, !offlineMode, !busy else { return false }
         do { try connect(target.text, localHTTP: target.localHTTP, persist: persist) } catch { return false }
         return await restore(resuming: target)

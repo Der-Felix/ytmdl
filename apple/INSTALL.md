@@ -21,7 +21,7 @@ only connect over **HTTPS** (a plain `http://` address is refused).
 ## Check your download
 
 ```sh
-shasum -a 256 YTMDL-macOS-0.3.0-35.dmg
+shasum -a 256 YTMDL-macOS-0.3.0-36.dmg
 ```
 
 The hash must equal the matching line in `SHA256SUMS`. The files are built by the
@@ -89,7 +89,7 @@ apple/Scripts/package-dmg.sh ~/Downloads/ytmdl-packages
 1. Raise `CFBundleShortVersionString`/`CFBundleVersion` in **both**
    `Resources/Info.plist` and `Widgets/Info.plist` (the scripts refuse a mismatch).
 2. Merge to `dev` or `main`. The workflow only releases commits that are on one of them.
-3. Push the tag `apple-v<version>-<build>` (for example `apple-v0.3.0-35`). The tag must
+3. Push the tag `apple-v<version>-<build>` (for example `apple-v0.3.0-36`). The tag must
    match the plists. The workflow builds both packages, checks them, and creates a
    **draft pre-release** with the files and `SHA256SUMS`. Review it, then publish it.
 4. To test the packaging without a release, run the `Apple packages` workflow manually

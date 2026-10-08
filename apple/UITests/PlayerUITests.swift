@@ -414,18 +414,40 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Offline-Musik öffnen"].waitForExistence(timeout: 10))
         // One saved account opens directly; the account picker only appears for several.
         app.buttons["Offline-Musik öffnen"].tap()
+        // The saved music opens in the same tabs as the online app.
         XCTAssertTrue(app.staticTexts["Offline-Modus"].waitForExistence(timeout: 10))
+        for tab in ["Start", "Suche", "Bibliothek", "Playlists", "Einstellungen"] { XCTAssertTrue(app.tabBars.buttons[tab].exists, tab) }
+        attach(app, name: "Offline start tab")
+        app.tabBars.buttons["Bibliothek"].tap()
+        XCTAssertTrue(app.staticTexts["Deine Alben"].waitForExistence(timeout: 10))
+        attach(app, name: "Offline library tab")
+        app.tabBars.buttons["Playlists"].tap()
+        XCTAssertTrue(app.buttons["offline-collection-p0"].waitForExistence(timeout: 10))
         attach(app, name: "Offline playlists with cached covers")
         app.buttons["offline-collection-p0"].tap()
         XCTAssertTrue(app.navigationBars["Abends unterwegs"].waitForExistence(timeout: 10))
-        let first = app.buttons["offline-track-t0"].firstMatch
-        let second = app.buttons["offline-track-t1"].firstMatch
-        // The saved playlist order is t0, t1; alphabetical order differs.
+        let first = app.buttons["Nachtfahrt abspielen, Nordlicht"].firstMatch
+        let second = app.buttons["Zeitlos abspielen, Mira"].firstMatch
+        // The saved playlist order is Nachtfahrt, Zeitlos; alphabetical order differs.
         for _ in 0..<4 where !first.isHittable { app.swipeUp() }
         XCTAssertTrue(first.exists); XCTAssertTrue(second.exists)
         XCTAssertLessThan(first.frame.minY, second.frame.minY)
+        attach(app, name: "Offline playlist with the online track rows")
         XCTAssertFalse(app.buttons["Pause"].exists)
+        // Search runs over the saved songs only.
         app.navigationBars.buttons.firstMatch.tap()
+        app.tabBars.buttons["Suche"].tap()
+        let tabSearch = app.searchFields.firstMatch
+        if !tabSearch.exists { app.swipeDown() }
+        XCTAssertTrue(tabSearch.waitForExistence(timeout: 10))
+        tabSearch.tap(); tabSearch.typeText("Blaue\n")
+        XCTAssertTrue(app.buttons["Blaue Stunde abspielen, Mira"].firstMatch.waitForExistence(timeout: 10))
+        attach(app, name: "Offline search")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        // Managing the downloads (state, sorting, removing copies) stays under Settings.
+        app.tabBars.buttons["Einstellungen"].tap()
+        app.buttons["Offline-Musik"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Alle Titel"].waitForExistence(timeout: 10))
         app.buttons["Alle Titel"].tap()
         XCTAssertTrue(app.buttons["offline-sort"].firstMatch.waitForExistence(timeout: 10))
         app.buttons["offline-sort"].firstMatch.tap()

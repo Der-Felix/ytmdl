@@ -78,7 +78,7 @@ private func scratchRoot() -> URL { FileManager.default.temporaryDirectory.appen
         let root = scratchRoot(); defer { try? FileManager.default.removeItem(at: root) }
         FirstProtocol.server.reachable = false
         let app = try model(root: root)
-        await app.resumeLastSession(target, persist: false)
+        await app.reopenLastServer(target, persist: false)
         #expect(app.offlineMode)
         #expect(app.canReconnect)
         #expect(app.user?.id == "first")
@@ -91,7 +91,7 @@ private func scratchRoot() -> URL { FileManager.default.temporaryDirectory.appen
         let root = scratchRoot(); defer { try? FileManager.default.removeItem(at: root) }
         FirstProtocol.server.reachable = false
         let app = try model(root: root)
-        await app.resumeLastSession(target, persist: false)
+        await app.reopenLastServer(target, persist: false)
         #expect(app.offlineMode && app.canReconnect)
     }
 
@@ -99,12 +99,12 @@ private func scratchRoot() -> URL { FileManager.default.temporaryDirectory.appen
         let root = scratchRoot(); defer { try? FileManager.default.removeItem(at: root) }
         FirstProtocol.server.reachable = false
         let app = try model(root: root)
-        await app.resumeLastSession(target, persist: false)
+        await app.reopenLastServer(target, persist: false)
         #expect(app.offlineMode)
         await app.logout()
         #expect(!app.offlineMode && app.user == nil)
         // The next start with the server away stays on the connection screen.
-        await app.resumeLastSession(target, persist: false)
+        await app.reopenLastServer(target, persist: false)
         #expect(!app.offlineMode)
         #expect(app.user == nil)
     }
@@ -126,7 +126,7 @@ private func scratchRoot() -> URL { FileManager.default.temporaryDirectory.appen
         let root = scratchRoot(); defer { try? FileManager.default.removeItem(at: root) }
         FirstProtocol.server.reachable = false
         let app = try model(root: root, storedSong: false)
-        await app.resumeLastSession(target, persist: false)
+        await app.reopenLastServer(target, persist: false)
         #expect(!app.offlineMode)
         #expect(app.user == nil)
         #expect(app.error != nil)
@@ -136,7 +136,7 @@ private func scratchRoot() -> URL { FileManager.default.temporaryDirectory.appen
         let root = scratchRoot(); defer { try? FileManager.default.removeItem(at: root) }
         FirstProtocol.server.reachable = true
         let app = try model(root: root)
-        let restored = await app.resumeLastSession(target, persist: false)
+        let restored = await app.reopenLastServer(target, persist: false)
         #expect(restored)
         #expect(!app.offlineMode)
         #expect(!app.canReconnect)
@@ -148,7 +148,7 @@ private func scratchRoot() -> URL { FileManager.default.temporaryDirectory.appen
         let root = scratchRoot(); defer { try? FileManager.default.removeItem(at: root) }
         FirstProtocol.server.reachable = false
         let app = try model(root: root)
-        await app.resumeLastSession(target, persist: false)
+        await app.reopenLastServer(target, persist: false)
         await app.reconnect()
         #expect(app.offlineMode && app.canReconnect)
         #expect(app.user?.id == "first")
@@ -160,7 +160,7 @@ private func scratchRoot() -> URL { FileManager.default.temporaryDirectory.appen
         let root = scratchRoot(); defer { try? FileManager.default.removeItem(at: root) }
         FirstProtocol.server.reachable = false
         let app = try model(root: root)
-        await app.resumeLastSession(target, persist: false)
+        await app.reopenLastServer(target, persist: false)
         #expect(app.canReconnect)
         FirstProtocol.server.reachable = true
         await app.reconnectIfIdle()

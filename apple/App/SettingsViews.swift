@@ -53,10 +53,10 @@ struct SettingsView: View {
                     LabeledContent("Server", value: model.client?.server.url.absoluteString ?? "")
                     LabeledContent("Konto", value: model.user?.displayName ?? "")
                     if model.client?.server.isSecure == false { Text("Entwicklungsmodus: lokale HTTP-Verbindung ohne Verschlüsselung.").foregroundStyle(.orange) }
-                    Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
+                    if !model.offlineMode { Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } } }
                 }
                 #if !os(tvOS)
-                Section("Anderes Gerät anmelden") { ConfirmDeviceView(model: model) }
+                if !model.offlineMode { Section("Anderes Gerät anmelden") { ConfirmDeviceView(model: model) } }
                 if let url = model.client?.server.url.appendingPathComponent("profile") {
                     Section("Verwaltung") { Link("Profil & Sicherheit im Web öffnen", destination: url) }
                 }
