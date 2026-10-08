@@ -45,12 +45,12 @@ The recommended way to deploy YTMDL is using official prebuilt container images 
 mkdir -p ytmdl && cd ytmdl
 
 # Download compose file and sample environment
-curl -fsSLO https://github.com/Der-Felix/ytmdl/releases/download/v1.2.0/ytmdl-1.2.0.tar.gz
-curl -fsSLO https://github.com/Der-Felix/ytmdl/releases/download/v1.2.0/SHA256SUMS
+curl -fsSLO https://github.com/Der-Felix/ytmdl/releases/download/v1.3.0/ytmdl-1.3.0.tar.gz
+curl -fsSLO https://github.com/Der-Felix/ytmdl/releases/download/v1.3.0/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS
 # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
-tar -xzf ytmdl-1.2.0.tar.gz
-cd ytmdl-1.2.0
+tar -xzf ytmdl-1.3.0.tar.gz
+cd ytmdl-1.3.0
 ```
 
 ### 2. Prepare and Start
@@ -149,8 +149,8 @@ Official container images are published to the GitHub Container Registry (GHCR) 
 Images can be pulled anonymously without authentication:
 
 ```sh
-podman pull ghcr.io/der-felix/ytmdl-backend:1.2.0
-podman pull ghcr.io/der-felix/ytmdl-frontend:1.2.0
+podman pull ghcr.io/der-felix/ytmdl-backend:1.3.0
+podman pull ghcr.io/der-felix/ytmdl-frontend:1.3.0
 ```
 
 For building from source or running a development environment, see [docs/development.md](docs/development.md).

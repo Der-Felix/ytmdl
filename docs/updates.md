@@ -34,6 +34,24 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.3.0
+
+Use the checksum-verified **v1.3.0** CLI from the
+[v1.3.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.3.0).
+Run `ytmdlctl update --channel stable --target 1.3.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.3.0`.
+
+The database stays at schema 18; this release needs no migration. It adds
+[device-code sign-in](features/device-sign-in.md) for TV clients, a usable web
+playlist view and clearer download failure messages. The release qualifies
+v0.28.1, v1.0.0, v1.1.1 and v1.2.0 sources with Docker and rootless Podman.
+Preserve private configuration, proxy settings, mounts, cookies and the database
+volume, and verify a database backup before updating.
+
+The bundled frontend now sets `X-Forwarded-For` to the connecting address. If you
+run your own reverse proxy in front of it, per-address limits see the proxy's
+address; see [Tips](tips.md).
+
 ## Upgrade to v1.2.0
 
 Use the checksum-verified **v1.2.0** CLI from the
