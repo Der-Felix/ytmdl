@@ -178,6 +178,10 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
     var currentRecords: [OfflineTrack] { records.filter { $0.scope == scope } }
     var currentCollections: [OfflineCollection] { collections.filter { $0.scope == scope } }
     var readyTracks: [Track] { availableTracks(in: currentRecords) }
+    /// Whether this account has at least one song stored on the device that can still be played.
+    func hasMusic(for profile: OfflineProfile) -> Bool {
+        records.contains { $0.scope == profile.id && storedAudioURL($0) != nil }
+    }
     func availableTracks(in entries: [OfflineTrack]) -> [Track] {
         entries.filter { $0.scope == scope && storedAudioURL($0) != nil }.map(\.track)
     }

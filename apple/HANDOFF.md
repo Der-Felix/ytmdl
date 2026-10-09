@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.3.0, build 33
+# Apple app handoff — preview 0.3.0, build 37
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -35,10 +35,58 @@ default branch; a tag triggers it from any commit), no sideloading tool was used
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
 
+## Builds 34-37: start without choosing a mode (committed, not merged)
+
+Offline music is no longer something to pick at launch. The app behaves like a streaming
+player: it opens your server and, when that is not possible, plays what is on the device.
+Build 34 was installed on the phone first; build 35 follows the first device feedback (the
+fallback depended on a saved sign-in cookie, the debug HTTP choice was not remembered by older
+installs, and the offline button sat behind a picker).
+
+- **Start:** `ConnectView` calls `AppModel.reopenLastServer()` on launch, also for the debug HTTP
+  server. `AppModel.savedTarget` remembers the address and the HTTP choice; an address saved by an
+  older build that starts with `http://` implies the choice. The check uses a 6 second timeout.
+- **Server not reachable:** a connectivity or 5xx failure (`AppModel.isUnreachable`; certificate
+  errors are not) opens the offline music of the remembered account (`fallBackToOffline`) without an
+  error alert, if that account has at least one playable stored song. A lost session (401, expired
+  cookie) does not prevent this. `logout()` stores an empty `lastOfflineProfile`, which keeps the
+  music from reopening by itself until the next sign-in.
+- **Back online:** `OfflineLibraryView` shows "Server nicht erreichbar", "Deine gespeicherte Musik ist
+  trotzdem verfügbar" and **Erneut verbinden** (in place of "Zur Anmeldung", which signed the user
+  out). `reconnect()` probes the server with a throwaway client first, so a failed attempt never stops
+  playback. `reconnectIfIdle()` runs when the scene becomes active and when `NWPathMonitor` reports a
+  satisfied path, and only while the player holds no song.
+- **Sign-in screen:** with saved music, "Offline-Musik öffnen" is the first control; one saved account
+  opens directly, several open the picker. The manual path keeps its "Offline-Modus" label and has no
+  reconnect button because no server session exists.
+- **Build 36, same look as online:** while only saved music is open, iPhone and iPad use the normal
+  shell (tab bar, mini player, player button). `OfflineBrowseViews.swift` supplies Start
+  (`OfflineHomeView`: status card with reconnect or sign-in, "Alles mischen", resume, recently heard,
+  saved albums, playlists), Bibliothek (`OfflineAlbumsView`, albums grouped by artist and album),
+  Playlists (`OfflinePlaylistsView`), Suche (`OfflineSearchView`) and a detail screen
+  (`OfflineDetailView`) built from the online header and `TrackRow`. Artists and Favorites show a note
+  ("Nur mit Verbindung"); Settings hides the server-only entries. Entering or leaving the saved music
+  resets the selected tab to Start. The old management list (`OfflineLibraryView`: download state,
+  sorting, removing copies) remains under Einstellungen → Offline-Musik and on the iPad sidebar.
+  The new file is registered in all three targets of `YTMDL.xcodeproj` (it compiles to nothing on
+  macOS and tvOS). The iPad sidebar variant of the saved music was not exercised by a UI test.
+- **Build 37, search field:** the search tab (online `SearchView`, offline `OfflineSearchView`), the offline playlist
+  filter and the download list now use `.searchable(placement: .navigationBarDrawer(displayMode: .always))` on iOS, so the
+  field is visible without pulling the list down (it used to stay collapsed; the UI tests had to swipe). The offline search
+  also finds saved playlists by name. The UI tests assert the field without swiping. The saved-music screens were checked in
+  the simulator with the shape of the real device data (3 playlists, 47 playable songs; placeholder files, no audio).
+- Tests: `OfflineFirstTests` (10, scripted URLProtocol, isolated `UserDefaults` suite, nothing
+  persisted); the session-loss and sign-out guards were mutation-checked. The UI test for the manual
+  path was adjusted (no picker for one account) and passed locally on the iPhone 17 simulator. Not
+  covered: UI tests for the automatic start.
+- Not verified on a device (as of build 35): start in airplane mode, reconnect with the server back,
+  the 6 second wait on a foreign network, and the debug HTTP server resuming at launch.
+
 ## Build 33: review fixes (committed, not installed)
 
 Defect fixes from a code review of the branch; no new features and no audio-runtime
-rewrite. App and widget are now 0.3.0 (33); the physical iPhone still has build 32.
+rewrite. App and widget were raised to 0.3.0 (33); that build was installed on the physical iPhone on
+8 October 2026 (signed debug build, not launched). Build 34 follows below.
 
 - **Session loss:** `AppModel.report` treats a 401 on a signed-in online session as
   sign-out (cookies and Keychain entry dropped, offline detached, playback stopped)
@@ -113,7 +161,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.3.0 (33)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.3.0 (37)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness

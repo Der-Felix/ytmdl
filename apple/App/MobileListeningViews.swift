@@ -300,7 +300,10 @@ struct OfflineLibraryView: View {
         List {
             if collectionID == nil {
                 Section {
-                    Label(model.offlineMode ? "Offline-Modus" : "Auf diesem Gerät", systemImage: "wifi.slash")
+                    Label(model.canReconnect ? "Server nicht erreichbar" : model.offlineMode ? "Offline-Modus" : "Auf diesem Gerät", systemImage: "wifi.slash")
+                    if model.canReconnect {
+                        Text("Deine gespeicherte Musik ist trotzdem verfügbar.").font(.subheadline).foregroundStyle(.secondary)
+                    }
                     Text("\(model.offline.readyTracks.count) Titel · \(ByteCountFormatter.string(fromByteCount: model.offline.usedBytes, countStyle: .file)) gespeichert")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Picker("Offline-Ansicht", selection: $browsing) {
@@ -321,9 +324,20 @@ struct OfflineLibraryView: View {
                 collectionSections
             }
             if let error = model.offline.error { Section { Text(error).foregroundStyle(.red); Button("Meldung schließen") { model.offline.error = nil } } }
-            if model.offlineMode && collectionID == nil { Section { Button("Zur Anmeldung", systemImage: "network") { Task { await model.logout() } } } }
+            if model.offlineMode && collectionID == nil {
+                Section {
+                    if model.canReconnect {
+                        Button(model.reconnecting ? "Verbinde …" : "Erneut verbinden", systemImage: "arrow.clockwise") { Task { await model.reconnect() } }
+                            .disabled(model.reconnecting).accessibilityIdentifier("offline-reconnect")
+                    } else { Button("Zur Anmeldung", systemImage: "network") { Task { await model.logout() } } }
+                }
+            }
         }.navigationTitle(collection?.name ?? "Offline-Musik")
+        #if os(iOS)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: showingTracks ? "Titel, Künstler oder Album" : "Playlist, Album oder Titel")
+        #else
         .searchable(text: $query, prompt: showingTracks ? "Titel, Künstler oder Album" : "Playlist, Album oder Titel")
+        #endif
         .toolbar {
             ToolbarItem { Button("Download-Einstellungen", systemImage: "gearshape") { options = true } }
             if model.offlineMode && model.player.current != nil { ToolbarItem { Button("Player", systemImage: "play.circle") { player = true } } }

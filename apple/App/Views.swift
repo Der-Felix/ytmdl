@@ -13,6 +13,7 @@ enum Destination: String, CaseIterable, Identifiable, Hashable {
 
 struct RootView: View {
     @Bindable var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
     #if os(macOS)
     @State private var destination: Destination? = Destination(rawValue: UserDefaults.standard.string(forKey: "desktopStartView") ?? "Start") ?? .home
     @AppStorage("desktopTheme") private var themeName = "rose"
@@ -66,16 +67,7 @@ struct RootView: View {
                     }
                 }
                 #elseif os(iOS)
-                if model.offlineMode {
-                    NavigationStack { OfflineLibraryView(model: model) }
-                        .safeAreaInset(edge: .bottom, spacing: 0) {
-                            if model.player.current != nil {
-                                MobileMiniPlayer(model: model) { expandedPlayer = true }
-                                    .background(.regularMaterial)
-                            }
-                        }
-                }
-                else if sizeClass == .compact {
+                if sizeClass == .compact {
                     TabView(selection: $destination) {
                         ForEach([Destination.home, .search, .library, .playlists, .settings]) { item in
                             NavigationStack(path: Binding(get: { mobilePaths[item] ?? NavigationPath() }, set: { mobilePaths[item] = $0 })) {
@@ -142,6 +134,16 @@ struct RootView: View {
             pendingWidgetRoute = route
             applyWidgetRoute()
         }
+        .onChange(of: scenePhase) { _, phase in
+            // Back in the foreground: try the server again if the saved music was opened for lack of it.
+            if phase == .active { Task { await model.reconnectIfIdle() } }
+        }
+        #if os(iOS)
+        .onChange(of: model.offlineMode) { _, _ in
+            // Entering or leaving the saved music starts on Start, not on whatever tab was open before.
+            destination = .home; mobilePaths = [:]; detailPath = NavigationPath()
+        }
+        #endif
         #if DEBUG
         .task {
             await model.loadFixtureIfRequested()
@@ -242,6 +244,15 @@ struct RootView: View {
         content(destination)
             .navigationDestination(for: CollectionKind.self) { kind in CollectionView(model: model, kind: kind) }
             .navigationDestination(for: Destination.self) { item in content(item) }
+            #if os(iOS)
+            .navigationDestination(for: OfflineTarget.self) { target in OfflineDetailView(model: model, target: target) }
+            #endif
+    }
+    /// Screens that need the server show a note instead of an empty list while only saved music is open.
+    @ViewBuilder private func onlineOnly<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        if model.offlineMode {
+            ContentUnavailableView("Nur mit Verbindung", systemImage: "wifi.slash", description: Text("Das geht erst, wenn der Server wieder erreichbar ist."))
+        } else { content() }
     }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {
@@ -250,16 +261,31 @@ struct RootView: View {
             DesktopHomeView(model: model, navigate: selectDestination)
             #else
             #if os(iOS)
-            MobileHomeView(model: model)
+            if model.offlineMode { OfflineHomeView(model: model) } else { MobileHomeView(model: model) }
             #else
             LibraryView(model: model)
             #endif
             #endif
-        case .library: LibraryView(model: model)
-        case .artists: ArtistListView(model: model)
-        case .search: SearchView(model: model)
-        case .favorites: CollectionView(model: model, kind: .favorites)
-        case .playlists: PlaylistListView(model: model)
+        case .library:
+            #if os(iOS)
+            if model.offlineMode { OfflineAlbumsView(model: model) } else { LibraryView(model: model) }
+            #else
+            LibraryView(model: model)
+            #endif
+        case .artists: onlineOnly { ArtistListView(model: model) }
+        case .search:
+            #if os(iOS)
+            if model.offlineMode { OfflineSearchView(model: model) } else { SearchView(model: model) }
+            #else
+            SearchView(model: model)
+            #endif
+        case .favorites: onlineOnly { CollectionView(model: model, kind: .favorites) }
+        case .playlists:
+            #if os(iOS)
+            if model.offlineMode { OfflinePlaylistsView(model: model) } else { PlaylistListView(model: model) }
+            #else
+            PlaylistListView(model: model)
+            #endif
         case .player: NowPlayingView(model: model)
         case .downloads:
             #if !os(tvOS)
@@ -347,7 +373,11 @@ struct ConnectView: View {
     @State private var address = UserDefaults.standard.string(forKey: "serverAddress") ?? ""
     @State private var username = ""
     @State private var password = ""
+    #if DEBUG
+    @State private var allowHTTP = AppModel.savedTarget()?.localHTTP ?? false
+    #else
     @State private var allowHTTP = false
+    #endif
     @State private var connected = false
     @State private var checkingServer = false
     @State private var offlinePicker = false
@@ -357,6 +387,26 @@ struct ConnectView: View {
                 Image("BrandMark").resizable().scaledToFit().frame(width: 84, height: 96).accessibilityHidden(true)
                 Text("Deine Musik.\nDein Server.").font(.largeTitle.bold())
                 Text("Verbinde YTMDL mit deiner bestehenden Musikbibliothek.").foregroundStyle(.secondary)
+                #if !os(tvOS)
+                if !model.offline.profiles.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Auf diesem Gerät ist Musik gespeichert. Sie ist auch ohne Server verfügbar.").font(.subheadline).foregroundStyle(.secondary)
+                        Button("Offline-Musik öffnen", systemImage: "arrow.down.circle") {
+                            if let only = model.offline.profiles.first, model.offline.profiles.count == 1 { model.openOffline(only) }
+                            else { offlinePicker = true }
+                        }.buttonStyle(.borderedProminent)
+                    }
+                    .sheet(isPresented: $offlinePicker) {
+                        NavigationStack {
+                            List(model.offline.profiles) { profile in
+                                Button { model.openOffline(profile); offlinePicker = false } label: {
+                                    VStack(alignment: .leading) { Text(profile.user.displayName).font(.headline); Text(profile.origin).font(.caption).foregroundStyle(.secondary) }
+                                }
+                            }.navigationTitle("Offline-Sammlungen").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { offlinePicker = false } } }
+                        }
+                    }
+                }
+                #endif
                 VStack(alignment: .leading, spacing: 12) {
                     TextField("Server-Adresse · https://…", text: $address)
                         .textContentType(.URL)
@@ -403,37 +453,19 @@ struct ConnectView: View {
                     }.textFieldStyle(.roundedBorder)
                     #endif
                 }
-                #if !os(tvOS)
-                if !model.offline.profiles.isEmpty {
-                    Button("Offline-Musik öffnen", systemImage: "arrow.down.circle") { offlinePicker = true }.buttonStyle(.bordered)
-                        .sheet(isPresented: $offlinePicker) {
-                            NavigationStack {
-                                List(model.offline.profiles) { profile in
-                                    Button { model.openOffline(profile); offlinePicker = false } label: {
-                                        VStack(alignment: .leading) { Text(profile.user.displayName).font(.headline); Text(profile.origin).font(.caption).foregroundStyle(.secondary) }
-                                    }
-                                }.navigationTitle("Offline-Sammlungen").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { offlinePicker = false } } }
-                            }
-                        }
-                }
-                #endif
                 Text("Keine Analyse- oder Werbe-SDKs. Sitzungen bleiben im Schlüsselbund dieses Geräts.").font(.footnote).foregroundStyle(.secondary)
             }.padding(32).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }
         .onChange(of: address) { _, _ in connected = false; password = "" }
         .onChange(of: allowHTTP) { _, _ in connected = false; password = "" }
         .task {
-            if address.hasPrefix("https://") {
-                checkingServer = true
-                defer { checkingServer = false }
-                let origin = address
-                do {
-                    try model.connect(origin, localHTTP: false)
-                    let restored = await model.restore()
-                    connected = restored && address == origin && !allowHTTP
-                }
-                catch { model.report(error) }
-            }
+            // Reopen the last server by itself; the saved music opens if it cannot be reached.
+            guard address.hasPrefix("https://") || allowHTTP else { return }
+            checkingServer = true
+            defer { checkingServer = false }
+            let origin = address; let localHTTP = allowHTTP
+            let restored = await model.reopenLastServer()
+            connected = restored && address == origin && allowHTTP == localHTTP
         }
     }
 }
@@ -1114,7 +1146,11 @@ struct SearchView: View {
                     if results.artists.isEmpty && results.releases.isEmpty && results.tracks.isEmpty { ContentUnavailableView.search(text: query) }
                 } else if !busy && failure == nil { ContentUnavailableView("Deine Bibliothek durchsuchen", systemImage: "magnifyingglass", description: Text("Mindestens zwei Zeichen eingeben.")) }
             }
+            #if os(iOS)
+            .searchable(text: $localQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: "Titel, Alben, Künstler")
+            #else
             .searchable(text: $localQuery, prompt: "Titel, Alben, Künstler")
+            #endif
             #endif
         }
         .navigationTitle("Suche")

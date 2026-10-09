@@ -92,8 +92,10 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
         try saveCookies()
         return data
     }
-    func get<T: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
-        let data = try await perform(request(path, query: query))
+    func get<T: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = [], timeout: TimeInterval? = nil) async throws -> T {
+        var request = try request(path, query: query)
+        if let timeout { request.timeoutInterval = timeout }
+        let data = try await perform(request)
         return try decoder.decode(Envelope<T>.self, from: data).data
     }
     func send<T: Decodable & Sendable>(_ path: String, method: String = "POST", body: [String: String]) async throws -> T {
