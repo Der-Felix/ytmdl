@@ -1146,7 +1146,11 @@ struct SearchView: View {
                     if results.artists.isEmpty && results.releases.isEmpty && results.tracks.isEmpty { ContentUnavailableView.search(text: query) }
                 } else if !busy && failure == nil { ContentUnavailableView("Deine Bibliothek durchsuchen", systemImage: "magnifyingglass", description: Text("Mindestens zwei Zeichen eingeben.")) }
             }
+            #if os(iOS)
+            .searchable(text: $localQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: "Titel, Alben, Künstler")
+            #else
             .searchable(text: $localQuery, prompt: "Titel, Alben, Künstler")
+            #endif
             #endif
         }
         .navigationTitle("Suche")

@@ -333,7 +333,11 @@ struct OfflineLibraryView: View {
                 }
             }
         }.navigationTitle(collection?.name ?? "Offline-Musik")
+        #if os(iOS)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: showingTracks ? "Titel, Künstler oder Album" : "Playlist, Album oder Titel")
+        #else
         .searchable(text: $query, prompt: showingTracks ? "Titel, Künstler oder Album" : "Playlist, Album oder Titel")
+        #endif
         .toolbar {
             ToolbarItem { Button("Download-Einstellungen", systemImage: "gearshape") { options = true } }
             if model.offlineMode && model.player.current != nil { ToolbarItem { Button("Player", systemImage: "play.circle") { player = true } } }

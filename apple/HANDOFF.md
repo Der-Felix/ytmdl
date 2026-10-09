@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.3.0, build 36
+# Apple app handoff — preview 0.3.0, build 37
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -35,7 +35,7 @@ default branch; a tag triggers it from any commit), no sideloading tool was used
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
 
-## Builds 34-36: start without choosing a mode (committed, not merged)
+## Builds 34-37: start without choosing a mode (committed, not merged)
 
 Offline music is no longer something to pick at launch. The app behaves like a streaming
 player: it opens your server and, when that is not possible, plays what is on the device.
@@ -70,6 +70,11 @@ installs, and the offline button sat behind a picker).
   sorting, removing copies) remains under Einstellungen → Offline-Musik and on the iPad sidebar.
   The new file is registered in all three targets of `YTMDL.xcodeproj` (it compiles to nothing on
   macOS and tvOS). The iPad sidebar variant of the saved music was not exercised by a UI test.
+- **Build 37, search field:** the search tab (online `SearchView`, offline `OfflineSearchView`), the offline playlist
+  filter and the download list now use `.searchable(placement: .navigationBarDrawer(displayMode: .always))` on iOS, so the
+  field is visible without pulling the list down (it used to stay collapsed; the UI tests had to swipe). The offline search
+  also finds saved playlists by name. The UI tests assert the field without swiping. The saved-music screens were checked in
+  the simulator with the shape of the real device data (3 playlists, 47 playable songs; placeholder files, no audio).
 - Tests: `OfflineFirstTests` (10, scripted URLProtocol, isolated `UserDefaults` suite, nothing
   persisted); the session-loss and sign-out guards were mutation-checked. The UI test for the manual
   path was adjusted (no picker for one account) and passed locally on the iPhone 17 simulator. Not
@@ -156,7 +161,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.3.0 (36)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.3.0 (37)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness

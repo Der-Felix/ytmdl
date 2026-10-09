@@ -186,8 +186,7 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Aktionen für Zeitlos"].exists)
         app.tabBars.buttons["Suche"].tap()
         let search = app.searchFields.firstMatch
-        if !search.exists { app.swipeDown() }
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        XCTAssertTrue(search.waitForExistence(timeout: 5), "The search field must be visible without pulling down.")
         search.tap(); search.typeText("Nordlicht\n")
         XCTAssertTrue(app.staticTexts["Nordlicht"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Zeitlos"].firstMatch.exists)
@@ -438,11 +437,13 @@ final class PlayerUITests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
         app.tabBars.buttons["Suche"].tap()
         let tabSearch = app.searchFields.firstMatch
-        if !tabSearch.exists { app.swipeDown() }
-        XCTAssertTrue(tabSearch.waitForExistence(timeout: 10))
+        XCTAssertTrue(tabSearch.waitForExistence(timeout: 10), "The search field must be visible without pulling down.")
         tabSearch.tap(); tabSearch.typeText("Blaue\n")
         XCTAssertTrue(app.buttons["Blaue Stunde abspielen, Mira"].firstMatch.waitForExistence(timeout: 10))
         attach(app, name: "Offline search")
+        // Saved playlists are found by name as well.
+        tabSearch.clearAndTypeText("Abends\n")
+        XCTAssertTrue(app.staticTexts["Abends unterwegs"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertFalse(app.alerts.firstMatch.exists)
         // Managing the downloads (state, sorting, removing copies) stays under Settings.
         app.tabBars.buttons["Einstellungen"].tap()
@@ -572,5 +573,16 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Deine Musik"].firstMatch.waitForExistence(timeout: 5))
         #endif
         #endif
+    }
+}
+
+extension XCUIElement {
+    /// Replaces the text of a search or text field.
+    func clearAndTypeText(_ text: String) {
+        tap()
+        if let current = value as? String, !current.isEmpty, current != "Titel, Alben, Künstler" {
+            typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        typeText(text)
     }
 }

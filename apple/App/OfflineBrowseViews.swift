@@ -296,7 +296,7 @@ struct OfflinePlaylistsView: View {
             }.padding(20)
         }.background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Playlists")
-            .searchable(text: $query, prompt: "Sammlungen filtern")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Sammlungen filtern")
     }
 }
 
@@ -311,11 +311,25 @@ struct OfflineSearchView: View {
         List {
             if let shelf = self.shelf {
                 if text.isEmpty {
-                    ContentUnavailableView("Gespeicherte Musik durchsuchen", systemImage: "magnifyingglass",
-                        description: Text("Titel, Alben oder Künstler auf diesem Gerät."))
+                    ContentUnavailableView("Musik durchsuchen", systemImage: "magnifyingglass",
+                        description: Text("Playlists, Alben, Titel und Künstler auf diesem Gerät."))
                 } else {
                     let tracks = shelf.tracks.filter { [$0.title, $0.artistText, $0.album].joined(separator: " ").localizedCaseInsensitiveContains(text) }
                     let albums = shelf.albums.filter { !$0.artist.isEmpty && [$0.title, $0.artist].joined(separator: " ").localizedCaseInsensitiveContains(text) }
+                    let playlists = model.offline.currentCollections.filter { $0.kind == "playlist" && $0.name.localizedCaseInsensitiveContains(text) }
+                        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                    if !playlists.isEmpty {
+                        Section("Playlists") {
+                            ForEach(playlists) { playlist in
+                                NavigationLink(value: OfflineTarget.collection(playlist.id)) {
+                                    HStack {
+                                        MobileCollectionArtwork(model: model, tracks: OfflineCatalog.records(model.offline.currentRecords, collection: playlist, sort: .collection).map(\.track), size: 56)
+                                        VStack(alignment: .leading) { Text(playlist.name); Text("\(Set(playlist.trackIDs).count) Titel").font(.caption).foregroundStyle(.secondary) }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if !albums.isEmpty {
                         Section("Alben") {
                             ForEach(albums) { album in
@@ -333,12 +347,12 @@ struct OfflineSearchView: View {
                             ForEach(tracks) { track in TrackRow(model: model, track: track) { offlinePlay(model, tracks, selected: track.id) } }
                         }
                     }
-                    if tracks.isEmpty && albums.isEmpty { ContentUnavailableView.search(text: text) }
+                    if tracks.isEmpty && albums.isEmpty && playlists.isEmpty { ContentUnavailableView.search(text: text) }
                 }
             }
         }
         .navigationTitle("Suche")
-        .searchable(text: $query, prompt: "Titel, Alben, Künstler")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Titel, Alben, Künstler")
         .task(id: model.offlineSignature) { shelf = OfflineShelf(model.offline) }
     }
 }
