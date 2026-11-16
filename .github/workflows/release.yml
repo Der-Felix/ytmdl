@@ -23,7 +23,9 @@ concurrency:
 jobs:
   release:
     name: Build, Verify & Publish Release
-    runs-on: ubuntu-latest
+    # Pinned (not ubuntu-latest): the release qualification is only proven on this
+    # image. Changing it means re-running upgrade-qualification.yml first.
+    runs-on: ubuntu-26.04
     services:
       postgres:
         image: docker.io/library/postgres:18-alpine

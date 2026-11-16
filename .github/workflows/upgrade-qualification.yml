@@ -52,7 +52,9 @@ concurrency:
 jobs:
   qualify:
     name: Qualify Managed Upgrades
-    runs-on: ubuntu-latest
+    # Pinned (not ubuntu-latest): the release qualification is only proven on this
+    # image. Changing it means re-running upgrade-qualification.yml first.
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     env:
       TARGET: ${{ inputs.target || '1.3.2' }}
