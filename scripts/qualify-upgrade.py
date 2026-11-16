@@ -54,17 +54,59 @@ networks:
     override.write_text(base_override)
     compose += ["-f", "compose.ghcr.override.yaml"]
 
+    def describe(command, result):
+        # Everything here is a disposable installation with generated
+        # credentials, so the failing command and the end of its output
+        # can be shown. Without them a failed release run names no cause.
+        shown = " ".join(str(part) for part in command[:1] + command[-4:])
+        output = (result.stdout + result.stderr).decode(errors="replace").strip()
+        return "(exit " + str(result.returncode) + "): " + shown + "\n" + output[-3000:]
+
     def run(command, input=None, required=True, timeout=300, env=None):
         result = subprocess.run(command, cwd=directory, input=input, capture_output=True, timeout=timeout, env=env)
         if required and result.returncode:
-            # Everything here is a disposable installation with generated
-            # credentials, so the failing command and the end of its output
-            # can be shown. Without them a failed release run names no cause.
-            shown = " ".join(str(part) for part in command[:1] + command[-4:])
-            output = (result.stdout + result.stderr).decode(errors="replace").strip()
-            raise RuntimeError("Managed qualification operation failed (exit " + str(result.returncode)
-                               + "): " + shown + "\n" + output[-3000:])
+            raise RuntimeError("Managed qualification operation failed " + describe(command, result))
         return result
+
+    # compose.ghcr.yaml pins ytmdl-net to one subnet (172.31.250.0/28, which
+    # MUSICDL_TRUSTED_PROXIES trusts by default), so every scenario on this
+    # host uses the same subnet. A network this scenario leaves behind makes
+    # the next scenario's "up" fail, so the teardown has to prove it is gone.
+    network = prefix + "-net"
+    project_filter = "label=com.docker.compose.project=" + prefix
+
+    def leftovers():
+        names = run([args.engine, "network", "ls", "--format", "{{.Name}}"]).stdout.decode().split()
+        containers = run([args.engine, "ps", "-a", "--filter", project_filter,
+                          "--format", "{{.ID}} {{.Names}} {{.Status}}"]).stdout.decode().strip()
+        return [name for name in names if name.startswith(prefix)], containers
+
+    def teardown():
+        down = compose + ["down", "--volumes", "--remove-orphans"]
+        result = run(down, required=False)
+        if result.returncode:
+            print("WARN: " + args.engine + " teardown: compose down failed " + describe(down, result), file=sys.stderr, flush=True)
+        networks, containers = leftovers()
+        if not networks and not containers:
+            print("PASS: " + args.engine + " teardown removed " + network + " and the project's containers", flush=True)
+            return
+        print("WARN: " + args.engine + " teardown left networks " + str(networks) + " and containers ["
+              + containers + "]; retrying with the engine's own commands", file=sys.stderr, flush=True)
+        # A second down after the first one's stops have settled, then the
+        # engine directly for anything still there.
+        result = run(down, required=False)
+        if result.returncode:
+            print("WARN: second compose down failed " + describe(down, result), file=sys.stderr, flush=True)
+        for line in leftovers()[1].splitlines():
+            run([args.engine, "rm", "--force", "--volumes", line.split()[0]], required=False)
+        for name in leftovers()[0]:
+            run([args.engine, "network", "rm", name], required=False)
+        run([args.engine, "volume", "rm", "--force", prefix + "-postgres-data"], required=False)
+        networks, containers = leftovers()
+        if networks or containers:
+            raise RuntimeError("Teardown could not remove " + str(networks) + " [" + containers
+                               + "]; the next scenario would collide on " + network + "'s subnet.")
+        print("WARN: " + args.engine + " teardown recovered; " + network + " is gone", file=sys.stderr, flush=True)
 
     jar = http.cookiejar.CookieJar()
     client = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar))
@@ -137,6 +179,7 @@ networks:
     channel = "development" if "-rc." in args.target else "stable"
     cli = [str(Path(args.cli).resolve()), "--project-dir", str(directory), "--engine", args.engine,
            "--file", "compose.ghcr.yaml", "--base-url", base]
+    completed = False
     try:
         run(compose + ["up", "-d"])
         wait_version(args.source)
@@ -188,12 +231,21 @@ networks:
         print("PASS:", args.engine, args.source + " -> " + args.target,
               "verified guard" if guard_enabled else "disabled guard",
               "real update, backup, users/cookies/schema and negative preflight cases", flush=True)
+        completed = True
     finally:
-        run(compose + ["down", "--volumes", "--remove-orphans"], required=False)
-        if server:
-            server.shutdown()
-            server.server_close()
-        shutil.rmtree(directory, ignore_errors=True)
+        try:
+            teardown()
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            # A failed teardown stops the run, but it must not replace the
+            # failure that brought the scenario here; that one is raised.
+            print("FAIL: " + args.engine + " teardown: " + str(error), file=sys.stderr, flush=True)
+            if completed:
+                raise
+        finally:
+            if server:
+                server.shutdown()
+                server.server_close()
+            shutil.rmtree(directory, ignore_errors=True)
 
 
 if __name__ == "__main__":
