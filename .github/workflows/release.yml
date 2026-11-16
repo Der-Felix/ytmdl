@@ -934,7 +934,7 @@ jobs:
             echo "ghcr.io/der-felix/ytmdl-${component}:${{ steps.version.outputs.candidate_tag }} and :${{ steps.version.outputs.promote_tag }}"
           done
           echo "backend index ${{ steps.digests.outputs.backend }}, frontend index ${{ steps.digests.outputs.frontend }}"
-          echo "No version tag, no latest and no release were touched. Delete these package versions when done."
+          echo "No version tag, no latest and no release were touched. The next step deletes these package versions again."
 
       - name: Images Left by a Failed Run
         if: failure() && steps.version.outputs.candidates == 'true'
@@ -950,6 +950,19 @@ jobs:
           done
           echo "candidate-* tags do not block a new run. If the version tag ${{ steps.version.outputs.promote_tag }} exists, it is published and stays as it is."
 
+      - name: Delete Unpublished Candidate Images
+        # A run that did not publish (it failed before the version tag, or it
+        # was a rehearsal) removes its own images again. The script deletes an
+        # index only if every tag on it is candidate-* or rehearsal-*, so a
+        # promoted, published image is never touched.
+        if: always() && steps.version.outputs.candidates == 'true' && (job.status != 'success' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash scripts/delete-candidate-images.sh "${{ github.repository_owner }}" \
+            "${{ steps.version.outputs.candidate_tag }}" ytmdl-backend ytmdl-frontend
+
       - name: Verify-Only Qualification Summary
         if: github.event_name == 'workflow_dispatch' && steps.version.outputs.candidates != 'true'
         shell: bash
@@ -959,7 +972,7 @@ jobs:
           echo "========================================================================"
           echo "All runner hardening, PostgreSQL 18 tooling, readiness checks,"
           echo "backend tests, full race tests, frontend build, binary compilation,"
-          echo "and manifest validation PASSED on ubuntu-latest."
+          echo "and manifest validation PASSED on ubuntu-26.04."
           echo "Isolated container startup, upload limits and cookie persistence PASSED."
           echo "Zero release artifacts or container images were published."
           echo "========================================================================"
