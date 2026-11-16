@@ -57,7 +57,13 @@ networks:
     def run(command, input=None, required=True, timeout=300, env=None):
         result = subprocess.run(command, cwd=directory, input=input, capture_output=True, timeout=timeout, env=env)
         if required and result.returncode:
-            raise RuntimeError("Managed qualification operation failed.")
+            # Everything here is a disposable installation with generated
+            # credentials, so the failing command and the end of its output
+            # can be shown. Without them a failed release run names no cause.
+            shown = " ".join(str(part) for part in command[:1] + command[-4:])
+            output = (result.stdout + result.stderr).decode(errors="replace").strip()
+            raise RuntimeError("Managed qualification operation failed (exit " + str(result.returncode)
+                               + "): " + shown + "\n" + output[-3000:])
         return result
 
     jar = http.cookiejar.CookieJar()
@@ -79,14 +85,18 @@ networks:
 
     def wait_version(version):
         deadline = time.monotonic() + 180
+        last = "no answer"
         while time.monotonic() < deadline:
             try:
-                if request("/health?scope=essential")[1].get("data", {}).get("version") == version:
+                status, body = request("/health?scope=essential")
+                reported = body.get("data", {}).get("version")
+                if reported == version:
                     return
-            except (OSError, ValueError):
-                pass
+                last = "HTTP " + str(status) + ", version " + str(reported)
+            except (OSError, ValueError) as error:
+                last = type(error).__name__ + ": " + str(error)
             time.sleep(2)
-        raise RuntimeError("Expected update version did not become healthy.")
+        raise RuntimeError("Expected version " + version + " did not become healthy within 180 s (last: " + last + ").")
 
     server = None
     environment = os.environ.copy()
@@ -199,5 +209,8 @@ if __name__ == "__main__":
         for guard_enabled in (True, False):
             qualify(args, guard_enabled)
     except (OSError, RuntimeError, AssertionError, subprocess.SubprocessError):
+        import traceback
         print("FAIL: managed update qualification stopped; no production resources were used.", file=sys.stderr)
+        # The step that failed and why; see run() for what may be shown.
+        traceback.print_exc()
         sys.exit(1)
