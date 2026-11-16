@@ -44,9 +44,12 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     // and "https://music.example.com/" share one stored session. Otherwise each
     // spelling keeps its own, and signing out removes only one of them.
     private static func vaultKey(for server: ServerAddress) -> String {
-        var origin = URLComponents(url: server.url, resolvingAgainstBaseURL: false)
-        origin?.path = ""; origin?.host = origin?.host?.lowercased(); origin?.scheme = origin?.scheme?.lowercased()
-        return origin?.string ?? server.url.absoluteString
+        guard var origin = URLComponents(url: server.url, resolvingAgainstBaseURL: false) else { return server.url.absoluteString }
+        // Read first, then write: assigning through the same value that is being
+        // read is an overlapping access the compiler rejects.
+        let host = origin.host?.lowercased(), scheme = origin.scheme?.lowercased()
+        origin.path = ""; origin.host = host; origin.scheme = scheme
+        return origin.string ?? server.url.absoluteString
     }
     private static func storedSession(for server: ServerAddress) -> Data? {
         if let data = try? SessionVault.read(vaultKey(for: server)) { return data }
