@@ -68,11 +68,11 @@
        muted text above 6.6:1, white on the accent 4.8:1, the accent against
        the page 3.9:1. Recalculate when a value changes. */
 
-    /* Surfaces, darkest to lightest: page, panel, raised chrome, popover. */
-    --background: oklch(0.16 0.012 270);
-    --card: oklch(0.19 0.013 270);
-    --surface: oklch(0.2 0.013 270);
-    --popover: oklch(0.21 0.014 270);
+    /* Surfaces, darkest to lightest: page, layout chrome, panel, popover. */
+    --background: oklch(0.145 0.012 270);
+    --card: oklch(0.195 0.013 270);
+    --surface: oklch(0.185 0.013 270);
+    --popover: oklch(0.225 0.014 270);
     /* What dims the page behind a dialog or drawer. */
     --overlay: oklch(0.1 0.012 270);
 
@@ -84,10 +84,10 @@
     --primary: oklch(0.57 0.2 10);
     --primary-foreground: oklch(0.985 0.003 270);
 
-    --secondary: oklch(0.24 0.014 270);
+    --secondary: oklch(0.265 0.015 270);
     --secondary-foreground: var(--foreground);
 
-    --muted: oklch(0.22 0.014 270);
+    --muted: oklch(0.235 0.014 270);
 
     --accent: oklch(0.57 0.2 10 / 0.16);
     --accent-foreground: oklch(0.84 0.09 10);
@@ -95,12 +95,12 @@
     /* Status colours stay clear of the accent's hue: an error is orange-red,
        so it never reads as a selected or primary element. */
     --destructive: oklch(0.7 0.19 30);
-    --destructive-foreground: oklch(0.16 0.012 270);
+    --destructive-foreground: oklch(0.145 0.012 270);
     --success: oklch(0.78 0.13 165);
     --warning: oklch(0.8 0.13 75);
 
-    --border: oklch(0.29 0.015 270);
-    --input: oklch(0.34 0.016 270);
+    --border: oklch(0.31 0.016 270);
+    --input: oklch(0.37 0.017 270);
     --ring: oklch(0.57 0.2 10);
 
     /* Motion. One set of curves and durations for the whole application. */

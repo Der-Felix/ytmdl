@@ -180,6 +180,7 @@ export function Login() {
 
             <Button
               type="submit"
+              variant="default"
               className="w-full mt-2"
               disabled={submitting}
             >

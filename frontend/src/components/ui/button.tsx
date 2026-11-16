@@ -20,7 +20,7 @@ const buttonVariants = cva(
         // A tinted accent, for secondary actions that still belong to the
         // accent family. Deliberately low opacity, never solid pink.
         accent:
-          "border-primary/25 bg-accent text-accent-foreground hover:bg-[rgb(206_52_99/0.2)]",
+          "border-primary/25 bg-accent text-accent-foreground hover:bg-primary/20",
         ghost:
           "text-muted-foreground hover:bg-secondary hover:text-foreground",
         destructive:
