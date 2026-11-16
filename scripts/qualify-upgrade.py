@@ -42,15 +42,26 @@ def qualify(args, guard_enabled):
     text += "HTTP_PROXY=http://192.0.2.10:3128\nNO_PROXY=localhost,127.0.0.1,db,backend\n"
     env_file.write_text(text)
     override = directory / "compose.ghcr.override.yaml"
-    base_override = """services:
-  frontend:
-    networks:
-      - ingress
-networks:
-  ytmdl-net:
-    internal: true
-  ingress: {}
-"""
+
+    def override_text(hotfix_image=None):
+        backend = []
+        frontend = ["    networks:", "      - ingress"]
+        if args.stage_target:
+            # The target images were staged by digest (stage_target). Compose
+            # must use them instead of looking for a tag that the registry does
+            # not have yet; ytmdlctl still verifies them against the manifest.
+            backend.append("    pull_policy: missing")
+            frontend.insert(0, "    pull_policy: missing")
+        if hotfix_image:
+            backend.append("    image: " + hotfix_image)
+        lines = ["services:"]
+        if backend:
+            lines += ["  backend:"] + backend
+        lines += ["  frontend:"] + frontend
+        lines += ["networks:", "  ytmdl-net:", "    internal: true", "  ingress: {}"]
+        return "\n".join(lines) + "\n"
+
+    base_override = override_text()
     override.write_text(base_override)
     compose += ["-f", "compose.ghcr.override.yaml"]
 
@@ -107,6 +118,23 @@ networks:
             raise RuntimeError("Teardown could not remove " + str(networks) + " [" + containers
                                + "]; the next scenario would collide on " + network + "'s subnet.")
         print("WARN: " + args.engine + " teardown recovered; " + network + " is gone", file=sys.stderr, flush=True)
+
+    def stage_target(manifest):
+        # A release run qualifies images that carry only a candidate tag on
+        # GHCR; the version tag is created after qualification. Pull them by
+        # the index digest the manifest pins and give them the target tag in
+        # this engine's local store only. Nothing is pushed. The update still
+        # proves both digests against the manifest and the registry.
+        for component in ("backend", "frontend"):
+            image = manifest["images"][component]
+            repository = image["repository"]
+            assert repository == "ghcr.io/der-felix/ytmdl-" + component, "Unexpected repository " + repository
+            source = repository + "@" + image["digest"]
+            run([args.engine, "pull", source], timeout=900)
+            image_id = run([args.engine, "image", "inspect", "--format", "{{.Id}}", source]).stdout.decode().strip()
+            assert image_id, "Staged image has no local ID."
+            run([args.engine, "tag", image_id, repository + ":" + args.target])
+            print("PASS: " + args.engine + " staged " + source + " as " + repository + ":" + args.target, flush=True)
 
     jar = http.cookiejar.CookieJar()
     client = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar))
@@ -181,6 +209,8 @@ networks:
            "--file", "compose.ghcr.yaml", "--base-url", base]
     completed = False
     try:
+        if args.stage_target:
+            stage_target(manifest)
         run(compose + ["up", "-d"])
         wait_version(args.source)
         print("PASS: " + args.engine + " upgrade source is healthy", flush=True)
@@ -196,7 +226,7 @@ networks:
         assert request("/media-sessions/" + session_id + "/cookies", "POST", upload, "multipart/form-data; boundary=upgrade-fixture")[0] == 200
         snapshot = env_file.read_bytes()
         # Local override rejection must happen before any managed mutation.
-        override.write_text(base_override.replace("services:\n", "services:\n  backend:\n    image: localhost/qualification-hotfix:old\n"))
+        override.write_text(override_text("localhost/qualification-hotfix:old"))
         blocked = run(cli + ["update", "--channel", channel, "--target", args.target, "--dry-run"], required=False, env=environment)
         assert blocked.returncode != 0 and env_file.read_bytes() == snapshot, "Pinned image override was not blocked read-only."
         override.write_text(base_override)
@@ -256,7 +286,12 @@ if __name__ == "__main__":
     parser.add_argument("--target", default=(ROOT / ".release-version").read_text().strip())
     parser.add_argument("--manifest")
     parser.add_argument("--old-cli")
+    parser.add_argument("--stage-target", action="store_true",
+                        help="pull the manifest's target images by digest and tag them locally, "
+                             "for candidates whose version tag is not published yet")
     args = parser.parse_args()
+    if args.stage_target and not args.manifest:
+        parser.error("--stage-target needs --manifest")
     try:
         for guard_enabled in (True, False):
             qualify(args, guard_enabled)
