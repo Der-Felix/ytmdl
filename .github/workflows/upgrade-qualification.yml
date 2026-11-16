@@ -1,0 +1,208 @@
+name: Upgrade Qualification (verify only)
+
+# Runs scripts/qualify-upgrade.py, the managed-update check that release.yml
+# runs after it has pushed images, against an ALREADY PUBLISHED target
+# version. It builds ytmdlctl from the checked-out commit, writes a release
+# manifest from the target's real GHCR digests and updates disposable
+# installations under Docker and rootless Podman.
+#
+# It never publishes: no image push, no tag, no release. The only token
+# permissions are reading the repository and pulling packages.
+#
+# workflow_dispatch only works once this file is on the default branch, so a
+# push trigger on the harness branch lets the check run before a merge.
+
+on:
+  push:
+    branches:
+      - fix/podman-upgrade-qualification
+    paths:
+      - .github/workflows/upgrade-qualification.yml
+      - scripts/qualify-upgrade.py
+      - scripts/install.py
+      - compose.ghcr.yaml
+      - compose.ghcr.podman.yaml
+      - backend/cmd/ytmdlctl/**
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Published target version (its GHCR images must exist)'
+        type: string
+        required: true
+        default: '1.3.2'
+      sources:
+        description: 'Space-separated source versions'
+        type: string
+        required: true
+        default: '0.28.1'
+      engines:
+        description: 'Space-separated engines (docker, podman)'
+        type: string
+        required: true
+        default: 'docker podman'
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: upgrade-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    name: Qualify Managed Upgrades
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TARGET: ${{ inputs.target || '1.3.2' }}
+      SOURCES: ${{ inputs.sources || '0.28.1' }}
+      ENGINES: ${{ inputs.engines || 'docker podman' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Validate Inputs
+        shell: bash
+        run: |
+          [[ "${TARGET}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]] || { echo "::error::Invalid target '${TARGET}'" >&2; exit 1; }
+          for source in ${SOURCES}; do
+            [[ "${source}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid source '${source}'" >&2; exit 1; }
+          done
+          for engine in ${ENGINES}; do
+            [[ "${engine}" =~ ^(docker|podman)$ ]] || { echo "::error::Invalid engine '${engine}'" >&2; exit 1; }
+          done
+          if [[ "${TARGET}" == *-rc.* ]]; then
+            echo "::error::Release candidates need a v4 manifest with a source commit; this check covers stable targets." >&2
+            exit 1
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        with:
+          go-version: '1.26'
+          check-latest: true
+
+      - name: Resolve Published Target Digests
+        id: digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for component in backend frontend; do
+            ref="ghcr.io/der-felix/ytmdl-${component}:${TARGET}"
+            index="$(docker buildx imagetools inspect "${ref}" --format '{{json .Manifest}}' | jq -r '.digest')"
+            raw="$(docker buildx imagetools inspect --raw "${ref}")"
+            amd64="$(echo "${raw}" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest')"
+            arm64="$(echo "${raw}" | jq -r '.manifests[] | select(.platform.architecture == "arm64" and .platform.os == "linux") | .digest')"
+            for d in "${index}" "${amd64}" "${arm64}"; do
+              if [[ ! "${d}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "::error::Invalid ${component} digest '${d}' for ${ref}" >&2
+                exit 1
+              fi
+            done
+            echo "${ref}: index ${index}, linux/amd64 ${amd64}, linux/arm64 ${arm64}"
+            echo "${component}=${index}" >> "$GITHUB_OUTPUT"
+            echo "${component}_amd64=${amd64}" >> "$GITHUB_OUTPUT"
+            echo "${component}_arm64=${arm64}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Build ytmdlctl and Release Manifest
+        shell: bash
+        env:
+          BACKEND_DIGEST: ${{ steps.digests.outputs.backend }}
+          BACKEND_AMD64: ${{ steps.digests.outputs.backend_amd64 }}
+          BACKEND_ARM64: ${{ steps.digests.outputs.backend_arm64 }}
+          FRONTEND_DIGEST: ${{ steps.digests.outputs.frontend }}
+          FRONTEND_AMD64: ${{ steps.digests.outputs.frontend_amd64 }}
+          FRONTEND_ARM64: ${{ steps.digests.outputs.frontend_arm64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          build_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go -C backend build -trimpath \
+            -ldflags "-s -w -X 'main.version=${TARGET}' -X 'main.commit=${GITHUB_SHA}' -X 'main.date=${build_date}'" \
+            -o "${PWD}/dist/ytmdlctl-linux-amd64" ./cmd/ytmdlctl
+          (cd dist && sha256sum ytmdlctl-linux-amd64 > SHA256SUMS)
+          # Same arguments as release.yml for a stable release.
+          go run -C backend ./cmd/ytmdlctl manifest-gen \
+            --version "${TARGET}" \
+            --tag "v${TARGET}" \
+            --manifest-version 3 \
+            --schema 18 \
+            --min-upgrade 0.15.0 \
+            --backend-digest "${BACKEND_DIGEST}" \
+            --backend-platform "linux/amd64=${BACKEND_AMD64}" \
+            --backend-platform "linux/arm64=${BACKEND_ARM64}" \
+            --frontend-digest "${FRONTEND_DIGEST}" \
+            --frontend-platform "linux/amd64=${FRONTEND_AMD64}" \
+            --frontend-platform "linux/arm64=${FRONTEND_ARM64}" \
+            --output "${PWD}/dist/release-manifest.json"
+          cat dist/release-manifest.json
+
+      - name: Download Old ytmdlctl (v0.28.0)
+        shell: bash
+        run: |
+          set -euo pipefail
+          old_cli_dir="${RUNNER_TEMP}/ytmdl-old-cli"
+          mkdir -p "${old_cli_dir}"
+          curl -fsSL --connect-timeout 15 --max-time 120 --retry 2 \
+            https://github.com/Der-Felix/ytmdl/releases/download/v0.28.0/ytmdlctl-linux-amd64 -o "${old_cli_dir}/ytmdlctl-linux-amd64"
+          curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 \
+            https://github.com/Der-Felix/ytmdl/releases/download/v0.28.0/SHA256SUMS -o "${old_cli_dir}/SHA256SUMS"
+          (cd "${old_cli_dir}" && sha256sum --ignore-missing -c SHA256SUMS)
+          chmod +x "${old_cli_dir}/ytmdlctl-linux-amd64"
+
+      - name: Set up Rootless Podman
+        shell: bash
+        run: |
+          set -euo pipefail
+          # As in release.yml ("Qualify Rootless Podman Compose Package").
+          sudo apt-get install -y -qq podman uidmap slirp4netns
+          provider=""
+          for path in /usr/libexec/docker/cli-plugins/docker-compose /usr/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose; do
+            if [ -x "${path}" ]; then provider="${path}"; break; fi
+          done
+          if [ -z "${provider}" ]; then provider="$(command -v docker-compose)"; fi
+          echo "PODMAN_COMPOSE_PROVIDER=${provider}" >> "$GITHUB_ENV"
+          podman info --format '{{.Host.Security.Rootless}}' | grep -qx true
+          podman system service --time=0 > "${RUNNER_TEMP}/podman-service.log" 2>&1 &
+          podman version
+          podman info --format 'network backend: {{.Host.NetworkBackend}}; rootless network cmd: {{.Host.RootlessNetworkCmd}}'
+          docker version --format 'docker server {{.Server.Version}}'
+          "${provider}" version
+
+      - name: Qualify Real Upgrades
+        shell: bash
+        run: |
+          set -euo pipefail
+          for source in ${SOURCES}; do
+            for engine in ${ENGINES}; do
+              echo "::group::${engine} ${source} -> ${TARGET}"
+              python3 scripts/qualify-upgrade.py --engine "${engine}" \
+                --cli "${PWD}/dist/ytmdlctl-linux-amd64" \
+                --source "${source}" \
+                --target "${TARGET}" \
+                --manifest "${PWD}/dist/release-manifest.json" \
+                --old-cli "${RUNNER_TEMP}/ytmdl-old-cli/ytmdlctl-linux-amd64"
+              echo "::endgroup::"
+            done
+          done
+
+      - name: Engine State After Qualification
+        if: always()
+        shell: bash
+        run: |
+          for engine in podman docker; do
+            command -v "${engine}" >/dev/null || continue
+            echo "== ${engine} networks"
+            "${engine}" network ls || true
+            for network in $("${engine}" network ls --format '{{.Name}}' 2>/dev/null | grep '^ytmdl-' || true); do
+              "${engine}" network inspect "${network}" || true
+            done
+            echo "== ${engine} containers"
+            "${engine}" ps -a --format '{{.ID}} {{.Names}} {{.Status}} {{.Labels}}' || true
+          done
+          echo "== podman system service log (tail)"
+          tail -n 200 "${RUNNER_TEMP}/podman-service.log" 2>/dev/null || true
