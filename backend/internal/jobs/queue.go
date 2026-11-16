@@ -377,9 +377,12 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 				}
 
 			case ItemWaitingStorage:
-				// If already staged with hash, can finalize to /music even outside window
+				// A staged item only has the move into /music left, and that
+				// needs the library. Offline staging must not make it ready:
+				// an attempt would download the track again and stop at the
+				// same storage check, over and over while the library is away.
 				if it.StagedSHA256 != "" {
-					if storageHealthy || m.allowOfflineStaging.Load() {
+					if storageHealthy {
 						readyItems = append(readyItems, it)
 					}
 				} else if insideWindow && (storageHealthy || m.allowOfflineStaging.Load()) {

@@ -70,6 +70,58 @@ func (l *Limiter) Allow(key string) (bool, time.Duration) {
 	return true, 0
 }
 
+// Reserve checks the limit for key and, when the attempt is allowed, counts it
+// in the same step. Checking and counting under one lock is what keeps
+// concurrent attempts from all passing a check that none of them has been
+// counted against yet. The returned time identifies the reservation for
+// Release.
+func (l *Limiter) Reserve(key string) (bool, time.Duration, time.Time) {
+	if allowed, retryAfter := l.Allow(key); !allowed {
+		return false, retryAfter, time.Time{}
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	rec, exists := l.records[key]
+	if !exists {
+		rec = &attemptRecord{}
+		l.records[key] = rec
+	}
+	if len(rec.timestamps) >= l.maxAttempts {
+		// Another attempt took the last slot between the check and this lock.
+		retryAfter := rec.timestamps[0].Add(l.window).Sub(now)
+		if retryAfter < 0 {
+			retryAfter = 0
+		}
+		return false, retryAfter, time.Time{}
+	}
+	rec.timestamps = append(rec.timestamps, now)
+	return true, 0, now
+}
+
+// Release takes back one reservation made by Reserve, for an attempt that
+// turned out not to be a failure. Other attempts recorded for key are kept.
+func (l *Limiter) Release(key string, at time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	rec, exists := l.records[key]
+	if !exists {
+		return
+	}
+	for i, ts := range rec.timestamps {
+		if ts.Equal(at) {
+			rec.timestamps = append(rec.timestamps[:i], rec.timestamps[i+1:]...)
+			break
+		}
+	}
+	if len(rec.timestamps) == 0 {
+		delete(l.records, key)
+	}
+}
+
 // RecordFailure records a failed attempt for key.
 func (l *Limiter) RecordFailure(key string) {
 	l.mu.Lock()

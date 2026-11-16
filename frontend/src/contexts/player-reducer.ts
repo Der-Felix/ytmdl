@@ -61,6 +61,7 @@ export type PlayerAction =
   | { type: 'PREVIOUS' }
   | { type: 'NEXT'; payload?: { manual?: boolean } }
   | { type: 'RESTORE_STATE'; payload: Partial<PlayerState> }
+  | { type: 'RESET_SESSION' }
 
 export const INITIAL_PLAYER_STATE: PlayerState = {
   currentTrack: null,
@@ -796,6 +797,11 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         status: 'paused', // NEVER autoplay on restored state
       }
     }
+
+    // The signed-in user changed. Nothing of the previous session may carry
+    // over: RESTORE_STATE keeps whatever the new user's saved state omits.
+    case 'RESET_SESSION':
+      return { ...INITIAL_PLAYER_STATE }
 
     default:
       return state

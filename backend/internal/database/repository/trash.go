@@ -33,6 +33,8 @@ const trashPayloadSQL = `SELECT t.title,jsonb_build_object(
    'sources',COALESCE((SELECT jsonb_agg(to_jsonb(s)) FROM track_sources s WHERE s.track_id=t.id),'[]'),
    'overrides',COALESCE((SELECT jsonb_agg(to_jsonb(o)) FROM track_overrides o WHERE o.track_id=t.id),'[]'),
    'favorites',COALESCE((SELECT jsonb_agg(to_jsonb(f)) FROM favorite_tracks f WHERE f.track_id=t.id),'[]'),
+   'history',COALESCE((SELECT jsonb_agg(to_jsonb(h)) FROM listening_history h WHERE h.track_id=t.id),'[]'),
+   'events',COALESCE((SELECT jsonb_agg(to_jsonb(e)) FROM playback_events e WHERE e.track_id=t.id),'[]'),
    'playlists',COALESCE((SELECT jsonb_agg(to_jsonb(p)||jsonb_build_object('next_ids',ARRAY(SELECT n.track_id FROM playlist_tracks n WHERE n.playlist_id=p.playlist_id AND n.position>p.position ORDER BY n.position),'previous_ids',ARRAY(SELECT n.track_id FROM playlist_tracks n WHERE n.playlist_id=p.playlist_id AND n.position<p.position ORDER BY n.position DESC))) FROM playlist_tracks p WHERE p.track_id=t.id),'[]'))
    FROM tracks t WHERE t.id=$1 FOR UPDATE`
 
@@ -192,6 +194,10 @@ func (c *Catalog) RestoreTrashMetadata(ctx context.Context, e *TrashEntry) error
 			`INSERT INTO track_sources SELECT * FROM jsonb_populate_recordset(NULL::track_sources,$1::jsonb->'sources')`,
 			`INSERT INTO track_overrides SELECT * FROM jsonb_populate_recordset(NULL::track_overrides,$1::jsonb->'overrides')`,
 			`INSERT INTO favorite_tracks SELECT f.* FROM jsonb_populate_recordset(NULL::favorite_tracks,$1::jsonb->'favorites') f JOIN users u ON u.id=f.user_id ON CONFLICT DO NOTHING`,
+			// Play counts and play events cascade away with the track. Entries
+			// trashed before these keys existed carry none, hence the COALESCE.
+			`INSERT INTO listening_history SELECT h.* FROM jsonb_populate_recordset(NULL::listening_history,COALESCE($1::jsonb->'history','[]'::jsonb)) h JOIN users u ON u.id=h.user_id ON CONFLICT DO NOTHING`,
+			`INSERT INTO playback_events SELECT e.* FROM jsonb_populate_recordset(NULL::playback_events,COALESCE($1::jsonb->'events','[]'::jsonb)) e JOIN users u ON u.id=e.user_id ON CONFLICT DO NOTHING`,
 		} {
 			if _, err := tx.ExecContext(ctx, q, payload); err != nil {
 				return err

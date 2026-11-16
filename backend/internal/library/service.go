@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -727,14 +728,7 @@ func (s *Service) retagTrackLocked(ctx context.Context, trackID string) error {
 		}
 		tags := metadata.TagsFor(*track, mediaSource)
 
-		var artwork *metadata.Artwork
-		coverPath := filepath.Join(filepath.Dir(absPath), storage.CoverFileName)
-		if coverData, err := os.ReadFile(coverPath); err == nil && len(coverData) > 0 {
-			artwork = &metadata.Artwork{
-				Data: coverData,
-				MIME: "image/jpeg",
-			}
-		}
+		artwork := readReleaseCover(filepath.Dir(absPath))
 
 		if err := s.tagger.Apply(ctx, absPath, tags, artwork); err != nil {
 			return err
@@ -750,6 +744,25 @@ func (s *Service) retagTrackLocked(ctx context.Context, trackID string) error {
 		}
 	}
 
+	return nil
+}
+
+// readReleaseCover loads the cover stored next to a release's tracks, under
+// either of the names the library writes ("cover.jpg" or "cover.png"). The
+// MIME type comes from the image bytes, not from the file name, so a retag
+// embeds the picture as what it is. It returns nil when there is no cover.
+func readReleaseCover(dir string) *metadata.Artwork {
+	for _, name := range []string{storage.CoverFileName, storage.CoverFileNameFor(".png")} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		mime := http.DetectContentType(data)
+		if mime != "image/jpeg" && mime != "image/png" {
+			continue
+		}
+		return &metadata.Artwork{Data: data, MIME: mime}
+	}
 	return nil
 }
 

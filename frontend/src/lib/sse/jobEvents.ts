@@ -6,9 +6,13 @@
  * cost the backend a subscriber per view. The connection opens with the first
  * subscriber and closes with the last.
  *
- * Reconnecting is left to EventSource itself — the backend sends "retry: 3000"
- * as the first line of the stream, so the browser handles the backoff. What
- * this module adds is a readable connection state, because the UI has to keep
+ * Reconnecting after a dropped connection is left to EventSource itself — the
+ * backend sends "retry: 3000" as the first line of the stream, so the browser
+ * handles the backoff. EventSource gives up for good, though, when the server
+ * answers with an error status: a 401 before sign-in or after the session
+ * expired, a 502 while the backend restarts. This module then opens a new
+ * stream itself, with a growing delay, for as long as anyone is subscribed.
+ * It also adds a readable connection state, because the UI has to keep
  * working while the stream is down.
  */
 
@@ -24,8 +28,13 @@ type StateHandler = (state: ConnectionState) => void
 const eventHandlers = new Set<EventHandler>()
 const stateHandlers = new Set<StateHandler>()
 
+const RETRY_MIN_MS = 3000
+const RETRY_MAX_MS = 30000
+
 let source: EventSource | null = null
 let state: ConnectionState = 'offline'
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+let retryDelay = RETRY_MIN_MS
 
 /** The current connection state. */
 export function connectionState(): ConnectionState {
@@ -38,8 +47,26 @@ function setState(next: ConnectionState): void {
   for (const handler of stateHandlers) handler(next)
 }
 
+function clearRetry(): void {
+  if (retryTimer !== null) {
+    clearTimeout(retryTimer)
+    retryTimer = null
+  }
+}
+
+/** Opens a new stream later, unless one is planned or nobody listens. */
+function scheduleRetry(): void {
+  if (retryTimer !== null || eventHandlers.size === 0) return
+  retryTimer = setTimeout(() => {
+    retryTimer = null
+    if (eventHandlers.size > 0) open()
+  }, retryDelay)
+  retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
+}
+
 function open(): void {
   if (source) return
+  clearRetry()
   if (typeof EventSource === 'undefined') {
     setState('offline')
     return
@@ -52,13 +79,23 @@ function open(): void {
   stream.onopen = () => {
     // A late open() from a stream that was already replaced must not report a
     // connection the application no longer holds.
-    if (source === stream) setState('open')
+    if (source !== stream) return
+    retryDelay = RETRY_MIN_MS
+    setState('open')
   }
 
   stream.onerror = () => {
     if (source !== stream) return
     // EventSource reconnects on its own unless it closed permanently.
-    setState(stream.readyState === EventSource.CLOSED ? 'offline' : 'connecting')
+    if (stream.readyState !== EventSource.CLOSED) {
+      setState('connecting')
+      return
+    }
+    // A permanently closed stream is released, so that open() can replace it;
+    // holding on to it would keep the application offline until a reload.
+    source = null
+    setState('offline')
+    scheduleRetry()
   }
 
   // The backend names every message, so each type is registered explicitly
@@ -73,6 +110,8 @@ function open(): void {
 }
 
 function close(): void {
+  clearRetry()
+  retryDelay = RETRY_MIN_MS
   source?.close()
   source = null
   setState('offline')
