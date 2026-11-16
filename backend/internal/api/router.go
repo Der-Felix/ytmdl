@@ -34,6 +34,11 @@ type RouterOptions struct {
 // lived by design.
 const eventsPath = "/events"
 
+// loudnessPath is excluded as well: the loudness analysis runs ffmpeg over a
+// whole track under its own, longer deadline, which the general request
+// timeout would cut short.
+const loudnessPath = "/loudness"
+
 // NewRouter builds the HTTP router.
 func NewRouter(opts RouterOptions) (http.Handler, error) {
 	if opts.Handlers == nil {
@@ -60,7 +65,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 	router.Use(middleware.Recoverer(logger))
 	router.Use(middleware.Logger(logger))
 	router.Use(requestBodyLimit(maxBytes))
-	router.Use(middleware.Timeout(timeout, eventsPath))
+	router.Use(middleware.Timeout(timeout, eventsPath, loudnessPath))
 
 	router.NotFound(response.NotFound)
 	router.MethodNotAllowed(response.MethodNotAllowed)
@@ -252,12 +257,13 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					mutating.Post("/tracks/{id}/lyrics/refresh", h.RefreshTrackLyrics)
 					mutating.Delete("/tracks/{id}/lyrics", h.DeleteTrackLyrics)
 					mutating.Post("/lyrics/backfill", h.BackfillLyrics)
-					mutating.Post("/reorganize", h.Reorganize)
 					mutating.Post("/scan", h.StartLibraryScan)
 
 					// Destructive library mutations & repairs require Administrator privileges
 					mutating.Group(func(admin chi.Router) {
 						admin.Use(middleware.RequireAdmin)
+						// Reorganize moves files of the shared library on disk.
+						admin.Post("/reorganize", h.Reorganize)
 						admin.Post("/duplicates/remove", h.RemoveDuplicateVersions)
 						admin.Post("/audio-analysis/{id}", h.AnalyzeAudioFingerprint)
 						admin.Delete("/audio-analysis", h.ResetAudioAnalysis)

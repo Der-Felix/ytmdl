@@ -173,7 +173,7 @@ func (c *Catalog) ForgetTrash(ctx context.Context, id string) error {
 }
 func (c *Catalog) CheckTrashRestore(ctx context.Context, e *TrashEntry) error {
 	var conflict bool
-	err := c.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM tracks WHERE id=$1) OR EXISTS(SELECT 1 FROM files f JOIN jsonb_array_elements($2::jsonb->'files') a ON f.id=a->>'id' OR f.path=a->>'path')`, e.TrackID, []byte(e.Payload)).Scan(&conflict)
+	err := c.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM tracks WHERE id=$1) OR EXISTS(SELECT 1 FROM files f JOIN jsonb_array_elements($2::jsonb->'files') a ON f.id=a->>'id' OR f.path=a->>'path') OR EXISTS(SELECT 1 FROM tracks WHERE isrc<>'' AND isrc=$2::jsonb->'track'->>'isrc') OR ($2::jsonb->'track'->>'release_id' IS NOT NULL AND NOT EXISTS(SELECT 1 FROM releases WHERE id=$2::jsonb->'track'->>'release_id')) OR ($2::jsonb->'track'->>'artist_id' IS NOT NULL AND NOT EXISTS(SELECT 1 FROM artists WHERE id=$2::jsonb->'track'->>'artist_id'))`, e.TrackID, []byte(e.Payload)).Scan(&conflict)
 	if err != nil {
 		return err
 	}

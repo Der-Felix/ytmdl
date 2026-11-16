@@ -667,8 +667,15 @@ func (s *Service) deepProbeFile(
 		}
 
 		if canonicalActiveFile != nil && canonicalActiveFile.Path != df.RelPath {
-			// Legacy duplicate finding
-			action := music.ActionQuarantineFile
+			// Legacy duplicate finding. Quarantine is only suggested when the
+			// file is proven to be the catalogued recording. A match on
+			// title, artist and runtime alone ignores the album, so another
+			// release of the same song must not be offered for removal.
+			var action *music.RepairAction
+			if evidenceLevel == music.EvidenceExactCatalogID || evidenceLevel == music.EvidenceExactContent {
+				quarantine := music.ActionQuarantineFile
+				action = &quarantine
+			}
 			addFinding(music.AuditFinding{
 				FindingCode:     music.FindingLegacyDuplicate,
 				Severity:        music.SeverityWarning,
@@ -677,7 +684,7 @@ func (s *Service) deepProbeFile(
 				ReleaseID:       matchedTrack.ReleaseID,
 				ArtistName:      matchedTrack.DisplayArtist(),
 				TrackTitle:      matchedTrack.DisplayTitle(),
-				SuggestedAction: &action,
+				SuggestedAction: action,
 				Evidence: music.FindingEvidence{
 					Level:           evidenceLevel,
 					ActualPath:      df.RelPath,

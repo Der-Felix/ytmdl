@@ -59,6 +59,7 @@ func SanitizeComponent(name string) string {
 	out := strings.Join(strings.Fields(b.String()), " ")
 	out = strings.Trim(out, " .")
 	out = truncateRunes(out, MaxComponentLength)
+	out = truncateBytes(out, MaxComponentBytes)
 	out = strings.Trim(out, " .")
 
 	if out == "" {
@@ -81,6 +82,7 @@ func SanitizeFilename(name, ext string) string {
 
 	base := SanitizeComponent(name)
 	base = truncateRunes(base, limit)
+	base = truncateBytes(base, MaxComponentBytes-len(ext))
 	base = strings.Trim(base, " .")
 	if base == "" {
 		base = placeholder
@@ -120,6 +122,26 @@ func baseName(name string) string {
 }
 
 // truncateRunes shortens s to at most n runes without splitting a rune.
+// MaxComponentBytes caps the encoded size of a path component. Filesystems
+// limit a name to 255 bytes, not characters, and a title in a script that
+// takes three bytes per character passes the rune limit long before it fits.
+const MaxComponentBytes = 240
+
+// truncateBytes shortens s to at most n bytes without splitting a character.
+func truncateBytes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
 func truncateRunes(s string, n int) string {
 	if n <= 0 {
 		return ""

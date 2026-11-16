@@ -61,11 +61,13 @@ func (r *Playlists) AddTracks(ctx context.Context, userID, id string, ids []stri
 		var owner string
 		var smart bool
 		err := tx.QueryRowContext(ctx, "SELECT user_id,smart_rules IS NOT NULL FROM playlists WHERE id=$1 FOR UPDATE", id).Scan(&owner, &smart)
-		if errors.Is(err, sql.ErrNoRows) || owner != userID {
-			return apperr.New(apperr.CodePlaylistNotFound, "Playlist nicht gefunden.")
-		}
-		if err != nil {
+		// A real database error must not read as "not found": owner is still
+		// empty then, so the ownership test below would hide it.
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
+		}
+		if err != nil || owner != userID {
+			return apperr.New(apperr.CodePlaylistNotFound, "Playlist nicht gefunden.")
 		}
 		if smart {
 			return apperr.New(apperr.CodeInvalidRequest, "Intelligente Playlists werden automatisch gepflegt.")

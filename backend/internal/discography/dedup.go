@@ -112,6 +112,11 @@ func Deduplicate(tracks []music.Track, opts DedupOptions) []Group {
 		bucket := titleBucket(t)
 		found := false
 		for _, c := range buckets[bucket] {
+			// Two different valid ISRCs name two different recordings, however
+			// alike title, artist and runtime are ("Intro" on two albums).
+			if a, b := NormalizeISRC(t.ISRC), NormalizeISRC(tracks[c.rep].ISRC); a != "" && b != "" && a != b {
+				continue
+			}
 			if durationsMatch(t.DurationMS, c.durationMS, tolerance) && intersects(artistSets[i], c.artists) {
 				uf.union(i, c.rep)
 				found = true

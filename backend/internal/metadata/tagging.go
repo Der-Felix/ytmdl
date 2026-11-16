@@ -264,11 +264,21 @@ func (t *Tagger) applyFFmpeg(ctx context.Context, path string, tags Tags, artwor
 
 	var coverPath string
 	if artwork != nil && supportsEmbeddedCover(ext) {
-		coverPath = filepath.Join(dir, ".ytdm-cover"+artwork.Extension())
-		if err := os.WriteFile(coverPath, artwork.Data, 0o600); err != nil {
+		// A unique name per run: two files of one release tagged at the same
+		// time must not share, truncate or delete each other's cover.
+		coverFile, err := os.CreateTemp(dir, ".ytdm-cover-*"+artwork.Extension())
+		if err != nil {
 			return apperr.Wrap(apperr.CodeTaggingFailed, "The cover could not be written.", err)
 		}
+		coverPath = coverFile.Name()
 		defer os.Remove(coverPath)
+		_, writeErr := coverFile.Write(artwork.Data)
+		if closeErr := coverFile.Close(); writeErr == nil {
+			writeErr = closeErr
+		}
+		if writeErr != nil {
+			return apperr.Wrap(apperr.CodeTaggingFailed, "The cover could not be written.", writeErr)
+		}
 		args = append(args, "-i", coverPath,
 			"-map", "0:a", "-map", "1:v",
 			"-c", "copy",

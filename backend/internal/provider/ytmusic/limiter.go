@@ -58,6 +58,10 @@ func (l *requestLimiter) wait(ctx context.Context) error {
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
+		// The request is never made, so its token goes back.
+		l.mu.Lock()
+		l.tokens = min(l.burst, l.tokens+1)
+		l.mu.Unlock()
 		return ctx.Err()
 	case <-timer.C:
 		return nil

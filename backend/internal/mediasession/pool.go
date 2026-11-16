@@ -684,11 +684,19 @@ func (p *SessionPool) acquire(ctx context.Context, excluded map[string]struct{},
 		select {
 		case <-ctx.Done():
 			p.mu.Lock()
+			queued := false
 			for i, ch := range p.waiters {
 				if ch == waitCh {
 					p.waiters = append(p.waiters[:i], p.waiters[i+1:]...)
+					queued = true
 					break
 				}
+			}
+			if !queued {
+				// A release already took this waiter off the list and woke
+				// it, but the cancellation won. The wakeup is passed on so
+				// the next waiter does not sleep beside a free session.
+				p.wakeOneWaiterLocked()
 			}
 			p.mu.Unlock()
 			return nil, ctx.Err()

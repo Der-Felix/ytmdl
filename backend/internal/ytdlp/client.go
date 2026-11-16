@@ -510,6 +510,9 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest, onProgress P
 				onProgress(p)
 			}
 		}
+		// The scanner stops at a line longer than its buffer. The pipe still
+		// has to be drained, or yt-dlp blocks writing to it and never exits.
+		_, _ = io.Copy(io.Discard, stdout)
 	}()
 
 	// Standard output has to be read to its end before Wait: Wait closes the

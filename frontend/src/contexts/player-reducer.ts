@@ -186,8 +186,13 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         ...state,
         currentTrack: track,
         queue: newQueue,
+        // A queue passed along is a new listening context. The unshuffled
+        // order remembered for the previous one must not survive it, or
+        // turning shuffle off would bring the old queue back.
         originalQueue:
-          state.shuffle && state.originalQueue.length > 0 ? state.originalQueue : newQueue,
+          state.shuffle && state.originalQueue.length > 0 && !(queue && queue.length > 0)
+            ? state.originalQueue
+            : newQueue,
         queueIndex: idx,
         status: 'buffering',
         currentTime: 0,

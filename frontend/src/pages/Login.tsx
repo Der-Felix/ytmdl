@@ -61,7 +61,11 @@ export function Login() {
           password,
         })
       }
-      navigate('/')
+      // The login form is shown in place of whatever page was requested, so
+      // that page (a device pairing link with its code, for example) appears
+      // by itself once the session exists. Only a visit to the login address
+      // itself has nowhere to return to.
+      if (window.location.pathname === '/login') navigate('/')
     } catch (err) {
       setFormError(errorMessage(err))
     } finally {

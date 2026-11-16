@@ -829,7 +829,16 @@ func (r *Jobs) DeleteHistory(ctx context.Context, olderThan time.Time, allowedSt
 // ResetItemForRetry resets an item that is in a failed or retry_wait state so it can be picked up fresh.
 func (r *Jobs) ResetItemForRetry(ctx context.Context, jobID, itemID string) error {
 	now := time.Now().UTC()
-	res, err := r.db.ExecContext(ctx, `
+
+	// The item and its job change together: an item reset to pending under a
+	// job that stays terminal would never be dispatched.
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrapDB("begin reset item tx", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
 		UPDATE job_items
 		SET status = $3,
 		    attempts = 0,
@@ -852,14 +861,28 @@ func (r *Jobs) ResetItemForRetry(ctx context.Context, jobID, itemID string) erro
 		return apperr.New(apperr.CodeInvalidRequest, "The item is not in a retryable state (failed or retry_wait).")
 	}
 
-	// Also make sure parent job is not stuck in a terminal failed state
-	_, _ = r.db.ExecContext(ctx, `
-		UPDATE jobs
-		SET status = $2, error_code = '', error_message = '', updated_at = $3
-		WHERE id = $1 AND status IN ($4, $5)`,
-		jobID, string(jobs.StatusQueued), now,
-		string(jobs.StatusFailed), string(jobs.StatusCompleted))
+	if err := requeueTerminalJob(ctx, tx, jobID, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapDB("commit reset item tx", err)
+	}
+	return nil
+}
 
+// requeueTerminalJob returns a finished job to the queue because one of its
+// items is pending again. A cancelled job is included: its failed items can be
+// retried too, and left cancelled it would never be dispatched.
+func requeueTerminalJob(ctx context.Context, tx *sql.Tx, jobID string, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE jobs
+		SET status = $2, error_code = '', error_message = '', updated_at = $3, finished_at = NULL
+		WHERE id = $1 AND status IN ($4, $5, $6)`,
+		jobID, string(jobs.StatusQueued), now,
+		string(jobs.StatusFailed), string(jobs.StatusCompleted), string(jobs.StatusCancelled))
+	if err != nil {
+		return wrapDB("requeue job for retry", err)
+	}
 	return nil
 }
 
@@ -880,7 +903,13 @@ func (r *Jobs) ResetFailedItemsInJob(ctx context.Context, jobID string) (int, in
 		return 0, 0, nil
 	}
 
-	res, err := r.db.ExecContext(ctx, `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, wrapDB("begin reset failed items tx", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
 		UPDATE job_items
 		SET status = $2,
 		    attempts = 0,
@@ -898,13 +927,12 @@ func (r *Jobs) ResetFailedItemsInJob(ctx context.Context, jobID string) (int, in
 		return 0, 0, wrapDB("check rows affected", err)
 	}
 
-	// Reset parent job status if it was failed or completed
-	_, _ = r.db.ExecContext(ctx, `
-		UPDATE jobs
-		SET status = $2, error_code = '', error_message = '', updated_at = $3
-		WHERE id = $1 AND status IN ($4, $5)`,
-		jobID, string(jobs.StatusQueued), now,
-		string(jobs.StatusFailed), string(jobs.StatusCompleted))
+	if err := requeueTerminalJob(ctx, tx, jobID, now); err != nil {
+		return 0, 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, wrapDB("commit reset failed items tx", err)
+	}
 
 	return int(retried), 0, nil
 }

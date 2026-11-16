@@ -410,7 +410,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       [
         'play',
         () => {
-          engine.play()
+          // Only resume audio that belongs to the current track. While a new
+          // source is still loading, the engine holds the previous track.
+          const track = stateRef.current.currentTrack
+          if (track && currentEngineTrackIdRef.current === audioKey(track)) engine.play()
           dispatch({ type: 'SET_STATUS', payload: 'playing' })
         },
       ],
@@ -524,7 +527,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             engine.pause()
             dispatch({ type: 'SET_STATUS', payload: 'paused' })
           } else {
-            engine.play()
+            const track = stateRef.current.currentTrack
+            if (track && currentEngineTrackIdRef.current === audioKey(track)) engine.play()
             dispatch({ type: 'SET_STATUS', payload: 'playing' })
           }
           break

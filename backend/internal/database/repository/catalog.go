@@ -1172,7 +1172,11 @@ func mergeArtistsTx(ctx context.Context, tx *sql.Tx, canonicalID string, duplica
 	}
 
 	// 6. Reassign library audit findings (if table exists)
-	_, _ = tx.ExecContext(ctx, `UPDATE library_audit_findings SET artist_id = $1 WHERE artist_id = ANY($2)`, canonicalID, dups)
+	// A failed statement aborts the whole transaction, so ignoring the error
+	// here would only make the next statement fail under a misleading name.
+	if _, err := tx.ExecContext(ctx, `UPDATE library_audit_findings SET artist_id = $1 WHERE artist_id = ANY($2)`, canonicalID, dups); err != nil {
+		return wrapDB("reassign audit findings to canonical artist", err)
+	}
 
 	// 7. Delete duplicate artist rows (sources were already transferred to canonicalID, so none are lost)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM artists WHERE id = ANY($1)`, dups); err != nil {

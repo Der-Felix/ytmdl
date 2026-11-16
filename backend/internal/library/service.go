@@ -799,15 +799,38 @@ func (s *Service) DeleteTrack(ctx context.Context, trackID string) error {
 		return err
 	}
 
+	if guard := s.library.Guard(); guard != nil {
+		if err := guard.RequireWritable(); err != nil {
+			return err
+		}
+	}
+
 	for _, f := range files {
-		absPath, _, confErr := VerifyPathConfinement(s.library.Root(), f.Path, true)
-		if confErr == nil {
-			_ = os.Remove(absPath)
+		if err := s.removeTrackFile(f.Path); err != nil {
+			// The catalog rows stay: deleting them while the audio is still
+			// on disk would leave an untracked file behind.
+			return err
 		}
 		_ = s.files.Delete(ctx, f.ID)
 	}
 
 	_ = s.catalog.DeleteTrack(ctx, trackID)
+	return nil
+}
+
+// removeTrackFile deletes an audio file and its lyrics sidecars. A file that
+// is already gone counts as removed; any other failure is reported, and the
+// absolute path is returned for the caller's directory cleanup.
+func (s *Service) removeTrackFile(relPath string) error {
+	absPath, _, confErr := VerifyPathConfinement(s.library.Root(), relPath, true)
+	if confErr != nil {
+		// A path outside the library is never touched; only its row goes.
+		return nil
+	}
+	if err := os.Remove(absPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return apperr.Wrap(apperr.CodeInternal, "The audio file could not be removed; the track was kept.", err)
+	}
+	_ = s.library.RemoveLyrics(absPath)
 	return nil
 }
 
@@ -839,36 +862,64 @@ func (s *Service) DeleteRelease(ctx context.Context, releaseID string) error {
 		}
 	}
 
-	tracks, err := s.catalog.ListTracks(ctx, releaseID, 500, 0)
-
-	if err != nil {
-		return err
+	if guard := s.library.Guard(); guard != nil {
+		if err := guard.RequireWritable(); err != nil {
+			return err
+		}
 	}
 
 	var candidateDirs []string
+	var removeErr error
 
-	for _, trk := range tracks {
-		files, err := s.files.ListByTrack(ctx, trk.ID)
+	// Tracks are read in pages from the start: every pass deletes what it
+	// read, so the next page is again the first one. A pass that deletes
+	// nothing ends the loop, whatever the reason.
+	const pageSize = 500
+	for {
+		tracks, err := s.catalog.ListTracks(ctx, releaseID, pageSize, 0)
 		if err != nil {
-			continue
+			return err
 		}
-		for _, f := range files {
-			absPath, _, confErr := VerifyPathConfinement(s.library.Root(), f.Path, true)
-			if confErr == nil {
-				_ = os.Remove(absPath)
-				dir := filepath.Dir(absPath)
-				candidateDirs = append(candidateDirs, dir)
+		deleted := 0
+		for _, trk := range tracks {
+			files, err := s.files.ListByTrack(ctx, trk.ID)
+			if err != nil {
+				continue
 			}
-			_ = s.files.Delete(ctx, f.ID)
+			kept := false
+			for _, f := range files {
+				if err := s.removeTrackFile(f.Path); err != nil {
+					removeErr = err
+					kept = true
+					continue
+				}
+				if absPath, _, confErr := VerifyPathConfinement(s.library.Root(), f.Path, true); confErr == nil {
+					candidateDirs = append(candidateDirs, filepath.Dir(absPath))
+				}
+				_ = s.files.Delete(ctx, f.ID)
+			}
+			if kept {
+				continue
+			}
+			if err := s.catalog.DeleteTrack(ctx, trk.ID); err == nil {
+				deleted++
+			}
 		}
-		_ = s.catalog.DeleteTrack(ctx, trk.ID)
+		if len(tracks) < pageSize || deleted == 0 {
+			break
+		}
 	}
 
-	// Delete known cover.jpg in release directory
+	if removeErr != nil {
+		// Some audio could not be removed. Its tracks and the release stay in
+		// the catalog, so nothing on disk becomes untracked.
+		return removeErr
+	}
+
+	// Delete the known cover files in the release directory
 	for _, dir := range candidateDirs {
-		coverPath := filepath.Join(dir, storage.CoverFileName)
-		if _, err := os.Stat(coverPath); err == nil {
-			_ = os.Remove(coverPath)
+		for _, name := range []string{storage.CoverFileName, storage.CoverFileNameFor(".png")} {
+			_ = os.Remove(filepath.Join(dir, name))
 		}
 		// Attempt to remove directory if empty (os.Remove will fail if other files exist)
 		_ = os.Remove(dir)

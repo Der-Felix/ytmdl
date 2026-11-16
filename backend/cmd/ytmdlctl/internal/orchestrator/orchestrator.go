@@ -255,6 +255,13 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 		return nil, fmt.Errorf("release manifest validation failed: %w", err)
 	}
 
+	// The dry run refuses an installation below the release's minimum
+	// upgrade version. The real update has to refuse it too, or the two
+	// would disagree about the same installation.
+	if err := targetManifest.CheckEligibility(configuredVersion); err != nil {
+		return nil, fmt.Errorf("managed update blocked: %w", err)
+	}
+
 	// Schema compatibility validation & upgrade path resolution
 	upgradePath, err := targetManifest.FindUpgradePath(schemaBefore)
 	if err != nil {

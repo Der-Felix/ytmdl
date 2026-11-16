@@ -90,6 +90,7 @@ func (p *Provider) GetDiscography(ctx context.Context, artistID string) ([]music
 	}
 
 	nextURL := fmt.Sprintf("/artist/%s/albums?limit=50", artistID)
+	visited := map[string]bool{nextURL: true}
 	seen := make(map[string]bool)
 	var releases []music.Release
 
@@ -114,9 +115,11 @@ func (p *Provider) GetDiscography(ctx context.Context, artistID string) ([]music
 			}
 		}
 
-		if page.Next == "" || len(page.Data) == 0 {
+		// A next link that was already followed would loop forever.
+		if page.Next == "" || len(page.Data) == 0 || visited[page.Next] {
 			break
 		}
+		visited[page.Next] = true
 		nextURL = page.Next
 	}
 
@@ -154,6 +157,7 @@ func (p *Provider) GetReleaseTracks(ctx context.Context, releaseID string) ([]mu
 	}
 
 	nextURL := fmt.Sprintf("/album/%s/tracks?limit=50", releaseID)
+	visited := map[string]bool{nextURL: true}
 	var tracks []music.Track
 
 	for nextURL != "" {
@@ -174,9 +178,11 @@ func (p *Provider) GetReleaseTracks(ctx context.Context, releaseID string) ([]mu
 			tracks = append(tracks, track)
 		}
 
-		if page.Next == "" || len(page.Data) == 0 {
+		// A next link that was already followed would loop forever.
+		if page.Next == "" || len(page.Data) == 0 || visited[page.Next] {
 			break
 		}
+		visited[page.Next] = true
 		nextURL = page.Next
 	}
 

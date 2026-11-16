@@ -104,14 +104,16 @@ func defaultRepairAction(code music.FindingCode) music.RepairAction {
 		return music.ActionMoveCanonical
 	case music.FindingTagMismatch:
 		return music.ActionRestoreTags
-	case music.FindingFileUntracked, music.FindingLegacyDuplicate:
-		// Both name a file the catalog does not know. Should it be registered
-		// after all, the quarantine itself refuses it.
+	case music.FindingFileUntracked:
+		// A file the catalog does not know. Should it be registered after
+		// all, the quarantine itself refuses it.
 		return music.ActionQuarantineFile
 	default:
-		// FILE_DUPLICATE names a registered file that several rows share, and
-		// the remaining codes (missing or invalid audio, covers, lyrics) have
-		// no file that could safely be moved or rewritten.
+		// LEGACY_DUPLICATE carries its own suggestion when the audit could
+		// prove the file is a copy; without one the match was by metadata
+		// only. FILE_DUPLICATE names a registered file that several rows
+		// share, and the remaining codes (missing or invalid audio, covers,
+		// lyrics) have no file that could safely be moved or rewritten.
 		return ""
 	}
 }
