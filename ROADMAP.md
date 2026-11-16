@@ -10,12 +10,15 @@ Last updated: 2026-11-16, with the release of 1.4.0.
 
 Work that is in progress or blocks a release.
 
-- **Stop a failed release run from using up its version.** The release workflow
-  pushes the images before it runs the upgrade qualification, and it never
-  replaces a published image tag. A failure in between costs the version number;
-  1.3.1 and 1.3.2 were lost this way. The qualification should run against
-  candidate images before anything is published, or a run for a version without
-  a release should be allowed to replace its images.
+- **Stop a failed release run from using up its version.** 1.3.1 and 1.3.2 were
+  lost because the release workflow pushed the version tags before the upgrade
+  qualification. It now pushes `candidate-*` tags, qualifies those images,
+  upgrades included, and gives the qualified digests the version tag only
+  afterwards; published version tags are still never replaced. A rehearsal run
+  has exercised this path without a release. What remains: the first real
+  release with it, which is the only run that creates the version tag, the draft
+  and the release, and a decision on cleaning up old `candidate-*` package
+  versions.
 - **Pin the runner image.** The upgrade qualification broke when `ubuntu-latest`
   moved to a new Ubuntu version, where rootless Podman fails to finish
   `compose down`. The harness now cleans up after it, but the workflows should

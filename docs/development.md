@@ -136,12 +136,42 @@ It runs with Docker and rootless Podman. The browser qualification covers Chromi
 setup/search/acquisition/playback and ordinary-user role denial, plus Firefox
 login and playback. It does not measure real provider throughput.
 
-Before publication, the release workflow scans both immutable image architectures,
+A release tag push first pushes the multi-arch images under a run-unique
+`candidate-<version>-<run>-<attempt>` tag, never under the version. Against
+those candidates, by digest, the workflow scans both image architectures,
 records SBOMs and runtime tool versions, exercises ARM64 runtime under QEMU, and
-performs real v0.28.1, v1.0.0 and v1.1.1 upgrades for both engines and both storage
-guard modes. Chromium and Firefox also qualify explicit offline copies, failed/
-canceled renewal, byte bounds, real local playback and offline restart.
-Only then does it publish the checked draft and promote immutable images to
-`latest`. Release assets include `qualification.json`, full scan reports and
-SPDX inventories; every asset is covered by `SHA256SUMS`. Manual verify-only runs
-publish no images or releases and report the tag-only gates as unqualified.
+performs real v0.28.1, v1.0.0, v1.1.1, v1.2.0 and v1.3.0 upgrades for both
+engines and both storage guard modes (`qualify-upgrade.py --stage-target` pulls
+the candidates by digest and tags them locally as the target version; `ytmdlctl`
+still verifies both digests against the manifest and GHCR). Chromium and Firefox
+also qualify explicit offline copies, failed/canceled renewal, byte bounds, real
+local playback and offline restart. Only then does it create the draft release,
+give the qualified index digests the version tag (`docker buildx imagetools
+create`, which keeps the digests the manifest pins), publish the checked draft
+and promote the same digests to `latest`. Release assets include
+`qualification.json`, full scan reports and SPDX inventories; every asset is
+covered by `SHA256SUMS`.
+
+Published version tags are immutable: the workflow refuses to start, and refuses
+to promote, if `ytmdl-backend:<version>` or `ytmdl-frontend:<version>` already
+exists. A run that fails before the promotion step leaves only `candidate-*`
+tags (and possibly a draft release), so the version is not used up: delete a
+leftover draft, then push the tag again or re-run the workflow. A run that fails
+after the promotion has published the version tag; that version is then used up
+and the fix is released as the next version. Old `candidate-*` package versions
+can be deleted from the GHCR package pages, but never one that a version tag or
+`latest` also names.
+
+Manual verify-only runs publish no images or releases and report the tag-only
+gates as unqualified. A rehearsal runs the whole image path without a release
+and without any version tag:
+
+```sh
+gh workflow run release.yml --repo Der-Felix/ytmdl --ref <branch> \
+  -f verify_only=false -f rehearse=true
+```
+
+It pushes `candidate-*` images, qualifies them, upgrades included, and tags them
+`rehearsal-<run>-<attempt>`; delete those package versions afterwards.
+`upgrade-qualification.yml` can re-qualify the candidates of a failed release
+run with `-f candidate=candidate-<version>-<run>-<attempt> -f target=<version>`.

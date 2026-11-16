@@ -11,6 +11,17 @@ on:
         type: boolean
         required: true
         default: true
+      rehearse:
+        description: 'Rehearse the image path: push candidate-* images, qualify upgrades against them, tag them rehearsal-* (needs verify_only=false; never a version tag, latest or a release)'
+        type: boolean
+        required: false
+        default: false
+
+# A tag push builds the images, pushes them under a candidate-* tag only and
+# qualifies them, upgrades included. The version tag X.Y.Z is given to the
+# qualified index digests afterwards, so a run that fails in any qualification
+# step leaves only candidate tags behind and the version can be released by a
+# new run. Version tags that exist are never replaced.
 
 permissions:
   contents: write
@@ -53,7 +64,26 @@ jobs:
       - name: Validate Release Tag & Version Consistency
         id: version
         shell: bash
+        env:
+          VERIFY_ONLY: ${{ inputs.verify_only }}
+          REHEARSE: ${{ inputs.rehearse }}
         run: |
+          # Image tags of this run. Candidates are pushed by release and
+          # rehearsal runs only; the promote tag is what qualified candidates
+          # become: the version for a release, a throwaway name for a rehearsal.
+          candidates=false
+          candidate_suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [ "${{ github.event_name }}" = "push" ] && [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            candidates=true
+          elif [ "${REHEARSE}" = "true" ]; then
+            if [ "${VERIFY_ONLY}" != "false" ]; then
+              echo "::error::rehearse=true pushes candidate images; set verify_only=false to confirm. verify_only=true never pushes." >&2
+              exit 1
+            fi
+            candidates=true
+          fi
+          echo "candidates=${candidates}" >> "$GITHUB_OUTPUT"
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if [ ! -f .release-version ]; then
               echo "::error::.release-version file is missing" >&2
@@ -70,8 +100,12 @@ jobs:
               prerelease=true
               channel=development
             fi
-            echo "Running in workflow_dispatch verify_only mode for version ${clean_version} (${channel})"
+            mode="verify_only"
+            if [ "${candidates}" = "true" ]; then mode="rehearsal"; fi
+            echo "Running in workflow_dispatch ${mode} mode for version ${clean_version} (${channel})"
             ./scripts/validate-release-metadata.sh --version "${clean_version}"
+            echo "candidate_tag=candidate-${clean_version}-${candidate_suffix}" >> "$GITHUB_OUTPUT"
+            echo "promote_tag=rehearsal-${candidate_suffix}" >> "$GITHUB_OUTPUT"
             echo "tag=v${clean_version}" >> "$GITHUB_OUTPUT"
             echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
             echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
@@ -108,6 +142,8 @@ jobs:
 
           ./scripts/validate-release-metadata.sh --version "${clean_version}"
 
+          echo "candidate_tag=candidate-${clean_version}-${candidate_suffix}" >> "$GITHUB_OUTPUT"
+          echo "promote_tag=${clean_version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
@@ -293,7 +329,7 @@ jobs:
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.candidates == 'true'
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           registry: ghcr.io
@@ -301,45 +337,19 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Preflight Check for Existing GHCR Version Tags
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.candidates == 'true'
         shell: bash
         run: |
-          version="${{ steps.version.outputs.version }}"
-          backend_image="ghcr.io/der-felix/ytmdl-backend:${version}"
-          frontend_image="ghcr.io/der-felix/ytmdl-frontend:${version}"
-
-          check_tag() {
-            local img="$1"
-            local out
-            local code=0
-            out="$(docker buildx imagetools inspect "$img" 2>&1)" || code=$?
-            if [ "$code" -eq 0 ]; then
-              echo "EXISTS"
-              return 0
-            fi
-            if echo "$out" | grep -qiE "not found|manifest unknown|no such manifest"; then
-              echo "NOT_FOUND"
-              return 0
-            fi
-            echo "ERROR: ${out}" >&2
-            return 1
-          }
-
-          echo "Checking if versioned image tags already exist in GHCR..."
-          backend_status="$(check_tag "$backend_image")"
-          frontend_status="$(check_tag "$frontend_image")"
-
-          if [ "$backend_status" = "EXISTS" ] || [ "$frontend_status" = "EXISTS" ]; then
-            echo "::error::Versioned GHCR artifacts already exist for ${version} (backend: ${backend_status}, frontend: ${frontend_status}). Refusing to overwrite immutable release artifacts. Inspect/remove orphaned artifacts manually before retrying." >&2
-            exit 1
-          fi
-
-          if [ "$backend_status" != "NOT_FOUND" ] || [ "$frontend_status" != "NOT_FOUND" ]; then
-            echo "::error::Failed to verify registry tag status cleanly. Failing closed to prevent accidental overwrites." >&2
-            exit 1
-          fi
-
-          echo "Confirmed: GHCR version tags for ${version} do not exist. Safe to proceed with build."
+          # The version tag (a rehearsal's throwaway tag) must not exist: a
+          # published version tag is never replaced. The candidate tag is
+          # unique to this run attempt and is checked so nothing is reused.
+          refs=()
+          for component in backend frontend; do
+            refs+=("ghcr.io/der-felix/ytmdl-${component}:${{ steps.version.outputs.promote_tag }}")
+            refs+=("ghcr.io/der-felix/ytmdl-${component}:${{ steps.version.outputs.candidate_tag }}")
+          done
+          bash scripts/require-absent-image-tags.sh "${refs[@]}"
+          echo "Confirmed: no GHCR tag of this run exists yet. Safe to build candidates."
 
       - name: Record Stable latest Digests
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -355,13 +365,13 @@ jobs:
           done
 
       - name: Extract Backend Metadata
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.candidates == 'true'
         id: meta-backend
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
           images: ghcr.io/der-felix/ytmdl-backend
           tags: |
-            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.candidate_tag }}
           labels: |
             org.opencontainers.image.title=YTMDL Backend
             org.opencontainers.image.description=Go backend, worker queue, and media verification engine for YTMDL
@@ -371,7 +381,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Verify Multi-Arch Backend Container Build (Verify-Only Mode)
-        if: github.event_name == 'workflow_dispatch'
+        if: steps.version.outputs.candidates != 'true'
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
@@ -384,7 +394,7 @@ jobs:
           push: false
 
       - name: Verify Multi-Arch Frontend Container Build (Verify-Only Mode)
-        if: github.event_name == 'workflow_dispatch'
+        if: steps.version.outputs.candidates != 'true'
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: ./frontend
@@ -470,8 +480,8 @@ jobs:
             --frontend ytmdl-frontend:release-smoke \
             --platform linux/amd64
 
-      - name: Build and Push Backend Image
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+      - name: Build and Push Backend Candidate Image
+        if: steps.version.outputs.candidates == 'true'
         id: build-backend
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
@@ -487,13 +497,13 @@ jobs:
           labels: ${{ steps.meta-backend.outputs.labels }}
 
       - name: Extract Frontend Metadata
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.candidates == 'true'
         id: meta-frontend
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
           images: ghcr.io/der-felix/ytmdl-frontend
           tags: |
-            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.candidate_tag }}
           labels: |
             org.opencontainers.image.title=YTMDL Frontend
             org.opencontainers.image.description=Web UI and Nginx reverse proxy for YTMDL
@@ -502,8 +512,8 @@ jobs:
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Build and Push Frontend Image
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+      - name: Build and Push Frontend Candidate Image
+        if: steps.version.outputs.candidates == 'true'
         id: build-frontend
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
@@ -519,11 +529,10 @@ jobs:
           labels: ${{ steps.meta-frontend.outputs.labels }}
 
       - name: Capture and Validate Image Digests
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.candidates == 'true'
         id: digests
         shell: bash
         run: |
-          version="${{ steps.version.outputs.version }}"
           backend_digest="${{ steps.build-backend.outputs.digest }}"
           frontend_digest="${{ steps.build-frontend.outputs.digest }}"
 
@@ -542,8 +551,10 @@ jobs:
 
           # Inspect pushed multi-platform index to extract platform-specific manifest digests
           echo "Extracting platform-specific manifest digests from GHCR..."
-          backend_raw="$(docker buildx imagetools inspect --raw "ghcr.io/der-felix/ytmdl-backend:${version}")"
-          frontend_raw="$(docker buildx imagetools inspect --raw "ghcr.io/der-felix/ytmdl-frontend:${version}")"
+          # By digest: the candidate tag is only a handle, the index digest is
+          # what the manifest pins and what the version tag will name.
+          backend_raw="$(docker buildx imagetools inspect --raw "ghcr.io/der-felix/ytmdl-backend@${backend_digest}")"
+          frontend_raw="$(docker buildx imagetools inspect --raw "ghcr.io/der-felix/ytmdl-frontend@${frontend_digest}")"
 
           backend_amd64="$(echo "$backend_raw" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest')"
           backend_arm64="$(echo "$backend_raw" | jq -r '.manifests[] | select(.platform.architecture == "arm64" and .platform.os == "linux") | .digest')"
@@ -569,8 +580,8 @@ jobs:
           echo "frontend_amd64=${frontend_amd64}" >> "$GITHUB_OUTPUT"
           echo "frontend_arm64=${frontend_arm64}" >> "$GITHUB_OUTPUT"
 
-      - name: Scan and Inventory Published Immutable Images
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+      - name: Scan and Inventory Candidate Images by Digest
+        if: steps.version.outputs.candidates == 'true'
         run: |
           for platform in linux/amd64 linux/arm64; do
             python3 scripts/scan-release-images.py \
@@ -580,7 +591,7 @@ jobs:
           done
 
       - name: Qualify ARM64 Runtime under QEMU
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.candidates == 'true'
         run: |
           backend="ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend_arm64 }}"
           frontend="ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend_arm64 }}"
@@ -602,7 +613,7 @@ jobs:
       - name: Generate and Validate release-manifest.json
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ steps.version.outputs.candidates }}" != "true" ]; then
             backend_digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
             backend_amd64="sha256:0000000000000000000000000000000000000000000000000000000000000001"
             backend_arm64="sha256:0000000000000000000000000000000000000000000000000000000000000002"
@@ -641,9 +652,12 @@ jobs:
             --output "${PWD}/dist/release-manifest.json"
 
       - name: Qualify Real Upgrades from v0.28.1, v1.0.0, v1.1.1, v1.2.0 and v1.3.0
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.candidates == 'true'
         shell: bash
         run: |
+          # The candidates have no version tag yet. --stage-target pulls them
+          # by the manifest's index digests and tags them locally only; the
+          # update still verifies both digests against the manifest and GHCR.
           old_cli_dir="${RUNNER_TEMP}/ytmdl-old-cli"
           mkdir -p "${old_cli_dir}"
           curl -fsSL --connect-timeout 15 --max-time 120 --retry 2 \
@@ -659,7 +673,8 @@ jobs:
                 --source "${source}" \
                 --target "${{ steps.version.outputs.version }}" \
                 --manifest "${PWD}/dist/release-manifest.json" \
-                --old-cli "${old_cli_dir}/ytmdlctl-linux-amd64"
+                --old-cli "${old_cli_dir}/ytmdlctl-linux-amd64" \
+                --stage-target
             done
           done
 
@@ -667,12 +682,12 @@ jobs:
         shell: bash
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
-          ARM64_RUNTIME_QUALIFIED: ${{ github.event_name == 'push' }}
-          MANAGED_UPGRADE_QUALIFIED: ${{ github.event_name == 'push' }}
+          ARM64_RUNTIME_QUALIFIED: ${{ steps.version.outputs.candidates == 'true' }}
+          MANAGED_UPGRADE_QUALIFIED: ${{ steps.version.outputs.candidates == 'true' }}
         run: |
           backend="ytmdl-backend:release-smoke"
           frontend="ytmdl-frontend:release-smoke"
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${{ steps.version.outputs.candidates }}" = "true" ]; then
             backend="ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend_amd64 }}"
             frontend="ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend_amd64 }}"
           fi
@@ -772,7 +787,44 @@ jobs:
             dist/runtime-tools.json \
             dist/qualification.json
 
-          echo "GitHub Release ${tag} successfully published!"
+          echo "Draft GitHub Release ${tag} created."
+
+      - name: Promote Qualified Candidates to the Version Tag
+        # Everything above qualified the candidate index digests. Only now do
+        # they get the version tag (a rehearsal's throwaway tag); the tag
+        # names the same digests, so the manifest stays valid. Both tags are
+        # checked before either is created, and an existing one is never
+        # replaced.
+        if: steps.version.outputs.candidates == 'true'
+        shell: bash
+        run: |
+          promote_tag="${{ steps.version.outputs.promote_tag }}"
+          declare -A digest=(
+            [backend]="${{ steps.digests.outputs.backend }}"
+            [frontend]="${{ steps.digests.outputs.frontend }}"
+          )
+          bash scripts/require-absent-image-tags.sh \
+            "ghcr.io/der-felix/ytmdl-backend:${promote_tag}" \
+            "ghcr.io/der-felix/ytmdl-frontend:${promote_tag}"
+          for component in backend frontend; do
+            repository="ghcr.io/der-felix/ytmdl-${component}"
+            docker buildx imagetools create -t "${repository}:${promote_tag}" "${repository}@${digest[${component}]}"
+          done
+          for component in backend frontend; do
+            repository="ghcr.io/der-felix/ytmdl-${component}"
+            actual="$(docker buildx imagetools inspect "${repository}:${promote_tag}" --format '{{json .Manifest}}' | jq -r '.digest')"
+            if [ "${actual}" != "${digest[${component}]}" ]; then
+              echo "::error::${repository}:${promote_tag} names ${actual}, not the qualified ${digest[${component}]}" >&2
+              exit 1
+            fi
+            echo "Verified ${repository}:${promote_tag} -> ${actual} (qualified candidate)"
+          done
+          # The guard a re-run starts with must now refuse this tag.
+          if bash scripts/require-absent-image-tags.sh "ghcr.io/der-felix/ytmdl-backend:${promote_tag}" 2>/dev/null; then
+            echo "::error::The existing-tag guard does not see ${promote_tag}; a re-run could replace it." >&2
+            exit 1
+          fi
+          echo "Verified: the preflight now refuses ${promote_tag}."
 
       - name: Verify Downloadable Draft Assets and Registry
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -873,8 +925,33 @@ jobs:
             done
           fi
 
+      - name: Rehearsal Summary
+        if: github.event_name == 'workflow_dispatch' && steps.version.outputs.candidates == 'true'
+        shell: bash
+        run: |
+          echo "REHEARSAL SUCCESS: candidates were qualified, upgrades included, and tagged."
+          for component in backend frontend; do
+            echo "ghcr.io/der-felix/ytmdl-${component}:${{ steps.version.outputs.candidate_tag }} and :${{ steps.version.outputs.promote_tag }}"
+          done
+          echo "backend index ${{ steps.digests.outputs.backend }}, frontend index ${{ steps.digests.outputs.frontend }}"
+          echo "No version tag, no latest and no release were touched. Delete these package versions when done."
+
+      - name: Images Left by a Failed Run
+        if: failure() && steps.version.outputs.candidates == 'true'
+        shell: bash
+        run: |
+          # What a failed run leaves behind decides whether the version can be
+          # released by a new run: candidate tags never block one.
+          for component in backend frontend; do
+            for tag in "${{ steps.version.outputs.candidate_tag }}" "${{ steps.version.outputs.promote_tag }}"; do
+              ref="ghcr.io/der-felix/ytmdl-${component}:${tag}"
+              if docker buildx imagetools inspect "${ref}" >/dev/null 2>&1; then echo "exists: ${ref}"; else echo "absent: ${ref}"; fi
+            done
+          done
+          echo "candidate-* tags do not block a new run. If the version tag ${{ steps.version.outputs.promote_tag }} exists, it is published and stays as it is."
+
       - name: Verify-Only Qualification Summary
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && steps.version.outputs.candidates != 'true'
         shell: bash
         run: |
           echo "========================================================================"

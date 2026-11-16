@@ -1,10 +1,11 @@
 name: Upgrade Qualification (verify only)
 
 # Runs scripts/qualify-upgrade.py, the managed-update check that release.yml
-# runs after it has pushed images, against an ALREADY PUBLISHED target
-# version. It builds ytmdlctl from the checked-out commit, writes a release
-# manifest from the target's real GHCR digests and updates disposable
-# installations under Docker and rootless Podman.
+# runs against its candidate images before they get the version tag, against
+# an ALREADY PUBLISHED target version, or against the candidate-* images a
+# release run left behind (input "candidate"). It builds ytmdlctl from the
+# checked-out commit, writes a release manifest from the real GHCR digests and
+# updates disposable installations under Docker and rootless Podman.
 #
 # It never publishes: no image push, no tag, no release. The only token
 # permissions are reading the repository and pulling packages.
@@ -40,6 +41,11 @@ on:
         type: string
         required: true
         default: 'docker podman'
+      candidate:
+        description: 'Optional candidate-* tag of a release run; its images are staged locally as the target version, as release.yml does'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -60,6 +66,7 @@ jobs:
       TARGET: ${{ inputs.target || '1.3.2' }}
       SOURCES: ${{ inputs.sources || '0.28.1 1.0.0 1.1.1 1.2.0 1.3.0' }}
       ENGINES: ${{ inputs.engines || 'docker podman' }}
+      CANDIDATE: ${{ inputs.candidate || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -76,6 +83,10 @@ jobs:
           for engine in ${ENGINES}; do
             [[ "${engine}" =~ ^(docker|podman)$ ]] || { echo "::error::Invalid engine '${engine}'" >&2; exit 1; }
           done
+          if [ -n "${CANDIDATE}" ] && [[ ! "${CANDIDATE}" =~ ^candidate-[0-9A-Za-z._-]+$ ]]; then
+            echo "::error::Invalid candidate tag '${CANDIDATE}'" >&2
+            exit 1
+          fi
           if [[ "${TARGET}" == *-rc.* ]]; then
             echo "::error::Release candidates need a v4 manifest with a source commit; this check covers stable targets." >&2
             exit 1
@@ -93,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           for component in backend frontend; do
-            ref="ghcr.io/der-felix/ytmdl-${component}:${TARGET}"
+            ref="ghcr.io/der-felix/ytmdl-${component}:${CANDIDATE:-${TARGET}}"
             index="$(docker buildx imagetools inspect "${ref}" --format '{{json .Manifest}}' | jq -r '.digest')"
             raw="$(docker buildx imagetools inspect --raw "${ref}")"
             amd64="$(echo "${raw}" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest')"
@@ -179,6 +190,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          stage=()
+          if [ -n "${CANDIDATE}" ]; then stage=(--stage-target); fi
           for source in ${SOURCES}; do
             for engine in ${ENGINES}; do
               echo "::group::${engine} ${source} -> ${TARGET}"
@@ -187,7 +200,8 @@ jobs:
                 --source "${source}" \
                 --target "${TARGET}" \
                 --manifest "${PWD}/dist/release-manifest.json" \
-                --old-cli "${RUNNER_TEMP}/ytmdl-old-cli/ytmdlctl-linux-amd64"
+                --old-cli "${RUNNER_TEMP}/ytmdl-old-cli/ytmdlctl-linux-amd64" \
+                "${stage[@]}"
               echo "::endgroup::"
             done
           done
