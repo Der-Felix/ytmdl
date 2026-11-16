@@ -158,9 +158,12 @@ exists. A run that fails before the promotion step leaves only `candidate-*`
 tags (and possibly a draft release), so the version is not used up: delete a
 leftover draft, then push the tag again or re-run the workflow. A run that fails
 after the promotion has published the version tag; that version is then used up
-and the fix is released as the next version. Old `candidate-*` package versions
-can be deleted from the GHCR package pages, but never one that a version tag or
-`latest` also names.
+and the fix is released as the next version. A failed run and a
+rehearsal delete their own `candidate-*` package versions at the end
+(`scripts/delete-candidate-images.sh`). The script deletes an image only if all
+its tags are `candidate-*` or `rehearsal-*`, never one that a version tag or
+`latest` also names. If that step itself fails, delete the leftovers from the
+GHCR package pages under the same rule.
 
 Manual verify-only runs publish no images or releases and report the tag-only
 gates as unqualified. A rehearsal runs the whole image path without a release
@@ -172,6 +175,6 @@ gh workflow run release.yml --repo Der-Felix/ytmdl --ref <branch> \
 ```
 
 It pushes `candidate-*` images, qualifies them, upgrades included, and tags them
-`rehearsal-<run>-<attempt>`; delete those package versions afterwards.
+`rehearsal-<run>-<attempt>`, and deletes those package versions again at the end.
 `upgrade-qualification.yml` can re-qualify the candidates of a failed release
 run with `-f candidate=candidate-<version>-<run>-<attempt> -f target=<version>`.

@@ -4,7 +4,7 @@ What is planned for YTMDL, in the order it is meant to happen. This is a stateme
 of intent, not a promise: items move when something more urgent turns up, and
 nothing here has a date. Shipped work is in the [changelog](CHANGELOG.md).
 
-Last updated: 2026-11-16, with the release of 1.4.0.
+Last updated: 2026-11-17.
 
 ## Now
 
@@ -17,8 +17,8 @@ Work that is in progress or blocks a release.
   afterwards; published version tags are still never replaced. A rehearsal run
   has exercised this path without a release. What remains: the first real
   release with it, which is the only run that creates the version tag, the draft
-  and the release, and a decision on cleaning up old `candidate-*` package
-  versions.
+  and the release. Failed runs and rehearsals delete their own `candidate-*`
+  package versions.
 - **Pin the runner image.** The upgrade qualification broke when `ubuntu-latest`
   moved to a new Ubuntu version, where rootless Podman fails to finish
   `compose down`. The harness now cleans up after it, but the workflows should
