@@ -109,12 +109,20 @@ import YTMDLCore
             do { state = try await client.send("/auth/device/poll", body: ["device_code": start.deviceCode]) }
             catch let error as PlayerError {
                 if case .server(let status, _, _) = error, status >= 500 { continue }
+                // A rate limit is an instruction to slow down, not a refusal.
+                if case .server(let status, _, _) = error, status == 429 { interval = min(30, interval + 5); continue }
                 throw error
             }
             catch is CancellationError { throw CancellationError() }
             catch { continue }
             try Task.checkCancellation()
-            if state.status == "authorized" { await restore(); return true }
+            if state.status == "authorized" {
+                // Approval only counts once the session is actually usable. A
+                // failed restore is reported, so the screen does not keep
+                // waiting for an approval that has already been given.
+                guard await restore() else { throw PlayerError.badResponse }
+                return true
+            }
             if state.status == "slow_down" { interval = min(30, interval + 5) }
         }
         return false

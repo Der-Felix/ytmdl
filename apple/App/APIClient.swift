@@ -30,11 +30,29 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
         cookies = configuration.httpCookieStorage!
         decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-        if persist, let data = try SessionVault.read(server.url.absoluteString) {
-            for value in try JSONDecoder().decode([StoredCookie].self, from: data) {
+        // A stored session that cannot be read or decoded is not a reason to
+        // refuse the connection: the user signs in again. This matters on macOS,
+        // where a re-signed build may be denied its own Keychain item.
+        if persist, let data = Self.storedSession(for: server),
+           let stored = try? JSONDecoder().decode([StoredCookie].self, from: data) {
+            for value in stored {
                 if let cookie = value.cookie(for: server) { cookies.setCookie(cookie) }
             }
         }
+    }
+    // The Keychain account is the normalized origin, so "https://Music.example.com"
+    // and "https://music.example.com/" share one stored session. Otherwise each
+    // spelling keeps its own, and signing out removes only one of them.
+    private static func vaultKey(for server: ServerAddress) -> String {
+        var origin = URLComponents(url: server.url, resolvingAgainstBaseURL: false)
+        origin?.path = ""; origin?.host = origin?.host?.lowercased(); origin?.scheme = origin?.scheme?.lowercased()
+        return origin?.string ?? server.url.absoluteString
+    }
+    private static func storedSession(for server: ServerAddress) -> Data? {
+        if let data = try? SessionVault.read(vaultKey(for: server)) { return data }
+        // Sessions saved before the key was normalized.
+        if let data = try? SessionVault.read(server.url.absoluteString) { return data }
+        return nil
     }
     func invalidate() { valid = false; session.invalidateAndCancel() }
     var authenticationCookies: [HTTPCookie] {
@@ -43,7 +61,10 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     private func saveCookies() throws {
         guard persist else { return }
         let stored = authenticationCookies.map { StoredCookie(name: $0.name, value: $0.value, expiresAt: $0.expiresDate, secure: $0.isSecure) }
-        try SessionVault.write(JSONEncoder().encode(stored), origin: server.url.absoluteString)
+        let key = Self.vaultKey(for: server)
+        try SessionVault.write(JSONEncoder().encode(stored), origin: key)
+        // The session now lives under the normalized key only.
+        if key != server.url.absoluteString { try? SessionVault.remove(server.url.absoluteString) }
     }
     func request(_ path: String, method: String = "GET", body: [String: String]? = nil, query: [URLQueryItem] = []) throws -> URLRequest {
         guard valid else { throw CancellationError() }
@@ -136,7 +157,11 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     }
     func forget() throws {
         for cookie in cookies.cookies ?? [] { cookies.deleteCookie(cookie) }
-        if persist { try SessionVault.remove(server.url.absoluteString) }
+        if persist {
+            let key = Self.vaultKey(for: server)
+            if key != server.url.absoluteString { try? SessionVault.remove(server.url.absoluteString) }
+            try SessionVault.remove(key)
+        }
     }
     func artworkRequest(kind: String, id: String) throws -> URLRequest {
         var request = try request(server.itemPath(kind, id: id, suffix: "/artwork"))

@@ -207,11 +207,19 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     #endif
     func append(_ track: Track, client: APIClient) {
-        self.client = client; queue.append(track); prepareNext(); updateNowPlaying(); refreshNormalization()
+        // On an empty queue the track becomes the current one. It is loaded,
+        // paused, so the player shows a title it can actually play.
+        let wasEmpty = queue.tracks.isEmpty
+        self.client = client; queue.append(track)
+        if wasEmpty { loadCurrent(play: false); return }
+        prepareNext(); updateNowPlaying(); refreshNormalization()
     }
     func insertNext(_ track: Track, client: APIClient) {
+        let wasEmpty = queue.tracks.isEmpty
         guard queue.insertNext(track) else { return }
-        self.client = client; cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
+        self.client = client
+        if wasEmpty { loadCurrent(play: false); return }
+        cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
     }
     func select(_ index: Int) { guard queue.tracks.indices.contains(index) else { return }; queue.select(index); loadCurrent() }
     func shuffle() { queue.shuffleUpcoming(); cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization() }
@@ -352,7 +360,10 @@ enum SleepMode: String, CaseIterable, Identifiable {
         cancelPrepared()
         // Do not create a new incoming stream for every slider drag event.
         prefetchAfter = .now.advanced(by: .milliseconds(200))
-        let target = min(max(0, seconds), max(0, duration))
+        // An unknown duration (no metadata, item not ready yet) is no upper
+        // bound. Clamping to it would turn a resume position into zero.
+        let known = duration
+        let target = known.isFinite && known > 0 ? min(max(0, seconds), known) : max(0, seconds)
         pendingSeek = target; seekRevision = UUID()
         position = target; updateNowPlaying()
         applyPendingSeek()
