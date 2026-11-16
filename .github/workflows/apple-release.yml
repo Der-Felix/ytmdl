@@ -72,7 +72,9 @@ jobs:
     name: Create the draft prerelease
     if: github.ref_type == 'tag'
     needs: package
-    runs-on: ubuntu-latest
+    # Pinned (not ubuntu-latest): the release qualification is only proven on this
+    # image. Changing it means re-running upgrade-qualification.yml first.
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       actions: read
