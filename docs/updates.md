@@ -34,6 +34,25 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.3.1
+
+Use the checksum-verified **v1.3.1** CLI from the
+[v1.3.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.3.1).
+Run `ytmdlctl update --channel stable --target 1.3.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.3.1`.
+
+The database stays at schema 18; this release needs no migration. It is a
+maintenance release without new features. The release qualifies v0.28.1, v1.0.0,
+v1.1.1, v1.2.0 and v1.3.0 sources with Docker and rootless Podman. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume,
+and verify a database backup before updating.
+
+Three changes are visible after the update. Reorganizing the library now requires
+an administrator. The bundled frontend refuses to be embedded in a page of another
+origin. A studio recording that was skipped because a live album listed the same
+song under its plain title counts as missing again, so the next subscription sync
+may queue recordings it reported as present before.
+
 ## Upgrade to v1.3.0
 
 Use the checksum-verified **v1.3.0** CLI from the
