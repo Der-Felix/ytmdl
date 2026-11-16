@@ -61,47 +61,51 @@
 :root {
     --radius: 0.375rem;
 
-    /* The theme is flat: depth comes from lighter surfaces and fine borders,
-       not from blur, glow or shadow. Neutrals are one cool hue (270) with a
-       trace of chroma; the brand raspberry is the only accent. All colours are
-       OKLCH. Contrast, checked against WCAG: text on any surface above 14:1,
-       muted text above 6.6:1, white on the accent 4.8:1, the accent against
-       the page 3.9:1. Recalculate when a value changes. */
+    /* The theme is flat, and it has colour: surfaces are tinted violet, the
+       hue of the logo, and step up in lightness; the brand raspberry is the
+       accent and a violet partner colour joins it in gradients. Depth comes
+       from the lighter surfaces and fine borders, not from blur or shadow.
+       All colours are OKLCH. Contrast is checked against WCAG; recalculate
+       when a value changes. */
 
     /* Surfaces, darkest to lightest: page, layout chrome, panel, popover. */
-    --background: oklch(0.145 0.012 270);
-    --card: oklch(0.195 0.013 270);
-    --surface: oklch(0.185 0.013 270);
-    --popover: oklch(0.225 0.014 270);
+    --background: oklch(0.155 0.03 300);
+    --card: oklch(0.205 0.034 300);
+    --surface: oklch(0.185 0.034 300);
+    --popover: oklch(0.235 0.038 300);
     /* What dims the page behind a dialog or drawer. */
-    --overlay: oklch(0.1 0.012 270);
+    --overlay: oklch(0.1 0.03 300);
 
-    --foreground: oklch(0.94 0.006 270);
-    --muted-foreground: oklch(0.72 0.015 270);
+    --foreground: oklch(0.95 0.01 310);
+    --muted-foreground: oklch(0.75 0.035 305);
     --card-foreground: var(--foreground);
     --popover-foreground: var(--foreground);
 
     --primary: oklch(0.57 0.2 10);
     --primary-foreground: oklch(0.985 0.003 270);
 
-    --secondary: oklch(0.265 0.015 270);
+    --secondary: oklch(0.275 0.042 300);
     --secondary-foreground: var(--foreground);
 
-    --muted: oklch(0.235 0.014 270);
+    --muted: oklch(0.245 0.038 300);
 
-    --accent: oklch(0.57 0.2 10 / 0.16);
+    --accent: oklch(0.57 0.2 10 / 0.22);
     --accent-foreground: oklch(0.84 0.09 10);
 
     /* Status colours stay clear of the accent's hue: an error is orange-red,
        so it never reads as a selected or primary element. */
     --destructive: oklch(0.7 0.19 30);
-    --destructive-foreground: oklch(0.145 0.012 270);
+    --destructive-foreground: oklch(0.155 0.03 300);
     --success: oklch(0.78 0.13 165);
     --warning: oklch(0.8 0.13 75);
 
-    --border: oklch(0.31 0.016 270);
-    --input: oklch(0.37 0.017 270);
+    --border: oklch(0.33 0.045 300);
+    --input: oklch(0.39 0.05 300);
     --ring: oklch(0.57 0.2 10);
+
+    /* The partner colour of the accent: the violet end of the logo. Used in
+       gradients only, never as a surface for text. */
+    --primary-2: oklch(0.56 0.21 300);
 
     /* Motion. One set of curves and durations for the whole application. */
     --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -142,6 +146,21 @@
 
     :where(button, [role="button"], [data-slot="button"]):is(:disabled, [aria-disabled="true"], [data-disabled]) {
         cursor: not-allowed;
+    }
+
+/* The one decorative layer: a wash of the two brand colours behind the
+       top of the page. A plain gradient, no blur filter, fixed while content
+       scrolls. Panels are opaque, so text never sits on it. */
+    body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background:
+            radial-gradient(70rem 40rem at 8% -12%, color-mix(in oklab, var(--primary) 30%, transparent), transparent 68%),
+            radial-gradient(60rem 36rem at 100% -8%, color-mix(in oklab, var(--primary-2) 30%, transparent), transparent 66%),
+            radial-gradient(50rem 30rem at 60% 110%, color-mix(in oklab, var(--primary-2) 14%, transparent), transparent 70%);
     }
 
     h1,
