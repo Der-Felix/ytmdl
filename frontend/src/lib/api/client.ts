@@ -165,6 +165,30 @@ async function requestEnvelope<T>(
   path: string,
   options: RequestOptions,
 ): Promise<{ envelope: Envelope<T>; response: Response }> {
+  const { method = 'GET' } = options
+
+  const first = await send<T>(path, options)
+  if (first.ok) return first.result
+
+  // Without a cookie, several requests of a freshly opened page each get their
+  // own CSRF token and the last one wins, so the token read for the header can
+  // be one the browser has already replaced. By now the cookie has settled:
+  // read it again and send the request once more. JSON strings and FormData
+  // can be sent twice; nothing else is retried, and never more than once.
+  if (method !== 'GET' && first.error.status === 403 && first.error.code === 'CSRF_INVALID') {
+    const second = await send<T>(path, options)
+    if (second.ok) return second.result
+    throw second.error
+  }
+  throw first.error
+}
+
+type SendOutcome<T> =
+  | { ok: true; result: { envelope: Envelope<T>; response: Response } }
+  | { ok: false; error: ApiError }
+
+/** Performs one HTTP round trip, reading the CSRF cookie anew each time. */
+async function send<T>(path: string, options: RequestOptions): Promise<SendOutcome<T>> {
   const { signal, query, method = 'GET', body } = options
 
   const init: RequestInit = { method, signal, headers: { Accept: 'application/json' } }
@@ -200,9 +224,9 @@ async function requestEnvelope<T>(
   const payload = await readJson(response)
 
   if (!response.ok) {
-    throw toApiError(payload, response)
+    return { ok: false, error: toApiError(payload, response) }
   }
-  return { envelope: (payload ?? {}) as Envelope<T>, response }
+  return { ok: true, result: { envelope: (payload ?? {}) as Envelope<T>, response } }
 }
 
 /** Reads the body as JSON, tolerating an empty or malformed one. */

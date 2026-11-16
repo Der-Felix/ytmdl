@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import type { ReactNode } from 'react'
 
 import { AppShell } from '@/components/layout/AppShell'
 import { FavoritesProvider } from '@/contexts/FavoritesContext'
@@ -26,10 +27,19 @@ import { Settings } from '@/pages/Settings'
 import { Subscriptions } from '@/pages/Subscriptions'
 import { Users } from '@/pages/Users'
 
-export function AppContent() {
-  const location = useLocation()
-  const route = useMemo(() => matchRoute(location), [location])
-  const { user, loading, setupRequired, isAdmin } = useAuth()
+/**
+ * The signed-in frame. The queue summary and the event stream live here and
+ * not in AppContent: neither may be requested on the sign-in or setup screen,
+ * where they can only answer 401 and, without a CSRF cookie yet, would each
+ * receive a different token that races the one the login request sends.
+ */
+function AuthenticatedShell({
+  route,
+  children,
+}: {
+  route: ReturnType<typeof matchRoute>
+  children: ReactNode
+}) {
   const { state: summaryState } = useQueueSummary()
 
   const activeDownloads = useMemo(() => {
@@ -38,6 +48,17 @@ export function AppContent() {
     return totalOpen > 0 ? totalOpen : undefined
   }, [summaryState])
 
+  return (
+    <AppShell route={route} activeDownloads={activeDownloads}>
+      {children}
+    </AppShell>
+  )
+}
+
+export function AppContent() {
+  const location = useLocation()
+  const route = useMemo(() => matchRoute(location), [location])
+  const { user, loading, setupRequired, isAdmin } = useAuth()
   // This route reads only explicitly saved browser data, without pretending
   // an offline browser is authenticated to the server.
   if(route.name==='offline')return <OfflinePage/>
@@ -62,7 +83,7 @@ export function AppContent() {
   }
 
   return (
-    <AppShell route={route} activeDownloads={activeDownloads}>
+    <AuthenticatedShell route={route}>
       {route.name === 'dashboard' && <Dashboard />}
       {route.name === 'login' && <Dashboard />}
       {route.name === 'player' && <NowPlaying />}
@@ -81,7 +102,7 @@ export function AppContent() {
       {route.name === 'subscriptions' && <Subscriptions />}
       {route.name === 'settings' && (isAdmin ? <Settings /> : <NotFound pathname="/settings/server" />)}
       {route.name === 'notFound' && <NotFound pathname={route.pathname} />}
-    </AppShell>
+    </AuthenticatedShell>
   )
 }
 

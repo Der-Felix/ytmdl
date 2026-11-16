@@ -276,4 +276,34 @@ describe('App Layout Consolidation and Route Permissions', () => {
     // Login form should be present
     expect(await screen.findByRole('heading', { level: 1, name: /Anmelden bei YTMDL/i })).toBeDefined()
   })
+
+  it('makes no job request and opens no event stream on the sign-in screen', async () => {
+    ;(window as any).happyDOM.setURL('http://localhost/dashboard')
+    const requested: string[] = []
+    let streams = 0
+    const baseFetch = globalThis.fetch
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      requested.push(typeof input === 'string' ? input : input.toString())
+      return baseFetch(input)
+    }) as typeof fetch
+    globalThis.EventSource = class {
+      constructor() {
+        streams++
+      }
+      close() {}
+      addEventListener() {}
+      static readonly CLOSED = 2
+    } as unknown as typeof EventSource
+
+    render(
+      <AuthContext.Provider value={unauthenticatedAuth}>
+        <AppContent />
+      </AuthContext.Provider>,
+    )
+    await screen.findByRole('heading', { level: 1, name: /Anmelden bei YTMDL/i })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(requested.filter((url) => url.includes('/jobs'))).toEqual([])
+    expect(streams).toBe(0)
+  })
 })
