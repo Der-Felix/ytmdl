@@ -84,7 +84,7 @@ export function Login() {
   return (
     <div className="flex min-h-[75vh] flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-md space-y-6">
- <Link href="/offline" className="block rounded-lg border border-border p-3 text-center text-sm hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-ring">Gespeicherte Offline-Musik öffnen</Link>
+ <Link href="/offline" className="block rounded-lg border border-border p-3 text-center text-sm hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring">Gespeicherte Offline-Musik öffnen</Link>
         <div className="text-center space-y-3">
           <div className="mx-auto flex items-center justify-center">
             <img
@@ -180,6 +180,7 @@ export function Login() {
 
             <Button
               type="submit"
+              variant="default"
               className="w-full mt-2"
               disabled={submitting}
             >

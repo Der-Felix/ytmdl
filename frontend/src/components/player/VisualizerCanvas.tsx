@@ -148,7 +148,7 @@ export function VisualizerCanvas({
         <span
           ref={peakBadgeRef}
           style={{ opacity: 0 }}
-          className="pointer-events-none absolute top-1 right-1 rounded bg-amber-500/80 px-1 py-0.2 text-[9px] font-medium text-black backdrop-blur-sm transition-opacity duration-200"
+          className="pointer-events-none absolute top-1 right-1 rounded bg-amber-500/80 px-1 py-0.2 text-[9px] font-medium text-black transition-opacity duration-200"
           title="Digital Peak / Headroom Warnung"
         >
           PEAK

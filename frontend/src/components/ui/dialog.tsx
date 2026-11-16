@@ -31,7 +31,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-[#05060b]/65 backdrop-blur-sm",
+        "fixed inset-0 z-50 bg-overlay/65",
         "transition-opacity duration-200 ease-out",
         "data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
         className
@@ -54,7 +54,7 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           "panel-blur fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5 rounded-2xl p-6 text-sm text-popover-foreground outline-none",
-          "bg-[#151926]/92 shadow-[0_24px_70px_-20px_rgb(0_0_0/0.7)]",
+          "bg-popover shadow-[0_24px_70px_-20px_rgb(0_0_0/0.7)]",
           "transition-[opacity,transform] duration-200 ease-out",
           "data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0",
           "data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0",

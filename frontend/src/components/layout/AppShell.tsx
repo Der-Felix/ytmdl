@@ -48,7 +48,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
       className={cn(
         'min-h-dvh',
         isPlayerRoute
-          ? 'flex flex-col bg-[#07090e]'
+          ? 'flex flex-col bg-background'
           : 'md:grid md:grid-cols-[15rem_1fr] xl:grid-cols-[16.5rem_1fr]',
       )}
     >
@@ -73,9 +73,9 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
             type="button"
             aria-label="Navigation schließen"
             onClick={() => setDrawerOpen(false)}
-            className="absolute inset-0 bg-[#05060b]/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-overlay/70"
           />
-          <aside className="panel-blur absolute inset-y-0 left-0 w-[17rem] rounded-r-2xl border-y-0 border-l-0 bg-[#0f1220]/95">
+          <aside className="panel-blur absolute inset-y-0 left-0 w-[17rem] rounded-r-2xl border-y-0 border-l-0 bg-popover">
             <Sidebar
               route={route}
               activeDownloads={activeDownloads}
@@ -91,7 +91,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
           <header
             className={cn(
               'sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border px-4 sm:px-6',
-              'panel-blur rounded-none border-x-0 border-t-0 bg-[#0b0d14]/70 md:hidden',
+              'panel-blur rounded-none border-x-0 border-t-0 bg-background md:hidden',
             )}
           >
             <Button
@@ -125,7 +125,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
         <main
           id="main"
           className={cn(
-            'min-w-0 flex-1 transition-all',
+            'min-w-0 flex-1 transition-[padding]',
             isPlayerRoute
               ? 'p-0 flex flex-col'
               : showMiniPlayer

@@ -273,12 +273,12 @@ export function Users() {
                   value={newRole}
                   onChange={(e) => setNewRole(e.target.value as Role)}
                   disabled={creating}
-                  className="h-10 w-full rounded-xl border border-input bg-white/4 px-3.5 text-sm text-foreground transition-colors outline-none focus-visible:border-primary/50 focus-visible:bg-white/6"
+                  className="h-10 w-full rounded-xl border border-input bg-muted px-3.5 text-sm text-foreground transition-colors outline-none focus-visible:border-primary/50 focus-visible:bg-secondary"
                 >
-                  <option value="user" className="bg-[#151926] text-foreground">
+                  <option value="user" className="bg-popover text-foreground">
                     Benutzer (Standard)
                   </option>
-                  <option value="admin" className="bg-[#151926] text-foreground">
+                  <option value="admin" className="bg-popover text-foreground">
                     Administrator (Voller Zugriff)
                   </option>
                 </select>
@@ -331,7 +331,7 @@ export function Users() {
         ) : (
           <table className="w-full text-left text-sm mt-4">
             <thead>
-              <tr className="border-b border-white/10 text-xs font-semibold uppercase text-muted-foreground tracking-wider">
+              <tr className="border-b border-input text-xs font-semibold uppercase text-muted-foreground tracking-wider">
                 <th className="pb-3 pr-4">Benutzer</th>
                 <th className="pb-3 px-4">Rolle</th>
                 <th className="pb-3 px-4">Status</th>
@@ -343,7 +343,7 @@ export function Users() {
               {users.map((u) => {
                 const isSelf = u.id === currentUser?.id
                 return (
-                  <tr key={u.id} className="hover:bg-white/2 transition-colors">
+                  <tr key={u.id} className="hover:bg-muted transition-colors">
                     <td className="py-3.5 pr-4">
                       <div className="font-medium text-foreground flex items-center gap-2">
                         {u.display_name || u.username}

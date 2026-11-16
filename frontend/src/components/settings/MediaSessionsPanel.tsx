@@ -280,7 +280,7 @@ export function MediaSessionsPanel() {
             role="status"
             aria-live="polite"
             className={cn(
-              'flex items-center justify-between gap-3 rounded-xl border p-3 text-xs leading-relaxed transition-all',
+              'flex items-center justify-between gap-3 rounded-xl border p-3 text-xs leading-relaxed transition',
               notification.type === 'success' &&
                 'border-success/30 bg-success/10 text-success',
               notification.type === 'error' &&
@@ -314,7 +314,7 @@ export function MediaSessionsPanel() {
 
         {!loading && !error && sessions.length === 0 && (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-8 px-4 text-center">
-            <div className="flex size-10 items-center justify-center rounded-full bg-white/5 text-muted-foreground mb-3">
+            <div className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground mb-3">
               <LayersIcon className="size-5" />
             </div>
             <h4 className="text-sm font-medium text-foreground">
@@ -359,7 +359,7 @@ export function MediaSessionsPanel() {
                     const explanation = getHealthExplanation(s.health_status)
 
                     return (
-                      <tr key={s.id} className="transition-colors hover:bg-white/2">
+                      <tr key={s.id} className="transition-colors hover:bg-muted">
                         <td className="py-3 pr-4 align-top">
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
@@ -482,7 +482,7 @@ export function MediaSessionsPanel() {
                 return (
                   <div
                     key={s.id}
-                    className="space-y-3 rounded-xl border border-border bg-white/3 p-3.5 text-xs"
+                    className="space-y-3 rounded-xl border border-border bg-muted p-3.5 text-xs"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="space-y-1">
@@ -772,7 +772,7 @@ function AddSessionDialog({
             )}
           </div>
 
-          <div className="rounded-xl border border-border bg-white/3 p-3 text-[0.75rem] leading-relaxed text-muted-foreground space-y-1">
+          <div className="rounded-xl border border-border bg-muted p-3 text-[0.75rem] leading-relaxed text-muted-foreground space-y-1">
             <div className="flex items-center gap-1.5 font-medium text-foreground">
               <InfoIcon className="size-3.5 text-primary" />
               <span>Sicherheit & Format</span>
@@ -906,7 +906,7 @@ function ReplaceCookiesDialog({
             )}
           </div>
 
-          <div className="rounded-xl border border-border bg-white/3 p-3 text-[0.75rem] leading-relaxed text-muted-foreground space-y-1">
+          <div className="rounded-xl border border-border bg-muted p-3 text-[0.75rem] leading-relaxed text-muted-foreground space-y-1">
             <div className="flex items-center gap-1.5 font-medium text-foreground">
               <InfoIcon className="size-3.5 text-primary" />
               <span>Sicherheitsgarantie</span>

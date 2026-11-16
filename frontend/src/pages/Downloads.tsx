@@ -237,7 +237,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
                 variant="ghost"
                 size="sm"
                 onClick={reloadSummary}
-                className="h-7 self-start sm:self-auto shrink-0 text-xs text-amber-200 hover:text-white hover:bg-amber-500/20"
+                className="h-7 self-start sm:self-auto shrink-0 text-xs text-amber-200 hover:text-foreground hover:bg-amber-500/20"
               >
                 Erneut versuchen
               </Button>
@@ -254,10 +254,10 @@ function Downloads({ jobId }: DownloadsPageProps) {
 
       {!summary && summaryState.status === 'loading' && (
         <div className="space-y-4" aria-busy="true">
-          <div className="h-44 rounded-xl border border-border/50 bg-white/[0.02] animate-pulse" />
+          <div className="h-44 rounded-xl border border-border/50 bg-muted animate-pulse" />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="h-40 rounded-xl border border-border/50 bg-white/[0.02] animate-pulse" />
-            <div className="h-40 rounded-xl border border-border/50 bg-white/[0.02] animate-pulse" />
+            <div className="h-40 rounded-xl border border-border/50 bg-muted animate-pulse" />
+            <div className="h-40 rounded-xl border border-border/50 bg-muted animate-pulse" />
           </div>
         </div>
       )}

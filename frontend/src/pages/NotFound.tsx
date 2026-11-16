@@ -17,7 +17,7 @@ function NotFound({ pathname }: NotFoundProps) {
           Seite nicht gefunden
         </h1>
         <p className="text-sm text-muted-foreground">
-          Die angeforderte Adresse <code className="rounded bg-white/5 px-1 py-0.5">{pathname}</code> existiert nicht.
+          Die angeforderte Adresse <code className="rounded bg-muted px-1 py-0.5">{pathname}</code> existiert nicht.
         </p>
       </header>
 

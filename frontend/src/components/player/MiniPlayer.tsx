@@ -66,7 +66,7 @@ export function MiniPlayer() {
     <>
       <aside
         aria-label="Audioplayer"
-      className="fixed bottom-0 left-0 right-0 z-40 h-[80px] sm:h-[86px] border-t border-white/[0.06] bg-[#080a12]/94 backdrop-blur-xl shadow-[0_-8px_32px_rgba(0,0,0,0.6)] transition-all"
+      className="fixed bottom-0 left-0 right-0 z-40 h-[80px] sm:h-[86px] border-t border-border bg-surface transition"
     >
       {/* Mobile Top Thin Progress Bar (24px interactive hit area completely within player) */}
       <div
@@ -78,9 +78,9 @@ export function MiniPlayer() {
           seek(ratio * (duration || 0))
         }}
       >
-        <div className="w-full h-1 bg-white/10">
+        <div className="w-full h-1 bg-input">
           <div
-            className="h-full bg-primary transition-all"
+            className="h-full bg-primary transition-[width]"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
@@ -101,10 +101,10 @@ export function MiniPlayer() {
               src={libraryArtwork('tracks', currentTrack.id)} fallbackSrc={currentTrack.cover_url}
               alt={currentTrack.title}
               shape="square"
-              className="size-11 sm:size-14 rounded-xl border border-white/10 shadow-md transition-transform duration-200 group-hover:scale-105"
+              className="size-11 sm:size-14 rounded-xl border border-input shadow-md transition-transform duration-200 group-hover:scale-105"
             />
-            <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/40 opacity-0 backdrop-blur-[1px] transition-opacity group-hover:opacity-100">
-              <Maximize2 className="size-4 text-white" />
+            <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-overlay/40 opacity-0-[1px] transition-opacity group-hover:opacity-100">
+              <Maximize2 className="size-4 text-foreground" />
             </div>
           </Link>
 
@@ -117,7 +117,7 @@ export function MiniPlayer() {
               <span className="block truncate text-sm sm:text-[15px] font-semibold text-foreground group-hover/meta:text-primary transition-colors leading-snug">
                 {currentTrack.title}
               </span>
-              <p className="truncate text-xs text-neutral-400 mt-0.5">
+              <p className="truncate text-xs text-muted-foreground mt-0.5">
                 {artistText}
               </p>
             </Link>
@@ -131,7 +131,7 @@ export function MiniPlayer() {
               className={`hidden sm:inline-flex size-8 shrink-0 rounded-full transition-colors ${
                 favorites.isFavorite(currentTrack.id)
                   ? 'text-rose-500 hover:text-rose-400'
-                  : 'text-neutral-400 hover:text-rose-400'
+                  : 'text-muted-foreground hover:text-rose-400'
               }`}
               title={
                 favorites.isFavorite(currentTrack.id)
@@ -170,7 +170,7 @@ export function MiniPlayer() {
               className={`hidden sm:inline-flex size-8 rounded-full transition-colors ${
                 shuffle
                   ? 'text-primary hover:text-primary/80'
-                  : 'text-neutral-400 hover:text-white'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
               title={shuffle ? 'Zufallswiedergabe: Ein' : 'Zufallswiedergabe: Aus'}
               aria-label="Zufallswiedergabe"
@@ -183,7 +183,7 @@ export function MiniPlayer() {
               variant="ghost"
               size="icon-sm"
               onClick={previous}
-              className="hidden sm:inline-flex size-8.5 sm:size-9 rounded-full text-neutral-300 hover:text-white hover:bg-white/8 transition-colors"
+              className="hidden sm:inline-flex size-8.5 sm:size-9 rounded-full text-foreground/80 hover:text-foreground hover:bg-secondary transition-colors"
               title="Vorheriger Titel / Neustart"
               aria-label="Vorheriger Titel"
             >
@@ -213,7 +213,7 @@ export function MiniPlayer() {
               variant="ghost"
               size="icon-sm"
               onClick={() => next(true)}
-              className="size-8.5 sm:size-9 rounded-full text-neutral-300 hover:text-white hover:bg-white/8 transition-colors"
+              className="size-8.5 sm:size-9 rounded-full text-foreground/80 hover:text-foreground hover:bg-secondary transition-colors"
               title="Nächster Titel"
               aria-label="Nächster Titel"
             >
@@ -228,7 +228,7 @@ export function MiniPlayer() {
               className={`hidden sm:inline-flex size-8 rounded-full transition-colors ${
                 repeatMode !== 'off'
                   ? 'text-primary hover:text-primary/80'
-                  : 'text-neutral-400 hover:text-white'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
               title={`Wiederholen: ${
                 repeatMode === 'off' ? 'Aus' : repeatMode === 'queue' ? 'Queue' : 'Titel'
@@ -244,7 +244,7 @@ export function MiniPlayer() {
           </div>
 
           {/* Bottom Seekbar Row (Desktop & Tablet with hidden thumb by default) */}
-          <div className="hidden sm:flex w-full items-center justify-between gap-3 text-xs text-neutral-400 font-mono">
+          <div className="hidden sm:flex w-full items-center justify-between gap-3 text-xs text-muted-foreground font-mono">
             <span className="w-10 text-right text-[11px] tabular-nums select-none">
               {formatPlaybackTime(displayTime)}
             </span>
@@ -294,7 +294,7 @@ export function MiniPlayer() {
               variant="ghost"
               size="icon-sm"
               onClick={toggleMute}
-              className="size-8 rounded-lg text-neutral-400 hover:text-white"
+              className="size-8 rounded-lg text-muted-foreground hover:text-foreground"
               title={muted ? 'Stummschaltung aufheben' : 'Stummschalten'}
               aria-label="Lautstärke"
             >
@@ -329,14 +329,14 @@ export function MiniPlayer() {
             className={`relative flex items-center justify-center size-8 rounded-lg transition-colors ${
               queueOpen
                 ? 'text-primary bg-primary/15'
-                : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}
             title="Wiedergabeliste / Queue öffnen"
             aria-label="Wiedergabeliste / Queue öffnen"
           >
             <ListMusic className="size-4" strokeWidth={1.8} />
             {queue.length > 1 && (
-              <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-white shadow">
+              <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-primary-foreground shadow">
                 {queue.length}
               </span>
             )}
@@ -345,7 +345,7 @@ export function MiniPlayer() {
           {/* Expand Button: Clean Icon Button */}
           <Link
             href="/player"
-            className="hidden sm:flex items-center justify-center size-8.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/8 text-neutral-300 hover:text-white transition-all shadow-sm"
+            className="hidden sm:flex items-center justify-center size-8.5 rounded-xl bg-secondary hover:bg-input border border-border text-foreground/80 hover:text-foreground transition shadow-sm"
             title="Player öffnen"
             aria-label="Player öffnen"
           >

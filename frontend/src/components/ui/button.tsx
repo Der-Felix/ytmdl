@@ -11,18 +11,18 @@ const buttonVariants = cva(
         // The accent surface. Used once per view at most, for the action the
         // view exists for.
         default:
-          "bg-primary text-primary-foreground shadow-[0_1px_0_rgb(255_255_255/0.14)_inset] hover:bg-[color-mix(in_oklab,var(--primary),white_12%)] active:bg-[color-mix(in_oklab,var(--primary),black_6%)]",
+          "bg-primary text-primary-foreground hover:bg-[color-mix(in_oklab,var(--primary),white_12%)] active:bg-[color-mix(in_oklab,var(--primary),black_6%)]",
         // The default for everything else: a panel that reacts.
         outline:
-          "border-border bg-white/5 text-foreground hover:border-white/12 hover:bg-white/8",
+          "border-border bg-muted text-foreground hover:border-input hover:bg-secondary",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-white/10",
+          "bg-secondary text-secondary-foreground hover:bg-input",
         // A tinted accent, for secondary actions that still belong to the
         // accent family. Deliberately low opacity, never solid pink.
         accent:
-          "border-primary/25 bg-accent text-accent-foreground hover:bg-[rgb(206_52_99/0.2)]",
+          "border-primary/25 bg-accent text-accent-foreground hover:bg-primary/20",
         ghost:
-          "text-muted-foreground hover:bg-white/6 hover:text-foreground",
+          "text-muted-foreground hover:bg-secondary hover:text-foreground",
         destructive:
           "border-destructive/25 bg-destructive/12 text-destructive hover:bg-destructive/20 focus-visible:outline-destructive",
         link: "text-primary underline-offset-4 hover:underline",

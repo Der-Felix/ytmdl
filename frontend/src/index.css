@@ -9,6 +9,13 @@
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+    /* Durations, counters and other figures. No mono face is bundled yet, so
+       this falls back to the platform's own; add one with the next dependency
+       update and only this line changes. */
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', monospace;
+
+    --color-surface: var(--surface);
+    --color-overlay: var(--overlay);
 
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
@@ -40,8 +47,8 @@
     --color-foreground: var(--foreground);
     --color-background: var(--background);
 
-    /* The base radius sizes the controls; panels use rounded-2xl, which lands
-       at 21.6px and so inside the intended 18–24px band. */
+    /* One base radius; everything else is derived from it. Controls land at
+       6px and panels (rounded-2xl) at about 11px. */
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -52,42 +59,61 @@
 }
 
 :root {
-    --radius: 0.75rem;
+    --radius: 0.375rem;
 
-    /* Backgrounds. --background is the page, --surface the raised end of the
-       gradient the shell is painted on. */
-    --background: #0b0d14;
-    --surface: #11141e;
+    /* The theme is flat, and it has colour: surfaces are tinted violet, the
+       hue of the logo, and step up in lightness; the brand raspberry is the
+       accent and a violet partner colour joins it in gradients. Depth comes
+       from the lighter surfaces and fine borders, not from blur or shadow.
+       All colours are OKLCH. Contrast is checked against WCAG; recalculate
+       when a value changes. */
 
-    --foreground: #eceef4;
-    --muted-foreground: #949bad;
+    /* Surfaces, darkest to lightest: page, layout chrome, panel, popover. */
+    --background: oklch(0.155 0.03 300);
+    --card: oklch(0.205 0.034 300);
+    --surface: oklch(0.185 0.034 300);
+    --popover: oklch(0.235 0.038 300);
+    /* What dims the page behind a dialog or drawer. */
+    --overlay: oklch(0.1 0.03 300);
 
-    /* Panels are translucent white so that the background glows read through
-       them. Their opacity stays inside 0.04–0.07. */
-    --card: rgb(255 255 255 / 0.045);
+    --foreground: oklch(0.95 0.01 310);
+    --muted-foreground: oklch(0.75 0.035 305);
     --card-foreground: var(--foreground);
-    --popover: #151926;
     --popover-foreground: var(--foreground);
 
-    --primary: #ce3463;
-    --primary-foreground: #ffffff;
+    --primary: oklch(0.57 0.2 10);
+    --primary-foreground: oklch(0.985 0.003 270);
 
-    --secondary: rgb(255 255 255 / 0.06);
+    --secondary: oklch(0.275 0.042 300);
     --secondary-foreground: var(--foreground);
 
-    --muted: rgb(255 255 255 / 0.04);
+    --muted: oklch(0.245 0.038 300);
 
-    --accent: rgb(206 52 99 / 0.14);
-    --accent-foreground: #f4b9cb;
+    --accent: oklch(0.57 0.2 10 / 0.22);
+    --accent-foreground: oklch(0.84 0.09 10);
 
-    --destructive: #f2607d;
-    --destructive-foreground: #ffffff;
-    --success: #4ec9a5;
-    --warning: #e0a458;
+    /* Status colours stay clear of the accent's hue: an error is orange-red,
+       so it never reads as a selected or primary element. */
+    --destructive: oklch(0.7 0.19 30);
+    --destructive-foreground: oklch(0.155 0.03 300);
+    --success: oklch(0.78 0.13 165);
+    --warning: oklch(0.8 0.13 75);
 
-    --border: rgb(255 255 255 / 0.075);
-    --input: rgb(255 255 255 / 0.07);
-    --ring: #ce3463;
+    --border: oklch(0.33 0.045 300);
+    --input: oklch(0.39 0.05 300);
+    --ring: oklch(0.57 0.2 10);
+
+    /* The partner colour of the accent: the violet end of the logo. Used in
+       gradients only, never as a surface for text. */
+    --primary-2: oklch(0.56 0.21 300);
+
+    /* Motion. One set of curves and durations for the whole application. */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+    --duration-fast: 140ms;
+    --duration-base: 200ms;
+    --duration-slow: 300ms;
 
     --sidebar: transparent;
     --sidebar-foreground: var(--foreground);
@@ -122,9 +148,9 @@
         cursor: not-allowed;
     }
 
-    /* The atmosphere: a few wide, heavily blurred accent glows behind
-       everything. They are what the panels' backdrop-filter has to work with,
-       and they are the only decorative layer in the application. */
+/* The one decorative layer: a wash of the two brand colours behind the
+       top of the page. A plain gradient, no blur filter, fixed while content
+       scrolls. Panels are opaque, so text never sits on it. */
     body::before {
         content: "";
         position: fixed;
@@ -132,14 +158,15 @@
         z-index: -1;
         pointer-events: none;
         background:
-            /* The main accent glow, wide and low in opacity. */
-            radial-gradient(76rem 52rem at 6% -14%, rgb(206 52 99 / 0.3), transparent 64%),
-            /* A darker violet-red counterweight on the opposite side. */
-            radial-gradient(60rem 44rem at 96% -4%, rgb(126 38 116 / 0.24), transparent 62%),
-            radial-gradient(66rem 54rem at 78% 104%, rgb(206 52 99 / 0.16), transparent 66%),
-            radial-gradient(44rem 38rem at 32% 62%, rgb(96 34 96 / 0.12), transparent 70%),
-            linear-gradient(168deg, var(--surface), var(--background) 56%);
-        filter: blur(46px);
+            radial-gradient(70rem 40rem at 8% -12%, color-mix(in oklab, var(--primary) 30%, transparent), transparent 68%),
+            radial-gradient(60rem 36rem at 100% -8%, color-mix(in oklab, var(--primary-2) 30%, transparent), transparent 66%),
+            radial-gradient(50rem 30rem at 60% 110%, color-mix(in oklab, var(--primary-2) 14%, transparent), transparent 70%);
+    }
+
+    h1,
+    h2,
+    h3 {
+        text-wrap: balance;
     }
 
     /* Focus is never removed, only restyled — the accent ring is the single
@@ -149,7 +176,7 @@
     }
 
     ::selection {
-        background: rgb(206 52 99 / 0.32);
+        background: color-mix(in oklab, var(--primary) 36%, transparent);
         color: var(--foreground);
     }
 
@@ -163,14 +190,14 @@
     }
 
     ::-webkit-scrollbar-thumb {
-        background: rgb(255 255 255 / 0.08);
+        background: var(--border);
         border: 3px solid transparent;
         border-radius: 999px;
         background-clip: content-box;
     }
 
     ::-webkit-scrollbar-thumb:hover {
-        background: rgb(255 255 255 / 0.14);
+        background: var(--input);
         background-clip: content-box;
     }
 }
@@ -180,14 +207,20 @@
    dimensions. Keep this outside utility layers so custom button classes cannot
    accidentally remove the feedback. Hover-capable devices only, to avoid a
    persistent hover highlight after touch input. */
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
     :where(button, [role="button"], [data-slot="button"]):not(:disabled):not([aria-disabled="true"]):not([data-disabled]):hover {
-        background-image: linear-gradient(rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.1));
+        background-image: linear-gradient(
+            color-mix(in oklab, var(--foreground) 7%, transparent),
+            color-mix(in oklab, var(--foreground) 7%, transparent)
+        );
     }
 }
 
 :where(button, [role="button"], [data-slot="button"]):not(:disabled):not([aria-disabled="true"]):not([data-disabled]):active {
-    background-image: linear-gradient(rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.16));
+    background-image: linear-gradient(
+        color-mix(in oklab, var(--foreground) 12%, transparent),
+        color-mix(in oklab, var(--foreground) 12%, transparent)
+    );
 }
 
 :where(button, [role="button"], [data-slot="button"]):focus-visible,
@@ -196,45 +229,35 @@
     outline-offset: 2px;
 }
 
-/* A panel: the translucent, softly bordered surface every card, list and
-   section in the application is built from. */
+/* A panel: the flat, finely bordered surface every card, list and section in
+   the application is built from. It is one step lighter than the page; that
+   step and the border are all the elevation there is. */
 @utility panel {
     background-color: var(--card);
     border: 1px solid var(--border);
     border-radius: var(--radius-2xl);
-    /* The blur is what separates a panel from the glows behind it; the shadow
-       and the light top edge give it thickness. Both stay quiet enough that
-       text keeps its full contrast. */
-    backdrop-filter: blur(14px) saturate(125%);
-    -webkit-backdrop-filter: blur(14px) saturate(125%);
-    box-shadow:
-        0 1px 0 0 rgb(255 255 255 / 0.05) inset,
-        0 12px 32px -16px rgb(0 0 0 / 0.55);
 }
 
-/* The same surface for the layout chrome, where the blur actually pays off:
-   sidebar, header and dialogs sit above scrolling content. */
+/* The layout chrome and dialogs: sidebar, header and overlays that sit above
+   scrolling content. Opaque and one step lighter again, so content never
+   shows through. The name is kept from the earlier glass surface. */
 @utility panel-blur {
-    background-color: rgb(255 255 255 / 0.05);
+    background-color: var(--surface);
     border: 1px solid var(--border);
-    backdrop-filter: blur(28px) saturate(150%);
-    -webkit-backdrop-filter: blur(28px) saturate(150%);
 }
 
-/* Hover state shared by every interactive panel. Kept soft on purpose: the
-   surface lightens, it does not jump. */
+/* Hover state shared by every interactive panel: the surface and its border
+   lighten by one step. Pointer devices only, so a tap leaves no stale hover. */
 @utility panel-interactive {
     transition:
-        background-color 160ms ease,
-        border-color 160ms ease,
-        box-shadow 160ms ease;
+        background-color var(--duration-fast) ease,
+        border-color var(--duration-fast) ease;
 
-    &:hover {
-        background-color: rgb(255 255 255 / 0.07);
-        border-color: rgb(255 255 255 / 0.12);
-        box-shadow:
-            0 1px 0 0 rgb(255 255 255 / 0.07) inset,
-            0 18px 40px -18px rgb(0 0 0 / 0.65);
+    @media (hover: hover) and (pointer: fine) {
+        &:hover {
+            background-color: var(--muted);
+            border-color: var(--input);
+        }
     }
 }
 
@@ -265,7 +288,7 @@
 
 /* Player page entrance transition */
 @utility player-enter {
-    animation: player-appear 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: player-appear var(--duration-base) var(--ease-out) forwards;
 }
 
 @keyframes player-appear {
@@ -305,7 +328,7 @@
     width: 8px;
     height: 8px;
     border-radius: 9999px;
-    background-color: #ffffff;
+    background-color: var(--foreground);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
     margin-top: -2.5px;
     opacity: 0;
@@ -330,7 +353,7 @@
     width: 8px;
     height: 8px;
     border-radius: 9999px;
-    background-color: #ffffff;
+    background-color: var(--foreground);
     border: none;
     opacity: 0;
     transition: opacity 120ms ease;
@@ -364,7 +387,7 @@
     width: 18px;
     height: 6px;
     border-radius: 3px;
-    background-color: #d1d5db;
+    background-color: var(--muted-foreground);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
     margin-left: -7.5px;
     transition: background-color 120ms ease, transform 120ms ease;
@@ -373,7 +396,7 @@
 .slider-eq:hover::-webkit-slider-thumb,
 .slider-eq:active::-webkit-slider-thumb,
 .slider-eq:focus-visible::-webkit-slider-thumb {
-    background-color: #ce3463;
+    background-color: var(--primary);
     transform: scale(1.1);
 }
 
@@ -388,7 +411,7 @@
     width: 18px;
     height: 6px;
     border-radius: 3px;
-    background-color: #d1d5db;
+    background-color: var(--muted-foreground);
     border: none;
     transition: background-color 120ms ease;
 }
@@ -396,16 +419,20 @@
 .slider-eq:hover::-moz-range-thumb,
 .slider-eq:active::-moz-range-thumb,
 .slider-eq:focus-visible::-moz-range-thumb {
-    background-color: #ce3463;
+    background-color: var(--primary);
 }
 
+/* Reduce, do not switch off: movement goes, fades and colour changes stay,
+   and loading indicators keep running. */
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
+        transition-property: opacity, color, background-color, border-color !important;
+    }
+
+    .player-enter {
+        animation: none;
     }
 }
 

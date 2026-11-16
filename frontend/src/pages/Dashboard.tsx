@@ -106,7 +106,7 @@ function Dashboard() {
           <Panel className="flex items-center gap-3 px-4 py-3.5">
             <span
               aria-hidden
-              className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/4 text-muted-foreground"
+              className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground"
             >
               <DownloadIcon className="size-4" />
             </span>
@@ -185,7 +185,7 @@ function RecentDownloads({ jobs, loading }: { jobs: Job[]; loading: boolean }) {
             <li key={job.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
               <span
                 aria-hidden
-                className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white/4 text-muted-foreground"
+                className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground"
               >
                 <MusicIcon className="size-4" />
               </span>
@@ -273,7 +273,7 @@ function LibraryOverview() {
             {entries.map((entry) => (
               <div
                 key={entry.label}
-                className="rounded-xl border border-border bg-white/3 p-3.5"
+                className="rounded-xl border border-border bg-muted p-3.5"
               >
                 <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <entry.icon className="size-3.5" />
@@ -302,21 +302,21 @@ function LibraryOverview() {
                   {formatNumber(syncedCount + plainCount)} / {formatNumber(totalTracks)} ({Math.round(((syncedCount + plainCount) / totalTracks) * 100)}%)
                 </span>
               </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-white/5 flex">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-muted flex">
                 <div
                   style={{ width: `${syncedPct}%` }}
                   title={`Synchronisiert: ${syncedCount}`}
-                  className="bg-success transition-all duration-500"
+                  className="bg-success transition-[width] duration-500"
                 />
                 <div
                   style={{ width: `${plainPct}%` }}
                   title={`Text: ${plainCount}`}
-                  className="bg-primary transition-all duration-500"
+                  className="bg-primary transition-[width] duration-500"
                 />
                 <div
                   style={{ width: `${instrumentalPct}%` }}
                   title={`Instrumental: ${instrumentalCount}`}
-                  className="bg-neutral-600 transition-all duration-500"
+                  className="bg-input transition-[width] duration-500"
                 />
               </div>
             </div>

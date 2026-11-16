@@ -724,7 +724,7 @@ function SettingsForm({
             label="Lyrics als Sidecar-Datei speichern (.lrc / .txt)"
             description="Legt synchronisierte Songtexte (.lrc) oder ungesyncte Texte (.txt) neben die Audiodatei."
           />
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl px-2 py-3 transition-colors hover:bg-white/4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl px-2 py-3 transition-colors hover:bg-muted">
             <div className="flex-1">
               <Switch
                 checked={lyricsGeniusEnabled}
@@ -774,7 +774,7 @@ function Switch({
   description: string
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-white/4">
+    <label className="flex cursor-pointer items-start gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-muted">
       <Checkbox
         checked={checked}
         onCheckedChange={(value) => onChange(value === true)}
@@ -822,7 +822,7 @@ function HealthPanel({ health, onReload }: { health: Health; onReload: () => voi
         {entries.map(([name, check]) => (
           <div
             key={name}
-            className="flex items-center justify-between gap-3 rounded-xl border border-border bg-white/3 px-3.5 py-2.5 text-xs"
+            className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted px-3.5 py-2.5 text-xs"
           >
             <span className="truncate font-medium text-foreground">{name}</span>
             <span
@@ -877,7 +877,7 @@ function ProvidersPanel({
           {metadata.map((p) => (
             <li
               key={p.name}
-              className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white/3 p-3 text-xs"
+              className="flex items-start justify-between gap-3 rounded-xl border border-border bg-muted p-3 text-xs"
             >
               <div className="space-y-1">
                 <span className="font-medium text-foreground">{p.name}</span>
@@ -902,7 +902,7 @@ function ProvidersPanel({
           {media.map((p) => (
             <li
               key={p.name}
-              className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white/3 p-3 text-xs"
+              className="flex items-start justify-between gap-3 rounded-xl border border-border bg-muted p-3 text-xs"
             >
               <div className="space-y-1">
                 <span className="font-medium text-foreground">{p.name}</span>
@@ -979,7 +979,7 @@ function StartupSettings({ settings }: { settings: SettingsModel }) {
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
-    <p className="flex items-start gap-2.5 rounded-xl border border-border bg-white/3 px-3.5 py-3 text-xs leading-relaxed text-muted-foreground">
+    <p className="flex items-start gap-2.5 rounded-xl border border-border bg-muted px-3.5 py-3 text-xs leading-relaxed text-muted-foreground">
       <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
       <span>{children}</span>
     </p>

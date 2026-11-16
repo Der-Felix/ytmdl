@@ -37,7 +37,7 @@ function EmptyState({
       )}
     >
       {icon && (
-        <div className="flex size-11 items-center justify-center rounded-xl border border-border bg-white/4 text-muted-foreground [&_svg]:size-5">
+        <div className="flex size-11 items-center justify-center rounded-xl border border-border bg-muted text-muted-foreground [&_svg]:size-5">
           {icon}
         </div>
       )}

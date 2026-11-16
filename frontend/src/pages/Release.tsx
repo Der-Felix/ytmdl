@@ -200,7 +200,7 @@ function TrackList({
             return (
               <li
                 key={`${targetId}-${index}`}
-                className="group flex items-center gap-4 px-4 py-3 transition-colors hover:bg-white/3 sm:px-6"
+                className="group flex items-center gap-4 px-4 py-3 transition-colors hover:bg-muted sm:px-6"
               >
                 <span className="w-7 shrink-0 text-center font-mono text-xs tabular-nums text-muted-foreground">
                   {trackNum}

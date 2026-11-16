@@ -41,10 +41,10 @@ export function NextUpCard({ jobs, className }: NextUpCardProps) {
           {jobs.map((job, index) => (
             <div
               key={job.job_id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-white/[0.02] p-2.5 transition-colors hover:bg-white/[0.04]"
+              className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted p-2.5 transition-colors hover:bg-muted"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white/5 text-[0.6875rem] font-semibold text-muted-foreground">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[0.6875rem] font-semibold text-muted-foreground">
                   {index + 1}
                 </span>
 

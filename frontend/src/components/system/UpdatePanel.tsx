@@ -160,7 +160,7 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
         )
       case 'update_available':
         return (
-          <Badge variant="default" className="gap-1 bg-sky-600 text-white hover:bg-sky-500">
+          <Badge variant="default" className="gap-1 bg-sky-600 text-foreground hover:bg-sky-500">
             <ArrowUpCircleIcon className="h-3 w-3" />
             Update verfügbar
           </Badge>

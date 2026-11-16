@@ -143,9 +143,9 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
   if (error || !detail) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
-        <Disc3Icon className="size-12 text-neutral-600" />
-        <h2 className="text-xl font-semibold text-neutral-200">Release nicht gefunden</h2>
-        <p className="text-sm text-neutral-400 max-w-md">
+        <Disc3Icon className="size-12 text-muted-foreground/60" />
+        <h2 className="text-xl font-semibold text-foreground">Release nicht gefunden</h2>
+        <p className="text-sm text-muted-foreground max-w-md">
           {error || 'Dieses Release ist nicht in der lokalen Bibliothek vorhanden.'}
         </p>
         <Link href={paths.library({ view: 'releases' })}>
@@ -168,14 +168,14 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
       <div>
         <Link
           href={paths.library({ view: 'releases' })}
-          className="inline-flex items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200 transition-colors mb-4"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
           <ArrowLeft className="size-3.5" />
           <span>Bibliothek · Releases</span>
         </Link>
 
         {/* Release Header Banner */}
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-6">
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 bg-card/40 border border-border/80 rounded-2xl p-6">
           <Cover
             src={libraryArtwork('releases', release.id)+`?v=${artworkVersion}`}
             fallbackSrc={release.cover_url}
@@ -195,14 +195,14 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
               )}
             </div>
 
-            <h1 className="text-2xl sm:text-3xl font-bold font-heading text-neutral-100 truncate">
+            <h1 className="text-2xl sm:text-3xl font-bold font-heading text-foreground truncate">
               {release.title}
             </h1>
  {isAdmin && <ArtworkEditor kind="releases" id={release.id}
                 onSaved={() => setArtworkVersion((value) => value + 1)} />}
 
             {artist ? (
-              <p className="text-base text-neutral-300 font-medium">
+              <p className="text-base text-foreground/80 font-medium">
                 <Link
                   href={paths.libraryArtist(artist.id)}
                   className="hover:text-accent hover:underline transition-colors"
@@ -211,10 +211,10 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
                 </Link>
               </p>
             ) : (
-              <p className="text-base text-neutral-300 font-medium">{release.album_artist}</p>
+              <p className="text-base text-foreground/80 font-medium">{release.album_artist}</p>
             )}
 
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 text-xs text-neutral-400 pt-1">
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 text-xs text-muted-foreground pt-1">
               <span className="flex items-center gap-1">
                 <Music2Icon className="size-3.5" />
                 {pluralize(detail.tracks.length, 'Track')}
@@ -252,7 +252,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
               variant="outline"
               size="sm"
               onClick={() => canonicalTracks.length > 0 && addToQueue(canonicalTracks)}
-              className="gap-1.5 text-xs border-white/10 hover:bg-white/5"
+              className="gap-1.5 text-xs border-input hover:bg-muted"
             >
               <ListPlus className="size-3.5" />
               <span>Zur Queue</span>
@@ -279,7 +279,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
         {hasMultipleDiscs ? (
           discGroups.map(([discNum, discTracks]) => (
             <div key={discNum} className="space-y-3">
-              <h2 className="text-sm font-semibold text-neutral-400 font-heading uppercase tracking-wider flex items-center gap-2 border-b border-neutral-800 pb-2">
+              <h2 className="text-sm font-semibold text-muted-foreground font-heading uppercase tracking-wider flex items-center gap-2 border-b border-border pb-2">
                 <Disc3Icon className="size-4 text-accent" />
                 Disc {discNum} ({discTracks.length} Titel)
               </h2>
@@ -297,7 +297,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
           ))
         ) : (
           <div className="space-y-3">
-            <h2 className="text-lg font-semibold text-neutral-200 font-heading border-b border-neutral-800 pb-2">
+            <h2 className="text-lg font-semibold text-foreground font-heading border-b border-border pb-2">
               Trackliste
             </h2>
             <TracksTable

@@ -45,9 +45,9 @@ export function Pagination({
 
   return (
     <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 py-4 ${className}`}>
-      <div className="text-sm text-neutral-400">
-        Zeige <span className="font-medium text-neutral-200">{startItem}–{endItem}</span> von{' '}
-        <span className="font-medium text-neutral-200">{total}</span>
+      <div className="text-sm text-muted-foreground">
+        Zeige <span className="font-medium text-foreground">{startItem}–{endItem}</span> von{' '}
+        <span className="font-medium text-foreground">{total}</span>
       </div>
 
       <div className="flex items-center gap-1">
@@ -67,7 +67,7 @@ export function Pagination({
           {getPageNumbers().map((p, idx) => {
             if (p === 'ellipsis') {
               return (
-                <span key={`ellipsis-${idx}`} className="px-2 text-sm text-neutral-500">
+                <span key={`ellipsis-${idx}`} className="px-2 text-sm text-muted-foreground/80">
                   …
                 </span>
               )
@@ -78,7 +78,7 @@ export function Pagination({
                 key={p}
                 variant={isCurrent ? 'default' : 'ghost'}
                 size="sm"
-                className={`h-8 w-8 p-0 text-sm ${isCurrent ? 'font-semibold' : 'text-neutral-300'}`}
+                className={`h-8 w-8 p-0 text-sm ${isCurrent ? 'font-semibold' : 'text-foreground/80'}`}
                 onClick={() => onPageChange(p)}
                 aria-current={isCurrent ? 'page' : undefined}
               >

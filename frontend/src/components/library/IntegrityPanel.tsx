@@ -207,24 +207,24 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
       case 'STRONG_METADATA':
         return <Badge variant="outline" className="text-amber-400 border-amber-500/40">Metadaten Match</Badge>
       case 'WEAK_METADATA':
-        return <Badge variant="outline" className="text-neutral-400">Schwacher Match</Badge>
+        return <Badge variant="outline" className="text-muted-foreground">Schwacher Match</Badge>
       case 'UNKNOWN':
-        return <Badge variant="outline" className="text-neutral-500">Unbekannt</Badge>
+        return <Badge variant="outline" className="text-muted-foreground/80">Unbekannt</Badge>
     }
   }
 
   return (
     <div className="space-y-6">
       {/* Header & Trigger Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-neutral-800 bg-neutral-900/50">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-border bg-card/50">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <ShieldCheckIcon className="size-5 text-primary" />
-            <h3 className="font-heading font-semibold text-neutral-200 text-base">
+            <h3 className="font-heading font-semibold text-foreground text-base">
               Bibliotheks-Integritätsprüfung
             </h3>
           </div>
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-muted-foreground">
             Read-Only Audit zur Identifikation von fehlenden, unregistrierten oder veralteten Dateien.
           </p>
         </div>
@@ -279,10 +279,10 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
 
       {/* Current Run Card */}
       {currentRun && (
-        <div className="p-4 rounded-xl border border-neutral-800 bg-neutral-900/30 space-y-3 text-xs">
+        <div className="p-4 rounded-xl border border-border bg-card/30 space-y-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-neutral-200">
+              <span className="font-semibold text-foreground">
                 Letzter Lauf: <span className="uppercase text-primary">{currentRun.mode} Audit</span>
               </span>
               <Badge
@@ -299,7 +299,7 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
                 {currentRun.status}
               </Badge>
             </div>
-            <div className="text-neutral-400">
+            <div className="text-muted-foreground">
               Gestartet: {formatRelative(currentRun.started_at)}
             </div>
           </div>
@@ -307,7 +307,7 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
           {/* Progress Bar when running */}
           {currentRun.status === 'running' && (
             <div className="space-y-1.5">
-              <div className="flex justify-between text-neutral-400 text-[11px]">
+              <div className="flex justify-between text-muted-foreground text-[11px]">
                 <span>Prüfe Dateien...</span>
                 <span>{currentRun.scanned} / {currentRun.total || '?'}</span>
               </div>
@@ -320,21 +320,21 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
 
           {/* Summary Stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-            <div className="p-2.5 rounded-lg bg-neutral-900/60 border border-neutral-800/60">
-              <div className="text-neutral-500 text-[11px]">Geprüfte Einträge</div>
-              <div className="text-sm font-semibold text-neutral-200 font-mono mt-0.5">{currentRun.scanned}</div>
+            <div className="p-2.5 rounded-lg bg-card/60 border border-border/60">
+              <div className="text-muted-foreground/80 text-[11px]">Geprüfte Einträge</div>
+              <div className="text-sm font-semibold text-foreground font-mono mt-0.5">{currentRun.scanned}</div>
             </div>
-            <div className="p-2.5 rounded-lg bg-neutral-900/60 border border-neutral-800/60">
-              <div className="text-neutral-500 text-[11px]">Gefundene Probleme</div>
+            <div className="p-2.5 rounded-lg bg-card/60 border border-border/60">
+              <div className="text-muted-foreground/80 text-[11px]">Gefundene Probleme</div>
               <div className="text-sm font-semibold text-amber-400 font-mono mt-0.5">{currentRun.findings_count}</div>
             </div>
-            <div className="p-2.5 rounded-lg bg-neutral-900/60 border border-neutral-800/60">
-              <div className="text-neutral-500 text-[11px]">Status</div>
-              <div className="text-sm font-semibold text-neutral-300 capitalize mt-0.5">{currentRun.status}</div>
+            <div className="p-2.5 rounded-lg bg-card/60 border border-border/60">
+              <div className="text-muted-foreground/80 text-[11px]">Status</div>
+              <div className="text-sm font-semibold text-foreground/80 capitalize mt-0.5">{currentRun.status}</div>
             </div>
-            <div className="p-2.5 rounded-lg bg-neutral-900/60 border border-neutral-800/60">
-              <div className="text-neutral-500 text-[11px]">Modus</div>
-              <div className="text-sm font-semibold text-neutral-300 uppercase mt-0.5">{currentRun.mode}</div>
+            <div className="p-2.5 rounded-lg bg-card/60 border border-border/60">
+              <div className="text-muted-foreground/80 text-[11px]">Modus</div>
+              <div className="text-sm font-semibold text-foreground/80 uppercase mt-0.5">{currentRun.mode}</div>
             </div>
           </div>
         </div>
@@ -346,7 +346,7 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
           {/* Filter Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-neutral-500 mr-1">Schweregrad:</span>
+              <span className="text-muted-foreground/80 mr-1">Schweregrad:</span>
               <Button
                 variant={severityFilter === 'all' ? 'secondary' : 'ghost'}
                 size="sm"
@@ -382,9 +382,9 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-neutral-500">Problemtyp:</span>
+              <span className="text-muted-foreground/80">Problemtyp:</span>
               <select
-                className="h-7 bg-neutral-900 border border-neutral-800 rounded px-2 text-xs text-neutral-300"
+                className="h-7 bg-card border border-border rounded px-2 text-xs text-foreground/80"
                 value={codeFilter}
                 onChange={(e) => { setCodeFilter(e.target.value); setCurrentPage(1) }}
               >
@@ -408,14 +408,14 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
           {findingsLoading ? (
             <div className="space-y-2.5">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-20 bg-neutral-900/40 rounded-xl animate-pulse" />
+                <div key={i} className="h-20 bg-card/40 rounded-xl animate-pulse" />
               ))}
             </div>
           ) : findings.length === 0 ? (
-            <div className="p-8 rounded-2xl border border-neutral-800/80 bg-neutral-900/30 text-center space-y-2">
+            <div className="p-8 rounded-2xl border border-border/80 bg-card/30 text-center space-y-2">
               <CheckCircle2Icon className="size-8 text-success mx-auto" />
-              <h3 className="font-medium text-neutral-200">Keine Befunde für die aktuellen Filter</h3>
-              <p className="text-xs text-neutral-400">
+              <h3 className="font-medium text-foreground">Keine Befunde für die aktuellen Filter</h3>
+              <p className="text-xs text-muted-foreground">
                 Alle geprüften Dateien entsprechen den Richtlinien.
               </p>
             </div>
@@ -424,7 +424,7 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
               {findings.map((f) => (
                 <div
                   key={f.id}
-                  className="p-3.5 rounded-xl border border-neutral-800/80 bg-neutral-900/40 hover:bg-neutral-900/60 transition-colors space-y-2 text-xs"
+                  className="p-3.5 rounded-xl border border-border/80 bg-card/40 hover:bg-card/60 transition-colors space-y-2 text-xs"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -490,16 +490,16 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
                   </div>
 
                   {/* Relative Path */}
-                  <div className="font-mono text-neutral-200 break-all select-all">{f.relative_path}</div>
+                  <div className="font-mono text-foreground break-all select-all">{f.relative_path}</div>
 
                   {/* Details / Metadata */}
                   {f.evidence?.details && (
-                    <div className="text-neutral-400 text-[11px]">{f.evidence.details}</div>
+                    <div className="text-muted-foreground text-[11px]">{f.evidence.details}</div>
                   )}
 
                   {/* Expected vs Actual */}
                   {f.evidence?.expected_path && (
-                    <div className="text-[11px] text-neutral-500 font-mono">
+                    <div className="text-[11px] text-muted-foreground/80 font-mono">
                       Erwarteter Pfad: <span className="text-primary">{f.evidence.expected_path}</span>
                     </div>
                   )}

@@ -17,7 +17,7 @@ export function SmartRuleEditor({
   const update = (patch: Partial<SmartRules>) =>
     onChange({ ...defaultSmartRules, ...value, ...patch })
   return (
-    <fieldset className="space-y-3 rounded-xl border border-white/10 p-3 text-sm">
+    <fieldset className="space-y-3 rounded-xl border border-input p-3 text-sm">
       <label className="flex items-center gap-2">
         <input
           type="checkbox"

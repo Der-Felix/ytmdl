@@ -117,7 +117,7 @@ function DiscographyDialog({
             return (
               <label
                 key={row.key}
-                className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-white/4 has-disabled:cursor-not-allowed has-disabled:opacity-45"
+                className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-muted has-disabled:cursor-not-allowed has-disabled:opacity-45"
               >
                 <Checkbox
                   checked={filter[row.key]}
@@ -137,7 +137,7 @@ function DiscographyDialog({
           })}
         </fieldset>
 
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-white/3 px-3.5 py-3">
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-muted px-3.5 py-3">
           <Checkbox
             checked={skipExisting}
             onCheckedChange={(checked) => setSkipExisting(checked === true)}

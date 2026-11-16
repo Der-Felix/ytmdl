@@ -305,7 +305,7 @@ export function NowPlaying() {
         <div className="mt-6 flex items-center gap-3">
           <Link
             href={paths.library ? paths.library() : '/library'}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all"
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 transition"
           >
             Zur Musikbibliothek
           </Link>
@@ -338,25 +338,25 @@ export function NowPlaying() {
   }
 
   return (
-    <div className="player-page player-enter relative min-h-dvh flex flex-col bg-[#05070d] text-foreground select-none overflow-x-hidden">
+    <div className="player-page player-enter relative min-h-dvh flex flex-col bg-background text-foreground select-none overflow-x-hidden">
       
       {/* Dynamic Immersive Background Atmosphere from Cover Art */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25 filter blur-3xl scale-125 transition-all duration-1000">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25 filter blur-3xl scale-125 transition duration-1000">
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{
             backgroundImage: currentTrack.cover_url ? `url("${currentTrack.cover_url}")` : undefined,
           }}
         />
-        <div className="absolute inset-0 bg-radial from-transparent via-[#05070d]/70 to-[#05070d]" />
+        <div className="absolute inset-0 bg-radial from-transparent via-background/70 to-background" />
       </div>
 
       {/* Floating Error Toast (Never Displaces Main Grid) */}
       {playbackError && !errorDismissed && (
-        <div className="fixed top-16 right-6 z-50 max-w-sm rounded-2xl bg-destructive/20 border border-destructive/40 p-3.5 text-xs text-destructive-foreground backdrop-blur-xl shadow-2xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="fixed top-16 right-6 z-50 max-w-sm rounded-2xl bg-destructive/20 border border-destructive/40 p-3.5 text-xs text-destructive-foreground shadow-2xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="min-w-0">
             <p className="font-semibold">{playbackError}</p>
-            <p className="text-neutral-400 text-[11px] mt-0.5">
+            <p className="text-muted-foreground text-[11px] mt-0.5">
               Der Titel konnte nicht geladen werden.
             </p>
           </div>
@@ -372,14 +372,14 @@ export function NowPlaying() {
             <Button
               size="sm"
               onClick={() => next(true)}
-              className="h-7 px-2 text-xs bg-destructive text-white hover:bg-destructive/80"
+              className="h-7 px-2 text-xs bg-destructive text-foreground hover:bg-destructive/80"
             >
               Weiter
             </Button>
             <button
               type="button"
               onClick={() => setErrorDismissed(true)}
-              className="p-1 rounded-lg hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
+              className="p-1 rounded-lg hover:bg-input text-muted-foreground hover:text-foreground transition-colors"
               title="Meldung schließen"
             >
               <X className="size-3.5" />
@@ -392,7 +392,7 @@ export function NowPlaying() {
       <header className="relative z-20 flex h-14 shrink-0 items-center justify-between px-4 sm:px-8">
         <Link
           href={paths.library ? paths.library() : '/library'}
-          className="flex items-center gap-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white transition-all border border-white/5 shadow-sm"
+          className="flex items-center gap-2 rounded-xl bg-muted hover:bg-secondary px-3 py-1.5 text-xs font-medium text-foreground/80 hover:text-foreground transition border border-border shadow-sm"
           title="Zurück zur Bibliothek"
         >
           <ArrowLeft className="size-4" strokeWidth={1.8} />
@@ -403,12 +403,12 @@ export function NowPlaying() {
           <Button
             variant="ghost" size="icon-sm" aria-label="Song-Radio" title="Song-Radio"
             onClick={() => navigate('/library?view=tools&tool=radio')}
-            className="size-8 rounded-xl bg-white/[0.04] text-neutral-400 hover:bg-white/[0.08] hover:text-white border border-white/5"
+            className="size-8 rounded-xl bg-muted text-muted-foreground hover:bg-secondary hover:text-foreground border border-border"
           ><Radio className="size-4" /></Button>
           <Button
             variant="ghost" size="icon-sm" aria-label="Geräteübergabe" title="Geräteübergabe"
             onClick={() => navigate('/library?view=tools&tool=handoff')}
-            className="size-8 rounded-xl bg-white/[0.04] text-neutral-400 hover:bg-white/[0.08] hover:text-white border border-white/5"
+            className="size-8 rounded-xl bg-muted text-muted-foreground hover:bg-secondary hover:text-foreground border border-border"
           ><MonitorSmartphone className="size-4" /></Button>
           {/* Visualizer Menu Button */}
           <div className="relative">
@@ -419,7 +419,7 @@ export function NowPlaying() {
               className={`size-8 rounded-xl transition-colors ${
                 visualizerMode !== 'off'
                   ? 'bg-primary/20 text-primary border border-primary/30'
-                  : 'bg-white/[0.04] text-neutral-400 hover:text-white hover:bg-white/[0.08] border border-white/5'
+                  : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-secondary border border-border'
               }`}
               title="Visualizer Modus"
               aria-label="Visualizer Modus"
@@ -428,7 +428,7 @@ export function NowPlaying() {
             </Button>
 
             {visualizerMenuOpen && (
-              <div className="absolute right-0 top-10 z-50 w-36 rounded-2xl bg-[#0f1220]/95 border border-white/10 p-1.5 shadow-2xl backdrop-blur-xl space-y-1">
+              <div className="absolute right-0 top-10 z-50 w-36 rounded-2xl bg-popover border border-input p-1.5 shadow-2xl space-y-1">
                 {(['off', 'spectrum', 'waveform'] as VisualizerMode[]).map((mode) => (
                   <button
                     key={mode}
@@ -439,8 +439,8 @@ export function NowPlaying() {
                     }}
                     className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
                       visualizerMode === mode
-                        ? 'bg-primary text-white'
-                        : 'text-neutral-300 hover:bg-white/10 hover:text-white'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-foreground/80 hover:bg-input hover:text-foreground'
                     }`}
                   >
                     {mode === 'off' ? 'Deaktiviert' : mode === 'spectrum' ? 'Spektrum' : 'Oszilloskop'}
@@ -455,7 +455,7 @@ export function NowPlaying() {
             variant="ghost"
             size="icon-sm"
             onClick={toggleFullscreen}
-            className="size-8 rounded-xl text-neutral-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/5"
+            className="size-8 rounded-xl text-muted-foreground hover:text-foreground bg-muted hover:bg-secondary border border-border"
             title={isFullscreen ? 'Vollbildmodus beenden' : 'Vollbildmodus aktivieren'}
             aria-label="Vollbild"
           >
@@ -478,7 +478,7 @@ export function NowPlaying() {
           <div className="player-controls lg:col-span-5 min-w-0 flex flex-col items-center lg:items-start space-y-4 max-w-md mx-auto lg:mx-0 w-full">
             
             {/* Artwork Cover (Height-Responsive, Max 420px, Fits on 768p/900p/1080p) */}
-            <div className="relative group player-artwork w-full max-w-[clamp(180px,32dvh,380px)] aspect-square rounded-[22px] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.65)] bg-black/40 border border-white/[0.06] mx-auto lg:mx-0">
+            <div className="relative group player-artwork w-full max-w-[clamp(180px,32dvh,380px)] aspect-square rounded-[22px] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.65)] bg-overlay/40 border border-border mx-auto lg:mx-0">
               <Cover
                 src={libraryArtwork('tracks', currentTrack.id)} fallbackSrc={currentTrack.cover_url}
                 alt={currentTrack.title}
@@ -502,22 +502,22 @@ export function NowPlaying() {
             {/* Track Title & Artist Metadata (Above the fold) */}
             <div className="w-full text-center lg:text-left space-y-0.5">
               <h1
-                className="text-xl sm:text-2xl xl:text-3xl font-bold tracking-tight text-white line-clamp-2 leading-tight"
+                className="text-xl sm:text-2xl xl:text-3xl font-bold tracking-tight text-foreground line-clamp-2 leading-tight"
                 title={currentTrack.title}
               >
                 {currentTrack.title}
               </h1>
-              <p className="text-sm sm:text-base text-neutral-300 font-medium line-clamp-1">
+              <p className="text-sm sm:text-base text-foreground/80 font-medium line-clamp-1">
                 {artistText}
               </p>
-              <div className="flex items-center justify-center lg:justify-start gap-2 pt-0.5 text-xs text-neutral-400">
+              <div className="flex items-center justify-center lg:justify-start gap-2 pt-0.5 text-xs text-muted-foreground">
                 {currentTrack.album && (
                   <span className="truncate max-w-[220px]">
                     {currentTrack.album} {currentTrack.year ? `(${currentTrack.year})` : ''}
                   </span>
                 )}
                 {currentTrack.codec && (
-                  <Badge variant="outline" className="font-mono text-[9px] uppercase border-white/10 text-neutral-400 px-1.5 py-0">
+                  <Badge variant="outline" className="font-mono text-[9px] uppercase border-input text-muted-foreground px-1.5 py-0">
                     {currentTrack.codec}
                   </Badge>
                 )}
@@ -560,13 +560,13 @@ export function NowPlaying() {
                   }}
                   className="slider-quiet w-full outline-none"
                   style={{
-                    background: `linear-gradient(to right, #ce3463 0%, #ce3463 ${progressPercent}%, rgba(255,255,255,0.15) ${progressPercent}%, rgba(255,255,255,0.15) 100%)`,
+                    background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${progressPercent}%, var(--input) ${progressPercent}%, var(--input) 100%)`,
                   }}
                   aria-label="Fortschritt"
                 />
               </div>
 
-              <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400">
+              <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
                 <span className="tabular-nums">{formatPlaybackTime(displayTime)}</span>
                 <span className="tabular-nums">{formatDuration(duration * 1000)}</span>
               </div>
@@ -582,7 +582,7 @@ export function NowPlaying() {
                 className={`size-9 rounded-full transition-colors ${
                   shuffle
                     ? 'text-primary hover:text-primary/80'
-                    : 'text-neutral-400 hover:text-white'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
                 title={shuffle ? 'Zufallswiedergabe: Ein' : 'Zufallswiedergabe: Aus'}
                 aria-label="Zufallswiedergabe"
@@ -595,7 +595,7 @@ export function NowPlaying() {
                 variant="ghost"
                 size="icon"
                 onClick={previous}
-                className="size-10 rounded-full text-neutral-300 hover:text-white hover:bg-white/10 transition-colors"
+                className="size-10 rounded-full text-foreground/80 hover:text-foreground hover:bg-input transition-colors"
                 title="Vorheriger Titel / Neustart"
                 aria-label="Vorheriger Titel"
               >
@@ -623,7 +623,7 @@ export function NowPlaying() {
                 variant="ghost"
                 size="icon"
                 onClick={() => next(true)}
-                className="size-10 rounded-full text-neutral-300 hover:text-white hover:bg-white/10 transition-colors"
+                className="size-10 rounded-full text-foreground/80 hover:text-foreground hover:bg-input transition-colors"
                 title="Nächster Titel"
                 aria-label="Nächster Titel"
               >
@@ -638,7 +638,7 @@ export function NowPlaying() {
                 className={`size-9 rounded-full transition-colors ${
                   repeatMode !== 'off'
                     ? 'text-primary hover:text-primary/80'
-                    : 'text-neutral-400 hover:text-white'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
                 title={`Wiederholen: ${
                   repeatMode === 'off' ? 'Aus' : repeatMode === 'queue' ? 'Queue' : 'Titel'
@@ -654,14 +654,14 @@ export function NowPlaying() {
             </div>
 
             {/* Secondary Controls Bar: Volume & Options Menu */}
-            <div className="w-full flex items-center justify-between gap-4 pt-3 border-t border-white/[0.06]">
+            <div className="w-full flex items-center justify-between gap-4 pt-3 border-t border-border">
               {/* Volume Slider (Quiet) */}
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
                   size="icon-sm"
                   onClick={toggleMute}
-                  className="size-7 rounded-lg text-neutral-400 hover:text-white"
+                  className="size-7 rounded-lg text-muted-foreground hover:text-foreground"
                   title={muted ? 'Stummschaltung aufheben' : 'Stummschalten'}
                   aria-label="Lautstärke"
                 >
@@ -698,7 +698,7 @@ export function NowPlaying() {
                     className={`h-7 w-7 p-0 rounded-lg transition-colors ${
                       favorites.isFavorite(currentTrack.id)
                         ? 'text-rose-500 hover:text-rose-400 bg-rose-500/10'
-                        : 'text-neutral-400 hover:text-rose-400 hover:bg-white/[0.04]'
+                        : 'text-muted-foreground hover:text-rose-400 hover:bg-muted'
                     }`}
                     title={
                       favorites.isFavorite(currentTrack.id)
@@ -725,7 +725,7 @@ export function NowPlaying() {
                   variant="ghost"
                   size="sm"
                   onClick={() => setPlaylistDialogOpen(true)}
-                  className="h-7 w-7 p-0 rounded-lg text-neutral-400 hover:text-white hover:bg-white/[0.04]"
+                  className="h-7 w-7 p-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
                   title="Zur Playlist hinzufügen"
                   aria-label="Zur Playlist hinzufügen"
                 >
@@ -738,7 +738,7 @@ export function NowPlaying() {
                     variant="ghost"
                     size="sm"
                     onClick={() => setOptionsMenuOpen(!optionsMenuOpen)}
-                    className="h-7 px-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-xs text-neutral-300 hover:text-white border border-white/5 gap-1.5"
+                    className="h-7 px-2 rounded-lg bg-muted hover:bg-secondary text-xs text-foreground/80 hover:text-foreground border border-border gap-1.5"
                     title="Wiedergabeoptionen"
                   >
                     <MoreHorizontal className="size-3.5" />
@@ -749,10 +749,10 @@ export function NowPlaying() {
                   </Button>
 
                   {optionsMenuOpen && (
-                    <div className="absolute right-0 bottom-9 z-50 w-52 rounded-2xl bg-[#0f1220]/95 border border-white/10 p-3 shadow-2xl backdrop-blur-xl space-y-3">
+                    <div className="absolute right-0 bottom-9 z-50 w-52 rounded-2xl bg-popover border border-input p-3 shadow-2xl space-y-3">
                       {/* Speed Selection */}
                       <div>
-                        <label className="text-[10px] font-semibold uppercase text-neutral-400 tracking-wider block mb-1.5">
+                        <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider block mb-1.5">
                           Geschwindigkeit
                         </label>
                         <div className="grid grid-cols-4 gap-1">
@@ -766,8 +766,8 @@ export function NowPlaying() {
                               }}
                               className={`py-1 text-xs font-mono rounded-lg transition-colors ${
                                 playbackRate === rate
-                                  ? 'bg-primary text-white font-bold'
-                                  : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                                  ? 'bg-primary text-primary-foreground font-bold'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                               }`}
                             >
                               {rate}x
@@ -778,7 +778,7 @@ export function NowPlaying() {
 
                       {/* Sleep Timer */}
                       <div>
-                        <label className="text-[10px] font-semibold uppercase text-neutral-400 tracking-wider block mb-1.5">
+                        <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider block mb-1.5">
                           Sleep Timer
                         </label>
                         <div className="grid grid-cols-2 gap-1">
@@ -793,8 +793,8 @@ export function NowPlaying() {
                                 }}
                                 className={`py-1 px-2 text-xs rounded-lg text-left transition-colors truncate ${
                                   sleepTimer === option
-                                    ? 'bg-primary text-white font-semibold'
-                                    : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                                    ? 'bg-primary text-primary-foreground font-semibold'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                                 }`}
                               >
                                 {option === 'off' ? 'Aus' : option === 'end_of_track' ? 'Track-Ende' : `${option} min`}
@@ -816,15 +816,15 @@ export function NowPlaying() {
                             setSleepTimer(e.target.value as SleepTimerOption)
                             setOptionsMenuOpen(false)
                           }}
-                          className="w-full h-7 rounded-lg bg-white/[0.06] border border-white/10 px-2 text-xs text-white outline-none cursor-pointer"
+                          className="w-full h-7 rounded-lg bg-secondary border border-input px-2 text-xs text-foreground outline-none cursor-pointer"
                         >
-                          <option value="off" className="bg-[#121524]">Aus</option>
-                          <option value="15" className="bg-[#121524]">15 Minuten</option>
-                          <option value="30" className="bg-[#121524]">30 Minuten</option>
-                          <option value="45" className="bg-[#121524]">45 Minuten</option>
-                          <option value="60" className="bg-[#121524]">60 Minuten</option>
-                          <option value="end_of_track" className="bg-[#121524]">Nach aktuellem Titel</option>
-                          <option value="end_of_album" className="bg-[#121524]">Nach aktuellem Album</option>
+                          <option value="off" className="bg-popover">Aus</option>
+                          <option value="15" className="bg-popover">15 Minuten</option>
+                          <option value="30" className="bg-popover">30 Minuten</option>
+                          <option value="45" className="bg-popover">45 Minuten</option>
+                          <option value="60" className="bg-popover">60 Minuten</option>
+                          <option value="end_of_track" className="bg-popover">Nach aktuellem Titel</option>
+                          <option value="end_of_album" className="bg-popover">Nach aktuellem Album</option>
                         </select>
                       </div>
                     </div>
@@ -839,17 +839,17 @@ export function NowPlaying() {
           {/* ======================================================== */}
           {/* RIGHT COLUMN (58%): Soft Glass Panel (Top-Aligned)       */}
           {/* ======================================================== */}
-          <div className="player-panel lg:col-span-7 min-w-0 min-h-0 flex flex-col rounded-[22px] bg-white/[0.02] border border-white/[0.05] backdrop-blur-xl shadow-2xl overflow-hidden">
+          <div className="player-panel lg:col-span-7 min-w-0 min-h-0 flex flex-col rounded-[22px] bg-muted border border-border shadow-2xl overflow-hidden">
             
             {/* Panel Tabs Navigation (Subtle Underline Active) */}
-            <div className="player-tabs grid grid-cols-4 shrink-0 items-center border-b border-white/[0.05] px-2 sm:px-4 pt-2 bg-white/[0.01]">
+            <div className="player-tabs grid grid-cols-4 shrink-0 items-center border-b border-border px-2 sm:px-4 pt-2 bg-muted">
               <button
                 type="button"
                 onClick={() => setActiveTab('lyrics')}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all border-b-2 ${
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition border-b-2 ${
                   activeTab === 'lyrics'
-                    ? 'border-primary text-white bg-white/[0.02]'
-                    : 'border-transparent text-neutral-400 hover:text-neutral-200'
+                    ? 'border-primary text-foreground bg-muted'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Mic2 className="size-4" strokeWidth={1.8} />
@@ -859,16 +859,16 @@ export function NowPlaying() {
               <button
                 type="button"
                 onClick={() => setActiveTab('queue')}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all border-b-2 ${
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition border-b-2 ${
                   activeTab === 'queue'
-                    ? 'border-primary text-white bg-white/[0.02]'
-                    : 'border-transparent text-neutral-400 hover:text-neutral-200'
+                    ? 'border-primary text-foreground bg-muted'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <ListMusic className="size-4" strokeWidth={1.8} />
                 <span>Queue</span>
                 {queue.length > 0 && (
-                  <Badge variant="outline" className="py-0 px-1.5 text-[10px] font-mono border-white/10 text-neutral-400">
+                  <Badge variant="outline" className="py-0 px-1.5 text-[10px] font-mono border-input text-muted-foreground">
                     {queue.length}
                   </Badge>
                 )}
@@ -877,10 +877,10 @@ export function NowPlaying() {
               <button
                 type="button"
                 onClick={() => setActiveTab('equalizer')}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all border-b-2 ${
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition border-b-2 ${
                   activeTab === 'equalizer'
-                    ? 'border-primary text-white bg-white/[0.02]'
-                    : 'border-transparent text-neutral-400 hover:text-neutral-200'
+                    ? 'border-primary text-foreground bg-muted'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Sliders className="size-4" strokeWidth={1.8} />
@@ -893,10 +893,10 @@ export function NowPlaying() {
               <button
                 type="button"
                 onClick={() => setActiveTab('audio')}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition-all border-b-2 ${
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition border-b-2 ${
                   activeTab === 'audio'
-                    ? 'border-primary text-white bg-white/[0.02]'
-                    : 'border-transparent text-neutral-400 hover:text-neutral-200'
+                    ? 'border-primary text-foreground bg-muted'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Shield className="size-4" strokeWidth={1.8} />
@@ -907,7 +907,7 @@ export function NowPlaying() {
             {/* Panel Tab Content (Internally Scrollable) */}
             {activeTab === 'lyrics' && parsedLrcLines && (
               <button type="button" aria-pressed={followLyrics} onClick={() => setFollowLyrics(!followLyrics)}
-                className="shrink-0 self-end mx-4 mt-2 rounded-lg px-2 py-1 text-xs text-neutral-400 hover:text-white focus-visible:ring-2 focus-visible:ring-primary">
+                className="shrink-0 self-end mx-4 mt-2 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary">
                 {followLyrics ? 'Lyrics folgen · Ein' : 'Lyrics folgen · Aus'}
               </button>
             )}
@@ -921,17 +921,17 @@ export function NowPlaying() {
               {activeTab === 'lyrics' && (
                 <div className="space-y-4 py-2">
                   {lyricsLoading && (
-                    <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
+                    <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                       <RefreshCw className="size-6 animate-spin mb-3 text-primary" />
                       <p className="text-sm">Songtext wird geladen...</p>
                     </div>
                   )}
 
                   {!lyricsLoading && (!lyricsData || (!parsedLrcLines && !lyricsData.content)) && (
-                    <div className="flex flex-col items-center justify-center py-16 text-center text-neutral-400">
-                      <Mic2 className="size-10 mb-3 text-neutral-600" />
-                      <p className="text-base font-medium text-neutral-200">Keine Lyrics verfügbar</p>
-                      <p className="text-xs text-neutral-500 mt-1 max-w-xs">
+                    <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
+                      <Mic2 className="size-10 mb-3 text-muted-foreground/60" />
+                      <p className="text-base font-medium text-foreground">Keine Lyrics verfügbar</p>
+                      <p className="text-xs text-muted-foreground/80 mt-1 max-w-xs">
                         Für diesen Titel wurden noch keine Liedtexte in der Bibliothek gefunden.
                       </p>
                       <Button
@@ -939,7 +939,7 @@ export function NowPlaying() {
                         size="sm"
                         onClick={handleRefreshLyrics}
                         disabled={lyricsRefreshing}
-                        className="mt-4 h-8 px-3 text-xs rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border-white/10 text-neutral-200"
+                        className="mt-4 h-8 px-3 text-xs rounded-xl bg-muted hover:bg-secondary border-input text-foreground"
                       >
                         {lyricsRefreshing ? (
                           <>
@@ -965,9 +965,9 @@ export function NowPlaying() {
                             key={idx}
                             ref={isActive ? activeLyricRef : null}
                             onClick={() => seek(line.timeSeconds)}
-                            className={`cursor-pointer transition-all duration-200 select-none py-1 px-3 rounded-xl ${
+                            className={`cursor-pointer transition duration-200 select-none py-1 px-3 rounded-xl ${
                               isActive
-                                ? 'text-foreground font-bold text-lg sm:text-xl xl:text-2xl bg-white/[0.04]'
+                                ? 'text-foreground font-bold text-lg sm:text-xl xl:text-2xl bg-muted'
                                 : 'text-muted-foreground hover:text-foreground font-medium text-sm sm:text-base xl:text-lg'
                             }`}
                           >
@@ -980,11 +980,11 @@ export function NowPlaying() {
 
                   {!lyricsLoading && lyricsData && (!parsedLrcLines || parsedLrcLines.length === 0) && lyricsData.content && (
                     <div className="space-y-4 p-2">
-                      <div className="whitespace-pre-line text-sm sm:text-base leading-relaxed text-neutral-300">
+                      <div className="whitespace-pre-line text-sm sm:text-base leading-relaxed text-foreground/80">
                         {lyricsData.content}
                       </div>
                       {lyricsData.provider && (
-                        <p className="pt-2 text-[11px] text-neutral-500 text-center lg:text-left">
+                        <p className="pt-2 text-[11px] text-muted-foreground/80 text-center lg:text-left">
                           Quelle: {lyricsData.provider.toLowerCase() === 'genius' ? 'Genius' : lyricsData.provider.toUpperCase()}
                         </p>
                       )}
@@ -999,13 +999,13 @@ export function NowPlaying() {
               {/* ---------------------------------------------------- */}
               {activeTab === 'queue' && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-white/[0.05]">
-                    <div className="flex items-center gap-1 bg-white/[0.04] p-1 rounded-xl">
+                  <div className="flex items-center justify-between pb-2 border-b border-border">
+                    <div className="flex items-center gap-1 bg-muted p-1 rounded-xl">
                       <button
                         type="button"
                         onClick={() => setShowHistory(false)}
                         className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors ${
-                          !showHistory ? 'bg-white/10 text-white' : 'text-neutral-400 hover:text-white'
+                          !showHistory ? 'bg-input text-foreground' : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
                         Queue ({queue.length})
@@ -1014,7 +1014,7 @@ export function NowPlaying() {
                         type="button"
                         onClick={() => setShowHistory(true)}
                         className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors ${
-                          showHistory ? 'bg-white/10 text-white' : 'text-neutral-400 hover:text-white'
+                          showHistory ? 'bg-input text-foreground' : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
                         Verlauf ({history.length})
@@ -1028,7 +1028,7 @@ export function NowPlaying() {
                             variant="ghost"
                             size="sm"
                             onClick={clearUpcomingQueue}
-                            className="h-7 px-2 text-xs text-neutral-400 hover:text-white rounded-lg hover:bg-white/10"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground rounded-lg hover:bg-input"
                             title="Kommende Titel entfernen (bereits gespielte und aktuellen Titel beibehalten)"
                           >
                             Nächste leeren
@@ -1051,8 +1051,8 @@ export function NowPlaying() {
                   </div>
 
                   {!showHistory && queue.length === 0 && (
-                    <div className="py-16 text-center text-neutral-400">
-                      <ListMusic className="size-8 mx-auto mb-2 text-neutral-600" />
+                    <div className="py-16 text-center text-muted-foreground">
+                      <ListMusic className="size-8 mx-auto mb-2 text-muted-foreground/60" />
                       <p className="text-xs">Die Warteschlange ist leer</p>
                     </div>
                   )}
@@ -1095,19 +1095,19 @@ export function NowPlaying() {
                               setDropTargetQueueIndex(null)
                             }}
                             aria-current={isCurrent ? 'true' : undefined}
-                            className={`group flex items-center justify-between gap-3 p-2 rounded-xl transition-all cursor-pointer select-none border ${
+                            className={`group flex items-center justify-between gap-3 p-2 rounded-xl transition cursor-pointer select-none border ${
                               isCurrent
-                                ? 'bg-primary/10 border-primary/40 text-white'
-                                : 'border-transparent hover:bg-white/[0.04] text-neutral-200'
+                                ? 'bg-primary/10 border-primary/40 text-primary-foreground'
+                                : 'border-transparent hover:bg-muted text-foreground'
                             } ${isDragging ? 'opacity-30 scale-98' : ''} ${
-                              isDropTarget && !isDragging ? 'border-primary/60 bg-white/[0.06]' : ''
+                              isDropTarget && !isDragging ? 'border-primary/60 bg-secondary' : ''
                             }`}
                             onClick={() => playQueueIndex(idx)}
                           >
                             <div className="flex items-center gap-2 min-w-0 flex-1">
                               <button
                                 type="button"
-                                className="cursor-grab active:cursor-grabbing p-1 text-neutral-500 hover:text-neutral-300 opacity-60 group-hover:opacity-100 transition-opacity shrink-0"
+                                className="cursor-grab active:cursor-grabbing p-1 text-muted-foreground/80 hover:text-foreground/80 opacity-60 group-hover:opacity-100 transition-opacity shrink-0"
                                 title="Verschieben per Drag & Drop"
                                 aria-label="Verschieben per Drag & Drop"
                                 onClick={(e) => e.stopPropagation()}
@@ -1118,27 +1118,27 @@ export function NowPlaying() {
                                 src={libraryArtwork('tracks', track.id)} fallbackSrc={track.cover_url}
                                 alt={track.title}
                                 shape="square"
-                                className="size-9 rounded-lg shrink-0 border border-white/10"
+                                className="size-9 rounded-lg shrink-0 border border-input"
                               />
                               <div className="min-w-0 flex-1">
-                                <p className={`truncate text-xs sm:text-sm font-semibold ${isCurrent ? 'text-primary' : 'text-white'}`}>
+                                <p className={`truncate text-xs sm:text-sm font-semibold ${isCurrent ? 'text-primary' : 'text-foreground'}`}>
                                   {track.title}
                                 </p>
-                                <p className="truncate text-[11px] text-neutral-400">
+                                <p className="truncate text-[11px] text-muted-foreground">
                                   {track.artists?.length > 0 ? joinArtists(track.artists) : track.album_artist}
                                 </p>
                               </div>
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                              <span className="text-[11px] font-mono text-neutral-400 tabular-nums pr-1">
+                              <span className="text-[11px] font-mono text-muted-foreground tabular-nums pr-1">
                                 {formatDuration(track.duration_ms)}
                               </span>
                               <button
                                 type="button"
                                 disabled={idx === 0}
                                 onClick={() => reorderQueue(idx, idx - 1)}
-                                className="p-1 rounded-md text-neutral-400 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:pointer-events-none transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-input disabled:opacity-20 disabled:pointer-events-none transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                                 title="Nach oben verschieben"
                                 aria-label={`Titel ${track.title} nach oben verschieben`}
                               >
@@ -1148,7 +1148,7 @@ export function NowPlaying() {
                                 type="button"
                                 disabled={idx === queue.length - 1}
                                 onClick={() => reorderQueue(idx, idx + 1)}
-                                className="p-1 rounded-md text-neutral-400 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:pointer-events-none transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-input disabled:opacity-20 disabled:pointer-events-none transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                                 title="Nach unten verschieben"
                                 aria-label={`Titel ${track.title} nach unten verschieben`}
                               >
@@ -1157,7 +1157,7 @@ export function NowPlaying() {
                               <button
                                 type="button"
                                 onClick={() => removeFromQueue(idx)}
-                                className="p-1 rounded-md text-neutral-400 hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                                 title="Aus Warteschlange entfernen"
                                 aria-label={`Titel ${track.title} aus Warteschlange entfernen`}
                               >
@@ -1177,25 +1177,25 @@ export function NowPlaying() {
                         <div
                           key={`${item.track.id}-${idx}`}
                           onClick={() => playTrack(item.track)}
-                          className="flex items-center justify-between p-2 rounded-xl hover:bg-white/[0.02] cursor-pointer transition-colors"
+                          className="flex items-center justify-between p-2 rounded-xl hover:bg-muted cursor-pointer transition-colors"
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <Cover
                               src={libraryArtwork('tracks', item.track.id)} fallbackSrc={item.track.cover_url}
                               alt={item.track.title}
                               shape="square"
-                              className="size-9 rounded-lg shrink-0 border border-white/10"
+                              className="size-9 rounded-lg shrink-0 border border-input"
                             />
                             <div className="min-w-0">
-                              <p className="truncate text-xs font-medium text-white">
+                              <p className="truncate text-xs font-medium text-foreground">
                                 {item.track.title}
                               </p>
-                              <p className="truncate text-[11px] text-neutral-400">
+                              <p className="truncate text-[11px] text-muted-foreground">
                                 {item.track.artists?.length > 0 ? joinArtists(item.track.artists) : item.track.album_artist}
                               </p>
                             </div>
                           </div>
-                          <span className="text-[11px] font-mono text-neutral-500 tabular-nums">
+                          <span className="text-[11px] font-mono text-muted-foreground/80 tabular-nums">
                             {formatDuration(item.track.duration_ms)}
                           </span>
                         </div>
@@ -1212,26 +1212,26 @@ export function NowPlaying() {
               {activeTab === 'equalizer' && (
                 <div className="space-y-5">
                   {/* Mode & Power Header */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/[0.05]">
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-border">
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
                         variant={eqEnabled ? 'secondary' : 'outline'}
                         onClick={() => setEQEnabled(!eqEnabled)}
                         className={`h-7 rounded-lg text-xs font-medium ${
-                          eqEnabled ? 'bg-primary text-white border-primary shadow-sm shadow-primary/20' : ''
+                          eqEnabled ? 'bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20' : ''
                         }`}
                       >
                         {eqEnabled ? 'Aktiviert' : 'Bypass'}
                       </Button>
 
                       {/* Switch between Graphic & Parametric */}
-                      <div className="flex items-center rounded-lg bg-white/[0.04] p-0.5 border border-white/5 text-xs">
+                      <div className="flex items-center rounded-lg bg-muted p-0.5 border border-border text-xs">
                         <button
                           type="button"
                           onClick={() => setEQMode('graphic')}
                           className={`rounded-md px-2.5 py-0.5 text-[11px] transition-colors ${
-                            eqMode === 'graphic' ? 'bg-white/10 text-white font-semibold' : 'text-neutral-400 hover:text-white'
+                            eqMode === 'graphic' ? 'bg-input text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'
                           }`}
                         >
                           10-Band
@@ -1240,7 +1240,7 @@ export function NowPlaying() {
                           type="button"
                           onClick={() => setEQMode('parametric')}
                           className={`rounded-md px-2.5 py-0.5 text-[11px] transition-colors ${
-                            eqMode === 'parametric' ? 'bg-white/10 text-white font-semibold' : 'text-neutral-400 hover:text-white'
+                            eqMode === 'parametric' ? 'bg-input text-foreground font-semibold' : 'text-muted-foreground hover:text-foreground'
                           }`}
                         >
                           Parametrisch
@@ -1254,12 +1254,12 @@ export function NowPlaying() {
                         <select
                           value={selectedPresetId}
                           onChange={(e) => setEQPreset(e.target.value)}
-                          className="h-7 rounded-lg bg-white/[0.04] border border-white/10 px-2 text-xs text-neutral-200 hover:text-white outline-none cursor-pointer"
+                          className="h-7 rounded-lg bg-muted border border-input px-2 text-xs text-foreground hover:text-foreground outline-none cursor-pointer"
                           aria-label="Preset"
                         >
                           <optgroup label="Werkspresets">
                             {BUILTIN_PRESETS.map((p) => (
-                              <option key={p.id} value={p.id} className="bg-[#121524]">
+                              <option key={p.id} value={p.id} className="bg-popover">
                                 {p.name}
                               </option>
                             ))}
@@ -1267,14 +1267,14 @@ export function NowPlaying() {
                           {customPresets.length > 0 && (
                             <optgroup label="Eigene Presets">
                               {customPresets.map((p) => (
-                                <option key={p.id} value={p.id} className="bg-[#121524]">
+                                <option key={p.id} value={p.id} className="bg-popover">
                                   {p.name}
                                 </option>
                               ))}
                             </optgroup>
                           )}
                           {selectedPresetId === 'custom' && (
-                            <option value="custom" className="bg-[#121524]">Benutzerdefiniert</option>
+                            <option value="custom" className="bg-popover">Benutzerdefiniert</option>
                           )}
                         </select>
 
@@ -1282,7 +1282,7 @@ export function NowPlaying() {
                           variant="ghost"
                           size="sm"
                           onClick={() => setSavePresetOpen(true)}
-                          className="h-7 px-2 text-xs rounded-lg bg-white/[0.04] hover:bg-white/10 border border-white/5"
+                          className="h-7 px-2 text-xs rounded-lg bg-muted hover:bg-input border border-border"
                           title="Als Preset speichern"
                         >
                           <Save className="size-3.5 mr-1" />
@@ -1293,7 +1293,7 @@ export function NowPlaying() {
                           variant="ghost"
                           size="sm"
                           onClick={() => setEQPreset('flat')}
-                          className="h-7 px-1.5 text-xs rounded-lg text-neutral-400 hover:text-white hover:bg-white/5"
+                          className="h-7 px-1.5 text-xs rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
                           title="Auf 0 dB zurücksetzen"
                         >
                           <RotateCcw className="size-3.5" />
@@ -1304,13 +1304,13 @@ export function NowPlaying() {
 
                   {/* Save Preset Dialog */}
                   {savePresetOpen && (
-                    <div className="flex items-center gap-2 p-2.5 bg-white/[0.05] rounded-xl border border-white/10">
+                    <div className="flex items-center gap-2 p-2.5 bg-muted rounded-xl border border-input">
                       <Input
                         type="text"
                         placeholder="Preset Name..."
                         value={customPresetName}
                         onChange={(e) => setCustomPresetName(e.target.value)}
-                        className="h-7 text-xs rounded-lg bg-black/40"
+                        className="h-7 text-xs rounded-lg bg-overlay/40"
                       />
                       <Button
                         size="sm"
@@ -1321,7 +1321,7 @@ export function NowPlaying() {
                             setSavePresetOpen(false)
                           }
                         }}
-                        className="h-7 text-xs rounded-lg bg-primary text-white"
+                        className="h-7 text-xs rounded-lg bg-primary text-primary-foreground"
                       >
                         Speichern
                       </Button>
@@ -1343,7 +1343,7 @@ export function NowPlaying() {
                         const gain = graphicBands[idx] ?? 0
                         return (
                           <div key={freq} className="flex flex-col items-center gap-2 group">
-                            <span className="text-[10px] font-mono text-neutral-300 tabular-nums">
+                            <span className="text-[10px] font-mono text-foreground/80 tabular-nums">
                               {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}
                             </span>
 
@@ -1361,7 +1361,7 @@ export function NowPlaying() {
                               />
                             </div>
 
-                            <span className="text-[9px] sm:text-[10px] font-mono text-neutral-400 text-center select-none">
+                            <span className="text-[9px] sm:text-[10px] font-mono text-muted-foreground text-center select-none">
                               {formatFrequency(freq)}
                             </span>
                           </div>
@@ -1374,14 +1374,14 @@ export function NowPlaying() {
                   {eqMode === 'parametric' && (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-neutral-400">
+                        <p className="text-xs text-muted-foreground">
                           Präzise parametrische Filter mit Frequenz, Gain und Gütefaktor (Q).
                         </p>
                         <Button
                           size="sm"
                           onClick={handleAddParametricFilter}
                           disabled={parametricFilters.length >= 10}
-                          className="h-7 text-xs rounded-lg bg-primary text-white gap-1"
+                          className="h-7 text-xs rounded-lg bg-primary text-primary-foreground gap-1"
                         >
                           <Plus className="size-3.5" />
                           Filter
@@ -1392,11 +1392,11 @@ export function NowPlaying() {
                         {parametricFilters.map((filter, index) => (
                           <div
                             key={filter.id}
-                            className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] space-y-2"
+                            className="p-3 rounded-xl bg-muted border border-border space-y-2"
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-2">
-                                <span className="text-xs font-mono text-neutral-400">#{index + 1}</span>
+                                <span className="text-xs font-mono text-muted-foreground">#{index + 1}</span>
                                 <select
                                   value={filter.type}
                                   onChange={(e) =>
@@ -1405,18 +1405,18 @@ export function NowPlaying() {
                                       type: e.target.value as ParametricFilterType,
                                     })
                                   }
-                                  className="h-6 rounded bg-white/[0.06] border border-white/10 px-1.5 text-xs text-white outline-none"
+                                  className="h-6 rounded bg-secondary border border-input px-1.5 text-xs text-foreground outline-none"
                                 >
-                                  <option value="peaking" className="bg-[#121524]">Peaking</option>
-                                  <option value="lowshelf" className="bg-[#121524]">Low Shelf</option>
-                                  <option value="highshelf" className="bg-[#121524]">High Shelf</option>
-                                  <option value="lowpass" className="bg-[#121524]">Low Pass</option>
-                                  <option value="highpass" className="bg-[#121524]">High Pass</option>
+                                  <option value="peaking" className="bg-popover">Peaking</option>
+                                  <option value="lowshelf" className="bg-popover">Low Shelf</option>
+                                  <option value="highshelf" className="bg-popover">High Shelf</option>
+                                  <option value="lowpass" className="bg-popover">Low Pass</option>
+                                  <option value="highpass" className="bg-popover">High Pass</option>
                                 </select>
                               </div>
 
                               <div className="flex items-center gap-2">
-                                <label className="flex items-center gap-1.5 text-xs text-neutral-400 cursor-pointer">
+                                <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
                                   <input
                                     type="checkbox"
                                     checked={filter.enabled}
@@ -1426,14 +1426,14 @@ export function NowPlaying() {
                                         enabled: e.target.checked,
                                       })
                                     }
-                                    className="rounded size-3.5 border-white/20 bg-white/5 text-primary"
+                                    className="rounded size-3.5 border-input bg-muted text-primary"
                                   />
                                   <span>Aktiv</span>
                                 </label>
                                 <button
                                   type="button"
                                   onClick={() => deleteParametricFilter(filter.id)}
-                                  className="p-1 rounded hover:bg-white/10 text-neutral-400 hover:text-destructive transition-colors"
+                                  className="p-1 rounded hover:bg-input text-muted-foreground hover:text-destructive transition-colors"
                                   title="Filter löschen"
                                 >
                                   <Trash2 className="size-3.5" />
@@ -1444,9 +1444,9 @@ export function NowPlaying() {
                             {/* Sliders with Quiet Thumb Styling */}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
                               <div className="space-y-1">
-                                <div className="flex justify-between text-[10px] text-neutral-400">
+                                <div className="flex justify-between text-[10px] text-muted-foreground">
                                   <span>Frequenz</span>
-                                  <span className="font-mono text-white">{filter.frequency} Hz</span>
+                                  <span className="font-mono text-foreground">{filter.frequency} Hz</span>
                                 </div>
                                 <input
                                   type="range"
@@ -1465,9 +1465,9 @@ export function NowPlaying() {
                               </div>
 
                               <div className="space-y-1">
-                                <div className="flex justify-between text-[10px] text-neutral-400">
+                                <div className="flex justify-between text-[10px] text-muted-foreground">
                                   <span>Gain</span>
-                                  <span className="font-mono text-white">
+                                  <span className="font-mono text-foreground">
                                     {filter.gain > 0 ? `+${filter.gain}` : filter.gain} dB
                                   </span>
                                 </div>
@@ -1488,9 +1488,9 @@ export function NowPlaying() {
                               </div>
 
                               <div className="space-y-1">
-                                <div className="flex justify-between text-[10px] text-neutral-400">
+                                <div className="flex justify-between text-[10px] text-muted-foreground">
                                   <span>Güte (Q)</span>
-                                  <span className="font-mono text-white">{filter.q.toFixed(2)}</span>
+                                  <span className="font-mono text-foreground">{filter.q.toFixed(2)}</span>
                                 </div>
                                 <input
                                   type="range"
@@ -1523,7 +1523,7 @@ export function NowPlaying() {
               {activeTab === 'audio' && (
                 <div className="space-y-4">
                   {/* Section 4: Crossfade Transition */}
-                  <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2.5">
+                  <div className="p-3.5 rounded-xl bg-muted border border-border space-y-2.5">
                     <div className="space-y-2 rounded-lg border border-border p-3">
                       <label className="flex items-center justify-between gap-3 text-sm">
                         <span>Lautstärke angleichen</span>
@@ -1536,15 +1536,15 @@ export function NowPlaying() {
                       </p>
                       {normalizationEnabled && <p role="status" className="text-xs text-muted-foreground">{normalizationMessage}</p>}
                     </div>
-                    <div className="flex items-center justify-between text-xs text-neutral-300">
+                    <div className="flex items-center justify-between text-xs text-foreground/80">
                       <label htmlFor="player-crossfade">Überblendung zwischen Liedern</label>
-                      <span className="font-mono text-white">{crossfadeSeconds === 0 ? 'Aus' : `${crossfadeSeconds} s`}</span>
+                      <span className="font-mono text-foreground">{crossfadeSeconds === 0 ? 'Aus' : `${crossfadeSeconds} s`}</span>
                     </div>
                     <input id="player-crossfade" type="range" min={0} max={12} step={1}
                       value={crossfadeSeconds} onChange={(e) => setCrossfade(Number(e.target.value))}
                       aria-valuetext={crossfadeSeconds === 0 ? 'Aus' : `${crossfadeSeconds} Sekunden`}
                       className="slider-quiet w-full" />
-                    <p className="text-[11px] text-neutral-400">Der nächste Titel beginnt leise, während der aktuelle ausklingt. Diese Einstellung wird in diesem Browser gespeichert.</p>
+                    <p className="text-[11px] text-muted-foreground">Der nächste Titel beginnt leise, während der aktuelle ausklingt. Diese Einstellung wird in diesem Browser gespeichert.</p>
                     <div className="flex items-center gap-1.5">
                       {[0, 3, 6, 12].map((s) => (
                         <button
@@ -1552,10 +1552,10 @@ export function NowPlaying() {
                           type="button"
                           onClick={() => setCrossfade(s)}
                           aria-pressed={crossfadeSeconds === s}
-                          className={`flex-1 py-1 rounded-lg text-xs font-medium transition-all ${
+                          className={`flex-1 py-1 rounded-lg text-xs font-medium transition ${
                             crossfadeSeconds === s
-                              ? 'bg-primary text-white shadow-sm shadow-primary/20'
-                              : 'bg-white/[0.04] text-neutral-400 hover:text-white hover:bg-white/[0.08]'
+                              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+                              : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-secondary'
                           }`}
                         >
                           {s === 0 ? 'Aus' : `${s}s`}
@@ -1563,10 +1563,10 @@ export function NowPlaying() {
                       ))}
                     </div>
 
-                    <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                    <div className="pt-2 border-t border-border flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-medium text-neutral-200">Album-Reihenfolge erhalten</p>
-                        <p className="text-[11px] text-neutral-400">
+                        <p className="text-xs font-medium text-foreground">Album-Reihenfolge erhalten</p>
+                        <p className="text-[11px] text-muted-foreground">
                           Deaktiviert Crossfade automatisch bei aufeinanderfolgenden Tracks desselben Albums.
                         </p>
                       </div>
@@ -1575,19 +1575,19 @@ export function NowPlaying() {
                         aria-label="Aufeinanderfolgende Albumtitel ohne Überblendung"
                         checked={smartAlbumTransition}
                         onChange={(e) => setSmartAlbumTransition(e.target.checked)}
-                        className="rounded size-4 border-white/20 bg-white/5 text-primary"
+                        className="rounded size-4 border-input bg-muted text-primary"
                       />
                     </div>
                   </div>
 
                   {/* Section 1: Preamp & Headroom Schutz */}
-                  <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-3">
-                    <h3 className="text-[11px] font-semibold text-neutral-300 uppercase tracking-wider">Klang & Pegelschutz</h3>
+                  <div className="p-3.5 rounded-xl bg-muted border border-border space-y-3">
+                    <h3 className="text-[11px] font-semibold text-foreground/80 uppercase tracking-wider">Klang & Pegelschutz</h3>
                     
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-neutral-300">
+                      <div className="flex items-center justify-between text-xs text-foreground/80">
                         <span>Vorverstärkung (Preamp)</span>
-                        <span className="font-mono font-medium text-white">
+                        <span className="font-mono font-medium text-foreground">
                           {preamp > 0 ? `+${preamp}` : preamp} dB
                         </span>
                       </div>
@@ -1603,10 +1603,10 @@ export function NowPlaying() {
                       />
                     </div>
 
-                    <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                    <div className="pt-2 border-t border-border flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-medium text-neutral-200">Auto Headroom</p>
-                        <p className="text-[11px] text-neutral-400">
+                        <p className="text-xs font-medium text-foreground">Auto Headroom</p>
+                        <p className="text-[11px] text-muted-foreground">
                           Senkt den Preamp automatisch ab, um digitales Clipping bei aktiven EQ-Bands zu verhindern.
                         </p>
                       </div>
@@ -1614,7 +1614,7 @@ export function NowPlaying() {
                         type="checkbox"
                         checked={autoHeadroom}
                         onChange={(e) => setAutoHeadroom(e.target.checked)}
-                        className="rounded size-4 border-white/20 bg-white/5 text-primary focus:ring-primary"
+                        className="rounded size-4 border-input bg-muted text-primary focus:ring-primary"
                       />
                     </div>
                   </div>
@@ -1622,49 +1622,49 @@ export function NowPlaying() {
                   {/* Section 2: Safety Limiter & Channel Mode */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* Limiter Safety */}
-                    <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1.5">
+                    <div className="p-3.5 rounded-xl bg-muted border border-border space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-white">Audio Safety Limiter</span>
+                        <span className="text-xs font-semibold text-foreground">Audio Safety Limiter</span>
                         <input
                           type="checkbox"
                           checked={limiterEnabled}
                           onChange={(e) => setLimiter(e.target.checked)}
-                          className="rounded size-4 border-white/20 bg-white/5 text-primary"
+                          className="rounded size-4 border-input bg-muted text-primary"
                         />
                       </div>
-                      <p className="text-[11px] text-neutral-400">
+                      <p className="text-[11px] text-muted-foreground">
                         Schützt vor Übersteuerung mit einem Hard-Limiter bei -0.5 dBFS.
                       </p>
                     </div>
 
                     {/* Mono Summierung */}
-                    <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-1.5">
+                    <div className="p-3.5 rounded-xl bg-muted border border-border space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-white">Mono Summierung</span>
+                        <span className="text-xs font-semibold text-foreground">Mono Summierung</span>
                         <input
                           type="checkbox"
                           checked={mono}
                           onChange={(e) => setMono(e.target.checked)}
-                          className="rounded size-4 border-white/20 bg-white/5 text-primary"
+                          className="rounded size-4 border-input bg-muted text-primary"
                         />
                       </div>
-                      <p className="text-[11px] text-neutral-400">
+                      <p className="text-[11px] text-muted-foreground">
                         Summiert L/R mit kompensiertem -3dB Pegel für Mono-Lautsprecher.
                       </p>
                     </div>
                   </div>
 
                   {/* Section 3: Stereo Balance */}
-                  <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2">
-                    <div className="flex items-center justify-between text-xs text-neutral-300">
+                  <div className="p-3.5 rounded-xl bg-muted border border-border space-y-2">
+                    <div className="flex items-center justify-between text-xs text-foreground/80">
                       <span>Stereo Balance (L/R)</span>
-                      <span className="font-mono text-white">
+                      <span className="font-mono text-foreground">
                         {balance === 0 ? 'Mitte' : balance < 0 ? `L ${Math.abs(Math.round(balance * 100))}%` : `R ${Math.round(balance * 100)}%`}
                       </span>
                     </div>
                     <div className="relative flex items-center py-1">
                       {/* Center Notch Indicator */}
-                      <div className="absolute left-1/2 -translate-x-1/2 w-0.5 h-2 bg-white/30 rounded pointer-events-none" />
+                      <div className="absolute left-1/2 -translate-x-1/2 w-0.5 h-2 bg-input rounded pointer-events-none" />
                       <input
                         type="range"
                         min={-1}

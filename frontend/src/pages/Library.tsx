@@ -413,36 +413,36 @@ export function Library() {
   return (
     <div className="space-y-8">
       {/* Header Banner & Stats */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-card/40 border border-border/80 rounded-2xl p-6">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl sm:text-3xl font-bold font-heading text-neutral-100 flex items-center gap-2.5">
+            <h1 className="text-2xl sm:text-3xl font-bold font-heading text-foreground flex items-center gap-2.5">
               <LibraryIcon className="size-7 text-accent" />
               Bibliothek
             </h1>
           </div>
-          <p className="text-sm text-neutral-400">
+          <p className="text-sm text-muted-foreground">
             Verwalte und durchsuche deine lokal gespeicherte Musiksammlung.
           </p>
 
-          <div className="flex flex-wrap items-center gap-4 text-xs text-neutral-300 pt-2">
+          <div className="flex flex-wrap items-center gap-4 text-xs text-foreground/80 pt-2">
             <span className="flex items-center gap-1.5 font-medium">
-              <UserIcon className="size-4 text-neutral-400" />
+              <UserIcon className="size-4 text-muted-foreground" />
               {stats?.total_artists !== undefined ? pluralize(stats.total_artists, 'Künstler') : '–'}
             </span>
             <span>·</span>
             <span className="flex items-center gap-1.5 font-medium">
-              <Disc3Icon className="size-4 text-neutral-400" />
+              <Disc3Icon className="size-4 text-muted-foreground" />
               {stats?.total_releases !== undefined ? pluralize(stats.total_releases, 'Release', 'Releases') : '–'}
             </span>
             <span>·</span>
             <span className="flex items-center gap-1.5 font-medium">
-              <Music2Icon className="size-4 text-neutral-400" />
+              <Music2Icon className="size-4 text-muted-foreground" />
               {stats?.total_tracks !== undefined ? pluralize(stats.total_tracks, 'Track') : '–'}
             </span>
             <span>·</span>
             <span className="flex items-center gap-1.5 font-medium">
-              <HardDriveIcon className="size-4 text-neutral-400" />
+              <HardDriveIcon className="size-4 text-muted-foreground" />
               {stats ? formatBytes(stats.total_bytes) : '–'}
             </span>
           </div>
@@ -511,7 +511,7 @@ export function Library() {
       </div>
 
       {/* Main Tabs Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-2">
         <div className="flex items-center gap-2 overflow-x-auto">
           <Button
             variant={view === 'releases' ? 'default' : 'ghost'}
@@ -604,11 +604,11 @@ export function Library() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-neutral-500">Sortierung:</span>
+              <span className="text-muted-foreground/80">Sortierung:</span>
               <select
                 value={currentSort || 'recent'}
                 onChange={(e) => updateUrl({ sort: e.target.value, page: 1 })}
-                className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-300 focus:outline-none focus:border-accent"
+                className="bg-card border border-border rounded px-2 py-1 text-xs text-foreground/80 focus:outline-none focus:border-accent"
               >
                 <option value="recent">Zuletzt hinzugefügt</option>
                 <option value="year">Erscheinungsjahr</option>
@@ -621,17 +621,17 @@ export function Library() {
           {/* Active Filter Chips Bar (Releases) */}
           {(currentQ || currentType || currentYear !== undefined || currentArtistId) && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-neutral-500 font-medium">Aktive Filter:</span>
+              <span className="text-muted-foreground/80 font-medium">Aktive Filter:</span>
               {currentQ && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
                   <span>Suche: „{currentQ}“</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ q: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Suchbegriff entfernen"
                   >
                     <X className="size-3" />
@@ -641,13 +641,13 @@ export function Library() {
               {currentType && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700 capitalize"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border capitalize"
                 >
                   <span>Typ: {currentType}</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ type: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Typ-Filter entfernen"
                   >
                     <X className="size-3" />
@@ -657,13 +657,13 @@ export function Library() {
               {currentYear !== undefined && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
                   <span>Jahr: {currentYear}</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ year: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Jahr-Filter entfernen"
                   >
                     <X className="size-3" />
@@ -673,13 +673,13 @@ export function Library() {
               {currentArtistId && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
                   <span>Künstler gewählt</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ artist: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Künstler-Filter entfernen"
                   >
                     <X className="size-3" />
@@ -690,7 +690,7 @@ export function Library() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 text-xs text-neutral-400 hover:text-accent px-1.5"
+                className="h-6 text-xs text-muted-foreground hover:text-accent px-1.5"
                 onClick={() => {
                   updateUrl({
                     q: undefined, genre: undefined, genre_missing: undefined,
@@ -710,9 +710,9 @@ export function Library() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {Array.from({ length: 12 }).map((_, i) => (
                 <div key={i} className="panel h-64 p-3 space-y-3 animate-pulse">
-                  <div className="bg-neutral-800 aspect-square w-full rounded-lg" />
-                  <div className="h-4 bg-neutral-800 rounded w-3/4" />
-                  <div className="h-3 bg-neutral-800 rounded w-1/2" />
+                  <div className="bg-muted aspect-square w-full rounded-lg" />
+                  <div className="h-4 bg-muted rounded w-3/4" />
+                  <div className="h-3 bg-muted rounded w-1/2" />
                 </div>
               ))}
             </div>
@@ -793,13 +793,13 @@ export function Library() {
                 onClick={() => updateUrl({ favorite: currentFavorite ? undefined : true, page: 1 })}
                 title="Nur favorisierte Titel anzeigen"
               >
-                <Heart className={cn('size-3.5', currentFavorite ? 'fill-red-500 text-red-500' : 'text-neutral-400')} />
+                <Heart className={cn('size-3.5', currentFavorite ? 'fill-red-500 text-red-500' : 'text-muted-foreground')} />
                 <span>Nur Favoriten</span>
               </Button>
 
-              <span className="text-neutral-500 mx-1">·</span>
+              <span className="text-muted-foreground/80 mx-1">·</span>
 
-              <span className="text-neutral-500 mr-1">Lyrics:</span>
+              <span className="text-muted-foreground/80 mr-1">Lyrics:</span>
               <Button
                 variant={!currentLyrics ? 'secondary' : 'ghost'}
                 size="sm"
@@ -843,11 +843,11 @@ export function Library() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-neutral-500">Sortierung:</span>
+              <span className="text-muted-foreground/80">Sortierung:</span>
               <select
                 value={currentSort || (currentQ ? 'relevance' : 'recent')}
                 onChange={(e) => updateUrl({ sort: e.target.value, page: 1 })}
-                className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-300 focus:outline-none focus:border-accent"
+                className="bg-card border border-border rounded px-2 py-1 text-xs text-foreground/80 focus:outline-none focus:border-accent"
               >
                 {currentQ && <option value="relevance">Relevanz</option>}
                 <option value="recent">Zuletzt hinzugefügt</option>
@@ -867,17 +867,17 @@ export function Library() {
             currentArtistId ||
             currentReleaseId) && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-neutral-500 font-medium">Aktive Filter:</span>
+              <span className="text-muted-foreground/80 font-medium">Aktive Filter:</span>
               {currentQ && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
                   <span>Suche: „{currentQ}“</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ q: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Suchbegriff entfernen"
                   >
                     <X className="size-3" />
@@ -904,13 +904,13 @@ export function Library() {
               {currentYear !== undefined && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
                   <span>Jahr: {currentYear}</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ year: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Jahr-Filter entfernen"
                   >
                     <X className="size-3" />
@@ -920,13 +920,13 @@ export function Library() {
               {currentLyrics && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
                   <span>Lyrics: {currentLyrics}</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ lyrics: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Lyrics-Filter entfernen"
                   >
                     <X className="size-3" />
@@ -936,13 +936,13 @@ export function Library() {
               {currentArtistId && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
                   <span>Künstler gewählt</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ artist: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Künstler-Filter entfernen"
                   >
                     <X className="size-3" />
@@ -952,13 +952,13 @@ export function Library() {
               {currentReleaseId && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
                   <span>Release gewählt</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ release: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Release-Filter entfernen"
                   >
                     <X className="size-3" />
@@ -969,7 +969,7 @@ export function Library() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 text-xs text-neutral-400 hover:text-accent px-1.5"
+                className="h-6 text-xs text-muted-foreground hover:text-accent px-1.5"
                 onClick={() => {
                   updateUrl({
                     q: undefined, genre: undefined, genre_missing: undefined,
@@ -990,7 +990,7 @@ export function Library() {
           {tracksLoading ? (
             <div className="space-y-2">
               {Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="h-10 bg-neutral-900/60 rounded-xl animate-pulse" />
+                <div key={i} className="h-10 bg-card/60 rounded-xl animate-pulse" />
               ))}
             </div>
           ) : fetchError ? (
@@ -1095,13 +1095,13 @@ export function Library() {
               <div className="flex items-center gap-2">
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-neutral-800/90 text-neutral-200 border-neutral-700"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
                   <span>Suche: „{currentQ}“</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ q: undefined, page: 1 })}
-                    className="hover:text-neutral-100"
+                    className="hover:text-foreground"
                     aria-label="Suchbegriff entfernen"
                   >
                     <X className="size-3" />
@@ -1110,7 +1110,7 @@ export function Library() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 text-xs text-neutral-400 hover:text-accent px-1.5"
+                  className="h-6 text-xs text-muted-foreground hover:text-accent px-1.5"
                   onClick={() => updateUrl({ q: undefined, genre: undefined, genre_missing: undefined, page: 1 })}
                 >
                   Filter zurücksetzen
@@ -1119,11 +1119,11 @@ export function Library() {
             ) : <div />}
 
             <div className="flex items-center gap-2">
-              <span className="text-neutral-500">Sortierung:</span>
+              <span className="text-muted-foreground/80">Sortierung:</span>
               <select
                 value={currentSort || 'name'}
                 onChange={(e) => updateUrl({ sort: e.target.value, page: 1 })}
-                className="bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-xs text-neutral-300 focus:outline-none focus:border-accent"
+                className="bg-card border border-border rounded px-2 py-1 text-xs text-foreground/80 focus:outline-none focus:border-accent"
               >
                 <option value="name">Name (A–Z)</option>
                 <option value="recent">Zuletzt hinzugefügt</option>
@@ -1136,8 +1136,8 @@ export function Library() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {Array.from({ length: 12 }).map((_, i) => (
                 <div key={i} className="panel h-56 p-4 flex flex-col items-center gap-3 animate-pulse">
-                  <div className="bg-neutral-800 size-24 rounded-full" />
-                  <div className="h-4 bg-neutral-800 rounded w-3/4 mt-2" />
+                  <div className="bg-muted size-24 rounded-full" />
+                  <div className="h-4 bg-muted rounded w-3/4 mt-2" />
                 </div>
               ))}
             </div>
@@ -1263,7 +1263,7 @@ export function Library() {
                 return (
                   <div
                     key={issue.id}
-                    className="flex items-start gap-3 p-3 rounded-xl border border-neutral-800 bg-neutral-900/50 text-xs"
+                    className="flex items-start gap-3 p-3 rounded-xl border border-border bg-card/50 text-xs"
                   >
                     {issue.to && issue.from !== issue.to && (
                       <Checkbox
@@ -1282,7 +1282,7 @@ export function Library() {
                       <Badge variant="warning" className="text-[10px]">
                         {issue.kind}
                       </Badge>
-                      <div className="font-mono text-neutral-300 break-all select-all">{issue.from}</div>
+                      <div className="font-mono text-foreground/80 break-all select-all">{issue.from}</div>
                       {issue.to && issue.from !== issue.to && (
                         <div className="font-mono text-success break-all select-all">➜ {issue.to}</div>
                       )}
@@ -1293,7 +1293,7 @@ export function Library() {
             )}
           </div>
 
-          <DialogFooter className="flex items-center justify-between sm:justify-between w-full pt-3 border-t border-neutral-800">
+          <DialogFooter className="flex items-center justify-between sm:justify-between w-full pt-3 border-t border-border">
             <Button variant="ghost" size="sm" onClick={() => setCompatModalOpen(false)}>
               Schließen
             </Button>

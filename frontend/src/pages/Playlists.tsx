@@ -123,11 +123,11 @@ export function Playlists() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white flex items-center gap-3">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
             <ListMusic className="size-7 text-primary" />
             Playlists
           </h1>
-          <p className="text-sm text-neutral-400 mt-1">Deine persönlichen Wiedergabelisten</p>
+          <p className="text-sm text-muted-foreground mt-1">Deine persönlichen Wiedergabelisten</p>
         </div>
         <Button
           onClick={() => {
@@ -183,7 +183,7 @@ export function Playlists() {
         {playError && <p role="alert" className="text-sm text-destructive">{playError}</p>}
         {!filtered.length && <EmptyState title="Keine passende Playlist" description="Versuche einen anderen Namen oder setze die Suche zurück." action={<Button variant="outline" onClick={() => setQuery('')}>Suche zurücksetzen</Button>} />}
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4 sm:gap-6">
-          {visible.map((playlist) => <article key={playlist.id} className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.025] p-3 transition-colors hover:bg-white/[0.045] sm:p-4">
+          {visible.map((playlist) => <article key={playlist.id} className="min-w-0 rounded-2xl border border-input bg-muted p-3 transition-colors hover:bg-muted sm:p-4">
             <Link href={paths.playlist(playlist.id)} className="block rounded-xl focus-visible:outline-2 focus-visible:outline-ring">
               <PlaylistArtwork name={playlist.name} tracks={previews[playlist.id] || []} className="mb-4 w-full" />
               <h2 className="truncate text-base font-semibold sm:text-lg">{playlist.name}</h2>
@@ -191,7 +191,7 @@ export function Playlists() {
               {playlist.smart_rules && <span className="mt-2 inline-block text-xs text-primary">Intelligente Playlist</span>}
               {playlist.description && <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{playlist.description}</p>}
             </Link>
-            <div className="mt-4 flex items-center justify-between gap-2 border-t border-white/5 pt-3">
+            <div className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3">
               <span className="hidden text-xs text-muted-foreground sm:block">{formatRelative(playlist.updated_at)}</span>
               <Button variant="secondary" size="sm" disabled={!playlist.track_count || playingPlaylistId !== null} onClick={(event) => void handlePlayPlaylist(event, playlist)} aria-label={`${playlist.name} abspielen`} className="gap-2">
                 {playingPlaylistId === playlist.id ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4 fill-current" />} Abspielen
@@ -225,7 +225,7 @@ export function Playlists() {
             <div className="space-y-4 py-4 max-h-[65dvh] overflow-y-auto">
               <SmartRuleEditor value={rules} onChange={setRules} />
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-neutral-300">
+                <label className="text-xs font-semibold text-foreground/80">
                   Name <span className="text-destructive">*</span>
                 </label>
                 <Input
@@ -239,7 +239,7 @@ export function Playlists() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-neutral-300">
+                <label className="text-xs font-semibold text-foreground/80">
                   Beschreibung (optional)
                 </label>
                 <Input

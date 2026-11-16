@@ -60,7 +60,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
       {/* Primary KPI Grid */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {/* Open Tracks */}
-        <div className="rounded-lg border border-border/50 bg-white/[0.02] p-3">
+        <div className="rounded-lg border border-border/50 bg-muted p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ListMusicIcon className="size-3.5" />
             <span>Offene Tracks</span>
@@ -74,7 +74,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
         </div>
 
         {/* Active Workers */}
-        <div className="rounded-lg border border-border/50 bg-white/[0.02] p-3">
+        <div className="rounded-lg border border-border/50 bg-muted p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <PlayCircleIcon className="size-3.5 text-primary" />
             <span>In Bearbeitung</span>
@@ -88,7 +88,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
         </div>
 
         {/* Throughput */}
-        <div className="rounded-lg border border-border/50 bg-white/[0.02] p-3">
+        <div className="rounded-lg border border-border/50 bg-muted p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <GaugeIcon className="size-3.5" />
             <span>Durchsatz</span>
@@ -106,7 +106,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
         </div>
 
         {/* Paused Jobs */}
-        <div className="rounded-lg border border-border/50 bg-white/[0.02] p-3">
+        <div className="rounded-lg border border-border/50 bg-muted p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <PauseCircleIcon className="size-3.5 text-amber-400" />
             <span>Pausiert</span>
@@ -120,7 +120,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
         </div>
 
         {/* Retry Wait / Issues */}
-        <div className="col-span-2 sm:col-span-1 rounded-lg border border-border/50 bg-white/[0.02] p-3">
+        <div className="col-span-2 sm:col-span-1 rounded-lg border border-border/50 bg-muted p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <AlertTriangleIcon className={cn('size-3.5', summary.retry_wait_items > 0 ? 'text-warning' : 'text-muted-foreground')} />
             <span>Wiederholung geplant</span>
