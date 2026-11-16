@@ -109,21 +109,21 @@ export function Favorites() {
   return (
     <div className="space-y-6 pb-28">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end gap-6 p-6 rounded-3xl border border-white/5 bg-gradient-to-b from-rose-500/[0.07] to-white/[0.01]">
+      <div className="flex flex-col md:flex-row md:items-end gap-6 p-6 rounded-3xl border border-border bg-gradient-to-b from-rose-500/[0.07] to-white/[0.01]">
         <FavoriteArtwork tracks={tracks} />
 
         <div className="flex-1 min-w-0 space-y-2">
           <span className="text-[11px] uppercase tracking-wider font-semibold text-rose-400">
             Sammlung
           </span>
-          <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white flex items-center gap-3">
+          <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-foreground flex items-center gap-3">
             Lieblingstitel
           </h1>
-          <p className="text-sm text-neutral-300 leading-relaxed max-w-xl">
+          <p className="text-sm text-foreground/80 leading-relaxed max-w-xl">
             Deine persönlich markierten Favoriten auf einen Blick.
           </p>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-neutral-400 font-mono">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground font-mono">
             <span>
               {tracks.length} {tracks.length === 1 ? 'Titel' : 'Titel'}
             </span>

@@ -586,7 +586,7 @@ export function Subscriptions() {
             <div className="overflow-x-auto rounded-2xl border border-border bg-card">
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-border bg-white/3 font-medium text-muted-foreground">
+                  <tr className="border-b border-border bg-muted font-medium text-muted-foreground">
                     <th className="w-10 py-3 pl-4 pr-1">
                       <button
                         type="button"
@@ -779,7 +779,7 @@ function SubscriptionTableRow({
     <>
       <tr
         className={cn(
-          'transition-colors hover:bg-white/3',
+          'transition-colors hover:bg-muted',
           selected && 'bg-primary/5 hover:bg-primary/8',
           !subscription.enabled && 'opacity-75',
         )}

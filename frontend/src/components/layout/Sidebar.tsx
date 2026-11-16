@@ -171,7 +171,7 @@ function Sidebar({ route, activeDownloads, onNavigate }: SidebarProps) {
             onNavigate={onNavigate}
           />
 
-          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/3">
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-muted">
             <div className="min-w-0 pr-2">
               <div className="truncate text-xs font-medium text-foreground">
                 {user.display_name || user.username}
@@ -219,7 +219,7 @@ function NavLink({
         'focus-ring group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
         active
           ? 'border border-primary/25 bg-accent text-foreground'
-          : 'border border-transparent text-muted-foreground hover:bg-white/5 hover:text-foreground',
+          : 'border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
       )}
     >
       <Icon

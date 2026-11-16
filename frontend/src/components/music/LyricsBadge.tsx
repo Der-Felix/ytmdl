@@ -57,7 +57,7 @@ export function LyricsBadge({ state, onClick, className }: LyricsBadgeProps) {
         variant="neutral"
         className={cn(
           'gap-1 text-[10px] tracking-wide uppercase',
-          isClickable && 'cursor-pointer hover:bg-white/10 transition-colors',
+          isClickable && 'cursor-pointer hover:bg-input transition-colors',
           className,
         )}
         onClick={onClick}

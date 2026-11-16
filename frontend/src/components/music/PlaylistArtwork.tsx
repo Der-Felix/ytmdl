@@ -8,7 +8,7 @@ type ArtworkTrack = Pick<LibraryTrack, 'id' | 'release_id' | 'cover_url' | 'titl
 
 export function PlaylistArtwork({ tracks, name, className }: { tracks: ArtworkTrack[]; name: string; className?: string }) {
   const preview = playlistPreview(tracks)
-  return <div aria-label={`Cover der Playlist ${name}`} className={cn('aspect-square overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-primary/15 to-neutral-900', className)}>
+  return <div aria-label={`Cover der Playlist ${name}`} className={cn('aspect-square overflow-hidden rounded-2xl border border-input bg-gradient-to-br from-primary/15 to-neutral-900', className)}>
     {preview.length ? <div className={`grid size-full ${preview.length > 1 ? 'grid-cols-2 grid-rows-2' : ''}`}>
       {Array.from({ length: preview.length > 1 ? 4 : 1 }, (_, index) => {
         const track = preview[index % preview.length]!

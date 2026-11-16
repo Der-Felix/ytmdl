@@ -234,7 +234,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
         <div className="flex items-center gap-4">
           <Link
             href={paths.playlists()}
-            className="flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
             Zurück zu Playlists
@@ -250,7 +250,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       <div className="space-y-6 pb-24">
         <Link
           href={paths.playlists()}
-          className="inline-flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
           Zurück zu Playlists
@@ -273,7 +273,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       <div className="flex items-center justify-between">
         <Link
           href={paths.playlists()}
-          className="inline-flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-4" />
           Zurück zu Playlists
@@ -281,7 +281,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       </div>
 
       {/* Playlist Hero Header */}
-      <div className="flex flex-col md:flex-row md:items-end gap-6 p-6 rounded-3xl border border-white/5 bg-gradient-to-b from-white/[0.04] to-white/[0.01]">
+      <div className="flex flex-col md:flex-row md:items-end gap-6 p-6 rounded-3xl border border-border bg-gradient-to-b from-white/[0.04] to-white/[0.01]">
         <PlaylistArtwork tracks={tracks} name={playlist.name} className="size-44 sm:size-56 shrink-0 shadow-xl" />
 
         <div className="flex-1 min-w-0 space-y-2">
@@ -291,16 +291,16 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
           >
             {playlist.smart_rules ? 'Intelligente Playlist' : 'Playlist'}
           </Badge>
-          <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-white break-words">
+          <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-foreground break-words">
             {playlist.name}
           </h1>
           {playlist.description && (
-            <p className="text-sm text-neutral-300 leading-relaxed max-w-2xl">
+            <p className="text-sm text-foreground/80 leading-relaxed max-w-2xl">
               {playlist.description}
             </p>
           )}
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-neutral-400 font-mono">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground font-mono">
             <span>
               {playlist.track_count} {playlist.track_count === 1 ? 'Titel' : 'Titel'}
             </span>
@@ -330,7 +330,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
             <Button
               variant="ghost"
               onClick={openEditModal}
-              className="rounded-full text-neutral-400 hover:text-white"
+              className="rounded-full text-muted-foreground hover:text-foreground"
               title="Playlist bearbeiten"
             >
               <Pencil className="size-4" /> Bearbeiten
@@ -342,7 +342,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                 setDeleteError(null)
                 setDeleteDialogOpen(true)
               }}
-              className="rounded-full text-neutral-400 hover:text-destructive"
+              className="rounded-full text-muted-foreground hover:text-destructive"
               title="Playlist löschen"
               aria-label="Playlist löschen"
             >
@@ -352,13 +352,13 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
         </div>
       </div>
 
-      <details className="rounded-2xl border border-white/10 bg-white/[0.02]">
-        <summary className="cursor-pointer rounded-2xl px-5 py-4 text-sm font-medium hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-ring">Offline mitnehmen · Download-Optionen</summary>
+      <details className="rounded-2xl border border-input bg-muted">
+        <summary className="cursor-pointer rounded-2xl px-5 py-4 text-sm font-medium hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring">Offline mitnehmen · Download-Optionen</summary>
         <div className="p-3 pt-0"><OfflineSavePanel playlist={playlist} /></div>
       </details>
 
-      <section aria-label="Titel dieser Playlist" className="rounded-2xl border border-white/10 bg-white/[0.02]">
-        <div className="flex flex-col gap-3 border-b border-white/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <section aria-label="Titel dieser Playlist" className="rounded-2xl border border-input bg-muted">
+        <div className="flex flex-col gap-3 border-b border-input p-4 sm:flex-row sm:items-center sm:justify-between">
           <div><h2 className="text-lg font-semibold">Titel</h2><p className="text-sm text-muted-foreground">{visible.length} von {tracks.length} · Reihenfolge der Playlist</p></div>
           <Input aria-label="In dieser Playlist suchen" placeholder="Titel, Künstler oder Album suchen …" value={query} onChange={(event) => setQuery(event.target.value)} className="sm:max-w-sm" />
         </div>
@@ -370,7 +370,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
               const isCurrent = currentTrack?.id === pt.id
               const isPlaying = isCurrent && status === 'playing'
               const isFav = favorites?.isFavorite(pt.id)
-              return <li key={pt.id} className={`flex items-center gap-3 px-3 py-3 sm:gap-4 sm:px-5 ${isCurrent ? 'bg-primary/8' : 'hover:bg-white/[0.035]'} transition-colors`}>
+              return <li key={pt.id} className={`flex items-center gap-3 px-3 py-3 sm:gap-4 sm:px-5 ${isCurrent ? 'bg-primary/8' : 'hover:bg-muted'} transition-colors`}>
                 <Button variant="ghost" size="icon" className={`size-11 shrink-0 rounded-full ${isCurrent ? 'bg-primary/15 text-primary' : ''}`} aria-label={`${pt.title} ${isPlaying ? 'pausieren' : 'abspielen'}`} onClick={() => handlePlayTrack(pt, index)}>
                   {isPlaying ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
                 </Button>
@@ -419,7 +419,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
             <div className="space-y-4 py-4 max-h-[65dvh] overflow-y-auto">
               <SmartRuleEditor value={editRules} onChange={setEditRules} />
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-neutral-300">
+                <label className="text-xs font-semibold text-foreground/80">
                   Name <span className="text-destructive">*</span>
                 </label>
                 <Input
@@ -432,7 +432,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-neutral-300">Beschreibung</label>
+                <label className="text-xs font-semibold text-foreground/80">Beschreibung</label>
                 <Input
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}

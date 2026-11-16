@@ -51,7 +51,7 @@ export function ActiveWorkersCard({ workers, className }: ActiveWorkersCardProps
             return (
               <div
                 key={w.item_id || index}
-                className="rounded-lg border border-border/60 bg-white/[0.02] p-3 space-y-2.5 transition-colors"
+                className="rounded-lg border border-border/60 bg-muted p-3 space-y-2.5 transition-colors"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-0.5">

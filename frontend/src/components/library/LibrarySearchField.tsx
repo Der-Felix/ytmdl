@@ -235,7 +235,7 @@ export function LibrarySearchField({
         <div className="relative flex items-center w-full">
           <SearchIcon
             aria-hidden
-            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-neutral-400"
+            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
           />
 
           <input
@@ -255,24 +255,24 @@ export function LibrarySearchField({
             aria-label="Bibliothek durchsuchen"
             aria-expanded={isOpen}
             className={cn(
-              'w-full h-11 pl-10 pr-10 text-sm rounded-xl border border-neutral-800 bg-neutral-900/90 text-neutral-100',
-              'placeholder:text-neutral-500 transition-colors outline-none',
-              'hover:border-neutral-700',
-              'focus:border-accent/60 focus:bg-neutral-900 focus:ring-1 focus:ring-accent/40',
+              'w-full h-11 pl-10 pr-10 text-sm rounded-xl border border-border bg-card/90 text-foreground',
+              'placeholder:text-muted-foreground/80 transition-colors outline-none',
+              'hover:border-border',
+              'focus:border-accent/60 focus:bg-card focus:ring-1 focus:ring-accent/40',
               '[&::-webkit-search-cancel-button]:appearance-none',
             )}
           />
 
           <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
             {isLoading && (
-              <Loader2 className="size-4 animate-spin text-neutral-400" aria-label="Laden..." />
+              <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Laden..." />
             )}
             {value && (
               <button
                 type="button"
                 onClick={handleClear}
                 aria-label="Suche löschen"
-                className="p-1 text-neutral-400 hover:text-neutral-200 rounded transition-colors"
+                className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
               >
                 <X className="size-4" />
               </button>
@@ -285,18 +285,18 @@ export function LibrarySearchField({
       {isOpen && (
         <div
           data-testid="library-search-flyout"
-          className="absolute z-50 left-0 right-0 top-full mt-1.5 max-h-[75vh] overflow-y-auto rounded-xl border border-neutral-800 bg-neutral-950/95 backdrop-blur-md shadow-2xl p-2 space-y-4"
+          className="absolute z-50 left-0 right-0 top-full mt-1.5 max-h-[75vh] overflow-y-auto rounded-xl border border-border bg-card/95 shadow-2xl p-2 space-y-4"
         >
           {isLoading && !hasResults && (
-            <div className="flex items-center justify-center py-8 text-xs text-neutral-400 gap-2">
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground gap-2">
               <Loader2 className="size-4 animate-spin text-accent" />
               <span>Suche in der Bibliothek...</span>
             </div>
           )}
 
           {isSearchEmpty && (
-            <div className="py-8 text-center text-xs text-neutral-400 space-y-1">
-              <p className="font-medium text-neutral-300">Keine Treffer</p>
+            <div className="py-8 text-center text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground/80">Keine Treffer</p>
               <p>Keine Einträge für „{value}“ in der lokalen Bibliothek gefunden.</p>
             </div>
           )}
@@ -304,7 +304,7 @@ export function LibrarySearchField({
           {/* Artists Section */}
           {results?.artists && results.artists.length > 0 && (
             <div className="space-y-1">
-              <div className="px-2 py-1 text-[0.7rem] font-semibold tracking-wider uppercase text-neutral-500 flex items-center gap-1.5">
+              <div className="px-2 py-1 text-[0.7rem] font-semibold tracking-wider uppercase text-muted-foreground/80 flex items-center gap-1.5">
                 <UserIcon className="size-3" />
                 <span>Künstler ({results.artists.length})</span>
               </div>
@@ -314,20 +314,20 @@ export function LibrarySearchField({
                     key={artist.id}
                     type="button"
                     onClick={() => handleArtistClick(artist)}
-                    className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-neutral-800/60 group"
+                    className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-muted/60 group"
                   >
                     <Cover
                       src={artist.image_url}
                       fallbackSrc={libraryArtwork('artists', artist.id)}
                       alt=""
                       shape="circle"
-                      className="size-9 shrink-0 border border-neutral-700/50"
+                      className="size-9 shrink-0 border border-border/50"
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-neutral-200 group-hover:text-neutral-100 truncate">
+                      <p className="text-sm font-medium text-foreground group-hover:text-foreground truncate">
                         {artist.name}
                       </p>
-                      <p className="text-xs text-neutral-400 truncate">
+                      <p className="text-xs text-muted-foreground truncate">
                         {pluralize(artist.release_count, 'Release', 'Releases')} ·{' '}
                         {pluralize(artist.track_count, 'Track')}
                       </p>
@@ -341,7 +341,7 @@ export function LibrarySearchField({
           {/* Releases Section */}
           {results?.releases && results.releases.length > 0 && (
             <div className="space-y-1">
-              <div className="px-2 py-1 text-[0.7rem] font-semibold tracking-wider uppercase text-neutral-500 flex items-center gap-1.5">
+              <div className="px-2 py-1 text-[0.7rem] font-semibold tracking-wider uppercase text-muted-foreground/80 flex items-center gap-1.5">
                 <Disc3Icon className="size-3" />
                 <span>Alben & Releases ({results.releases.length})</span>
               </div>
@@ -351,20 +351,20 @@ export function LibrarySearchField({
                     key={release.id}
                     type="button"
                     onClick={() => handleReleaseClick(release)}
-                    className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-neutral-800/60 group"
+                    className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-left transition-colors hover:bg-muted/60 group"
                   >
                     <Cover
                       src={libraryArtwork('releases', release.id)}
                       fallbackSrc={release.cover_url}
                       alt=""
                       shape="square"
-                      className="size-9 shrink-0 rounded-md border border-neutral-700/50"
+                      className="size-9 shrink-0 rounded-md border border-border/50"
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-neutral-200 group-hover:text-neutral-100 truncate">
+                      <p className="text-sm font-medium text-foreground group-hover:text-foreground truncate">
                         {release.title}
                       </p>
-                      <p className="text-xs text-neutral-400 truncate">
+                      <p className="text-xs text-muted-foreground truncate">
                         {release.album_artist || joinArtists(release.artists) || 'Unbekannt'}
                         {release.year ? ` · ${release.year}` : ''}
                       </p>
@@ -378,7 +378,7 @@ export function LibrarySearchField({
           {/* Tracks Section */}
           {results?.tracks && results.tracks.length > 0 && (
             <div className="space-y-1">
-              <div className="px-2 py-1 text-[0.7rem] font-semibold tracking-wider uppercase text-neutral-500 flex items-center gap-1.5">
+              <div className="px-2 py-1 text-[0.7rem] font-semibold tracking-wider uppercase text-muted-foreground/80 flex items-center gap-1.5">
                 <Music2Icon className="size-3" />
                 <span>Titel ({results.tracks.length})</span>
               </div>
@@ -389,7 +389,7 @@ export function LibrarySearchField({
                     <div
                       key={track.id}
                       onClick={() => handleTrackRowClick(track, idx)}
-                      className="w-full flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-lg text-left transition-colors hover:bg-neutral-800/60 cursor-pointer group"
+                      className="w-full flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-lg text-left transition-colors hover:bg-muted/60 cursor-pointer group"
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         <button
@@ -399,8 +399,8 @@ export function LibrarySearchField({
                           className={cn(
                             'relative size-9 overflow-hidden rounded-md flex items-center justify-center shrink-0 transition-colors',
                             isPlaying
-                              ? 'bg-accent text-neutral-950'
-                              : 'bg-neutral-800 text-neutral-300 group-hover:bg-accent group-hover:text-neutral-950',
+                              ? 'bg-accent text-muted-foreground/60'
+                              : 'bg-muted text-foreground/80 group-hover:bg-accent group-hover:text-muted-foreground/60',
                           )}
                         >
                           <Cover
@@ -409,7 +409,7 @@ export function LibrarySearchField({
                             alt=""
                             className="absolute inset-0 size-full rounded-md border-0"
                           />
-                          <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-black/65 text-white">
+                          <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-overlay/65 text-foreground">
                             {isPlaying ? (
                               <Pause className="size-3.5 fill-current" />
                             ) : (
@@ -423,19 +423,19 @@ export function LibrarySearchField({
                               'text-sm font-medium truncate',
                               currentTrack?.id === track.id
                                 ? 'text-accent'
-                                : 'text-neutral-200 group-hover:text-neutral-100',
+                                : 'text-foreground group-hover:text-foreground',
                             )}
                           >
                             {track.title}
                           </p>
-                          <p className="text-xs text-neutral-400 truncate">
+                          <p className="text-xs text-muted-foreground truncate">
                             {track.album_artist || joinArtists(track.artists) || 'Unbekannt'}
                             {track.album ? ` · ${track.album}` : ''}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        <span className="text-xs text-neutral-500 font-mono mr-1">
+                        <span className="text-xs text-muted-foreground/80 font-mono mr-1">
                           {formatDuration(track.duration_ms)}
                         </span>
                         {playerActions && (
@@ -446,7 +446,7 @@ export function LibrarySearchField({
                                 e.stopPropagation()
                                 playerActions.playNext(track)
                               }}
-                              className="size-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700/60 transition-colors"
+                              className="size-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
                               title="Als Nächstes abspielen"
                               aria-label="Als Nächstes abspielen"
                             >
@@ -458,7 +458,7 @@ export function LibrarySearchField({
                                 e.stopPropagation()
                                 playerActions.addToQueue(track)
                               }}
-                              className="size-7 rounded-md flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700/60 transition-colors"
+                              className="size-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
                               title="Zur Queue hinzufügen"
                               aria-label="Zur Queue hinzufügen"
                             >
@@ -476,11 +476,11 @@ export function LibrarySearchField({
 
           {/* Footer Navigation */}
           {hasResults && (
-            <div className="pt-2 border-t border-neutral-800">
+            <div className="pt-2 border-t border-border">
               <button
                 type="button"
                 onClick={() => handleSubmit()}
-                className="w-full flex items-center justify-center gap-2 py-2 text-xs font-medium text-accent hover:text-accent/80 hover:bg-neutral-800/40 rounded-lg transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-2 text-xs font-medium text-accent hover:text-accent/80 hover:bg-muted/40 rounded-lg transition-colors"
               >
                 <span>Alle Ergebnisse in Titeln anzeigen</span>
                 <ArrowRight className="size-3.5" />

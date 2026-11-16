@@ -34,7 +34,7 @@ function CoverImage({ src, fallbackSrc, alt, shape = 'square', className }: Cove
   return (
     <div
       className={cn(
-        'relative isolate aspect-square overflow-hidden border border-border bg-white/4',
+        'relative isolate aspect-square overflow-hidden border border-border bg-muted',
         rounded,
         className,
       )}

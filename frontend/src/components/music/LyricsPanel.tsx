@@ -142,12 +142,12 @@ export function LyricsPanel({
                 </Badge>
               )}
               {lyrics?.state === 'not_found' && (
-                <Badge variant="outline" className="gap-1 text-neutral-400">
+                <Badge variant="outline" className="gap-1 text-muted-foreground">
                   Nicht gefunden
                 </Badge>
               )}
               {lyrics?.state === 'unknown' && (
-                <Badge variant="outline" className="gap-1 text-neutral-400">
+                <Badge variant="outline" className="gap-1 text-muted-foreground">
                   Ungeprüft
                 </Badge>
               )}
@@ -171,7 +171,7 @@ export function LyricsPanel({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[50vh] pr-2 my-2 rounded-xl bg-black/20 p-4 border border-white/5 text-sm leading-relaxed whitespace-pre-wrap selection:bg-primary/30">
+        <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[50vh] pr-2 my-2 rounded-xl bg-overlay/20 p-4 border border-border text-sm leading-relaxed whitespace-pre-wrap selection:bg-primary/30">
           {loading ? (
             <div className="space-y-2 py-4">
               <Skeleton className="h-4 w-3/4" />
@@ -191,7 +191,7 @@ export function LyricsPanel({
               {parsedLrc.lines.map((line, idx) => (
                 <div key={idx} className="flex items-start gap-3 py-0.5 group">
                   {showTimestamps && (
-                    <span className="font-mono text-xs text-neutral-500 select-none pt-0.5 w-10 shrink-0">
+                    <span className="font-mono text-xs text-muted-foreground/80 select-none pt-0.5 w-10 shrink-0">
                       {line.timestamp}
                     </span>
                   )}
@@ -205,18 +205,18 @@ export function LyricsPanel({
             <div className="flex flex-col items-center justify-center h-full py-8 text-center text-muted-foreground">
               <Music2Icon className="size-8 mb-2 opacity-50 text-accent" />
               <p className="font-sans font-medium text-foreground">Instrumentaler Titel</p>
-              <p className="text-xs font-sans mt-1 text-neutral-400">
+              <p className="text-xs font-sans mt-1 text-muted-foreground">
                 Für diesen Track ist hinterlegt, dass kein Gesang vorhanden ist.
               </p>
             </div>
           ) : lyrics?.state === 'not_found' ? (
             <div className="flex flex-col items-center justify-center h-full py-8 text-center text-muted-foreground">
               <p className="font-sans font-medium text-foreground">Keine Lyrics gefunden</p>
-              <p className="text-xs font-sans mt-1 text-neutral-400">
+              <p className="text-xs font-sans mt-1 text-muted-foreground">
                 Bei den konfigurierten Providern (LRCLIB, YouTube Music) wurden keine Texte gefunden.
               </p>
               {lyrics?.checked_at && (
-                <p className="text-xs font-sans mt-1 text-neutral-500">
+                <p className="text-xs font-sans mt-1 text-muted-foreground/80">
                   Zuletzt geprüft: {new Date(lyrics.checked_at).toLocaleDateString('de-DE')}
                 </p>
               )}

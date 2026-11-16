@@ -21,7 +21,7 @@ export function TrackPlaybackButton({
       {!isCurrent && (
         <span
           aria-hidden="true"
-          className="text-neutral-500 group-hover/play-control:opacity-0 group-focus-within/play-control:opacity-0 [@media(hover:none)]:opacity-0"
+          className="text-muted-foreground/80 group-hover/play-control:opacity-0 group-focus-within/play-control:opacity-0 [@media(hover:none)]:opacity-0"
         >
           {number}
         </span>
@@ -33,8 +33,8 @@ export function TrackPlaybackButton({
         title={isPlaying ? 'Pause' : 'Abspielen'}
         className={`absolute inset-0 flex items-center justify-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
           isCurrent
-            ? 'bg-primary text-white hover:bg-primary/90'
-            : 'text-neutral-300 hover:bg-white/8 opacity-0 group-hover/play-control:opacity-100 group-focus-within/play-control:opacity-100 [@media(hover:none)]:opacity-100'
+            ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+            : 'text-foreground/80 hover:bg-secondary opacity-0 group-hover/play-control:opacity-100 group-focus-within/play-control:opacity-100 [@media(hover:none)]:opacity-100'
         }`}
       >
         {isPlaying ? (

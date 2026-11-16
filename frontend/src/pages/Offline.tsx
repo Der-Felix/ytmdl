@@ -99,7 +99,7 @@ export function OfflinePage() {
         <div className="flex flex-wrap gap-2">
           <Link
             href="/library"
-            className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-ring"
+            className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring"
           >
             Zur Online-Bibliothek
           </Link>
@@ -276,7 +276,7 @@ export function OfflinePage() {
             {player.queue.map((track, index) => (
               <button
                 key={index}
-                className={`flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left text-sm hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-ring ${index === player.queueIndex ? 'text-primary' : ''}`}
+                className={`flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left text-sm hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring ${index === player.queueIndex ? 'text-primary' : ''}`}
                 onClick={() => playQueueIndex(index)}
               >
                 <span className="w-5 text-xs">{index + 1}</span>

@@ -141,9 +141,9 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
   if (error || !detail) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
-        <UserIcon className="size-12 text-neutral-600" />
-        <h2 className="text-xl font-semibold text-neutral-200">Künstler nicht gefunden</h2>
-        <p className="text-sm text-neutral-400 max-w-md">
+        <UserIcon className="size-12 text-muted-foreground/60" />
+        <h2 className="text-xl font-semibold text-foreground">Künstler nicht gefunden</h2>
+        <p className="text-sm text-muted-foreground max-w-md">
           {error || 'Dieser Künstler ist nicht in der lokalen Bibliothek vorhanden.'}
         </p>
         <Link href={paths.library({ view: 'artists' })}>
@@ -165,13 +165,13 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
       <div>
         <Link
           href={paths.library({ view: 'artists' })}
-          className="inline-flex items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200 transition-colors mb-4"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
           <ArrowLeft className="size-3.5" />
           <span>Bibliothek · Künstler</span>
         </Link>
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-card/40 border border-border/80 rounded-2xl p-6">
           <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 text-center sm:text-left">
             <Cover
               src={artworkVersion>0 ? libraryArtwork('artists', artist.id)+`?v=${artworkVersion}` : artist.image_url}
@@ -181,10 +181,10 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
               className="size-28 shadow-xl shrink-0"
             />
             <div className="space-y-2">
-              <h1 className="text-2xl sm:text-3xl font-bold font-heading text-neutral-100">{artist.name}</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold font-heading text-foreground">{artist.name}</h1>
  {isAdmin && <ArtworkEditor kind="artists" id={artist.id}
                 onSaved={() => setArtworkVersion((value) => value + 1)} />}
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 text-xs text-neutral-400">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Disc3Icon className="size-3.5" />
                   {pluralize(detail.release_count, 'Release', 'Releases')}
@@ -219,7 +219,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => playArtist(detail.tracks, true)}
-                  className="gap-1.5 text-xs border-white/10 hover:bg-white/5"
+                  className="gap-1.5 text-xs border-input hover:bg-muted"
                   title="Zufallswiedergabe aller Titel"
                 >
                   <Shuffle className="size-3.5" />
@@ -260,8 +260,8 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
 
       {/* Local Releases Section */}
       <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 pb-3">
-          <h2 className="text-lg font-semibold text-neutral-200 font-heading">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-3">
+          <h2 className="text-lg font-semibold text-foreground font-heading">
             Lokale Veröffentlichungen ({detail.release_count})
           </h2>
 
@@ -294,7 +294,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
         </div>
 
         {filteredReleases.length === 0 ? (
-          <div className="py-8 text-center text-sm text-neutral-500">
+          <div className="py-8 text-center text-sm text-muted-foreground/80">
             Keine Veröffentlichungen für diesen Filter vorhanden.
           </div>
         ) : (
@@ -308,8 +308,8 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
 
       {/* Local Tracks Section */}
       <div className="space-y-4 pt-4">
-        <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-          <h2 className="text-lg font-semibold text-neutral-200 font-heading">
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <h2 className="text-lg font-semibold text-foreground font-heading">
             Alle Titel ({detail.track_count})
           </h2>
         </div>

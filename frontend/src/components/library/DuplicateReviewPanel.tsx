@@ -733,7 +733,7 @@ function DuplicateComparison({
                   </span>
                   <div className="duplicate-review-art-caption">
                     <h4 className="text-xl font-semibold break-words">{challenger.title}</h4>
-                    <p className="mt-1 text-sm text-white/80">
+                    <p className="mt-1 text-sm text-foreground/80">
                       {joinArtists(challenger.artists || []) || challenger.album_artist}
                     </p>
                   </div>

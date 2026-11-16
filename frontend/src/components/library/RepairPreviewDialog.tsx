@@ -87,7 +87,7 @@ export function RepairPreviewDialog({
             <DialogTitle>{getActionLabel(action)}</DialogTitle>
           </div>
           <DialogDescription>
-            Vorschau der Änderungen für Datei <span className="font-mono text-neutral-300">{finding.relative_path}</span>
+            Vorschau der Änderungen für Datei <span className="font-mono text-foreground/80">{finding.relative_path}</span>
           </DialogDescription>
         </DialogHeader>
 
@@ -98,7 +98,7 @@ export function RepairPreviewDialog({
               <XCircleIcon className="size-4 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <div className="font-semibold">Aktion kann nicht ausgeführt werden</div>
-                <div className="text-neutral-300">{preview.message}</div>
+                <div className="text-foreground/80">{preview.message}</div>
               </div>
             </div>
           ) : (
@@ -106,7 +106,7 @@ export function RepairPreviewDialog({
               <CheckCircle2Icon className="size-4 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <div className="font-semibold">Sicherheitsprüfung bestanden</div>
-                <div className="text-neutral-300">
+                <div className="text-foreground/80">
                   Alle Vorbedingungen (Pfade, Datei-Integrität, Identität) sind erfüllt.
                 </div>
               </div>
@@ -114,12 +114,12 @@ export function RepairPreviewDialog({
           )}
 
           {/* Path Details */}
-          <div className="p-3 rounded-xl border border-neutral-800 bg-neutral-900/60 space-y-2">
-            <div className="text-neutral-400 font-medium">Quelldatei:</div>
-            <div className="font-mono text-neutral-200 break-all select-all">{preview.source_path}</div>
+          <div className="p-3 rounded-xl border border-border bg-card/60 space-y-2">
+            <div className="text-muted-foreground font-medium">Quelldatei:</div>
+            <div className="font-mono text-foreground break-all select-all">{preview.source_path}</div>
             {preview.destination_path && (
               <>
-                <div className="text-neutral-400 font-medium pt-1">Zielpfad:</div>
+                <div className="text-muted-foreground font-medium pt-1">Zielpfad:</div>
                 <div className="font-mono text-primary break-all select-all">{preview.destination_path}</div>
               </>
             )}
@@ -128,11 +128,11 @@ export function RepairPreviewDialog({
           {/* File Changes */}
           {preview.file_changes && preview.file_changes.length > 0 && (
             <div className="space-y-1.5">
-              <div className="font-medium text-neutral-300 flex items-center gap-1.5">
+              <div className="font-medium text-foreground/80 flex items-center gap-1.5">
                 <FileCheck2Icon className="size-3.5 text-primary" />
                 Dateisystem-Änderungen:
               </div>
-              <ul className="list-disc list-inside space-y-1 text-neutral-400 bg-neutral-900/30 p-2.5 rounded-lg border border-neutral-800/60">
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground bg-card/30 p-2.5 rounded-lg border border-border/60">
                 {preview.file_changes.map((fc, i) => (
                   <li key={i} className="font-mono text-[11px] break-all">{fc}</li>
                 ))}
@@ -143,11 +143,11 @@ export function RepairPreviewDialog({
           {/* DB Changes */}
           {preview.db_changes && preview.db_changes.length > 0 && (
             <div className="space-y-1.5">
-              <div className="font-medium text-neutral-300 flex items-center gap-1.5">
+              <div className="font-medium text-foreground/80 flex items-center gap-1.5">
                 <FolderSyncIcon className="size-3.5 text-primary" />
                 Datenbank-Änderungen:
               </div>
-              <ul className="list-disc list-inside space-y-1 text-neutral-400 bg-neutral-900/30 p-2.5 rounded-lg border border-neutral-800/60">
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground bg-card/30 p-2.5 rounded-lg border border-border/60">
                 {preview.db_changes.map((dc, i) => (
                   <li key={i} className="font-mono text-[11px] break-all">{dc}</li>
                 ))}
@@ -163,7 +163,7 @@ export function RepairPreviewDialog({
                 Hinweis:
               </div>
               {preview.warnings.map((w, i) => (
-                <div key={i} className="text-neutral-300 text-[11px]">{w}</div>
+                <div key={i} className="text-foreground/80 text-[11px]">{w}</div>
               ))}
             </div>
           )}
@@ -177,7 +177,7 @@ export function RepairPreviewDialog({
           )}
         </div>
 
-        <DialogFooter className="gap-2 pt-2 border-t border-neutral-800">
+        <DialogFooter className="gap-2 pt-2 border-t border-border">
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             Abbrechen
           </Button>

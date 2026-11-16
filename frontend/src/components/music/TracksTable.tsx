@@ -78,7 +78,7 @@ export function TracksTable({
       <button
         type="button"
         onClick={() => onSortChange(field)}
-        className="inline-flex items-center gap-1 font-semibold text-xs text-neutral-400 hover:text-neutral-200 transition-colors uppercase tracking-wider select-none"
+        className="inline-flex items-center gap-1 font-semibold text-xs text-muted-foreground hover:text-foreground transition-colors uppercase tracking-wider select-none"
       >
         <span>{label}</span>
         {isCurrent ? (
@@ -121,11 +121,11 @@ export function TracksTable({
         </div>
       )}
       <div
-        className={`w-full overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-950/40 ${className}`}
+        className={`w-full overflow-x-auto rounded-xl border border-border bg-card/40 ${className}`}
       >
       <table className="w-full text-left text-sm border-collapse min-w-[650px]">
         <thead>
-          <tr className="border-b border-neutral-800/80 bg-neutral-900/40 text-neutral-400">
+          <tr className="border-b border-border/80 bg-card/40 text-muted-foreground">
             <th className="p-3 w-10">
               <input type="checkbox" aria-label="Alle angezeigten Titel auswählen"
                 checked={tracks.length > 0 && selected.length === tracks.length}
@@ -183,7 +183,7 @@ export function TracksTable({
                 aria-selected={selection.has(track.id)}
                 onClick={() => onTrackSelect(track)}
                 className={`transition-colors cursor-pointer group ${
-                  isCurrent ? 'bg-white/[0.04]' : 'hover:bg-white/[0.02]'
+                  isCurrent ? 'bg-muted' : 'hover:bg-muted'
                 }`}
               >
                 {/* Track Number / Play Button */}
@@ -202,25 +202,25 @@ export function TracksTable({
                 </td>
 
                 {showDiscNumber && (
-                  <td className="py-2.5 px-2 text-center text-neutral-500 font-mono text-xs">
+                  <td className="py-2.5 px-2 text-center text-muted-foreground/80 font-mono text-xs">
                     {track.disc_number || '1'}
                   </td>
                 )}
 
                 <td className="py-2.5 px-3 font-medium">
-                  <div className={`truncate max-w-[280px] lg:max-w-md ${isCurrent ? 'text-primary font-semibold' : 'text-neutral-200'}`}>
+                  <div className={`truncate max-w-[280px] lg:max-w-md ${isCurrent ? 'text-primary font-semibold' : 'text-foreground'}`}>
                     {track.title}
                   </div>
                 </td>
 
                 {showArtist && (
-                  <td className="py-2.5 px-3 text-neutral-400">
+                  <td className="py-2.5 px-3 text-muted-foreground">
                     <div className="truncate max-w-[180px]">{artistName}</div>
                   </td>
                 )}
 
                 {showAlbum && (
-                  <td className="py-2.5 px-3 text-neutral-400 hidden md:table-cell">
+                  <td className="py-2.5 px-3 text-muted-foreground hidden md:table-cell">
                     <div className="truncate max-w-[200px]">{track.album || '–'}</div>
                   </td>
                 )}
@@ -231,7 +231,7 @@ export function TracksTable({
                       {track.codec} {track.bitrate_kbps ? `${Math.round(track.bitrate_kbps)}k` : ''}
                     </Badge>
                   ) : (
-                    <span className="text-neutral-600 text-xs">–</span>
+                    <span className="text-muted-foreground/60 text-xs">–</span>
                   )}
                 </td>
 
@@ -247,7 +247,7 @@ export function TracksTable({
                   <LyricsBadge state={track.lyrics_state} />
                 </td>
 
-                <td className="py-2.5 px-3 text-right text-neutral-400 font-mono text-xs">
+                <td className="py-2.5 px-3 text-right text-muted-foreground font-mono text-xs">
                   {formatDuration(track.duration_ms)}
                 </td>
 
@@ -260,7 +260,7 @@ export function TracksTable({
                         className={`h-7 w-7 p-0 transition-colors ${
                           favorites.isFavorite(track.id)
                             ? 'text-rose-500 hover:text-rose-400 opacity-100'
-                            : 'text-neutral-400 hover:text-rose-400'
+                            : 'text-muted-foreground hover:text-rose-400'
                         }`}
                         onClick={(e) => {
                           e.stopPropagation()
@@ -284,7 +284,7 @@ export function TracksTable({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
                       onClick={(e) => {
                         e.stopPropagation()
                         playNext(track)
@@ -296,7 +296,7 @@ export function TracksTable({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
                       onClick={(e) => {
                         e.stopPropagation()
                         addToQueue(track)
@@ -308,7 +308,7 @@ export function TracksTable({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-neutral-400 hover:text-neutral-200 hover:bg-white/5"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
                       onClick={(e) => {
                         e.stopPropagation()
                         setPlaylistTrack(track)
@@ -321,7 +321,7 @@ export function TracksTable({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-neutral-400 hover:text-foreground"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
                       onClick={(e) => {
                         e.stopPropagation()
                         onTrackSelect(track)

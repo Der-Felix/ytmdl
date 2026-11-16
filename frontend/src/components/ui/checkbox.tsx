@@ -8,8 +8,8 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer flex size-5 shrink-0 items-center justify-center rounded-md border border-input bg-white/4 transition-colors outline-none",
-        "hover:border-white/16",
+        "peer flex size-5 shrink-0 items-center justify-center rounded-md border border-input bg-muted transition-colors outline-none",
+        "hover:border-input",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         "disabled:cursor-not-allowed disabled:opacity-45",
         "data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground",

@@ -130,7 +130,7 @@ export function OfflineSavePanel({ playlist }: { playlist: PlaylistDetail }) {
         </Button>
         <Link
           href="/offline"
-          className="inline-flex items-center rounded-lg px-3 py-2 text-sm hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-ring"
+          className="inline-flex items-center rounded-lg px-3 py-2 text-sm hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring"
         >
           Offline-Musik öffnen
         </Link>

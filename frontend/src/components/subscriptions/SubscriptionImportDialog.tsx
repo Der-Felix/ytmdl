@@ -193,7 +193,7 @@ export function SubscriptionImportDialog({
                   'flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-8 text-center cursor-pointer transition-colors',
                   isDragging
                     ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-primary/50 hover:bg-white/2',
+                    : 'border-border hover:border-primary/50 hover:bg-muted',
                   loading && 'pointer-events-none opacity-60',
                 )}
               >
@@ -223,7 +223,7 @@ export function SubscriptionImportDialog({
                 </div>
               </div>
 
-              <div className="rounded-xl border border-border/50 bg-white/2 p-3 text-xs text-muted-foreground flex items-start gap-2.5">
+              <div className="rounded-xl border border-border/50 bg-muted p-3 text-xs text-muted-foreground flex items-start gap-2.5">
                 <InfoIcon className="size-4 shrink-0 text-primary mt-0.5" />
                 <p className="leading-relaxed">
                   <strong>Sicherer zweistufiger Import:</strong> Beim Auswählen der Datei wird zuerst
@@ -239,7 +239,7 @@ export function SubscriptionImportDialog({
             <div className="space-y-4">
               {/* Stat counters */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="rounded-xl border border-border bg-white/2 p-3 text-center">
+                <div className="rounded-xl border border-border bg-muted p-3 text-center">
                   <div className="text-xs text-muted-foreground">Gesamt</div>
                   <div className="text-lg font-semibold text-foreground">{preview.total}</div>
                 </div>
@@ -251,7 +251,7 @@ export function SubscriptionImportDialog({
                   <div className="text-xs text-amber-400">Aktualisierungen</div>
                   <div className="text-lg font-semibold text-amber-400">{preview.would_update}</div>
                 </div>
-                <div className="rounded-xl border border-border bg-white/2 p-3 text-center">
+                <div className="rounded-xl border border-border bg-muted p-3 text-center">
                   <div className="text-xs text-muted-foreground">Unverändert</div>
                   <div className="text-lg font-semibold text-muted-foreground">{preview.unchanged}</div>
                 </div>
@@ -272,9 +272,9 @@ export function SubscriptionImportDialog({
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Vorschau der Einträge ({preview.items.length})
                 </div>
-                <div className="max-h-60 overflow-y-auto rounded-xl border border-border bg-white/2 divide-y divide-border/50 text-xs">
+                <div className="max-h-60 overflow-y-auto rounded-xl border border-border bg-muted divide-y divide-border/50 text-xs">
                   {preview.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between gap-3 p-2.5 hover:bg-white/2">
+                    <div key={idx} className="flex items-center justify-between gap-3 p-2.5 hover:bg-muted">
                       <div className="min-w-0 flex-1 space-y-0.5">
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-foreground truncate">{item.artist_name}</span>
@@ -321,11 +321,11 @@ export function SubscriptionImportDialog({
                   <div className="text-xs text-amber-400">Aktualisiert</div>
                   <div className="text-lg font-semibold text-amber-400">{result.updated}</div>
                 </div>
-                <div className="rounded-xl border border-border bg-white/2 p-3 text-center">
+                <div className="rounded-xl border border-border bg-muted p-3 text-center">
                   <div className="text-xs text-muted-foreground">Unverändert</div>
                   <div className="text-lg font-semibold text-muted-foreground">{result.unchanged}</div>
                 </div>
-                <div className="rounded-xl border border-border bg-white/2 p-3 text-center">
+                <div className="rounded-xl border border-border bg-muted p-3 text-center">
                   <div className="text-xs text-muted-foreground">Fehlgeschlagen</div>
                   <div className="text-lg font-semibold text-muted-foreground">{result.failed}</div>
                 </div>

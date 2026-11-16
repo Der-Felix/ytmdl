@@ -180,12 +180,12 @@ export function AddToPlaylistDialog({
                       className={`w-full flex items-center justify-between p-2.5 rounded-lg border text-left transition-colors ${
                         isAdded
                           ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                          : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.06] text-neutral-200'
+                          : 'border-border bg-muted hover:bg-secondary text-foreground'
                       }`}
                     >
                       <div className="truncate mr-2">
                         <div className="font-medium text-sm truncate">{pl.name}</div>
-                        <div className="text-xs text-neutral-500">
+                        <div className="text-xs text-muted-foreground/80">
                           {pl.track_count} {pl.track_count === 1 ? 'Track' : 'Tracks'}
                         </div>
                       </div>
@@ -195,7 +195,7 @@ export function AddToPlaylistDialog({
                         ) : isAdded ? (
                           <Check className="size-4 text-emerald-400" />
                         ) : (
-                          <Plus className="size-4 text-neutral-400" />
+                          <Plus className="size-4 text-muted-foreground" />
                         )}
                       </div>
                     </button>
@@ -207,7 +207,7 @@ export function AddToPlaylistDialog({
             {isCreating ? (
               <form
                 onSubmit={(e) => void handleCreateAndAdd(e)}
-                className="space-y-2 pt-2 border-t border-white/10"
+                className="space-y-2 pt-2 border-t border-input"
               >
                 <Input
                   autoFocus

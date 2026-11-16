@@ -65,10 +65,10 @@ function SearchField({
           aria-label="Künstler, Album oder URL suchen"
           placeholder="Künstler, Album oder URL suchen"
           className={cn(
-            'w-full rounded-2xl border border-input bg-white/4 text-foreground transition-colors outline-none',
+            'w-full rounded-2xl border border-input bg-muted text-foreground transition-colors outline-none',
             'placeholder:text-muted-foreground',
-            'hover:border-white/12',
-            'focus-visible:border-primary/50 focus-visible:bg-white/6 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+            'hover:border-input',
+            'focus-visible:border-primary/50 focus-visible:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
             '[&::-webkit-search-cancel-button]:appearance-none',
             hero ? 'h-14 pr-5 pl-13 text-base' : 'h-11 pr-4 pl-11 text-sm',
           )}

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 export function PlaylistTrackMenu({ title, moveUp, moveDown, next, enqueue, remove, busy, smart }: {
   title: string; moveUp?: () => void; moveDown?: () => void; next: () => void; enqueue: () => void; remove: () => void; busy: boolean; smart: boolean
 }) {
-  const item = 'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm outline-none data-[highlighted]:bg-white/10 data-[disabled]:opacity-35'
+  const item = 'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm outline-none data-[highlighted]:bg-input data-[disabled]:opacity-35'
   return <Menu.Root>
     <Menu.Trigger render={<Button variant="ghost" size="icon" aria-label={`Aktionen für ${title}`} className="size-11 shrink-0" />}><MoreHorizontal className="size-5" /></Menu.Trigger>
     <Menu.Portal><Menu.Positioner side="bottom" align="end" sideOffset={6} className="z-50"><Menu.Popup className="min-w-60 rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-xl">
