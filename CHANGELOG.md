@@ -1,9 +1,13 @@
 # Changelog
 
-## 1.3.1 — 2026-11-16
+## 1.3.2 — 2026-11-16
 
 A maintenance release: fixes from a full code review, plus a correction to how
 live recordings are told apart from studio recordings. There are no new features.
+
+Version 1.3.1 was tagged but never released: its release run stopped after the
+container images had been pushed, and published image tags are never replaced.
+The `1.3.1` images on GHCR belong to no release; use 1.3.2.
 
 ### Highlights
 
@@ -34,10 +38,10 @@ live recordings are told apart from studio recordings. There are no new features
 
 ### Upgrade from v1.3.0
 
-Use the checksum-verified v1.3.1 CLI and Compose files from this release. Preserve
+Use the checksum-verified v1.3.2 CLI and Compose files from this release. Preserve
 private configuration, proxy settings, mounts, cookies and the database volume.
-Run `ytmdlctl update --channel stable --target 1.3.1 --dry-run` before
-`ytmdlctl update --channel stable --target 1.3.1`. Protect the media separately;
+Run `ytmdlctl update --channel stable --target 1.3.2 --dry-run` before
+`ytmdlctl update --channel stable --target 1.3.2`. Protect the media separately;
 the database dump does not contain music files.
 
 ## 1.3.0 — 2026-10-08

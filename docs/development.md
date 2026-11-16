@@ -106,7 +106,7 @@ Python 3 and Docker (or add `--engine podman`):
 python3 scripts/smoke-release-containers.py \
   --backend ytmdl-backend:release-smoke \
   --frontend ytmdl-frontend:release-smoke \
-  --version 1.3.1
+  --version 1.3.2
 ```
 
 The test creates uniquely named networks, disposable PostgreSQL 18,
