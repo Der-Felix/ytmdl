@@ -54,7 +54,18 @@ for (const [name, type] of [['chromium', chromium], ['firefox', firefox]]) {
     const page = await context.newPage()
     page.setDefaultTimeout(15000)
     const errors = []
-    page.on('pageerror', () => errors.push('Uncaught browser error'))
+    page.on('pageerror', (error) => errors.push('Uncaught browser error: ' + (error?.message ?? String(error))))
+    // A failed run has to say why. Everything here is a disposable fixture
+    // stack, so the browser's own messages carry nothing private.
+    page.on('console', (message) => {
+      if (message.type() === 'error') console.error('[' + name + ' console] ' + message.text())
+    })
+    page.on('requestfailed', (request) => {
+      console.error('[' + name + ' request failed] ' + request.method() + ' ' + request.url() + ' ' + (request.failure()?.errorText ?? ''))
+    })
+    page.on('response', (response) => {
+      if (response.status() >= 400) console.error('[' + name + ' http ' + response.status() + '] ' + response.request().method() + ' ' + response.url())
+    })
     if (name === 'chromium') {
       await page.goto(state.base)
       await page.getByLabel('Benutzername', { exact: true }).fill('qualification-admin')
@@ -106,15 +117,16 @@ for (const [name, type] of [['chromium', chromium], ['firefox', firefox]]) {
       await login(page, 'qualification-user')
       await playback(page)
     }
-    assert.equal(errors.length, 0, 'Browser reported uncaught errors')
+    assert.equal(errors.length, 0, 'Browser reported uncaught errors: ' + errors.join('; '))
     console.log('PASS:', name, 'real application authentication, library and audio playback' + (name === 'chromium' ? ', setup/search/acquisition and ordinary-user denial' : ''))
   } finally {
     await browser.close()
   }
 }
 
-} catch {
+} catch (error) {
   console.error('FAIL: isolated browser qualification stopped')
+  console.error(error?.stack ?? String(error))
   process.exitCode = 1
 } finally {
   // Connection state is created by the disposable Compose qualification script.
