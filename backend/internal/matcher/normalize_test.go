@@ -46,6 +46,10 @@ func TestAnalyzeVersions(t *testing.T) {
 		{"Song (Acoustic Version)", "song", "acoustic"},
 		{"Song (Tiesto Remix)", "song", "remix"},
 		{"Song Tiesto Remix", "song", "remix"},
+		// Without brackets only the word before "remix" is taken as the
+		// remixer; the title must never shrink to its first word.
+		{"Blinding Lights Major Lazer Remix", "blinding lights major", "remix"},
+		{"Save Your Tears Remix", "save your", "remix"},
 		{"Song sped up", "song", "sped_up"},
 		{"Song (Sped Up)", "song", "sped_up"},
 		{"Song slowed + reverb", "song", "slowed"},
