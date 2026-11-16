@@ -75,6 +75,7 @@ func (h *Handlers) UpdateSelectedMetadata(w http.ResponseWriter, r *http.Request
 }
 func (h *Handlers) DuplicateGroups(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	offset = max(offset, 0)
 	data, err := h.deps.Catalog.DuplicateGroupsForUser(r.Context(), middleware.UserFromContext(r.Context()).ID, offset, r.URL.Query().Get("review") != "open", r.URL.Query().Get("after"))
 	if err != nil {
 		response.Error(w, r, err)

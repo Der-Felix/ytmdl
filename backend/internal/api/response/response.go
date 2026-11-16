@@ -100,6 +100,13 @@ func List(w http.ResponseWriter, data any, meta Meta) {
 // Error writes an application error with the status its code maps to.
 func Error(w http.ResponseWriter, r *http.Request, err error) {
 	code := apperr.CodeOf(err)
+	if err != nil && (code == "" || code == apperr.CodeInternal) {
+		// The client only gets a generic message for an internal error. The
+		// cause is logged here, or a 500 could never be traced to its origin.
+		slog.ErrorContext(r.Context(), "request failed with an internal error",
+			"method", r.Method, "path", r.URL.Path,
+			"request_id", RequestID(r), "error", err.Error())
+	}
 	Fail(w, r, code, apperr.MessageOf(err))
 }
 

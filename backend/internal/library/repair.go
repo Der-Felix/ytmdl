@@ -73,18 +73,19 @@ func (s *Service) PreviewRepairs(ctx context.Context, findingIDs []string) ([]Re
 			continue
 		}
 
-		action := music.ActionQuarantineFile
+		action := defaultRepairAction(finding.FindingCode)
 		if finding.SuggestedAction != nil {
 			action = *finding.SuggestedAction
-		} else {
-			switch finding.FindingCode {
-			case music.FindingPathMismatch:
-				action = music.ActionMoveCanonical
-			case music.FindingTagMismatch:
-				action = music.ActionRestoreTags
-			case music.FindingFileUntracked, music.FindingLegacyDuplicate, music.FindingFileDuplicate:
-				action = music.ActionQuarantineFile
-			}
+		}
+		if action == "" {
+			previews = append(previews, RepairPreview{
+				FindingID:   finding.ID,
+				FindingCode: finding.FindingCode,
+				SourcePath:  finding.RelativePath,
+				Allowed:     false,
+				Message:     "No automatic repair is available for this finding.",
+			})
+			continue
 		}
 
 		prev := s.previewFinding(ctx, finding, action)
@@ -92,6 +93,45 @@ func (s *Service) PreviewRepairs(ctx context.Context, findingIDs []string) ([]Re
 	}
 
 	return previews, nil
+}
+
+// defaultRepairAction picks the repair offered for a finding that carries no
+// suggested action of its own. An empty action means "no automatic repair":
+// the finding is reported, but nothing on disk is offered for change.
+func defaultRepairAction(code music.FindingCode) music.RepairAction {
+	switch code {
+	case music.FindingPathMismatch:
+		return music.ActionMoveCanonical
+	case music.FindingTagMismatch:
+		return music.ActionRestoreTags
+	case music.FindingFileUntracked:
+		// A file the catalog does not know. Should it be registered after
+		// all, the quarantine itself refuses it.
+		return music.ActionQuarantineFile
+	default:
+		// LEGACY_DUPLICATE carries its own suggestion when the audit could
+		// prove the file is a copy; without one the match was by metadata
+		// only. FILE_DUPLICATE names a registered file that several rows
+		// share, and the remaining codes (missing or invalid audio, covers,
+		// lyrics) have no file that could safely be moved or rewritten.
+		return ""
+	}
+}
+
+// registeredInCatalog reports whether a files row points at the given library
+// path. A lookup error counts as registered, so that an unreachable database
+// never turns a catalogued file into a quarantine candidate.
+func (s *Service) registeredInCatalog(ctx context.Context, relPaths ...string) bool {
+	for _, rel := range relPaths {
+		if rel == "" {
+			continue
+		}
+		stored, err := s.files.FindByPath(ctx, rel)
+		if err != nil || stored != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func computeFileSHA256(path string) (string, error) {
@@ -115,7 +155,7 @@ func (s *Service) previewFinding(ctx context.Context, f *music.AuditFinding, act
 		SourcePath:  f.RelativePath,
 	}
 
-	absSource, _, err := VerifyPathConfinement(s.library.Root(), f.RelativePath, true)
+	absSource, relSource, err := VerifyPathConfinement(s.library.Root(), f.RelativePath, true)
 	if err != nil {
 		prev.Allowed = false
 		prev.Message = "Source path outside library root: " + err.Error()
@@ -246,6 +286,11 @@ func (s *Service) previewFinding(ctx context.Context, f *music.AuditFinding, act
 		if !s.library.Exists(absSource) {
 			prev.Allowed = false
 			prev.Message = "File does not exist on storage."
+			return prev
+		}
+		if s.registeredInCatalog(ctx, f.RelativePath, relSource) {
+			prev.Allowed = false
+			prev.Message = "File is registered in the catalog and cannot be quarantined."
 			return prev
 		}
 
@@ -517,10 +562,17 @@ func (s *Service) applyAdoptFile(ctx context.Context, f *music.AuditFinding) err
 	return nil
 }
 
-func (s *Service) applyQuarantineFile(_ context.Context, f *music.AuditFinding) error {
-	absSource, _, err := VerifyPathConfinement(s.library.Root(), f.RelativePath, true)
+func (s *Service) applyQuarantineFile(ctx context.Context, f *music.AuditFinding) error {
+	absSource, relSource, err := VerifyPathConfinement(s.library.Root(), f.RelativePath, true)
 	if err != nil {
 		return err
+	}
+
+	// Quarantine is for files the catalog does not know. Moving a registered
+	// file away would leave its files row pointing at nothing, whatever the
+	// finding code or the action the client asked for.
+	if s.registeredInCatalog(ctx, f.RelativePath, relSource) {
+		return apperr.Newf(apperr.CodeConflict, "File %q is registered in the catalog and cannot be quarantined.", f.RelativePath)
 	}
 
 	trashDir := filepath.Join(s.library.Root(), TrashDirName, f.ID)

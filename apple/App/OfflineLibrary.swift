@@ -159,7 +159,23 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
     @ObservationIgnored private var tasks: [String: URLSessionDownloadTask] = [:]
     @ObservationIgnored private var transfers: URLSession?
     @ObservationIgnored private var delegate: OfflineTransferDelegate?
-    @ObservationIgnored var backgroundCompletion: (() -> Void)?
+    // UIKit hands over the completion handler for a background relaunch, and
+    // the transfer session reports when its events are done. Either can come
+    // first. The handler is called once both have happened.
+    @ObservationIgnored private var backgroundEventsFinished = false
+    @ObservationIgnored var backgroundCompletion: (() -> Void)? {
+        didSet {
+            guard backgroundEventsFinished, let handler = backgroundCompletion else { return }
+            backgroundEventsFinished = false
+            backgroundCompletion = nil
+            handler()
+        }
+    }
+    private func finishBackgroundEvents() {
+        guard let handler = backgroundCompletion else { backgroundEventsFinished = true; return }
+        backgroundCompletion = nil
+        handler()
+    }
     @ObservationIgnored private var auxiliary: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var reconciling = true
     // Record ID -> position, rebuilt lazily after any change. Views look tracks up per
@@ -384,7 +400,7 @@ private final class OfflineTransferDelegate: NSObject, URLSessionDownloadDelegat
         }, failed: { [weak self] id, taskID, code in
             Task { @MainActor in self?.fail(id, taskID: taskID, code: code) }
         }, events: { [weak self] in
-            Task { @MainActor in self?.backgroundCompletion?(); self?.backgroundCompletion = nil }
+            Task { @MainActor in self?.finishBackgroundEvents() }
         })
         self.delegate = delegate
         #if os(iOS)

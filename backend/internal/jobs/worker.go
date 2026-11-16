@@ -339,6 +339,12 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		MediaURL:      source.URL,
 		MatchScore:    result.Score,
 	}); err != nil {
+		// Resolving retained the session's data plane. The download that
+		// would release it never starts, so it is released here; otherwise
+		// the session counts as in use until the next restart.
+		if releaser, ok := orch.(interface{ ReleaseMedia(sessionID string) }); ok {
+			releaser.ReleaseMedia(source.SessionID)
+		}
 		return ItemFailed, err
 	}
 	m.publishItem(job, item, ItemDownloading, result.Score, nil)
@@ -445,6 +451,7 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 
 	stored, err := m.persist(persistCtx, track, release, *source, file, canonicalArtistID)
 	if err != nil {
+		m.removeUncatalogued(file.Path, stagedHash, logger)
 		return ItemFailed, err
 	}
 
@@ -469,6 +476,36 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		"sha256", stagedHash)
 
 	return ItemCompleted, nil
+}
+
+// removeUncatalogued takes back a file this attempt placed in the library when
+// its catalogue entry could not be written. Left behind, the file would be
+// invisible to the catalogue, and the next attempt would store a second copy
+// beside it. Nothing is removed unless the catalogue provably has no row for
+// the path and the file still is the one this attempt staged.
+func (m *Manager) removeUncatalogued(relPath, stagedSHA256 string, logger *slog.Logger) {
+	if relPath == "" || stagedSHA256 == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), persistTimeout)
+	defer cancel()
+
+	existing, err := m.files.FindByPath(ctx, relPath)
+	if err != nil || existing != nil {
+		return
+	}
+	abs := filepath.Join(m.library.Root(), relPath)
+	hash, _, err := storage.ComputeChecksum(abs)
+	if err != nil || hash != stagedSHA256 {
+		return
+	}
+	_ = m.library.RemoveLyrics(abs)
+	if err := m.library.Remove(abs); err != nil {
+		logger.Warn("uncatalogued library file could not be removed",
+			"path", relPath, logging.KeyError, err.Error())
+		return
+	}
+	logger.Info("uncatalogued library file removed after a failed catalogue write", "path", relPath)
 }
 
 // placeSafe commits the staged file into the library using safe copy-commit,

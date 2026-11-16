@@ -154,6 +154,16 @@ func (o *ProviderOrchestrator) RecordDownloadOutcome(ctx context.Context, sessio
 	}
 }
 
+// ReleaseMedia gives back the data-plane reference that resolving a source
+// retained, for an attempt that ends before any download is recorded. It
+// reports no outcome: the session was never used.
+func (o *ProviderOrchestrator) ReleaseMedia(sessionID string) {
+	if o == nil || o.sessionPool == nil || sessionID == "" {
+		return
+	}
+	o.sessionPool.ReleaseDataPlane(sessionID)
+}
+
 // bindProvider returns a copy of p configured with the given cookie path if supported.
 // Providers not belonging to FamilyYouTube never receive cookies.
 func bindProvider(p provider.MediaProvider, cookiePath string, gate ytdlp.ExecutionGate) provider.MediaProvider {

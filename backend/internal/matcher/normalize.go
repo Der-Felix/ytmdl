@@ -119,17 +119,30 @@ var trailingVersionPatterns = []struct {
 	{VersionSlowed, regexp.MustCompile(`(?i)\s+slowed( down)?( (\+|and) ?reverb)?\s*$`)},
 	{VersionInstrumental, regexp.MustCompile(`(?i)\s+instrumental( version)?\s*$`)},
 	{VersionKaraoke, regexp.MustCompile(`(?i)\s+karaoke( version)?\s*$`)},
-	{VersionRemix, regexp.MustCompile(`(?i)\s+([\w'&.-]+\s+)+remix\s*$`)},
+	// "Song Tiesto Remix": the word before "remix" names the remixer. Only that
+	// one word is taken off. Where the title ends and the remixer begins cannot
+	// be told without brackets, and taking every word up to the first space
+	// would leave "Blinding" of "Blinding Lights Major Lazer Remix".
+	{VersionRemix, regexp.MustCompile(`(?i)\s+[\w'&.-]+\s+remix\s*$`)},
 }
+
+// legacyTrailingRemixRe is the expression used before: it took everything
+// after the first word as the remixer. It is kept so that tracks stored under
+// a key built from it can still be found.
+var legacyTrailingRemixRe = regexp.MustCompile(`(?i)\s+([\w'&.-]+\s+)+remix\s*$`)
 
 // stripTrailingVersions removes unbracketed trailing version markers and
 // reports which ones were found.
-func stripTrailingVersions(s string) (string, VersionSet) {
+func stripTrailingVersions(s string, legacy bool) (string, VersionSet) {
 	var bits VersionSet
 	for changed := true; changed; {
 		changed = false
 		for _, p := range trailingVersionPatterns {
-			if loc := p.re.FindStringIndex(s); loc != nil {
+			re := p.re
+			if legacy && p.bit == VersionRemix {
+				re = legacyTrailingRemixRe
+			}
+			if loc := re.FindStringIndex(s); loc != nil {
 				s = s[:loc[0]]
 				bits |= p.bit
 				changed = true
@@ -148,7 +161,14 @@ var (
 
 // Analyze decomposes a raw title into a base title, version markers and
 // featured artists.
-func Analyze(raw string) TitleInfo {
+func Analyze(raw string) TitleInfo { return analyze(raw, false) }
+
+// AnalyzeLegacy analyses a title the way earlier versions did. Its only use is
+// rebuilding the identity key an existing library row may have been stored
+// under; nothing new is ever keyed by it.
+func AnalyzeLegacy(raw string) TitleInfo { return analyze(raw, true) }
+
+func analyze(raw string, legacy bool) TitleInfo {
 	info := TitleInfo{Original: raw}
 
 	work := foldASCII(raw)
@@ -184,7 +204,7 @@ func Analyze(raw string) TitleInfo {
 	}
 
 	var trailingBits VersionSet
-	work, trailingBits = stripTrailingVersions(work)
+	work, trailingBits = stripTrailingVersions(work, legacy)
 	info.Versions |= trailingBits
 
 	// An inline "feat. X" without brackets belongs to the credits, not to the

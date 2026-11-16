@@ -46,6 +46,9 @@ func setupVersionedFakeRunner(composeFile, prevVersion, targetVersion, prevBacke
 		Stdout:   []byte("Docker Compose v2.24.0\n"),
 	}, nil)
 
+	// A failed update stops the target backend before it reads the schema.
+	fake.Register("docker", []string{"compose", "-f", composeFile, "stop", "backend"}, &runner.RunResult{ExitCode: 0}, nil)
+
 	// Inspect previous images
 	fake.Register("docker", []string{"image", "inspect", fmt.Sprintf("ghcr.io/der-felix/ytmdl-backend:%s", prevVersion)}, &runner.RunResult{
 		ExitCode: 0,

@@ -4,7 +4,9 @@ package reconcile
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -261,7 +263,22 @@ func (e *EngineExecutor) MergeGroup(ctx context.Context, winnerID string, dupIDs
 	cleanWinner := strings.ReplaceAll(winnerID, "'", "''")
 	cleanImage := strings.ReplaceAll(bestImage, "'", "''")
 
-	script := fmt.Sprintf(`BEGIN;
+	// The values end up inside a dollar-quoted DO block, where doubling single
+	// quotes is not enough: a value containing the block's own delimiter would
+	// close it and run the rest as top-level SQL. The delimiter is therefore a
+	// random tag per call, and a value that contains it is refused.
+	tagBytes := make([]byte, 16)
+	if _, err := rand.Read(tagBytes); err != nil {
+		return 0, 0, fmt.Errorf("failed generating merge quote tag: %w", err)
+	}
+	quoteTag := "$m" + hex.EncodeToString(tagBytes) + "$"
+	for _, value := range append([]string{winnerID, bestImage}, dupIDs...) {
+		if strings.Contains(value, quoteTag) {
+			return 0, 0, errors.New("merge refused: a value contains the SQL quote delimiter")
+		}
+	}
+
+	script := fmt.Sprintf(strings.ReplaceAll(`BEGIN;
 DO $$
 DECLARE
     v_rel_count int;
@@ -308,7 +325,7 @@ BEGIN
 
     RAISE NOTICE 'MERGE_OK:%%:%%', v_rel_count, v_trk_count;
 END $$;
-COMMIT;`,
+COMMIT;`, "$$", quoteTag),
 		cleanWinner, dupsList,
 		dupsList, dupsList,
 		dupsList, cleanWinner, cleanWinner, dupsList,

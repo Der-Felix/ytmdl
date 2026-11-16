@@ -81,7 +81,24 @@ func (l *Limiter) Wait(ctx context.Context) error {
 	if delay <= 0 {
 		return nil
 	}
-	return l.sleep(ctx, delay)
+	if err := l.sleep(ctx, delay); err != nil {
+		// The caller never proceeds, so its token goes back. Otherwise every
+		// cancelled wait leaves the bucket in debt and later callers pay for
+		// requests that were never made.
+		l.refund()
+		return err
+	}
+	return nil
+}
+
+// refund returns one reserved token.
+func (l *Limiter) refund() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.tokens++
+	if l.tokens > l.burst {
+		l.tokens = l.burst
+	}
 }
 
 // reserve deducts one token and returns the wait duration required before the request may proceed.

@@ -19,6 +19,9 @@ import (
 const (
 	defaultAPIBaseURL = "https://api.deezer.com"
 	providerName      = "deezer"
+
+	// maxResponseBytes bounds one API response held in memory.
+	maxResponseBytes = 16 << 20
 )
 
 // Deezer allows roughly 50 requests per five seconds per address, which is ten
@@ -195,6 +198,13 @@ func (c *client) fetch(ctx context.Context, pathOrURL string, dst any, paced boo
 // attempt performs one request and returns nil on success.
 func (c *client) attempt(ctx context.Context, pathOrURL string, dst any) *attemptError {
 	targetURL := c.resolve(pathOrURL)
+	// Pagination links come from the response. One that leaves the API's own
+	// origin is not followed.
+	if !strings.HasPrefix(targetURL, strings.TrimRight(c.baseURL, "/")+"/") {
+		return &attemptError{
+			err: apperr.New(apperr.CodeProviderUnavailable, "Deezer pagination pointed outside the Deezer API"),
+		}
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
@@ -219,7 +229,12 @@ func (c *client) attempt(ctx context.Context, pathOrURL string, dst any) *attemp
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if err == nil && len(body) > maxResponseBytes {
+		return &attemptError{
+			err: apperr.New(apperr.CodeProviderUnavailable, "Deezer API response is too large"),
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return &attemptError{
@@ -255,6 +270,13 @@ func (c *client) attempt(ctx context.Context, pathOrURL string, dst any) *attemp
 	case resp.StatusCode == http.StatusNotFound:
 		return &attemptError{
 			err: apperr.New(apperr.CodeProviderNotFound, "Deezer does not know this item."),
+		}
+	case resp.StatusCode < 200 || resp.StatusCode >= 300:
+		// Anything else that is not a success (401, 403, an unfollowed
+		// redirect) carries no catalogue payload worth decoding.
+		return &attemptError{
+			err: apperr.Newf(apperr.CodeProviderUnavailable,
+				"Deezer API answered with unexpected status %d", resp.StatusCode),
 		}
 	}
 

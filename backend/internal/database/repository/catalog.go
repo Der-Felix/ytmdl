@@ -591,7 +591,7 @@ func upsertTrack(ctx context.Context, tx executor, track music.Track, releaseID,
 		return music.Track{}, err
 	}
 
-	existingID, err := findTrackID(ctx, tx, track.ID, identity, isrc, track.DurationMS, toleranceMS)
+	existingID, err := findTrackID(ctx, tx, track.ID, discography.IdentityOf(track), isrc, track.DurationMS, toleranceMS)
 	if err != nil {
 		return music.Track{}, err
 	}
@@ -675,7 +675,9 @@ func lockTrackIdentity(ctx context.Context, tx executor, prefix, key string) err
 
 // findTrackID resolves an existing track by ID, ISRC, or by identity key and
 // runtime. It returns an empty string when the recording is unknown.
-func findTrackID(ctx context.Context, exec executor, trackID, identity, isrc string, durationMS, toleranceMS int) (string, error) {
+// findTrackID looks a recording up by id, then by ISRC, then by identity key
+// and runtime.
+func findTrackID(ctx context.Context, exec executor, trackID string, identity discography.Identity, isrc string, durationMS, toleranceMS int) (string, error) {
 	if trackID != "" {
 		var id string
 		err := exec.QueryRowContext(ctx, `SELECT id FROM tracks WHERE id = $1 LIMIT 1`, trackID).Scan(&id)
@@ -701,8 +703,18 @@ func findTrackID(ctx context.Context, exec executor, trackID, identity, isrc str
 	if toleranceMS <= 0 {
 		toleranceMS = discography.DefaultDurationToleranceMS
 	}
-	rows, err := exec.QueryContext(ctx,
-		`SELECT id, duration_ms FROM tracks WHERE identity_key = $1`, identity)
+	// Rows written before a live release counted towards the identity carry
+	// the studio recording's key. The release type tells the two apart: such
+	// a row is no match for a studio track (first branch), and it is the one
+	// a track of a live release has to be found by (second branch).
+	rows, err := exec.QueryContext(ctx, `
+		SELECT t.id, t.duration_ms
+		FROM tracks t LEFT JOIN releases r ON r.id = t.release_id
+		WHERE (t.identity_key = ANY($1)
+		       AND ($3 OR NOT (COALESCE(r.release_type, '') = 'live'
+		                       AND split_part(t.identity_key, chr(31), 3) NOT LIKE 'live%')))
+		   OR (t.identity_key = ANY($2) AND COALESCE(r.release_type, '') = 'live')`,
+		identity.Keys, identity.LegacyLiveKeys, identity.Live)
 	if err != nil {
 		return "", wrapDB("find track by identity", err)
 	}
@@ -775,7 +787,7 @@ func (c *Catalog) ListTracks(ctx context.Context, releaseID string, limit, offse
 // FindTrack resolves a recording the way the download history needs it: by
 // ID first, ISRC second, by identity key and runtime third.
 func (c *Catalog) FindTrack(ctx context.Context, track music.Track, toleranceMS int) (*music.Track, error) {
-	id, err := findTrackID(ctx, c.db, track.ID, discography.IdentityKey(track),
+	id, err := findTrackID(ctx, c.db, track.ID, discography.IdentityOf(track),
 		discography.NormalizeISRC(track.ISRC), track.DurationMS, toleranceMS)
 	if err != nil {
 		return nil, err
@@ -1172,7 +1184,11 @@ func mergeArtistsTx(ctx context.Context, tx *sql.Tx, canonicalID string, duplica
 	}
 
 	// 6. Reassign library audit findings (if table exists)
-	_, _ = tx.ExecContext(ctx, `UPDATE library_audit_findings SET artist_id = $1 WHERE artist_id = ANY($2)`, canonicalID, dups)
+	// A failed statement aborts the whole transaction, so ignoring the error
+	// here would only make the next statement fail under a misleading name.
+	if _, err := tx.ExecContext(ctx, `UPDATE library_audit_findings SET artist_id = $1 WHERE artist_id = ANY($2)`, canonicalID, dups); err != nil {
+		return wrapDB("reassign audit findings to canonical artist", err)
+	}
 
 	// 7. Delete duplicate artist rows (sources were already transferred to canonicalID, so none are lost)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM artists WHERE id = ANY($1)`, dups); err != nil {

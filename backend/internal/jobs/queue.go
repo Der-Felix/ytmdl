@@ -377,9 +377,12 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 				}
 
 			case ItemWaitingStorage:
-				// If already staged with hash, can finalize to /music even outside window
+				// A staged item only has the move into /music left, and that
+				// needs the library. Offline staging must not make it ready:
+				// an attempt would download the track again and stop at the
+				// same storage check, over and over while the library is away.
 				if it.StagedSHA256 != "" {
-					if storageHealthy || m.allowOfflineStaging.Load() {
+					if storageHealthy {
 						readyItems = append(readyItems, it)
 					}
 				} else if insideWindow && (storageHealthy || m.allowOfflineStaging.Load()) {
@@ -533,6 +536,13 @@ func (m *Manager) resolve(ctx context.Context, jobID string) {
 	}
 
 	run := m.registerRun(jobID)
+	// A cancel that landed after the job was loaded has already dropped the
+	// job's run, so the one just registered is new and uncancelled. Resolving
+	// under it would attach pending items to a cancelled job.
+	if fresh, err := m.store.Get(ctx, jobID); err == nil && fresh.Status.Terminal() {
+		m.cancelRun(jobID)
+		return
+	}
 	logger := m.logger.With(logging.KeyJobID, jobID, "type", string(job.Type))
 
 	label := job.Label
@@ -561,6 +571,12 @@ func (m *Manager) resolve(ctx context.Context, jobID string) {
 	}
 	if err := m.store.AddItems(run.ctx, jobID, items); err != nil {
 		if m.Stopping() {
+			return
+		}
+		if run.ctx.Err() != nil {
+			// Cancelled between resolving and storing: a cancellation, not a
+			// failure of the job.
+			m.markCancelled(ctx, job)
 			return
 		}
 		m.fail(ctx, job, err)

@@ -149,7 +149,9 @@ func (l *Library) CommitStaged(source, destination, expectedSHA256 string, expec
 		return false, apperr.Wrap(apperr.CodeInternal, "The finalization temp directory could not be created.", err)
 	}
 
-	tempTarget := filepath.Join(finalizeDir, fmt.Sprintf(".ytmdl-%s-%d.tmp", filepath.Base(safe), time.Now().UnixNano()))
+	// The temporary name adds about thirty bytes to the file name, so the name
+	// part is shortened to keep the whole within the filesystem's limit.
+	tempTarget := filepath.Join(finalizeDir, fmt.Sprintf(".ytmdl-%s-%d.tmp", truncateBytes(filepath.Base(safe), 180), time.Now().UnixNano()))
 	defer os.Remove(tempTarget)
 
 	out, err := os.OpenFile(tempTarget, os.O_WRONLY|os.O_CREATE|os.O_EXCL, filePerm)
@@ -249,7 +251,16 @@ func (l *Library) move(source, destination string, overwrite bool) error {
 		return l.overwriteInto(source, safe)
 
 	default:
-		return apperr.Wrap(apperr.CodeInternal, "The file could not be moved into the library.", err)
+		// Hard links are not available everywhere (across devices, on some
+		// SMB, FUSE and exFAT mounts). The exclusive copy keeps the same
+		// no-overwrite guarantee without them.
+		if copyErr := l.copyInto(source, safe); copyErr != nil {
+			if apperr.CodeOf(copyErr) == apperr.CodePathConflict {
+				return copyErr
+			}
+			return apperr.Wrap(apperr.CodeInternal, "The file could not be moved into the library.", errors.Join(err, copyErr))
+		}
+		return nil
 	}
 }
 

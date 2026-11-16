@@ -255,6 +255,13 @@ func Update(ctx context.Context, eng engine.Engine, deps Dependencies, opts Upda
 		return nil, fmt.Errorf("release manifest validation failed: %w", err)
 	}
 
+	// The dry run refuses an installation below the release's minimum
+	// upgrade version. The real update has to refuse it too, or the two
+	// would disagree about the same installation.
+	if err := targetManifest.CheckEligibility(configuredVersion); err != nil {
+		return nil, fmt.Errorf("managed update blocked: %w", err)
+	}
+
 	// Schema compatibility validation & upgrade path resolution
 	upgradePath, err := targetManifest.FindUpgradePath(schemaBefore)
 	if err != nil {
@@ -676,16 +683,33 @@ func handleMutationFailure(eng engine.Engine, deps Dependencies, opts UpdateOpti
 			return discovery.QueryDBSchema(ctx, e, pDir, cFile, envVars["POSTGRES_USER"], envVars["POSTGRES_DB"])
 		}
 	}
+	// The target backend runs its migrations before it answers health checks,
+	// and each migration commits on its own. A schema read while it is still
+	// running proves nothing: the next migration may commit right after. So the
+	// backend is stopped first, and only then is the schema read. A backend
+	// that cannot be stopped leaves the schema unproven, which is treated like
+	// a changed schema.
+	var stopErr error
+	if eng != nil {
+		stopCtx, cancelStop := context.WithTimeout(context.Background(), 2*time.Minute)
+		stopRes, sErr := eng.StopServices(stopCtx, opts.ProjectDir, opts.ComposeFile, "backend")
+		cancelStop()
+		if sErr != nil {
+			stopErr = sErr
+		} else if stopRes != nil && stopRes.ExitCode != 0 {
+			stopErr = fmt.Errorf("stopping backend exited with code %d", stopRes.ExitCode)
+		}
+	}
+
 	// Use fresh bounded background context for schema check
 	probeCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	currentSchema, err := schemaChecker(probeCtx, eng, opts.ProjectDir, opts.ComposeFile)
+	if err == nil && stopErr != nil {
+		err = fmt.Errorf("target backend could not be stopped before the schema check: %w", stopErr)
+	}
 	if err != nil || currentSchema != st.SchemaBefore {
-		// Stop any errant target backend container to prevent crash loops / unbounded writes
-		if eng != nil {
-			_, _ = eng.StopServices(context.Background(), opts.ProjectDir, opts.ComposeFile, "backend")
-		}
 		st.Status = state.StatusRecoveryRequired
 		st.LastError = redact.String(fmt.Sprintf("update failed (%v); database schema cannot be rolled back automatically (actual: %d, schema_before: %d, err: %v)", triggerErr, currentSchema, st.SchemaBefore, err))
 		_ = st.Save(opts.ProjectDir)

@@ -155,7 +155,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   )
 
   // 1. Initial State Restoration from LocalStorage
+  const sessionUserIdRef = useRef<string | null | undefined>(undefined)
   useEffect(() => {
+    // The provider outlives a sign-out and a change of user. The queue and
+    // the audio of the previous session end here, before anything of the new
+    // user is restored; otherwise the next user would inherit them and have
+    // them saved and counted as their own.
+    const sessionUserId = user?.id ?? null
+    if (sessionUserIdRef.current !== undefined && sessionUserIdRef.current !== sessionUserId) {
+      engine.cancelCrossfade()
+      engine.pause()
+      engine.preloadNext(null)
+      currentEngineTrackIdRef.current = null
+      pendingSourceKeyRef.current = null
+      dispatch({ type: 'RESET_SESSION' })
+    }
+    sessionUserIdRef.current = sessionUserId
+
     const customPresets = loadCustomPresets()
     const history = loadHistory(user?.id)
     listeningTracker.current.reset()
@@ -171,7 +187,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         },
       })
     }
-  }, [user?.id])
+  }, [user?.id, engine])
 
   // 2. Connect Engine Callbacks
   useEffect(() => {
@@ -394,7 +410,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       [
         'play',
         () => {
-          engine.play()
+          // Only resume audio that belongs to the current track. While a new
+          // source is still loading, the engine holds the previous track.
+          const track = stateRef.current.currentTrack
+          if (track && currentEngineTrackIdRef.current === audioKey(track)) engine.play()
           dispatch({ type: 'SET_STATUS', payload: 'playing' })
         },
       ],
@@ -508,7 +527,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             engine.pause()
             dispatch({ type: 'SET_STATUS', payload: 'paused' })
           } else {
-            engine.play()
+            const track = stateRef.current.currentTrack
+            if (track && currentEngineTrackIdRef.current === audioKey(track)) engine.play()
             dispatch({ type: 'SET_STATUS', payload: 'playing' })
           }
           break

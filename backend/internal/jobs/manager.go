@@ -876,6 +876,18 @@ func (m *Manager) Resume(ctx context.Context, id string) (*Job, error) {
 	m.broker.Publish(Event{
 		Type: EventJobResumed, JobID: id, Status: job.Status, Label: job.Label, Paused: &pausedVal,
 	})
+
+	// A job paused before its tracks were discovered is skipped by startup
+	// recovery, which only lists unpaused jobs. Without a resolve it would
+	// stay queued with no items forever and keep blocking new enqueues of the
+	// same target. resolve itself is a no-op for a job that already has items.
+	if !job.Status.Terminal() && job.Total == 0 {
+		if hasItems, err := m.store.HasItems(ctx, id); err == nil && !hasItems {
+			m.registerRun(id)
+			m.queueForResolve(id)
+		}
+	}
+
 	m.signal()
 	return job, nil
 }

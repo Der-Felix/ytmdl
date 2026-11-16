@@ -16,7 +16,7 @@ func (h *Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if n, err := strconv.Atoi(l); err == nil && n > 0 {
-			limit = n
+			limit = min(n, 200)
 		}
 	}
 	offset := 0
@@ -32,7 +32,7 @@ func (h *Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.List(w, users, response.Meta{Count: total, Limit: limit, Offset: offset})
+	response.List(w, users, response.Meta{Count: len(users), Total: total, Limit: limit, Offset: offset})
 }
 
 // CreateUser creates a new user account (Admin only).

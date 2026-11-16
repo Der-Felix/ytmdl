@@ -112,6 +112,11 @@ func Deduplicate(tracks []music.Track, opts DedupOptions) []Group {
 		bucket := titleBucket(t)
 		found := false
 		for _, c := range buckets[bucket] {
+			// Two different valid ISRCs name two different recordings, however
+			// alike title, artist and runtime are ("Intro" on two albums).
+			if a, b := NormalizeISRC(t.ISRC), NormalizeISRC(tracks[c.rep].ISRC); a != "" && b != "" && a != b {
+				continue
+			}
 			if durationsMatch(t.DurationMS, c.durationMS, tolerance) && intersects(artistSets[i], c.artists) {
 				uf.union(i, c.rep)
 				found = true
@@ -221,18 +226,79 @@ func DeduplicateTracks(tracks []music.Track, opts DedupOptions) []music.Track {
 // providers and is what the library uses to recognise a track it already owns.
 func IdentityKey(t music.Track) string {
 	info := matcher.Analyze(t.Title)
+	return identityKey(t, info.Base, recordingVersions(t, info))
+}
+
+func identityKey(t music.Track, base string, versions matcher.VersionSet) string {
 	return strings.Join([]string{
 		matcher.NormalizeArtist(music.PrimaryArtist(t.Artists)),
-		info.Base,
-		info.Versions.String(),
+		base,
+		versions.String(),
 	}, "\x1f")
+}
+
+// Identity is everything a library lookup needs to recognise a track,
+// including rows that an earlier version stored under a different key. New
+// rows are only ever written with Keys[0].
+type Identity struct {
+	// Keys holds the current key first, then the key built from the earlier
+	// reading of an unbracketed remix title where that differs.
+	Keys []string
+	// Live reports whether the recording is a live one, by its title or by
+	// its release.
+	Live bool
+	// LegacyLiveKeys are the keys a track of a live release was stored under
+	// before the release counted towards its identity: the same keys without
+	// the live marker. They are the studio recording's keys as well, so a row
+	// found by them only counts when it belongs to a live release.
+	LegacyLiveKeys []string
+}
+
+// IdentityOf builds the lookup identity of a track.
+func IdentityOf(t music.Track) Identity {
+	current := matcher.Analyze(t.Title)
+	legacy := matcher.AnalyzeLegacy(t.Title)
+
+	versions := recordingVersions(t, current)
+	id := Identity{
+		Keys:           []string{identityKey(t, current.Base, versions)},
+		Live:           versions.Has(matcher.VersionLive),
+		LegacyLiveKeys: []string{},
+	}
+	if key := identityKey(t, legacy.Base, recordingVersions(t, legacy)); key != id.Keys[0] {
+		id.Keys = append(id.Keys, key)
+	}
+	if versions != current.Versions {
+		// The live marker comes from the release alone.
+		id.LegacyLiveKeys = append(id.LegacyLiveKeys, identityKey(t, current.Base, current.Versions))
+		if key := identityKey(t, legacy.Base, legacy.Versions); key != id.LegacyLiveKeys[0] {
+			id.LegacyLiveKeys = append(id.LegacyLiveKeys, key)
+		}
+	}
+	return id
+}
+
+// recordingVersions returns the version markers that identify a recording: the
+// ones in its title, plus "live" for every track of a live release. Live
+// albums usually list their tracks under the plain song title; without the
+// release, such a track would share its identity with the studio recording,
+// and whichever of the two arrived second would count as already owned.
+//
+// A remix release is deliberately not treated the same way: its plainly titled
+// track is, as a rule, the original that the remixes are of.
+func recordingVersions(t music.Track, info matcher.TitleInfo) matcher.VersionSet {
+	versions := info.Versions
+	if t.ReleaseType == music.ReleaseLive {
+		versions |= matcher.VersionLive
+	}
+	return versions
 }
 
 // titleBucket groups tracks that could describe the same recording before the
 // artist credits and the runtime are taken into account.
 func titleBucket(t music.Track) string {
 	info := matcher.Analyze(t.Title)
-	return info.Base + "\x1f" + info.Versions.String()
+	return info.Base + "\x1f" + recordingVersions(t, info).String()
 }
 
 // ArtistKeySet returns every normalised artist credited for a track, including

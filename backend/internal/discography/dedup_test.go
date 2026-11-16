@@ -158,6 +158,56 @@ func TestDeduplicateKeepsGenuineVariantsApart(t *testing.T) {
 	}
 }
 
+// A live album usually lists its tracks under the plain song title. The
+// release makes them live recordings, so they stay apart from the studio one
+// even when the runtimes agree.
+func TestDeduplicateKeepsPlainlyTitledLiveReleaseTracksApart(t *testing.T) {
+	groups := Deduplicate([]music.Track{
+		track("Song", withRelease(music.ReleaseAlbum, "Album", 2010)),
+		track("Song", withRelease(music.ReleaseLive, "Live in Paris", 2012), withDuration(206000)),
+		track("Song (Live)", withRelease(music.ReleaseAlbum, "Album (Deluxe)", 2011), withDuration(206500)),
+	}, DedupOptions{})
+
+	if len(groups) != 2 {
+		t.Fatalf("got %d groups, want 2 — the studio recording and one live recording", len(groups))
+	}
+	for _, g := range groups {
+		if g.Track.Album == "Album" && len(g.Duplicates) != 0 {
+			t.Errorf("the studio recording was merged with %d other track(s)", len(g.Duplicates))
+		}
+	}
+}
+
+// A plainly titled track of a remix release is, as a rule, the original the
+// remixes are of. It keeps the original's identity.
+func TestIdentityOfTreatsOnlyLiveReleasesAsAVersion(t *testing.T) {
+	studio := track("Song")
+	onRemixRelease := track("Song", withRelease(music.ReleaseRemix, "Song (Remixes)", 2011))
+	onLiveRelease := track("Song", withRelease(music.ReleaseLive, "Live in Paris", 2012))
+
+	if IdentityKey(onRemixRelease) != IdentityKey(studio) {
+		t.Error("a plain title on a remix release must keep the original's identity")
+	}
+	if IdentityKey(onLiveRelease) == IdentityKey(studio) {
+		t.Error("a plain title on a live release must not share the studio recording's identity")
+	}
+
+	live := IdentityOf(onLiveRelease)
+	if !live.Live || len(live.LegacyLiveKeys) != 1 || live.LegacyLiveKeys[0] != IdentityKey(studio) {
+		t.Errorf("live release identity = %+v, want the studio key as its only legacy key", live)
+	}
+	if plain := IdentityOf(studio); plain.Live || len(plain.LegacyLiveKeys) != 0 || len(plain.Keys) != 1 {
+		t.Errorf("studio identity = %+v, want one key and no legacy keys", plain)
+	}
+
+	// An unbracketed remix title is still found under the key earlier
+	// versions built, which kept only the first word of the title.
+	remix := IdentityOf(track("Blinding Lights Major Lazer Remix"))
+	if len(remix.Keys) != 2 || remix.Keys[0] == remix.Keys[1] {
+		t.Errorf("remix identity keys = %q, want the current and the earlier key", remix.Keys)
+	}
+}
+
 func TestDeduplicateUsesISRCAcrossDifferentTitles(t *testing.T) {
 	groups := Deduplicate([]music.Track{
 		track("Song", withISRC("DEA123456789")),

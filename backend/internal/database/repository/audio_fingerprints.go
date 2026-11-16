@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"math"
 	"time"
 	"ytdm/backend/internal/apperr"
@@ -70,6 +71,11 @@ func (c *Catalog) SaveAudioFingerprint(ctx context.Context, trackID, fileID stri
 	return c.db.WithTx(ctx, func(tx *sql.Tx) error {
 		var duration int64
 		if err := tx.QueryRowContext(ctx, `SELECT t.duration_ms FROM tracks t JOIN files f ON f.track_id=t.id WHERE t.id=$1 AND f.id=$2 AND f.updated_at=$3 FOR SHARE OF t,f`, trackID, fileID, updated).Scan(&duration); err != nil {
+			// Only a missing row means the file changed. A lost connection or
+			// a timeout is a server error, not a reason to skip the file.
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
 			return apperr.New(apperr.CodeConflict, "Audiodatei wurde geändert. Bitte neu laden.")
 		}
 		generation := music.NewID()

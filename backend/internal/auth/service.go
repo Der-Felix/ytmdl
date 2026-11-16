@@ -212,13 +212,23 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, ip, userAgent str
 	rateKey := ip + ":" + normUsername
 	ipRateKey := ip
 
-	if allowed, retryAfter := s.limiter.Allow(rateKey); !allowed {
+	// Every attempt is counted before its password is checked, so parallel
+	// attempts cannot all pass the limit while none has been recorded yet. An
+	// attempt that turns out not to be a failure gives its reservation back.
+	allowed, retryAfter, userAttempt := s.limiter.Reserve(rateKey)
+	if !allowed {
 		s.logger.Warn("login rate limited for user", "ip", ip, "username", normUsername, "retry_after", retryAfter)
 		return nil, apperr.Newf(apperr.CodeRateLimited, "Zu viele fehlgeschlagene Login-Versuche. Bitte warte %d Sekunden.", int(retryAfter.Seconds()+1))
 	}
-	if allowed, retryAfter := s.limiter.Allow(ipRateKey); !allowed {
+	allowed, retryAfter, ipAttempt := s.limiter.Reserve(ipRateKey)
+	if !allowed {
+		s.limiter.Release(rateKey, userAttempt)
 		s.logger.Warn("login rate limited for IP", "ip", ip, "retry_after", retryAfter)
 		return nil, apperr.Newf(apperr.CodeRateLimited, "Zu viele fehlgeschlagene Login-Versuche von dieser IP. Bitte warte %d Sekunden.", int(retryAfter.Seconds()+1))
+	}
+	releaseAttempt := func() {
+		s.limiter.Release(rateKey, userAttempt)
+		s.limiter.Release(ipRateKey, ipAttempt)
 	}
 
 	user, err := s.users.GetByUsername(ctx, normUsername)
@@ -226,30 +236,30 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, ip, userAgent str
 		if apperr.CodeOf(err) == apperr.CodeUserNotFound {
 			// Timing leak protection: run dummy verification
 			DummyVerify(req.Password)
-			s.limiter.RecordFailure(rateKey)
-			s.limiter.RecordFailure(ipRateKey)
 			s.logger.Warn("login failed: unknown user", "ip", ip, "username", normUsername)
 			return nil, apperr.New(apperr.CodeInvalidCredentials, "Benutzername oder Passwort ist falsch.")
 		}
+		releaseAttempt()
 		return nil, err
 	}
 
 	match, verifyErr := VerifyPassword(req.Password, user.PasswordHash)
 	if verifyErr != nil || !match {
-		s.limiter.RecordFailure(rateKey)
-		s.limiter.RecordFailure(ipRateKey)
 		s.logger.Warn("login failed: invalid password", "ip", ip, "username", normUsername, "user_id", user.ID)
 		return nil, apperr.New(apperr.CodeInvalidCredentials, "Benutzername oder Passwort ist falsch.")
 	}
 
 	if !user.Enabled {
+		releaseAttempt()
 		s.logger.Warn("login rejected: user disabled", "ip", ip, "username", normUsername, "user_id", user.ID)
 		return nil, apperr.New(apperr.CodeUnauthenticated, "Dieses Benutzerkonto ist deaktiviert.")
 	}
 
-	// Login successful: clear rate limits
+	// Login successful: the failures of this user from this address are
+	// forgotten. The address-wide counter only loses this one attempt, so a
+	// login to one account does not wipe the failures against other accounts.
 	s.limiter.RecordSuccess(rateKey)
-	s.limiter.RecordSuccess(ipRateKey)
+	s.limiter.Release(ipRateKey, ipAttempt)
 
 	now := time.Now().UTC()
 	_ = s.users.UpdateLastLogin(ctx, user.ID, now)

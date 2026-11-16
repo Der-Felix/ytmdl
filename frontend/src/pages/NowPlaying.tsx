@@ -233,13 +233,19 @@ export function NowPlaying() {
     }
   }, [currentTrack?.id])
 
+  const lyricsTrackIdRef = useRef(currentTrack?.id)
+  lyricsTrackIdRef.current = currentTrack?.id
+
   // Manual Lyrics Refresh Handler
   const handleRefreshLyrics = async () => {
     if (!currentTrack || lyricsRefreshing) return
+    const requestedTrackId = currentTrack.id
     setLyricsRefreshing(true)
     try {
-      const refreshed = await refreshTrackLyrics(currentTrack.id)
-      setLyricsData(refreshed)
+      const refreshed = await refreshTrackLyrics(requestedTrackId)
+      // The track may have changed while the lookup ran. Lyrics of the
+      // previous track must not replace those of the one playing now.
+      if (lyricsTrackIdRef.current === requestedTrackId) setLyricsData(refreshed)
     } catch {
       // Refresh error handled safely
     } finally {

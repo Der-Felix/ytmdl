@@ -255,6 +255,10 @@ func (rs *RuntimeSession) acquireExecution(ctx context.Context, global *Limiter)
 	}
 	if limiter := rs.Limiter(); limiter != nil && limiter.Enabled() {
 		if err := limiter.Wait(ctx); err != nil {
+			// The family token was taken for a process that never starts.
+			if global != nil && global.Enabled() {
+				global.refund()
+			}
 			release()
 			return nil, err
 		}

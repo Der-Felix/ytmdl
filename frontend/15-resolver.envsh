@@ -9,7 +9,12 @@
 # export below reaches the envsubst step that renders the template.
 
 NGINX_RESOLVER="$(awk '/^nameserver/ { print $2; exit }' /etc/resolv.conf)"
-export NGINX_RESOLVER="${NGINX_RESOLVER:-127.0.0.11}"
+NGINX_RESOLVER="${NGINX_RESOLVER:-127.0.0.11}"
+# nginx reads a bare IPv6 address as host plus port. It has to be bracketed.
+case "$NGINX_RESOLVER" in
+    *:*) NGINX_RESOLVER="[${NGINX_RESOLVER}]" ;;
+esac
+export NGINX_RESOLVER
 
 # Only NGINX_-prefixed variables are substituted, so nginx's own $variables
 # survive the template rendering untouched.

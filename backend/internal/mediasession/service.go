@@ -299,6 +299,14 @@ func (s *Service) UploadCookies(ctx context.Context, id string, content []byte) 
 		}
 	}
 
+	// The probe took time. A download that started meanwhile runs on the old
+	// cookie file and writes its cookie jar back to that path when it ends,
+	// which would overwrite the new credentials. The in-use check is therefore
+	// repeated right before the file is replaced.
+	if s.pool != nil && s.pool.IsInUse(id) {
+		return nil, probeRes, apperr.New(apperr.CodeSessionInUse, "Media session is currently in use by an active download operation.")
+	}
+
 	// Candidate probe succeeded: promote candidate atomically over old file
 	cookieRef, err := s.storage.PromoteCandidate(sess.ID, candidatePath)
 	if err != nil {
@@ -321,7 +329,11 @@ func (s *Service) UploadCookies(ctx context.Context, id string, content []byte) 
 	}
 
 	if updated.CookieRef != cookieRef {
-		updated, _ = s.repo.UpdateCookieRef(ctx, sess.ID, cookieRef)
+		refreshed, err := s.repo.UpdateCookieRef(ctx, sess.ID, cookieRef)
+		if err != nil {
+			return nil, nil, err
+		}
+		updated = refreshed
 	}
 
 	if s.pool != nil {
@@ -381,6 +393,13 @@ func (s *Service) ProbeSession(ctx context.Context, id string) (*ProbeResult, *S
 	}
 
 	res, probeErr := s.prober.Probe(ctx, sessID, cookiePath)
+	if res == nil {
+		// A prober that cannot run returns no result at all.
+		if probeErr == nil {
+			probeErr = apperr.New(apperr.CodeToolUnavailable, "Session prober returned no result.")
+		}
+		return nil, nil, probeErr
+	}
 	now := time.Now().UTC()
 	if s.pool != nil {
 		now = s.pool.Now()
