@@ -4,26 +4,25 @@ What is planned for YTMDL, in the order it is meant to happen. This is a stateme
 of intent, not a promise: items move when something more urgent turns up, and
 nothing here has a date. Shipped work is in the [changelog](CHANGELOG.md).
 
-Last updated: 2026-11-16.
+Last updated: 2026-11-16, with the release of 1.4.0.
 
 ## Now
 
 Work that is in progress or blocks a release.
 
-- **Get the maintenance release out.** The fixes from the full code review and the
-  correction for live recordings are on `main`, but neither v1.3.1 nor v1.3.2 was
-  released: both runs stopped in the upgrade qualification after their container
-  images had been pushed. The cause is in the test harness. Under Podman, the
-  network of one test stack still holds its subnet when the next stack starts.
-  The harness is being fixed and gets a way to run without a release tag.
 - **Stop a failed release run from using up its version.** The release workflow
   pushes the images before it runs the upgrade qualification, and it never
-  replaces a published image tag. A failure in between costs the version number.
-  The qualification should run against the candidate images before anything is
-  published.
-- **Review the new web theme.** A flat, token-driven theme is open as a pull
-  request. It builds and passes the checks, but nobody has looked at it yet. It is
-  merged once it has been seen on real screens and corrected where needed.
+  replaces a published image tag. A failure in between costs the version number;
+  1.3.1 and 1.3.2 were lost this way. The qualification should run against
+  candidate images before anything is published, or a run for a version without
+  a release should be allowed to replace its images.
+- **Pin the runner image.** The upgrade qualification broke when `ubuntu-latest`
+  moved to a new Ubuntu version, where rootless Podman fails to finish
+  `compose down`. The harness now cleans up after it, but the workflows should
+  name the Ubuntu version they are qualified on.
+- **Check the new theme with real content.** The theme shipped in 1.4.0 was
+  reviewed on an empty library. Covers, long lists, the playing view and narrow
+  screens still need a pass, and the documentation screenshots show the old look.
 
 ## Next
 
@@ -68,7 +67,6 @@ Directions that are wanted but not yet planned in detail.
 - **A migration framework for stored identities.** The key a track is recognised
   by is written once. Changing how it is built currently needs lookups that know
   the older keys; a way to rewrite stored keys would remove that.
-- **Screenshots and documentation for the new look**, once the theme is merged.
 - **Branch model.** Changes have gone to `main` directly, with `dev` moved up
   afterwards, although the contribution guide names `dev` as the target. Either
   the guide or the practice should change, and `main` should get required checks.

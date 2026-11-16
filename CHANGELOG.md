@@ -1,16 +1,18 @@
 # Changelog
 
-## 1.3.2 — 2026-11-16
+## 1.4.0 — 2026-11-16
 
-A maintenance release: fixes from a full code review, plus a correction to how
-live recordings are told apart from studio recordings. There are no new features.
+A new look for the web interface, the fixes from a full code review, and a
+correction to how live recordings are told apart from studio recordings.
 
-Version 1.3.1 was tagged but never released: its release run stopped after the
-container images had been pushed, and published image tags are never replaced.
-The `1.3.1` images on GHCR belong to no release; use 1.3.2.
+Versions 1.3.1 and 1.3.2 were tagged but never released: both release runs
+stopped in the upgrade qualification after the container images had been pushed,
+and published image tags are never replaced. The `1.3.1` and `1.3.2` images on
+GHCR belong to no release; use 1.4.0.
 
 ### Highlights
 
+- **A new theme for the web interface.** The glass look with background glows, blur and heavy shadows is replaced by a flat one: surfaces tinted in the violet of the logo step up in lightness, fine borders separate them, and a wash of the two brand colours sits behind the top of the page. Corners are tighter, colours and motion come from one set of theme tokens, and text contrast was recalculated for every surface. With "reduce motion" enabled, movement is removed while fades and colour changes stay.
 - **Studio recordings are no longer skipped because of a live album.** A track that a live album lists under the plain song title used to share its identity with the studio recording, so whichever of the two reached the library second counted as already owned. Tracks of a live release are now live recordings. A studio recording that was skipped for this reason counts as missing again and is picked up by the next subscription sync or download.
 - **Library repair cannot quarantine catalogued audio.** A finding without a repair of its own (missing lyrics, a cover problem, an audio file that could not be probed) used to default to quarantine, which moved the registered file away and left its track unplayable. A registered file is now never quarantined, whatever the finding or the requested action.
 - **Downloads no longer loop while the library is away.** With offline staging enabled and the library unreachable, a finished track was downloaded again and again. It now waits until the library is back.
@@ -33,15 +35,17 @@ The `1.3.1` images on GHCR belong to no release; use 1.3.2.
 - `ytmdlctl update` enforces the release's minimum upgrade version like the dry run does, and stops the target backend before it decides whether an automatic rollback is safe. The artist merge of `ytmdlctl` no longer builds its SQL with a fixed quote delimiter.
 - Web player: playback stops and the queue is cleared when the signed-in user changes; job progress reconnects after the server closed the stream; signing in keeps the requested page, such as a device pairing link; starting a new queue under shuffle no longer brings the previous queue back.
 - Apple app: an unreadable stored session leads to a new sign-in instead of a failed connection; the Keychain entry is keyed by the normalized server address; device sign-in reports a failed session restore and slows down on a rate limit; a resume position survives an unknown track duration.
+- The sign-in and first-run forms use the accent button for their action. Errors are shown in orange-red, so they no longer look like the accent.
+- Release tooling: the upgrade qualification verifies that a test stack is really gone before the next one starts and can run without a release tag; both qualification scripts print why they stopped. Continuous integration runs only the jobs a change affects and checks the real browser flow on pull requests into `main`.
 - Qualify v1.3.0 upgrades as well as v0.28.1, v1.0.0, v1.1.1 and v1.2.0.
 - **Database Schema:** Remains at schema 18; no database migration is required. Tracks stored by earlier versions are still recognised. Keep a verified backup before any update.
 
 ### Upgrade from v1.3.0
 
-Use the checksum-verified v1.3.2 CLI and Compose files from this release. Preserve
+Use the checksum-verified v1.4.0 CLI and Compose files from this release. Preserve
 private configuration, proxy settings, mounts, cookies and the database volume.
-Run `ytmdlctl update --channel stable --target 1.3.2 --dry-run` before
-`ytmdlctl update --channel stable --target 1.3.2`. Protect the media separately;
+Run `ytmdlctl update --channel stable --target 1.4.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.4.0`. Protect the media separately;
 the database dump does not contain music files.
 
 ## 1.3.0 — 2026-10-08
