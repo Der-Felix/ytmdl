@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.3.1 — 2026-11-16
+
+A maintenance release: fixes from a full code review, plus a correction to how
+live recordings are told apart from studio recordings. There are no new features.
+
+### Highlights
+
+- **Studio recordings are no longer skipped because of a live album.** A track that a live album lists under the plain song title used to share its identity with the studio recording, so whichever of the two reached the library second counted as already owned. Tracks of a live release are now live recordings. A studio recording that was skipped for this reason counts as missing again and is picked up by the next subscription sync or download.
+- **Library repair cannot quarantine catalogued audio.** A finding without a repair of its own (missing lyrics, a cover problem, an audio file that could not be probed) used to default to quarantine, which moved the registered file away and left its track unplayable. A registered file is now never quarantined, whatever the finding or the requested action.
+- **Downloads no longer loop while the library is away.** With offline staging enabled and the library unreachable, a finished track was downloaded again and again. It now waits until the library is back.
+
+### Changes
+
+- **Reorganize requires an administrator.** `POST /library/reorganize` moves files of the shared library and joins the other administrator-only library tools.
+- The bundled frontend sends `X-Frame-Options: SAMEORIGIN`, `Content-Security-Policy: frame-ancestors 'self'` and `X-Content-Type-Options: nosniff`. Embedding the web interface in a page of another origin stops working.
+- Sign-in attempts are counted before the password is checked, so parallel attempts cannot exceed the limit, and a successful sign-in no longer clears the failures counted for the whole address.
+- Deleting a track or release keeps its catalogue entry when the audio cannot be removed from disk and reports the failure. Lyrics sidecars and `cover.png` are removed with it, and releases of more than 500 tracks are deleted completely.
+- Retagging keeps embedded PNG covers: it looks for `cover.png` as well as `cover.jpg` and takes the image type from the file.
+- Restoring a track from the trash brings back its play counts and playback history. The restore check also covers a reused ISRC and a deleted release or artist.
+- "Retry failed" on a cancelled job puts the job back in the queue. A job paused before its tracks were resolved is resolved when it is resumed, also after a restart.
+- A media session is released when a download attempt ends between resolving and downloading, replacing a cookie file re-checks that the session is idle, and a cancelled wait gives its rate-limit token back.
+- A library file whose catalogue entry could not be written is removed again, so the next attempt does not store a second copy.
+- Discography deduplication keeps recordings with different ISRCs apart. An unbracketed remix title ("Song Tiesto Remix") only loses the word before "remix".
+- Path components are limited to 240 bytes, which keeps long titles in scripts with multi-byte characters within the filesystem limit. Moves fall back to an exclusive copy on mounts without hard links.
+- Artwork uploads of up to 8 MiB are accepted; the general request limit used to refuse them above 1 MiB. Loudness analysis is no longer cut off by the general request timeout. Internal errors are logged with their cause.
+- The Deezer client bounds response sizes, rejects unexpected statuses and does not follow pagination outside the API or in a loop.
+- `ytmdlctl update` enforces the release's minimum upgrade version like the dry run does, and stops the target backend before it decides whether an automatic rollback is safe. The artist merge of `ytmdlctl` no longer builds its SQL with a fixed quote delimiter.
+- Web player: playback stops and the queue is cleared when the signed-in user changes; job progress reconnects after the server closed the stream; signing in keeps the requested page, such as a device pairing link; starting a new queue under shuffle no longer brings the previous queue back.
+- Apple app: an unreadable stored session leads to a new sign-in instead of a failed connection; the Keychain entry is keyed by the normalized server address; device sign-in reports a failed session restore and slows down on a rate limit; a resume position survives an unknown track duration.
+- Qualify v1.3.0 upgrades as well as v0.28.1, v1.0.0, v1.1.1 and v1.2.0.
+- **Database Schema:** Remains at schema 18; no database migration is required. Tracks stored by earlier versions are still recognised. Keep a verified backup before any update.
+
+### Upgrade from v1.3.0
+
+Use the checksum-verified v1.3.1 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.3.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.3.1`. Protect the media separately;
+the database dump does not contain music files.
+
 ## 1.3.0 — 2026-10-08
 
 ### Highlights
