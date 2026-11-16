@@ -208,7 +208,7 @@ Security vulnerabilities should be reported privately via [GitHub Private Vulner
 
 ## Contributing
 
-Contributions are welcome! Please review [CONTRIBUTING.md](CONTRIBUTING.md) before submitting issues or pull requests.
+Contributions are welcome! Please review [CONTRIBUTING.md](CONTRIBUTING.md) before submitting issues or pull requests. Planned work is listed in the [roadmap](ROADMAP.md).
 
 ---
 
