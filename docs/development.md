@@ -106,7 +106,7 @@ Python 3 and Docker (or add `--engine podman`):
 python3 scripts/smoke-release-containers.py \
   --backend ytmdl-backend:release-smoke \
   --frontend ytmdl-frontend:release-smoke \
-  --version 1.4.0
+  --version 1.4.1
 ```
 
 The test creates uniquely named networks, disposable PostgreSQL 18,
@@ -140,7 +140,7 @@ A release tag push first pushes the multi-arch images under a run-unique
 `candidate-<version>-<run>-<attempt>` tag, never under the version. Against
 those candidates, by digest, the workflow scans both image architectures,
 records SBOMs and runtime tool versions, exercises ARM64 runtime under QEMU, and
-performs real v0.28.1, v1.0.0, v1.1.1, v1.2.0 and v1.3.0 upgrades for both
+performs real v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0 and v1.4.0 upgrades for both
 engines and both storage guard modes (`qualify-upgrade.py --stage-target` pulls
 the candidates by digest and tags them locally as the target version; `ytmdlctl`
 still verifies both digests against the manifest and GHCR). Chromium and Firefox

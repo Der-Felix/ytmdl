@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.4.1 — 2026-11-17
+
+Signing in no longer fails right after the page opens, and live albums that the provider does not label as live are recognised.
+
+### Highlights
+
+- **Signing in no longer fails with an error right after opening the page.** A client that opened with several requests at once received a different security (CSRF) token in each response, and the last one to arrive replaced the others, so the sign-in request could be refused with HTTP 403 `CSRF_INVALID`. The web client now retries once with the current token, and the server no longer issues a new token for every request without a cookie: a signed-in session always receives the same token, and a signed-out client receives its token only from `GET /api/v1/auth/status`. Sessions that are already signed in stay signed in; a CSRF cookie issued before the update keeps working.
+- **Live albums without "live" in the title are recognised.** An album named after a venue or a tour used to share its tracks' identity with the studio recordings. An album whose own track titles carry a live marker for at least three tracks and three quarters of the list now counts as a live release, so its plainly titled tracks ("Intro", a medley, an unmarked song) are live recordings. Compilations, singles and EPs keep their type, and a deluxe edition with a live bonus disc stays an album. An album recognised this way is filtered like any other live release: the default release filter leaves it out.
+- **The audio match takes the release into account.** A plainly titled track of a live album now looks for a live source and no longer downloads the studio recording; a studio track no longer accepts a plainly titled upload of a live album. A live track without a live source fails to match.
+
+### Changes
+
+- **For API clients and scripts:** a signed-out client now receives its CSRF cookie only from `GET /api/v1/auth/status`; other endpoints no longer set one for a request without a cookie. Call the status endpoint first, as the web client and the Apple app already do. Signing in, setting up the server and approving a device sign-in rotate the cookie to the new session's token.
+- Release tooling: the Ubuntu runner image is pinned instead of following `ubuntu-latest`. Release images are pushed under a candidate tag and qualified, upgrades included, before they receive the version tag, so a failed qualification no longer uses up a version. A run that fails or is rehearsed deletes its own candidate images.
+- Qualify v1.4.0 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0 and v1.3.0.
+- **Database Schema:** Remains at schema 18; no database migration is required. Tracks stored by earlier versions are still recognised. Keep a verified backup before any update.
+
+### Upgrade from v1.4.0
+
+Use the checksum-verified v1.4.1 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.4.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.4.1`. Protect the media separately;
+the database dump does not contain music files.
+
 ## 1.4.0 — 2026-11-16
 
 A new look for the web interface, the fixes from a full code review, and a
