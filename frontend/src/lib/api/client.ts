@@ -170,11 +170,12 @@ async function requestEnvelope<T>(
   const first = await send<T>(path, options)
   if (first.ok) return first.result
 
-  // Without a cookie, several requests of a freshly opened page each get their
-  // own CSRF token and the last one wins, so the token read for the header can
-  // be one the browser has already replaced. By now the cookie has settled:
-  // read it again and send the request once more. JSON strings and FormData
-  // can be sent twice; nothing else is retried, and never more than once.
+  // The server no longer hands a signed-out page competing CSRF tokens, but the
+  // cookie can still change under a request: two tabs opened at once each fetch
+  // the auth status and get their own token, and an older server version mints
+  // one per request. By now the cookie has settled: read it again and send the
+  // request once more. JSON strings and FormData can be sent twice; nothing
+  // else is retried, and never more than once.
   if (method !== 'GET' && first.error.status === 403 && first.error.code === 'CSRF_INVALID') {
     const second = await send<T>(path, options)
     if (second.ok) return second.result

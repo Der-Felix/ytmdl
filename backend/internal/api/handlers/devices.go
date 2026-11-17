@@ -41,9 +41,7 @@ func (h *Handlers) PollDevice(w http.ResponseWriter, r *http.Request) {
 	if result != nil {
 		secure := middleware.IsSecure(r, h.deps.CookieSecure)
 		middleware.SetSessionCookie(w, result.SessionToken, result.ExpiresAt, secure)
-		if csrf, err := auth.GenerateCSRFToken(); err == nil {
-			middleware.SetCSRFCookie(w, csrf, secure)
-		}
+		middleware.SetCSRFCookie(w, auth.SessionCSRFToken(result.SessionToken), secure)
 	}
 	response.OK(w, r, map[string]string{"status": state})
 }

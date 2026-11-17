@@ -30,8 +30,9 @@ import { Users } from '@/pages/Users'
 /**
  * The signed-in frame. The queue summary and the event stream live here and
  * not in AppContent: neither may be requested on the sign-in or setup screen,
- * where they can only answer 401 and, without a CSRF cookie yet, would each
- * receive a different token that races the one the login request sends.
+ * where they can only answer 401. (Servers before the session-bound CSRF
+ * token also gave each of them a different token that raced the one the login
+ * request sends.)
  */
 function AuthenticatedShell({
   route,
