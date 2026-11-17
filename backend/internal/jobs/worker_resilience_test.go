@@ -51,6 +51,21 @@ func (s *fakeStore) UpdateItem(_ context.Context, id string, update ItemUpdate) 
 	if update.MatchScore != 0 {
 		it.MatchScore = update.MatchScore
 	}
+	if update.FileID != "" {
+		it.FileID = update.FileID
+	}
+	if update.TrackID != "" {
+		it.TrackID = update.TrackID
+	}
+	if update.StagingRelPath != nil {
+		it.StagingRelPath = *update.StagingRelPath
+	}
+	if update.StagedSize != nil {
+		it.StagedSize = *update.StagedSize
+	}
+	if update.StagedSHA256 != nil {
+		it.StagedSHA256 = *update.StagedSHA256
+	}
 	s.items[id] = it
 	return nil
 }

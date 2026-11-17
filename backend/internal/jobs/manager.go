@@ -548,6 +548,7 @@ func (m *Manager) Cancel(ctx context.Context, id string) (*Job, error) {
 		return nil, err
 	}
 	m.cancelRun(id)
+	m.dropFinishedStaging(ctx, id)
 
 	updated, err := m.store.RefreshCounters(ctx, id)
 	if err != nil {
@@ -609,6 +610,7 @@ func (m *Manager) fail(ctx context.Context, job *Job, err error) {
 			logging.KeyJobID, job.ID, logging.KeyError, cancelErr.Error())
 	}
 	m.releaseRun(job.ID)
+	m.dropFinishedStaging(ctx, job.ID)
 
 	m.logger.Error("job failed",
 		logging.KeyJobID, job.ID, logging.KeyErrorCode, code, logging.KeyError, err.Error())
