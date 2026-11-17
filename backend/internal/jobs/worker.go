@@ -2,16 +2,13 @@ package jobs
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
 	"log/slog"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/downloader"
@@ -430,6 +427,13 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		return ItemCancelled, ctx.Err()
 	}
 
+	// The release folder is held shared from placing the file until its
+	// catalogue row is written. The library's naming migration holds it
+	// exclusively while it moves files, so it can neither move a file away
+	// under a running finalization nor see a file whose row is not written yet.
+	unlockRelease := m.library.ShareReleaseDir(storage.ReleaseDirRel(release))
+	defer unlockRelease()
+
 	file, err := m.placeSafe(ctx, release, track, download, artwork, *source, stagedHash, stagedSize)
 	if err != nil {
 		return ItemFailed, err
@@ -579,18 +583,11 @@ func (m *Manager) placeSafe(ctx context.Context, release music.Release, track mu
 // a conflict there still fails rather than generating an unbounded set of copies.
 func (m *Manager) commitRecording(staged string, target *string, source provider.MediaSource, checksum string, size int64) (bool, error) {
 	recovered, err := m.library.CommitStaged(staged, *target, checksum, size)
-	if apperr.CodeOf(err) != apperr.CodePathConflict || strings.TrimSpace(source.ID) == "" || strings.TrimSpace(source.Provider) == "" {
+	suffix := storage.SourceSuffix(source.Provider, source.ID)
+	if apperr.CodeOf(err) != apperr.CodePathConflict || suffix == "" {
 		return recovered, err
 	}
-	ext := filepath.Ext(*target)
-	key := sha256.Sum256([]byte(source.Provider + "\x00" + source.ID))
-	suffix := fmt.Sprintf(" [source-%x]", key[:8])
-	base := strings.TrimSuffix(filepath.Base(*target), ext)
-	for len(base)+len(suffix)+len(ext) > storage.MaxComponentLength {
-		_, width := utf8.DecodeLastRuneInString(base)
-		base = base[:len(base)-width]
-	}
-	alternative := filepath.Join(filepath.Dir(*target), base+suffix+ext)
+	alternative := filepath.Join(filepath.Dir(*target), storage.WithSourceSuffix(filepath.Base(*target), suffix))
 	recovered, err = m.library.CommitStaged(staged, alternative, checksum, size)
 	if err == nil {
 		*target = alternative

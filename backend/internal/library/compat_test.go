@@ -144,7 +144,7 @@ func TestCompatibilityReportIsReadOnly(t *testing.T) {
 
 func TestCompatibilityReportFindsLegacyMultiDiscName(t *testing.T) {
 	svc, root, catalog, files, _, _, _ := setupTestService(t)
-	rel := "X/2001 - B/2-01 - A.opus"
+	rel := "X/2001 - B/201 - A.opus"
 	abs := filepath.Join(root, filepath.FromSlash(rel))
 	_ = os.MkdirAll(filepath.Dir(abs), 0o755)
 	_ = os.WriteFile(abs, []byte("x"), 0o644)
@@ -155,7 +155,7 @@ func TestCompatibilityReportFindsLegacyMultiDiscName(t *testing.T) {
 		t.Fatalf("CompatibilityReport: %v", err)
 	}
 	for _, issue := range report.Issues {
-		if issue.Kind == CompatMultiDiscName && issue.To == "X/2001 - B/201 - A.opus" {
+		if issue.Kind == CompatMultiDiscName && issue.To == "X/2001 - B/2-01 - A.opus" {
 			return
 		}
 	}
