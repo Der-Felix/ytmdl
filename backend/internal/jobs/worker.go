@@ -262,6 +262,13 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		}
 	}
 
+	// A result staged while the library was away only lacks the move into the
+	// library. Downloading it again would spend a provider request, a yt-dlp
+	// run and the retry budget on audio that is already verified and tagged.
+	if status, handled, err := w.finaliseStaged(ctx, job, item, logger); handled {
+		return status, err
+	}
+
 	// 2. Storage Guard pre-flight check (unless offline staging is allowed)
 	if m.library.Guard() != nil && !m.allowOfflineStaging.Load() {
 		if err := m.library.Guard().RequireWritable(); err != nil {
@@ -346,7 +353,6 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 	}
 	m.publishItem(job, item, ItemDownloading, result.Score, nil)
 
-	release := releaseOf(track)
 	stagedAudioDest := filepath.Join(itemDir, storage.TrackFileName(track, ".opus"))
 
 	lastPublish := time.Now()
@@ -407,18 +413,48 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		return ItemFailed, err
 	}
 
+	staged := stagedResult{
+		track:    track,
+		source:   *source,
+		download: *download,
+		artwork:  artwork,
+		sha256:   stagedHash,
+		size:     stagedSize,
+		score:    result.Score,
+	}
+
 	// 9. Storage & Space Pre-Finalization Check
 	if m.library.Guard() != nil {
 		if err := m.library.Guard().RequireWritable(); err != nil {
+			m.keepStaged(ctx, item, staged, logger)
 			return ItemWaitingStorage, err
 		}
 	}
+
+	// 10.-13. Finalization
+	status, err := w.commitStaged(ctx, job, item, staged, logger)
+	if apperr.IsStorageWait(err) || apperr.IsSpaceWait(err) {
+		// The library went away between the check above and the move. The
+		// staged file is still complete, so it is kept for the move alone.
+		m.keepStaged(ctx, item, staged, logger)
+	}
+	return status, err
+}
+
+// commitStaged moves a verified, tagged staging result into the library and
+// writes its catalogue rows. A fresh download and a result staged while the
+// library was away both end here, so they share path building, release-folder
+// locks, catalogue rows and events.
+func (w *worker) commitStaged(ctx context.Context, job Job, item Item, staged stagedResult, logger *slog.Logger) (ItemStatus, error) {
+	m := w.manager
+	track := staged.track
+	release := releaseOf(track)
 
 	// 10. Finalization (with bounded concurrency slot)
 	if err := m.updateItem(ctx, item.ID, ItemUpdate{Status: ItemFinalizing}); err != nil {
 		return ItemFailed, err
 	}
-	m.publishItem(job, item, ItemFinalizing, result.Score, nil)
+	m.publishItem(job, item, ItemFinalizing, staged.score, nil)
 
 	select {
 	case m.finalizerSem <- struct{}{}:
@@ -434,13 +470,21 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 	unlockRelease := m.library.ShareReleaseDir(storage.ReleaseDirRel(release))
 	defer unlockRelease()
 
-	file, err := m.placeSafe(ctx, release, track, download, artwork, *source, stagedHash, stagedSize)
+	download := staged.download
+	file, err := m.placeSafe(ctx, release, track, &download, staged.artwork, staged.source, staged.sha256, staged.size)
 	if err != nil {
 		return ItemFailed, err
 	}
 
 	// 11. Lyrics Attachment (best-effort)
-	track = m.attachLyrics(ctx, track, filepath.Join(m.library.Root(), file.Path), source.ID, logger)
+	audioPath := filepath.Join(m.library.Root(), file.Path)
+	if staged.lyrics != nil {
+		// Looked up while the library was away; the move must not need any
+		// provider, so the answer from then is used.
+		track = m.applyLyrics(track, *staged.lyrics, audioPath, logger)
+	} else {
+		track = m.attachLyrics(ctx, track, audioPath, staged.source.ID, logger)
+	}
 
 	// 12. Database Transaction Commit (PersistDownload)
 	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
@@ -453,9 +497,9 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		}
 	}
 
-	stored, err := m.persist(persistCtx, track, release, *source, file, canonicalArtistID)
+	stored, err := m.persist(persistCtx, track, release, staged.source, file, canonicalArtistID)
 	if err != nil {
-		m.removeUncatalogued(file.Path, stagedHash, logger)
+		m.removeUncatalogued(file.Path, staged.sha256, logger)
 		return ItemFailed, err
 	}
 
@@ -477,7 +521,7 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		"path", stored.File.Path,
 		"codec", stored.File.Codec,
 		"bitrate_kbps", stored.File.BitrateKbps,
-		"sha256", stagedHash)
+		"sha256", staged.sha256)
 
 	return ItemCompleted, nil
 }
@@ -653,45 +697,72 @@ func (m *Manager) writeCover(releaseDir string, artwork *metadata.Artwork) {
 func (m *Manager) attachLyrics(ctx context.Context, track music.Track,
 	audioPath, mediaID string, logger *slog.Logger) music.Track {
 
+	return m.applyLyrics(track, m.lookupLyrics(ctx, track, mediaID, logger), audioPath, logger)
+}
+
+// lyricsOutcome is what a lyrics lookup learned. It is kept apart from writing
+// the sidecar so that a result staged while the library is away can carry it
+// and the later move into the library needs no lookup of its own.
+type lyricsOutcome struct {
+	// Checked is false when nothing was learned (lookup off or failed); the
+	// track then stays as it is.
+	Checked bool `json:"checked"`
+	// Lyrics is nil for a checked track without lyrics.
+	Lyrics    *music.Lyrics `json:"lyrics,omitempty"`
+	CheckedAt time.Time     `json:"checked_at"`
+}
+
+// lookupLyrics asks the lyrics resolver about a track.
+func (m *Manager) lookupLyrics(ctx context.Context, track music.Track, mediaID string, logger *slog.Logger) lyricsOutcome {
 	if m.lyrics == nil || !m.lyricsEnabled.Load() {
-		return track
+		return lyricsOutcome{}
 	}
 
 	result, err := m.lyrics.Resolve(ctx, track, mediaID)
 	switch {
 	case err != nil && errors.Is(err, lyrics.ErrNoLyrics):
-		track.LyricsState = music.LyricsNotFound
-		track.LyricsProvider = ""
-		track.LyricsCheckedAt = nowPtr()
-		return track
+		return lyricsOutcome{Checked: true, CheckedAt: time.Now().UTC()}
 
 	case err != nil:
 		logger.Warn("lyrics could not be looked up",
 			logging.KeyOperation, "lyrics",
 			logging.KeyErrorCode, string(apperr.CodeOf(err)),
 			logging.KeyError, err.Error())
-		return track
+		return lyricsOutcome{}
 
 	case result == nil:
+		return lyricsOutcome{}
+	}
+	return lyricsOutcome{Checked: true, Lyrics: result, CheckedAt: time.Now().UTC()}
+}
+
+// applyLyrics writes the sidecar of a lookup outcome next to the placed audio
+// and returns the track with the outcome recorded on it.
+func (m *Manager) applyLyrics(track music.Track, outcome lyricsOutcome, audioPath string, logger *slog.Logger) music.Track {
+	if !outcome.Checked {
+		return track
+	}
+	checkedAt := outcome.CheckedAt
+	if checkedAt.IsZero() {
+		checkedAt = time.Now().UTC()
+	}
+	if outcome.Lyrics == nil {
+		track.LyricsState = music.LyricsNotFound
+		track.LyricsProvider = ""
+		track.LyricsCheckedAt = &checkedAt
 		return track
 	}
 
-	if _, err := m.library.WriteLyrics(audioPath, *result); err != nil {
+	if _, err := m.library.WriteLyrics(audioPath, *outcome.Lyrics); err != nil {
 		logger.Warn("lyrics sidecar could not be written",
 			logging.KeyOperation, "lyrics", logging.KeyError, err.Error())
 		return track
 	}
 
-	track.LyricsState = result.State()
-	track.LyricsProvider = result.Provider
-	track.LyricsCheckedAt = nowPtr()
+	track.LyricsState = outcome.Lyrics.State()
+	track.LyricsProvider = outcome.Lyrics.Provider
+	track.LyricsCheckedAt = &checkedAt
 	return track
-}
-
-// nowPtr returns a pointer to the current UTC time.
-func nowPtr() *time.Time {
-	now := time.Now().UTC()
-	return &now
 }
 
 // alreadyInLibrary reports whether the recording already exists on disk.

@@ -754,6 +754,7 @@ func (m *Manager) markCancelled(ctx context.Context, job *Job) {
 			logging.KeyJobID, job.ID, logging.KeyError, err.Error())
 	}
 	m.releaseRun(job.ID)
+	m.dropFinishedStaging(ctx, job.ID)
 	m.broker.Publish(Event{
 		Type: EventJobCancelled, JobID: job.ID, Status: StatusCancelled, Label: job.Label,
 	})
