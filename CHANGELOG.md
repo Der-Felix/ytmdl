@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.5.0 — 2026-11-17
+
+A new file naming scheme, with an automatic move of existing libraries to it, and a web interface with toasts, a command menu and a queue that can be dragged on touch screens.
+
+### Highlights
+
+- **New file names.** Characters a filesystem refuses no longer become `-` and `_`; they become their fullwidth look-alikes (`/ \ : * ? " < > |` become `／ ＼ ： ＊ ？ ＂ ＜ ＞ ｜`). `AC/DC` is now the folder `AC／DC` and `Who?` is `Who？`. A multi-disc track is `2-02 - Title` instead of `202 - Title` (track 105 on disc 2 is `2-105 - Title`); it is still one folder per release, and a single-disc release keeps `02 - Title`. Edition notes stay in the name as before.
+- **Existing libraries are moved automatically.** About 15 seconds after the new backend starts, it moves an existing library to the new names in the background, once: tracks with their lyrics files, covers and anything else in the release folder. It never overwrites a file, resumes after a restart, and waits while the library storage is unreachable. Its state is at `GET /api/v1/library/naming-migration` and in the library's maintenance tab. To choose the moment yourself, set `MUSICDL_LIBRARY_AUTO_RENAME=false` in `.env` before updating.
+- **What media servers will see.** Plex, Jellyfin and Emby find files by path, so their next scan sees the old paths disappear and new ones appear: renamed files show up as new items and the old ones are removed. Albums and artists stay as they were, but depending on the server and its settings, play counts, ratings, playlists and "recently added" dates tied to the old paths may be lost or reset, and Navidrome, which also keys tracks by path, is affected too. On a mount without hard links (some SMB shares) each file is copied and verified against the original's SHA-256 instead, which takes long for a large library.
+- **A web interface that answers back.** Results and errors appear as toasts, a command menu opens with Ctrl+K or Cmd+K, and the queue can be reordered by dragging on touch screens as well as with the keyboard.
+
+### Changes
+
+- **File names:** a song in the trash keeps the path it had when it was deleted and is restored under its current name when the library has moved. Two tracks that share a name only under the new rules are told apart with the `[source-…]` suffix a download would use; tracks that carried it only because of the old substitution get their plain name back.
+- **Library repair:** the manual "move to canonical path" repair now carries the cover files along and keeps the loudness and fingerprint data of the track, which it used to drop.
+- **Web interface:**
+  - Toasts report results that had no feedback (added to the queue, play next, added to a playlist), errors that were silent or far from the action, and playback errors with a retry action. Form validation stays at its field.
+  - The command menu (Ctrl+K or Cmd+K, or the search button in the sidebar and the mobile header) offers the views, library and catalogue search, player actions, profile and sign-out. Typing "bib" and pressing Enter opens the library view before it runs a search.
+  - The queue can be reordered by dragging from the grip with touch, mouse or pen, and with the keyboard (Space, arrow keys, Space or Escape); the up and down buttons stay.
+  - Durations, times, counters and badges use a monospaced face with even digit widths.
+  - The mini player, the queue and the player page are no longer redrawn on every progress tick while a track plays.
+  - Every control that can be focused, not only buttons, shows a visible focus ring.
+  - The library's maintenance tab has a card for the naming migration: its state, the counts, and every file left in place with the reason.
+  - Small fixes: "1 Künstler" and "12 Künstler" instead of "Künstlers", "EP" instead of "Ep" in the release-type filter, and a console error on the dashboard and the "page not found" view is gone.
+- **Database Schema:** Remains at schema 18; no database migration is required. Keep a verified backup before any update.
+- Qualify v1.4.1 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0 and v1.4.0.
+
+### Upgrade from v1.4.1
+
+Use the checksum-verified v1.5.0 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.5.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.5.0`. Protect the media separately;
+the database dump does not contain music files, and the file renaming described
+above changes the paths of the music files themselves.
+
 ## 1.4.1 — 2026-11-17
 
 Signing in no longer fails right after the page opens, and live albums that the provider does not label as live are recognised.

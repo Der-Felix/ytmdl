@@ -36,6 +36,18 @@ The check is read-only. It never installs, restarts or downgrades anything; inst
 
 ## Upgrade to v1.5.0
 
+Use the checksum-verified **v1.5.0** CLI from the
+[v1.5.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.5.0).
+Run `ytmdlctl update --channel stable --target 1.5.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.5.0`.
+
+The database stays at schema 18; this release needs no migration. It changes how
+files are named and brings new features to the web interface. The release
+qualifies v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0 and v1.4.1 sources with
+Docker and rootless Podman. Preserve private configuration, proxy settings,
+mounts, cookies and the database volume, and verify a database backup before
+updating.
+
 **File names change, and the backend renames existing files after the update.**
 Characters a filesystem refuses become fullwidth look-alikes instead of `-` and
 `_` (`AC/DC` is now stored as `AC／DC`, `Who?` as `Who？`), and a multi-disc
@@ -44,8 +56,10 @@ backend starts, it moves an existing library to these names in the background:
 tracks with their lyrics files, covers and anything else in the release folder.
 It never overwrites a file, checks every copy against the original's SHA-256,
 waits while the library storage is unreachable, resumes after a restart, and runs
-once. Its progress is in the backend log; `GET /api/v1/library/naming-migration`
-lists anything it left in place. Details:
+once. On a mount without hard links (some SMB shares) each file is copied and
+verified instead, which takes long for a large library. Its progress is in the
+backend log and in the library's maintenance tab;
+`GET /api/v1/library/naming-migration` lists anything it left in place. Details:
 [moving an existing library](/features/library#moving-an-existing-library-to-the-current-names).
 
 Media servers that track files by path (Plex, Jellyfin, Emby, Navidrome) see the
