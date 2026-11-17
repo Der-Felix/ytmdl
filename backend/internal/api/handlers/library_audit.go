@@ -101,6 +101,21 @@ func (h *Handlers) GetCurrentLibraryAudit(w http.ResponseWriter, r *http.Request
 	response.Data(w, http.StatusOK, latest)
 }
 
+// GetNamingMigration answers GET /library/naming-migration: the state of the
+// automatic move of existing files to the current naming scheme, with the
+// files it left in place and why.
+func (h *Handlers) GetNamingMigration(w http.ResponseWriter, r *http.Request) {
+	if h.deps.LibraryService == nil {
+		response.Fail(w, r, apperr.CodeInternal, "Library service is unavailable.")
+		return
+	}
+	status := h.deps.LibraryService.NamingMigrationStatus()
+	if status == nil {
+		status = &library.NamingMigrationStatus{State: library.NamingStatePending}
+	}
+	response.Data(w, http.StatusOK, status)
+}
+
 // GetLibraryAudit answers GET /library/audits/{id}.
 func (h *Handlers) GetLibraryAudit(w http.ResponseWriter, r *http.Request) {
 	if h.deps.LibraryService == nil || h.deps.LibraryService.AuditRepo() == nil {
