@@ -169,6 +169,7 @@ them, and every repair or delete action require an Administrator.
 | `GET` | `/api/v1/library/audits/current` | User | Get currently running audit status. |
 | `GET` | `/api/v1/library/audits/{id}` | User | Get audit summary and finding counts. |
 | `GET` | `/api/v1/library/audits/{id}/findings` | User | Paginated list of audit findings (missing files, orphan files, etc.). |
+| `GET` | `/api/v1/library/naming-migration` | User | State of the automatic move to the current [file naming scheme](/features/library#moving-an-existing-library-to-the-current-names): counts, and every file left in place with the reason. |
 | `POST` | `/api/v1/library/audits` | Admin | Start new Quick or Deep library audit. |
 | `POST` | `/api/v1/library/audits/{id}/cancel` | Admin | Cancel in-progress library audit. |
 | `POST` | `/api/v1/library/repairs/preview` | Admin | Preview non-destructive audit repair actions. |

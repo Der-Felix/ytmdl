@@ -6,6 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/database"
 	"ytdm/backend/internal/music"
@@ -158,6 +160,42 @@ func (r *Files) ListAll(ctx context.Context) ([]music.File, error) {
 		return nil, wrapDB("list all files", err)
 	}
 	return out, nil
+}
+
+// UpdatePath moves a file record to a new library path in one statement. The
+// row keeps its ID, so everything that references it (loudness analysis,
+// audio fingerprints) stays attached. It only succeeds while the row still
+// carries from, which makes a retry after a lost response harmless; a row
+// already at to counts as done.
+func (r *Files) UpdatePath(ctx context.Context, id, from, to string) error {
+	if to == "" {
+		return apperr.New(apperr.CodeInvalidRequest, "A library file needs a path.")
+	}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE files SET path = $3, updated_at = $4 WHERE id = $1 AND path = $2`,
+		id, from, to, time.Now().UTC())
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return apperr.Newf(apperr.CodePathConflict, "Another file record already uses %q.", to)
+		}
+		return wrapDB("update file path", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return wrapDB("update file path", err)
+	}
+	if n == 1 {
+		return nil
+	}
+	current, err := r.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if current != nil && current.Path == to {
+		return nil
+	}
+	return apperr.Newf(apperr.CodeConflict, "The file record no longer points at %q.", from)
 }
 
 // Delete removes a file record.

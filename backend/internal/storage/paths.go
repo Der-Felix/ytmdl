@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/music"
@@ -34,6 +37,23 @@ func NewLayout(root string) (*Layout, error) {
 // Root returns the library root.
 func (l *Layout) Root() string { return l.root }
 
+// NamingScheme identifies one version of the rules that turn catalog metadata
+// into library paths. A library written under an older scheme is moved to the
+// current one by the library service's naming migration.
+type NamingScheme int
+
+const (
+	// NamingSchemeLegacy is the scheme up to v1.4: refused characters became
+	// "-" or "_", and disc 2, track 2 of a multi disc release was "202 - Title".
+	NamingSchemeLegacy NamingScheme = 1
+	// NamingSchemeFullwidth replaces refused characters with their fullwidth
+	// look-alikes and numbers multi disc tracks "2-02 - Title".
+	NamingSchemeFullwidth NamingScheme = 2
+
+	// CurrentNamingScheme is the scheme new files are written with.
+	CurrentNamingScheme = NamingSchemeFullwidth
+)
+
 // ArtistDir returns the directory of an artist.
 func (l *Layout) ArtistDir(artist string) (string, error) {
 	return l.join(SanitizeComponent(fallback(artist, music.UnknownArtist)))
@@ -43,6 +63,10 @@ func (l *Layout) ArtistDir(artist string) (string, error) {
 // albums, with the release type appended for everything else so that singles
 // and compilations stay distinguishable.
 func ReleaseDirName(release music.Release) string {
+	return releaseDirName(release, CurrentNamingScheme)
+}
+
+func releaseDirName(release music.Release, scheme NamingScheme) string {
 	title := fallback(release.Title, "Unknown Album")
 	name := title
 	if release.Year > 0 {
@@ -51,7 +75,7 @@ func ReleaseDirName(release music.Release) string {
 	if suffix := releaseTypeSuffix(release.ReleaseType); suffix != "" {
 		name += " " + suffix
 	}
-	return SanitizeComponent(name)
+	return sanitizeComponent(name, scheme)
 }
 
 func releaseTypeSuffix(t music.ReleaseType) string {
@@ -74,8 +98,19 @@ func releaseTypeSuffix(t music.ReleaseType) string {
 // ReleaseDirRel returns the relative directory a release is stored in within the library:
 // "<Artist>/<ReleaseDirName>".
 func ReleaseDirRel(release music.Release) string {
-	artist := SanitizeComponent(fallback(release.DisplayAlbumArtist(), music.UnknownArtist))
-	return filepath.Join(artist, ReleaseDirName(release))
+	return ReleaseDirRelFor(CurrentNamingScheme, release)
+}
+
+// ReleaseDirRelFor is ReleaseDirRel under a given naming scheme.
+func ReleaseDirRelFor(scheme NamingScheme, release music.Release) string {
+	artist := sanitizeComponent(fallback(release.DisplayAlbumArtist(), music.UnknownArtist), scheme)
+	return filepath.Join(artist, releaseDirName(release, scheme))
+}
+
+// TrackRelPathFor returns the library relative path of a track under a given
+// naming scheme: "<Artist>/<Release>/<TrackFileName>".
+func TrackRelPathFor(scheme NamingScheme, release music.Release, track music.Track, ext string) string {
+	return filepath.Join(ReleaseDirRelFor(scheme, release), TrackFileNameFor(scheme, track, ext))
 }
 
 // ReleaseDir returns the directory a release is stored in.
@@ -85,13 +120,20 @@ func (l *Layout) ReleaseDir(release music.Release) (string, error) {
 
 // TrackFileName renders the file name of a track including its extension.
 //
-// A multi disc release prepends the disc number to the track number without a
-// separator: "302 - Track.ext" is disc three, track two. That is the form Plex
-// documents for multi disc albums, and it keeps every track of a release in
-// one directory, which is what Jellyfin requires and what Emby needs in order
-// to store local artwork next to an album. Jellyfin and Emby take the disc
-// itself from the tags, which are written independently of this name.
+// A multi disc release prepends the disc number and a hyphen to the track
+// number: "3-02 - Track.ext" is disc three, track two, and track 105 on disc
+// two is "2-105 - Track.ext". Unlike the run-together "302" form it cannot be
+// misread (disc 1 track 102 and disc 11 track 2 were both "1102"). Every track
+// of a release stays in one directory, which is what Jellyfin requires and
+// what Emby needs in order to store local artwork next to an album. All three
+// media servers take disc and track from the tags, which are written
+// independently of this name.
 func TrackFileName(track music.Track, ext string) string {
+	return TrackFileNameFor(CurrentNamingScheme, track, ext)
+}
+
+// TrackFileNameFor is TrackFileName under a given naming scheme.
+func TrackFileNameFor(scheme NamingScheme, track music.Track, ext string) string {
 	title := fallback(track.Title, "Unknown Title")
 
 	var prefix string
@@ -101,11 +143,54 @@ func TrackFileName(track music.Track, ext string) string {
 		if disc <= 0 {
 			disc = 1
 		}
-		prefix = fmt.Sprintf("%d%02d - ", disc, track.TrackNumber)
+		if scheme == NamingSchemeLegacy {
+			prefix = fmt.Sprintf("%d%02d - ", disc, track.TrackNumber)
+		} else {
+			prefix = fmt.Sprintf("%d-%02d - ", disc, track.TrackNumber)
+		}
 	case track.TrackNumber > 0:
 		prefix = fmt.Sprintf("%02d - ", track.TrackNumber)
 	}
-	return SanitizeFilename(prefix+title, ext)
+	return sanitizeFilename(prefix+title, ext, scheme)
+}
+
+// SourceSuffix is the stable marker appended to a file name when a different
+// recording already holds the conventional name: " [source-<16 hex>]", derived
+// from the media provider and its ID. An empty provider or ID yields "".
+func SourceSuffix(provider, id string) string {
+	provider, id = strings.TrimSpace(provider), strings.TrimSpace(id)
+	if provider == "" || id == "" {
+		return ""
+	}
+	key := sha256.Sum256([]byte(provider + "\x00" + id))
+	return fmt.Sprintf(" [source-%x]", key[:8])
+}
+
+// sourceSuffixPattern recognises the marker SourceSuffix produces at the end
+// of a file name without its extension.
+var sourceSuffixPattern = regexp.MustCompile(` \[source-[0-9a-f]{16}\]$`)
+
+// WithSourceSuffix inserts suffix in front of the extension of a file name,
+// shortening the name part so the whole stays within MaxComponentLength bytes.
+// The cut never splits a UTF-8 sequence.
+func WithSourceSuffix(fileName, suffix string) string {
+	ext := filepath.Ext(fileName)
+	base := strings.TrimSuffix(fileName, ext)
+	for len(base)+len(suffix)+len(ext) > MaxComponentLength && base != "" {
+		_, width := utf8.DecodeLastRuneInString(base)
+		base = base[:len(base)-width]
+	}
+	return base + suffix + ext
+}
+
+// SplitSourceSuffix reports the source marker a file name carries, if any.
+func SplitSourceSuffix(fileName string) (suffix string, ok bool) {
+	base := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	loc := sourceSuffixPattern.FindStringIndex(base)
+	if loc == nil {
+		return "", false
+	}
+	return base[loc[0]:], true
 }
 
 // LyricsExtensions lists every sidecar extension the backend writes, most

@@ -21,8 +21,9 @@ const (
 	// rather than under its primary artist, which splits one artist into
 	// several in Plex, Jellyfin and Emby.
 	CompatArtistFolder CompatKind = "artist_folder"
-	// CompatMultiDiscName means the file still uses the old "D-NN" prefix
-	// instead of the "DNN" form Plex documents.
+	// CompatMultiDiscName means the file name differs from the current scheme
+	// while the folder is right, for example the run-together "DNN" prefix
+	// v0.9 to v1.4 wrote for a multi disc track instead of "D-NN".
 	CompatMultiDiscName CompatKind = "multidisc_name"
 	// CompatMissingTotals means TRACKTOTAL or DISCTOTAL is absent.
 	CompatMissingTotals CompatKind = "missing_totals"

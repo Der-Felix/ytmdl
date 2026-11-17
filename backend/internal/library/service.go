@@ -163,6 +163,8 @@ type Service struct {
 
 	backfill     backfillState
 	latestCompat atomic.Pointer[CompatReport]
+
+	namingState
 }
 
 // NewService constructs a library Service.

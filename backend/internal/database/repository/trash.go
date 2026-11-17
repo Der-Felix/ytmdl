@@ -167,6 +167,31 @@ func (c *Catalog) SetTrashState(ctx context.Context, id, from, to string) error 
 	}
 	return nil
 }
+
+// RetargetTrash replaces the restore targets of a ready entry: the original
+// paths of its moves and the file paths in its payload. A restore after a
+// change of the library's naming scheme uses it to bring a song back under its
+// current name instead of into a folder that no longer exists. Only an entry
+// that is still ready is changed, so a restore in progress keeps the paths it
+// started with.
+func (c *Catalog) RetargetTrash(ctx context.Context, id string, moves []TrashMove, payload json.RawMessage) error {
+	raw, err := json.Marshal(moves)
+	if err != nil {
+		return err
+	}
+	r, err := c.db.ExecContext(ctx, `UPDATE library_trash SET moves=$2,payload=$3 WHERE id=$1 AND state='ready'`, id, raw, []byte(payload))
+	if err != nil {
+		return err
+	}
+	n, err := r.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return apperr.New(apperr.CodeConflict, "Der Papierkorbeintrag wird bereits verarbeitet.")
+	}
+	return nil
+}
 func (c *Catalog) ForgetTrash(ctx context.Context, id string) error {
 	_, err := c.db.ExecContext(ctx, `DELETE FROM library_trash WHERE id=$1`, id)
 	return err

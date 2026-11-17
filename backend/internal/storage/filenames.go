@@ -26,23 +26,66 @@ var reservedNames = map[string]struct{}{
 	"lpt6": {}, "lpt7": {}, "lpt8": {}, "lpt9": {},
 }
 
+// lookAlikes maps every character a filesystem refuses in a name to its
+// fullwidth form (Unicode block "Halfwidth and Fullwidth Forms"). The
+// replacement looks like the original, so "AC/DC" stays readable as "AC／DC".
+// None of them is a path separator, a dot or an ASCII letter on any
+// filesystem, so they can neither build a traversal nor a reserved name.
+var lookAlikes = map[rune]rune{
+	'/':  '／', // ／
+	'\\': '＼', // ＼
+	':':  '：', // ：
+	'*':  '＊', // ＊
+	'?':  '？', // ？
+	'"':  '＂', // ＂
+	'<':  '＜', // ＜
+	'>':  '＞', // ＞
+	'|':  '｜', // ｜
+}
+
+// legacySubstitute is the replacement scheme 1 used: separators and the colon
+// became "-", the other refused characters "_". Several titles collapsed into
+// one name that way ("Who?" and "Who_" both became "Who_").
+func legacySubstitute(r rune) rune {
+	switch r {
+	case '/', '\\', ':':
+		return '-'
+	default:
+		return '_'
+	}
+}
+
 // SanitizeComponent turns arbitrary provider supplied text into a single safe
 // path component. It never returns an empty string, a string containing a path
 // separator, or a relative path element such as "." or "..".
 func SanitizeComponent(name string) string {
+	return sanitizeComponent(name, CurrentNamingScheme)
+}
+
+// SanitizeComponentFor sanitises a component under a given naming scheme. It
+// exists for the migration from an older scheme, which has to know the name a
+// file was given back then.
+func SanitizeComponentFor(scheme NamingScheme, name string) string {
+	return sanitizeComponent(name, scheme)
+}
+
+func sanitizeComponent(name string, scheme NamingScheme) string {
 	var b strings.Builder
 	b.Grow(len(name))
 
 	for _, r := range name {
-		switch {
-		case r == '/' || r == '\\':
+		if look, refused := lookAlikes[r]; refused {
 			// A separator would create a new directory level and is the core
-			// of any traversal attempt.
-			b.WriteRune('-')
-		case r == ':':
-			b.WriteRune('-')
-		case r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|':
-			b.WriteRune('_')
+			// of any traversal attempt; the other characters are refused by
+			// Windows and by SMB shares exported from it.
+			if scheme == NamingSchemeLegacy {
+				b.WriteRune(legacySubstitute(r))
+			} else {
+				b.WriteRune(look)
+			}
+			continue
+		}
+		switch {
 		case r == 0:
 			// Dropped: a NUL byte truncates the path in every syscall.
 		case unicode.IsControl(r):
@@ -74,13 +117,17 @@ func SanitizeComponent(name string) string {
 // SanitizeFilename sanitises a file name while preserving the extension. ext
 // must include the leading dot and is itself sanitised.
 func SanitizeFilename(name, ext string) string {
+	return sanitizeFilename(name, ext, CurrentNamingScheme)
+}
+
+func sanitizeFilename(name, ext string, scheme NamingScheme) string {
 	ext = sanitizeExtension(ext)
 	limit := MaxComponentLength - utf8.RuneCountInString(ext)
 	if limit < 1 {
 		limit = 1
 	}
 
-	base := SanitizeComponent(name)
+	base := sanitizeComponent(name, scheme)
 	base = truncateRunes(base, limit)
 	base = truncateBytes(base, MaxComponentBytes-len(ext))
 	base = strings.Trim(base, " .")

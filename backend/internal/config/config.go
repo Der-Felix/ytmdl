@@ -108,6 +108,10 @@ type LibraryConfig struct {
 	EmbedCover         bool   `yaml:"embed_cover"`
 	LyricsEnabled      bool   `yaml:"lyrics_enabled"`
 	LyricsWriteSidecar bool   `yaml:"lyrics_write_sidecar"`
+	// AutoRename moves an existing library to the current naming scheme
+	// automatically after an update. Switched off, files keep their names
+	// until it is switched on again.
+	AutoRename bool `yaml:"auto_rename"`
 }
 
 // ToolsConfig locates the external programs the backend drives.
@@ -302,6 +306,7 @@ func Default() Config {
 			EmbedCover:         true,
 			LyricsEnabled:      true,
 			LyricsWriteSidecar: true,
+			AutoRename:         true,
 		},
 		Tools: ToolsConfig{
 			YTDLPPath:   "yt-dlp",
@@ -531,6 +536,7 @@ func (c *Config) applyEnv() error {
 	boolean("YTDM_LIBRARY_LYRICS_ENABLED", &c.Library.LyricsEnabled)
 	boolean("MUSICDL_LIBRARY_LYRICS_WRITE_SIDECAR", &c.Library.LyricsWriteSidecar)
 	boolean("YTDM_LIBRARY_LYRICS_WRITE_SIDECAR", &c.Library.LyricsWriteSidecar)
+	boolean("MUSICDL_LIBRARY_AUTO_RENAME", &c.Library.AutoRename)
 
 	if _, canonical := lookup("MUSICDL_YTDLP"); !canonical {
 		str("YTDM_YTDLP_PATH", &c.Tools.YTDLPPath)

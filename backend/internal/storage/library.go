@@ -28,8 +28,9 @@ const maxLyricsBytes = 256 << 10
 
 // Library is the on disk music collection.
 type Library struct {
-	layout *Layout
-	guard  *StorageGuard
+	layout   *Layout
+	guard    *StorageGuard
+	dirLocks releaseDirLocks
 }
 
 // NewLibrary opens the library rooted at path, creating the root if needed.

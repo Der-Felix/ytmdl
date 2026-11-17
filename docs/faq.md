@@ -107,9 +107,10 @@ default.
 
 ### How are files named?
 
-`Artist/YYYY - Album/NN - Title.opus`, with `101 -`, `201 -` numbering for
+`Artist/YYYY - Album/NN - Title.opus`, with `1-01 -`, `2-01 -` numbering for
 multi-disc releases, embedded Vorbis comments, `cover.jpg`, and `.lrc`/`.txt`
-lyric sidecars. See [Library](/features/library).
+lyric sidecars. Characters a filesystem refuses become fullwidth look-alikes
+(`AC/DC` is stored as `AC／DC`). See [File names](/features/library#file-names).
 
 ## Updates, Backup & Rollback
 

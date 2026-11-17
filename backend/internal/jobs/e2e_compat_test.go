@@ -195,8 +195,8 @@ func TestE2ECompatibilityMatrixMultiDisc(t *testing.T) {
 	trackD2 = m.attachLyrics(context.Background(), trackD2, filepath.Join(root, file2.Path), "v2", m.logger)
 
 	expectedRelDir := filepath.Join("The Beatles", "1968 - The Beatles")
-	expectedD1 := filepath.Join(expectedRelDir, "101 - Back in the USSR.opus")
-	expectedD2 := filepath.Join(expectedRelDir, "201 - Birthday.opus")
+	expectedD1 := filepath.Join(expectedRelDir, "1-01 - Back in the USSR.opus")
+	expectedD2 := filepath.Join(expectedRelDir, "2-01 - Birthday.opus")
 
 	if file1.Path != expectedD1 {
 		t.Errorf("file 1 = %q, want %q", file1.Path, expectedD1)
@@ -217,8 +217,8 @@ func TestE2ECompatibilityMatrixMultiDisc(t *testing.T) {
 	}
 
 	// Verify .txt sidecars for plain lyrics
-	sidecar1 := filepath.Join(root, expectedRelDir, "101 - Back in the USSR.txt")
-	sidecar2 := filepath.Join(root, expectedRelDir, "201 - Birthday.txt")
+	sidecar1 := filepath.Join(root, expectedRelDir, "1-01 - Back in the USSR.txt")
+	sidecar2 := filepath.Join(root, expectedRelDir, "2-01 - Birthday.txt")
 	if _, err := os.Stat(sidecar1); err != nil {
 		t.Errorf("sidecar 1 missing: %v", err)
 	}

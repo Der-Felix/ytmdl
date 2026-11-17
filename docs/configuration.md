@@ -143,6 +143,7 @@ provider family either.
 | `MUSICDL_LIBRARY_EMBED_COVER` | `true` | Embed album artwork into the audio file. |
 | `MUSICDL_LIBRARY_LYRICS_ENABLED` | `true` | Resolve lyrics during download. Dynamic. |
 | `MUSICDL_LIBRARY_LYRICS_WRITE_SIDECAR` | `true` | Write `.lrc` / `.txt` sidecar files. Dynamic. |
+| `MUSICDL_LIBRARY_AUTO_RENAME` | `true` | After an update that changes the [file naming scheme](/features/library#file-names), move existing files to their new names automatically, in the background. Set `false` to keep the old names until you choose the moment (media servers such as Plex track files by path); set it back and restart to run the move. Read at startup. |
 
 ---
 

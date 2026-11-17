@@ -565,6 +565,14 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	}
 
 	libraryService.StartTrashMaintenance()
+	// Files written under an older naming scheme are moved to the current one
+	// in the background. It runs once per scheme and is a no-op afterwards.
+	libraryService.StartNamingMigration(libsvc.NamingMigrationOptions{
+		Enabled:       cfg.Library.AutoRename,
+		Settings:      settingsRepo,
+		StartDelay:    15 * time.Second,
+		RetryInterval: 10 * time.Minute,
+	})
 	updateService := update.NewService(update.Config{
 		Enabled:       cfg.Update.Enabled,
 		Repository:    cfg.Update.Repository,

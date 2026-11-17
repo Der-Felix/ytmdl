@@ -2,6 +2,7 @@ package library
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -23,6 +24,7 @@ type TrashStore interface {
 	ForgetTrash(context.Context, string) error
 	CheckTrashRestore(context.Context, *repository.TrashEntry) error
 	RestoreTrashMetadata(context.Context, *repository.TrashEntry) error
+	RetargetTrash(context.Context, string, []repository.TrashMove, json.RawMessage) error
 }
 
 func (s *Service) trashStore() (TrashStore, error) {
@@ -141,6 +143,13 @@ func moveTrashPaths(root *os.Root, e *repository.TrashEntry, toTrash bool) error
 		if src.Size() != m.Size || src.ModTime().UnixNano() != m.MTimeNS {
 			return trashStorageError()
 		}
+		if !toTrash {
+			// The release folder may be gone (renamed by the naming migration,
+			// or emptied since); a restore recreates it.
+			if err := root.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+				return trashStorageError()
+			}
+		}
 		// Link is atomic and refuses an existing destination. A crash with both
 		// names is recognized through SameFile, without replacing any media.
 		if err := root.Link(from, to); err != nil {
@@ -186,6 +195,9 @@ func (s *Service) RestoreTrash(ctx context.Context, id string) error {
 		return err
 	}
 	defer root.Close()
+	if e, err = s.retargetTrashEntry(ctx, store, e); err != nil {
+		return err
+	}
 	if err = store.CheckTrashRestore(ctx, e); err != nil {
 		return err
 	}

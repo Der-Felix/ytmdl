@@ -419,6 +419,11 @@ func (s *Service) applyMoveCanonical(ctx context.Context, f *music.AuditFinding)
 		return err
 	}
 
+	// Downloads into either release folder wait until the move is done.
+	oldDirRel, newDirRel := filepath.Dir(filepath.Clean(f.RelativePath)), filepath.Dir(destRel)
+	unlockDirs := s.library.LockReleaseDirs(oldDirRel, newDirRel)
+	defer unlockDirs()
+
 	// Critical Window Recovery:
 	// If source file is already gone from sourceAbs, check if it already committed to destAbs.
 	if !s.library.Exists(sourceAbs) && s.library.Exists(destAbs) {
@@ -428,12 +433,9 @@ func (s *Service) applyMoveCanonical(ctx context.Context, f *music.AuditFinding)
 				// Move already succeeded before crash. Sync DB and return success.
 				stored, err := s.files.FindByPath(ctx, f.RelativePath)
 				if err == nil && stored != nil {
-					_ = s.files.DeleteByPath(ctx, f.RelativePath)
-					stored.Path = destRel
-					_, _ = s.files.Upsert(ctx, *stored)
+					_ = s.updateFilePath(ctx, *stored, destRel)
 				}
-				_ = os.Remove(filepath.Dir(sourceAbs))
-				_ = os.Remove(filepath.Dir(filepath.Dir(sourceAbs)))
+				s.followTrackFolder(oldDirRel, newDirRel)
 				return nil
 			}
 		}
@@ -460,19 +462,25 @@ func (s *Service) applyMoveCanonical(ctx context.Context, f *music.AuditFinding)
 		return err
 	}
 
-	// Update DB files path
+	// Update DB files path. The row keeps its ID, so loudness analysis and
+	// fingerprints stay attached.
 	stored, err := s.files.FindByPath(ctx, f.RelativePath)
 	if err == nil && stored != nil {
-		_ = s.files.DeleteByPath(ctx, f.RelativePath)
-		stored.Path = destRel
-		_, _ = s.files.Upsert(ctx, *stored)
+		_ = s.updateFilePath(ctx, *stored, destRel)
 	}
 
-	// Clean up empty directories left behind
-	_ = os.Remove(filepath.Dir(sourceAbs))
-	_ = os.Remove(filepath.Dir(filepath.Dir(sourceAbs)))
-
+	s.followTrackFolder(oldDirRel, newDirRel)
 	return nil
+}
+
+// followTrackFolder lets the cover and anything else in a release folder
+// follow a track that moved to another folder, once no audio is left behind,
+// and removes the folders that end up empty.
+func (s *Service) followTrackFolder(oldDirRel, newDirRel string) {
+	if oldDirRel == newDirRel {
+		return
+	}
+	s.carryReleaseFolder(oldDirRel, []string{newDirRel}, false)
 }
 
 func (s *Service) applyRestoreTags(ctx context.Context, f *music.AuditFinding) error {

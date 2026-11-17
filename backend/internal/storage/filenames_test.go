@@ -10,14 +10,16 @@ import (
 
 func TestSanitizeComponentRemovesDangerousCharacters(t *testing.T) {
 	tests := []struct{ name, in, want string }{
-		{"forward slash", "AC/DC", "AC-DC"},
-		{"backslash", `AC\DC`, "AC-DC"},
-		{"colon", "Album: The Return", "Album- The Return"},
-		{"asterisk", "N*E*R*D", "N_E_R_D"},
-		{"question mark", "Who?", "Who_"},
-		{"quote", `Say "Hello"`, "Say _Hello_"},
-		{"angle brackets", "<script>", "_script_"},
-		{"pipe", "A|B", "A_B"},
+		{"forward slash", "AC/DC", "AC／DC"},
+		{"backslash", `AC\DC`, "AC＼DC"},
+		{"colon", "Album: The Return", "Album： The Return"},
+		{"asterisk", "N*E*R*D", "N＊E＊R＊D"},
+		{"question mark", "Who?", "Who？"},
+		{"quote", `Say "Hello"`, "Say ＂Hello＂"},
+		{"angle brackets", "<script>", "＜script＞"},
+		{"pipe", "A|B", "A｜B"},
+		{"hyphen and underscore stay", "AC-DC_Live", "AC-DC_Live"},
+		{"fullwidth input kept", "Who？", "Who？"},
 		{"control characters", "Song\x07Name", "Song Name"},
 		{"newline", "Song\nName", "Song Name"},
 		{"tab", "Song\tName", "Song Name"},
@@ -81,7 +83,7 @@ func TestSanitizeComponentLength(t *testing.T) {
 
 func TestSanitizeFilenameKeepsExtension(t *testing.T) {
 	got := SanitizeFilename("01 - Song/Name", ".opus")
-	if got != "01 - Song-Name.opus" {
+	if got != "01 - Song／Name.opus" {
 		t.Fatalf("got %q", got)
 	}
 
@@ -111,12 +113,16 @@ func TestTrackFileName(t *testing.T) {
 		{"two digits", music.Track{Title: "Song", TrackNumber: 12}, "12 - Song.opus"},
 		{"three digits", music.Track{Title: "Song", TrackNumber: 123}, "123 - Song.opus"},
 		{"unnumbered", music.Track{Title: "Song"}, "Song.opus"},
-		// A multi disc release uses the disc-prefixed form Plex documents:
-		// disc three, track two is "302 - Track.ext".
-		{"multi disc", music.Track{Title: "Song", TrackNumber: 3, DiscNumber: 2, DiscTotal: 2}, "203 - Song.opus"},
-		{"multi disc first disc", music.Track{Title: "Song", TrackNumber: 1, DiscNumber: 1, DiscTotal: 2}, "101 - Song.opus"},
-		{"multi disc third disc", music.Track{Title: "Song", TrackNumber: 2, DiscNumber: 3, DiscTotal: 3}, "302 - Song.opus"},
-		{"multi disc without a disc number defaults to one", music.Track{Title: "Song", TrackNumber: 4, DiscTotal: 2}, "104 - Song.opus"},
+		// A multi disc release prefixes the disc and a hyphen: disc three,
+		// track two is "3-02 - Track.ext".
+		{"multi disc", music.Track{Title: "Song", TrackNumber: 3, DiscNumber: 2, DiscTotal: 2}, "2-03 - Song.opus"},
+		{"multi disc first disc", music.Track{Title: "Song", TrackNumber: 1, DiscNumber: 1, DiscTotal: 2}, "1-01 - Song.opus"},
+		{"multi disc third disc", music.Track{Title: "Song", TrackNumber: 2, DiscNumber: 3, DiscTotal: 3}, "3-02 - Song.opus"},
+		{"multi disc three digit track", music.Track{Title: "Song", TrackNumber: 105, DiscNumber: 2, DiscTotal: 2}, "2-105 - Song.opus"},
+		{"multi disc two digit disc", music.Track{Title: "Song", TrackNumber: 2, DiscNumber: 11, DiscTotal: 12}, "11-02 - Song.opus"},
+		{"multi disc without a disc number defaults to one", music.Track{Title: "Song", TrackNumber: 4, DiscTotal: 2}, "1-04 - Song.opus"},
+		{"edition notes stay in the name", music.Track{Title: "Song (Remastered 2015) - Single Version (feat. X)", TrackNumber: 1},
+			"01 - Song (Remastered 2015) - Single Version (feat. X).opus"},
 		{"single disc keeps plain numbering", music.Track{Title: "Song", TrackNumber: 3, DiscNumber: 1, DiscTotal: 1}, "03 - Song.opus"},
 		{"empty title", music.Track{Title: "", TrackNumber: 1}, "01 - Unknown Title.opus"},
 	}
@@ -195,7 +201,7 @@ func TestSidecarPathForKeepsTheBasename(t *testing.T) {
 		want  string
 	}{
 		{"/music/A/2001 - B/04 - C.opus", ".txt", "/music/A/2001 - B/04 - C.txt"},
-		{"/music/A/2001 - B/201 - C.opus", ".lrc", "/music/A/2001 - B/201 - C.lrc"},
+		{"/music/A/2001 - B/2-01 - C.opus", ".lrc", "/music/A/2001 - B/2-01 - C.lrc"},
 		{"/music/A/2001 - B/C.m4a", ".lrc", "/music/A/2001 - B/C.lrc"},
 		{"/music/A/no-extension", ".lrc", "/music/A/no-extension.lrc"},
 	}

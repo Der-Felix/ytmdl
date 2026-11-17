@@ -34,6 +34,27 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.5.0
+
+**File names change, and the backend renames existing files after the update.**
+Characters a filesystem refuses become fullwidth look-alikes instead of `-` and
+`_` (`AC/DC` is now stored as `AC／DC`, `Who?` as `Who？`), and a multi-disc
+track is `2-02 - Title` instead of `202 - Title`. About 15 seconds after the new
+backend starts, it moves an existing library to these names in the background:
+tracks with their lyrics files, covers and anything else in the release folder.
+It never overwrites a file, checks every copy against the original's SHA-256,
+waits while the library storage is unreachable, resumes after a restart, and runs
+once. Its progress is in the backend log; `GET /api/v1/library/naming-migration`
+lists anything it left in place. Details:
+[moving an existing library](/features/library#moving-an-existing-library-to-the-current-names).
+
+Media servers that track files by path (Plex, Jellyfin, Emby, Navidrome) see the
+old paths disappear and new ones appear at their next scan; play counts, ratings
+and "recently added" dates tied to a path may be lost, depending on the server.
+To choose the moment yourself, add `MUSICDL_LIBRARY_AUTO_RENAME=false` to `.env`
+**before** updating, and remove it (then restart the backend and rescan the media
+server) when you are ready.
+
 ## Upgrade to v1.4.1
 
 Use the checksum-verified **v1.4.1** CLI from the
