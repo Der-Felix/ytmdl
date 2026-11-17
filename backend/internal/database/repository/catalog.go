@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -673,6 +674,21 @@ func lockTrackIdentity(ctx context.Context, tx executor, prefix, key string) err
 	return nil
 }
 
+// liveTrackKeySQL is true for a row of the joined tracks table "o" whose
+// identity key carries the live marker. VersionSet.String lists "live" first.
+const liveTrackKeySQL = `split_part(o.identity_key, chr(31), 3) LIKE 'live%'`
+
+// liveReleaseSQL is true when the release "r" of the track row "t" is a live
+// release: stored as one, or stored as an album whose catalogued tracks are
+// live recordings by the share discography.InferLiveRelease requires.
+var liveReleaseSQL = fmt.Sprintf(`(COALESCE(r.release_type, '') = 'live'
+	OR (COALESCE(r.release_type, '') = 'album' AND EXISTS (
+		SELECT 1 FROM tracks o WHERE o.release_id = t.release_id
+		HAVING count(*) FILTER (WHERE %[1]s) >= %[2]d
+		   AND %[3]d * count(*) FILTER (WHERE %[1]s) >= %[4]d * count(*))))`,
+	liveTrackKeySQL, discography.LiveReleaseMinMarkedTracks,
+	discography.LiveReleaseMarkedDenominator, discography.LiveReleaseMarkedNumerator)
+
 // findTrackID resolves an existing track by ID, ISRC, or by identity key and
 // runtime. It returns an empty string when the recording is unknown.
 // findTrackID looks a recording up by id, then by ISRC, then by identity key
@@ -704,17 +720,26 @@ func findTrackID(ctx context.Context, exec executor, trackID string, identity di
 		toleranceMS = discography.DefaultDurationToleranceMS
 	}
 	// Rows written before a live release counted towards the identity carry
-	// the studio recording's key. The release type tells the two apart: such
-	// a row is no match for a studio track (first branch), and it is the one
-	// a track of a live release has to be found by (second branch).
+	// the studio recording's key. The release tells the two apart: such a row
+	// is no match for a studio track (first branch), and it is the one a track
+	// of a live release has to be found by (second branch).
+	//
+	// A release is live when it is stored as one, or when it is stored as an
+	// album whose catalogued tracks are live recordings by the same share
+	// discography.InferLiveRelease uses — that release was filed as an album
+	// before the track list counted. A row of the very release the track was
+	// resolved from is found by its legacy key in any case.
 	rows, err := exec.QueryContext(ctx, `
 		SELECT t.id, t.duration_ms
 		FROM tracks t LEFT JOIN releases r ON r.id = t.release_id
 		WHERE (t.identity_key = ANY($1)
-		       AND ($3 OR NOT (COALESCE(r.release_type, '') = 'live'
+		       AND ($3 OR NOT (`+liveReleaseSQL+`
 		                       AND split_part(t.identity_key, chr(31), 3) NOT LIKE 'live%')))
-		   OR (t.identity_key = ANY($2) AND COALESCE(r.release_type, '') = 'live')`,
-		identity.Keys, identity.LegacyLiveKeys, identity.Live)
+		   OR (t.identity_key = ANY($2)
+		       AND (`+liveReleaseSQL+`
+		            OR ($5::text <> '' AND r.provider = $4::text AND r.source_id = $5::text)))`,
+		identity.Keys, identity.LegacyLiveKeys, identity.Live,
+		identity.ReleaseProvider, identity.ReleaseSourceID)
 	if err != nil {
 		return "", wrapDB("find track by identity", err)
 	}

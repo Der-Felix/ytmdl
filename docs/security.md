@@ -6,7 +6,7 @@ YTMDL is designed for multi-user self-hosting environments with strict authentic
 
 - **Argon2id Hashing:** User passwords are encrypted using modern Argon2id password derivation parameters.
 - **Session Tokens:** Cryptographically random session tokens stored server-side in PostgreSQL with expiration tracking.
-- **CSRF Protection:** Mutating state endpoints require valid CSRF tokens with double-submit cookie validation.
+- **CSRF Protection:** Mutating state endpoints require valid CSRF tokens with double-submit cookie validation. Before sign-in the token is random and issued only by `GET /api/v1/auth/status`. From sign-in on it is HMAC-SHA256 keyed with the session token, so every response of a session carries the same value and a page that cannot read the HttpOnly session cookie cannot compute it. Sign-in replaces the pre-login cookie with that token.
 - **Rate Limiting:** In-memory token bucket rate limiters protect login and setup endpoints against brute-force attempts.
 
 ## Role-Based Access Control (RBAC)

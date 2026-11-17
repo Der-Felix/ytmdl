@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"regexp"
 	"strings"
 
 	"ytdm/backend/internal/music"
@@ -104,16 +105,25 @@ type MediaProvider interface {
 
 // SearchQuery builds the free text query used to look for a track on a media
 // platform.
+//
+// A track of a live release usually carries the plain song title, and a search
+// for it returns the studio recording first; the matcher then has no live
+// recording to choose. Such a query asks for "live" explicitly.
 func SearchQuery(track music.Track) string {
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 3)
 	if artist := music.PrimaryArtist(track.Artists); artist != music.UnknownArtist {
 		parts = append(parts, artist)
 	}
 	if title := strings.TrimSpace(track.Title); title != "" {
 		parts = append(parts, title)
+		if track.ReleaseType == music.ReleaseLive && !liveWordRe.MatchString(title) {
+			parts = append(parts, "live")
+		}
 	}
 	return strings.Join(parts, " ")
 }
+
+var liveWordRe = regexp.MustCompile(`(?i)\blive\b`)
 
 // canonicalAudioCodec reduces a codec name to the family it belongs to.
 // Platforms and ffprobe spell the same codec differently: yt-dlp reports

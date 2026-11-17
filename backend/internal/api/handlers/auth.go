@@ -45,10 +45,8 @@ func (h *Handlers) Setup(w http.ResponseWriter, r *http.Request) {
 	isSecure := middleware.IsSecure(r, h.deps.CookieSecure)
 	middleware.SetSessionCookie(w, result.SessionToken, result.ExpiresAt, isSecure)
 
-	// Issue fresh CSRF cookie
-	if csrfToken, err := auth.GenerateCSRFToken(); err == nil {
-		middleware.SetCSRFCookie(w, csrfToken, isSecure)
-	}
+	// Rotate the CSRF cookie to the new session's token.
+	middleware.SetCSRFCookie(w, auth.SessionCSRFToken(result.SessionToken), isSecure)
 
 	response.Created(w, r, result.User)
 }
@@ -73,10 +71,8 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	isSecure := middleware.IsSecure(r, h.deps.CookieSecure)
 	middleware.SetSessionCookie(w, result.SessionToken, result.ExpiresAt, isSecure)
 
-	// Issue fresh CSRF cookie upon login
-	if csrfToken, err := auth.GenerateCSRFToken(); err == nil {
-		middleware.SetCSRFCookie(w, csrfToken, isSecure)
-	}
+	// Rotate the CSRF cookie to the new session's token.
+	middleware.SetCSRFCookie(w, auth.SessionCSRFToken(result.SessionToken), isSecure)
 
 	response.OK(w, r, result.User)
 }

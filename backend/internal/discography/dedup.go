@@ -252,6 +252,13 @@ type Identity struct {
 	// the live marker. They are the studio recording's keys as well, so a row
 	// found by them only counts when it belongs to a live release.
 	LegacyLiveKeys []string
+	// ReleaseProvider and ReleaseSourceID name the provider release the track
+	// was resolved from. A row of that very release that was stored under one
+	// of the LegacyLiveKeys is this track, whatever type the stored release
+	// still carries: a release can become live by InferLiveRelease after its
+	// tracks were catalogued as an album.
+	ReleaseProvider string
+	ReleaseSourceID string
 }
 
 // IdentityOf builds the lookup identity of a track.
@@ -264,6 +271,9 @@ func IdentityOf(t music.Track) Identity {
 		Keys:           []string{identityKey(t, current.Base, versions)},
 		Live:           versions.Has(matcher.VersionLive),
 		LegacyLiveKeys: []string{},
+	}
+	if provider, release := strings.TrimSpace(t.SourceProvider), strings.TrimSpace(t.ReleaseID); provider != "" && release != "" {
+		id.ReleaseProvider, id.ReleaseSourceID = provider, release
 	}
 	if key := identityKey(t, legacy.Base, recordingVersions(t, legacy)); key != id.Keys[0] {
 		id.Keys = append(id.Keys, key)
@@ -285,13 +295,10 @@ func IdentityOf(t music.Track) Identity {
 // and whichever of the two arrived second would count as already owned.
 //
 // A remix release is deliberately not treated the same way: its plainly titled
-// track is, as a rule, the original that the remixes are of.
+// track is, as a rule, the original that the remixes are of. The rule lives in
+// the matcher, so that choosing the audio for a track follows it as well.
 func recordingVersions(t music.Track, info matcher.TitleInfo) matcher.VersionSet {
-	versions := info.Versions
-	if t.ReleaseType == music.ReleaseLive {
-		versions |= matcher.VersionLive
-	}
-	return versions
+	return matcher.RecordingVersions(t, info)
 }
 
 // titleBucket groups tracks that could describe the same recording before the

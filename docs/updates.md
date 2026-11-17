@@ -34,6 +34,33 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.4.1
+
+Use the checksum-verified **v1.4.1** CLI from the
+[v1.4.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.4.1).
+Run `ytmdlctl update --channel stable --target 1.4.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.4.1`.
+
+The database stays at schema 18; this release needs no migration. It fixes a
+sign-in error that could appear right after opening the page and recognises live
+albums whose title does not say "live". The release qualifies v0.28.1, v1.0.0,
+v1.1.1, v1.2.0, v1.3.0 and v1.4.0 sources with Docker and rootless Podman.
+Preserve private configuration, proxy settings, mounts, cookies and the database
+volume, and verify a database backup before updating.
+
+Existing sessions stay signed in; nobody has to sign in again after the update.
+
+Three changes are visible in the library. After the update a subscription sync
+may queue studio recordings that were counted as present before, because a live
+album that was not recognised had taken their place. An album that is now
+recognised as live gets the `[Live]` folder suffix for new downloads and is left
+out by the default release filter unless Live is enabled. A live track without a
+live source now fails to match instead of taking the studio recording.
+
+Scripts and other API clients that start without a CSRF cookie must call
+`GET /api/v1/auth/status` first; a signed-out client receives its CSRF cookie
+only from that endpoint.
+
 ## Upgrade to v1.4.0
 
 Use the checksum-verified **v1.4.0** CLI from the

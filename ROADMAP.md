@@ -19,10 +19,6 @@ Work that is in progress or blocks a release.
   release with it, which is the only run that creates the version tag, the draft
   and the release. Failed runs and rehearsals delete their own `candidate-*`
   package versions.
-- **Pin the runner image.** The upgrade qualification broke when `ubuntu-latest`
-  moved to a new Ubuntu version, where rootless Podman fails to finish
-  `compose down`. The harness now cleans up after it, but the workflows should
-  name the Ubuntu version they are qualified on.
 - **Check the new theme with real content.** The theme shipped in 1.4.0 was
   reviewed on an empty library. Covers, long lists, the playing view and narrow
   screens still need a pass, and the documentation screenshots show the old look.
@@ -37,9 +33,10 @@ Agreed work that starts when the items above are done.
   disc 2, track 2 is currently stored as `202 - Title`. Existing libraries need a
   way to move to a new scheme without breaking media servers.
 - **Live recordings the provider does not label.** A live album is recognised by
-  its title. One that is not recognised still shares its tracks' identity with
-  the studio recordings. The audio match for a plainly titled track of a live
-  album also still prefers a studio recording.
+  its title or, since 1.4.1, by the live markers in its track titles (at least
+  three tracks and three quarters of the list). One that has fewer marked tracks
+  still shares its tracks' identity with the studio recordings, and its plainly
+  titled tracks can still be matched to a studio recording.
 - **Finish the web interface to the standard the theme sets.**
   - Toasts for results and errors, a command menu, and a queue that can be
     dragged on touch devices.

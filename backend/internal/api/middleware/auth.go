@@ -205,13 +205,70 @@ func RequireAdmin(next http.Handler) http.Handler {
 	})
 }
 
-// EnsureCSRF ensures that a readable CSRF cookie is set on any incoming request.
+// How the CSRF cookie is issued.
+//
+// A token is never minted per request: a client that opens with several
+// parallel requests would otherwise receive a different token in each
+// response, the last Set-Cookie would win, and a mutating request sent in that
+// window would carry a header token that no longer matches its cookie.
+// Instead:
+//
+//   - Signed in: the token is SessionCSRFToken(session), the same value for
+//     every response of that session. EnsureCSRF sets it on any request that
+//     arrives without a CSRF cookie; parallel responses agree.
+//   - Signed out: only GET /auth/status issues a random token (IssueCSRF), and
+//     only when the client has none. Clients fetch the status before signing
+//     in, so no other pre-login response can replace the token a client read.
+//   - Sign-in (login, setup, device poll) rotates the cookie to the new
+//     session's token, so a token known before sign-in is not the one used
+//     after it.
+//
+// An existing CSRF cookie is never replaced outside sign-in.
+
+// sessionCSRFToken returns the session-bound CSRF token for a request that
+// carries a valid session, or "" when the request is signed out.
+func sessionCSRFToken(r *http.Request) string {
+	if SessionFromContext(r.Context()) == nil {
+		return ""
+	}
+	cookie, err := r.Cookie(SessionCookieName)
+	if err != nil {
+		return ""
+	}
+	return auth.SessionCSRFToken(cookie.Value)
+}
+
+func hasCSRFCookie(r *http.Request) bool {
+	cookie, err := r.Cookie(CSRFCookieName)
+	return err == nil && cookie.Value != ""
+}
+
+// EnsureCSRF gives a signed-in client without a CSRF cookie its session-bound
+// token. It must run after Authenticate. It never issues a token to a
+// signed-out client; see IssueCSRF.
 func EnsureCSRF(forceSecure bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if cookie, err := r.Cookie(CSRFCookieName); err != nil || cookie.Value == "" {
-				token, err := auth.GenerateCSRFToken()
-				if err == nil {
+			if !hasCSRFCookie(r) {
+				if token := sessionCSRFToken(r); token != "" {
+					SetCSRFCookie(w, token, IsSecure(r, forceSecure))
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// IssueCSRF gives a signed-out client without a CSRF cookie a random token. It
+// belongs on the one endpoint clients call before signing in (GET
+// /auth/status), so that a client's first parallel requests cannot hand it
+// competing tokens. It must run after EnsureCSRF, which covers signed-in
+// clients.
+func IssueCSRF(forceSecure bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !hasCSRFCookie(r) && SessionFromContext(r.Context()) == nil {
+				if token, err := auth.GenerateCSRFToken(); err == nil {
 					SetCSRFCookie(w, token, IsSecure(r, forceSecure))
 				}
 			}
@@ -221,18 +278,29 @@ func EnsureCSRF(forceSecure bool) func(http.Handler) http.Handler {
 }
 
 // CSRF enforces that mutating requests (POST, PUT, PATCH, DELETE) provide a valid
-// X-CSRF-Token header matching the ytmdl_csrf cookie.
+// X-CSRF-Token header. The header is valid when it equals the ytmdl_csrf
+// cookie (double submit) or, for a signed-in request, the session-bound token
+// of that session. The second form needs the HttpOnly session token to
+// compute, so it is no easier to forge than the first; it lets a request pass
+// whose cookie was replaced by a late response after the client read it.
 func CSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			headerVal := r.Header.Get(CSRFHeaderName)
+			if headerVal == "" {
+				response.Fail(w, r, apperr.CodeCSRFInvalid, "Ungültiges oder fehlendes CSRF-Token.")
+				return
+			}
+			if expected := sessionCSRFToken(r); expected != "" && auth.VerifyCSRFToken(expected, headerVal) {
+				break
+			}
 			cookie, err := r.Cookie(CSRFCookieName)
 			if err != nil || cookie.Value == "" {
 				response.Fail(w, r, apperr.CodeCSRFInvalid, "Fehlendes CSRF-Cookie.")
 				return
 			}
-			headerVal := r.Header.Get(CSRFHeaderName)
-			if headerVal == "" || !auth.VerifyCSRFToken(cookie.Value, headerVal) {
+			if !auth.VerifyCSRFToken(cookie.Value, headerVal) {
 				response.Fail(w, r, apperr.CodeCSRFInvalid, "Ungültiges oder fehlendes CSRF-Token.")
 				return
 			}

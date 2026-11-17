@@ -4,6 +4,8 @@ All API endpoints are served under `/api/v1`. Successful responses return JSON p
 
 State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid CSRF token passed via the `X-CSRF-Token` header and the `ytmdl_csrf` cookie.
 
+A signed-out client gets its `ytmdl_csrf` cookie only from `GET /api/v1/auth/status`; fetch it before the first state-changing request (sign-in, setup, device start). No other endpoint issues a token to a signed-out client, so parallel first requests cannot hand a client competing tokens. Sign-in (`/auth/login`, `/auth/setup`, an authorized `/auth/device/poll`) sets the cookie to a token bound to the new session, and any later response for a session that has no cookie sets that same token. An existing cookie is otherwise never replaced.
+
 ---
 
 ## Authentication & Sessions
