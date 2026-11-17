@@ -1,18 +1,18 @@
-# Install YTMDL 1.5.0
+# Install YTMDL 1.6.0
 
 Official images are published in GHCR for Linux amd64 and arm64. Docker Engine
 with Compose v2 or newer, or rootless Podman with Docker Compose v2 or newer as its provider, and Python 3 are
 required. PostgreSQL 18 runs inside the stack; do not expose its port.
 
-Download `ytmdl-1.5.0.tar.gz`, your `ytmdlctl-<os>-<arch>` binary, and
-`SHA256SUMS` from the [release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.5.0).
+Download `ytmdl-1.6.0.tar.gz`, your `ytmdlctl-<os>-<arch>` binary, and
+`SHA256SUMS` from the [release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.6.0).
 Verify the downloads before running them:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
 # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
-tar -xzf ytmdl-1.5.0.tar.gz
-cd ytmdl-1.5.0
+tar -xzf ytmdl-1.6.0.tar.gz
+cd ytmdl-1.6.0
 python3 scripts/install.py --engine docker
 # Or: python3 scripts/install.py --engine podman
 ```
@@ -47,12 +47,12 @@ CLI checksum and make it executable. Download the two public Compose files
 into the existing project, retaining the database volume name. Then:
 
 ```sh
-./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl --engine docker update --channel stable --target 1.5.0 --dry-run
-./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl --engine docker update --channel stable --target 1.5.0
+./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl --engine docker update --channel stable --target 1.6.0 --dry-run
+./ytmdlctl-linux-amd64 --project-dir /path/to/ytmdl --engine docker update --channel stable --target 1.6.0
 ```
 
 Substitute the host platform and `--engine podman` as appropriate. This release
-uses database schema 18 and adds migrations for older supported schemas. Verify a
+uses database schema 19 and adds migrations for older supported schemas. Verify a
 backup first; a full schema rollback requires restoring it. A v0.28.0 CLI with disabled Storage Identity Guard cannot
 perform this upgrade; use the verified v1 CLI. A missing or mismatched configured
 guard remains a blocker. Never disable guard verification to hide a bad mount.

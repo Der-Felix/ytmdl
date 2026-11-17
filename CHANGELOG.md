@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.6.0 — 2026-11-17
+
+A download that finished while the library was unreachable is no longer downloaded again, stored track identities can be carried over to a new form, and the remaining views of the web interface follow the theme.
+
+### Highlights
+
+- **A staged download is only moved when the library returns.** A track that was downloaded while the library storage was unreachable (an offline network share, for example) used to be downloaded, tagged and verified once more when the library came back. The backend now keeps the finished file in staging with a record of what it learned (checksum, source, cover, lyrics lookup) and, once the library is writable again, verifies the file against its checksum and moves it: no provider request, no yt-dlp run, no retry attempt spent. This survives a restart. A staged file that is missing or changed is discarded with a warning in the log and downloaded the normal way.
+- **Stored track identities can be migrated.** Every track now records the scheme its identity key was built under. About 15 seconds after start, the backend carries keys written by 1.3.0 and earlier (the older reading of an unbracketed remix title) over to the current form, in the background, one track per transaction. A track whose new key another track already carries, or whose stored key no longer follows from its stored title and artists, is never merged or deleted: it keeps its old key, is still found as before, and is listed at `GET /api/v1/library/identity-migration`. To keep the stored keys, set `MUSICDL_LIBRARY_IDENTITY_MIGRATION=false` in `.env`.
+- **The mobile navigation behaves like a dialog.** Focus moves into the drawer when it opens and stays there, Escape closes it and returns focus to the button that opened it, and the page behind it is inert for assistive technology.
+
+### Changes
+
+- **Downloads:**
+  - An item that waited for free space in the library was downloaded again on every dispatch tick until space was available; it now only re-checks the library.
+  - Cancelling or failing a job removes the staging files of its waiting items at once instead of at the next start.
+  - Items staged by an earlier version carry no record and are downloaded once more after the update, as before.
+- **Matching:** the older remix-title reading is only applied to tracks that have not been migrated. A title such as "Blinding Lights Major Lazer Remix" no longer matches a stored "Blinding (Remix)".
+- **Web interface:**
+  - Downloads, Subscriptions, Settings and Playlists use the same loading placeholders, empty states and error states as the other views; an empty filtered list offers to reset its filters.
+  - Settings: the "Beim Start festgelegt" block shows a loading state and an error with a retry instead of staying absent when the settings cannot be loaded.
+  - Subscriptions: the search field, filters and row controls have accessible names; the table hides the provider, next-check and filter columns on narrow widths.
+  - Playlists: the loading placeholder has the shape of the grid, dialog fields are labelled, and the space reserved for the player is no longer doubled.
+  - Fixed colour values in the download cards, the update panel and the subscription import dialog are replaced by the theme's status colours.
+  - The mobile drawer has its own close button and closes when the window grows past the mobile width.
+- **Database Schema:** Schema 19 adds the column `tracks.identity_scheme` with a constant default; no row is rewritten by the schema migration. Keep a verified backup before any update.
+- Qualify v1.5.0 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0 and v1.4.1.
+
+### Upgrade from v1.5.0
+
+Use the checksum-verified v1.6.0 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.6.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.6.0`. The update migrates the
+database to schema 19; verify a database backup first. Protect the media
+separately; the database dump does not contain music files.
+
 ## 1.5.0 — 2026-11-17
 
 A new file naming scheme, with an automatic move of existing libraries to it, and a web interface with toasts, a command menu and a queue that can be dragged on touch screens.

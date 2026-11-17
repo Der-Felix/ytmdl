@@ -34,6 +34,33 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.6.0
+
+Use the checksum-verified **v1.6.0** CLI from the
+[v1.6.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.6.0).
+Run `ytmdlctl update --channel stable --target 1.6.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.6.0`.
+
+The update migrates the database to schema 19, which adds one column to the
+track table and rewrites no row. The release qualifies v0.28.1, v1.0.0, v1.1.1,
+v1.2.0, v1.3.0, v1.4.0, v1.4.1 and v1.5.0 sources with Docker and rootless
+Podman. Preserve private configuration, proxy settings, mounts, cookies and the
+database volume, and verify a database backup before updating.
+
+**The backend carries stored track identities over after the update.** About 15
+seconds after the new backend starts, it rewrites the identity keys that 1.3.0
+and earlier stored for unbracketed remix titles to the current form, in the
+background and one track at a time. No file is touched. A track whose new key
+another track already carries, or whose stored key no longer follows from its
+stored title and artists, keeps its old key and is still found as before;
+`GET /api/v1/library/identity-migration` lists such tracks with the reason, and
+they are looked at again on every start. To keep the stored keys, add
+`MUSICDL_LIBRARY_IDENTITY_MIGRATION=false` to `.env`.
+
+A download that finishes while the library storage is unreachable is now kept in
+staging and only moved when the library returns. Downloads staged by an earlier
+version are downloaded once more after the update.
+
 ## Upgrade to v1.5.0
 
 Use the checksum-verified **v1.5.0** CLI from the
