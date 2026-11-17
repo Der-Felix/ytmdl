@@ -106,7 +106,8 @@ library scan is automatically scheduled. The opt-in persists in this browser.
 
 Migrations 0014–0018 add rules, metadata overrides, artwork, listening data,
 loudness measurements, per-user duplicate review, seven-day trash, fingerprints
-and playback handoff. Schema 18 is additive: upgrading preserves existing
+and playback handoff; migration 0019 records the identity scheme of each track.
+The schema is additive: upgrading preserves existing
 identities, audio and playlists and never removes candidates automatically.
 Upgrades from supported older schemas require a verified database backup;
 full schema rollback requires restoring it. Protect media separately because

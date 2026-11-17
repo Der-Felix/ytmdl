@@ -12,9 +12,10 @@ Work that is in progress or blocks a release.
 
 - **Check the new theme with real content.** The dashboard, the library, the
   release view and the player page were checked with a filled library at desktop
-  width and at 375 px. What remains is a pass over the other views (downloads,
-  subscriptions, settings, playlists) and new documentation screenshots, which
-  still show the old look.
+  width and at 375 px. Downloads, subscriptions, settings and playlists were
+  brought to the same standard in 1.6.0 but have only been tested, not looked at
+  with a filled library. What remains is that look, from 360 to 1920 px and in
+  both themes, and new documentation screenshots, which still show the old look.
 
 ## Next
 
@@ -25,10 +26,6 @@ Agreed work that starts when the items above are done.
   three tracks and three quarters of the list). One that has fewer marked tracks
   still shares its tracks' identity with the studio recordings, and its plainly
   titled tracks can still be matched to a studio recording.
-- **Finish the web interface to the standard the theme sets.**
-  - A pass over every view for loading, empty and error states, keyboard order,
-    and the widths from 360 to 1920 px.
-  - A focus trap for the mobile navigation drawer.
 - **Show Live and Remix in the library's release-type filter?** The fixed chip
   list offers Album, EP, Single and Compilation only. To decide whether the
   other release types belong there.
@@ -48,12 +45,11 @@ Agreed work that starts when the items above are done.
 
 Directions that are wanted but not yet planned in detail.
 
-- **Finalise without downloading again.** A track that was staged while the
-  library was unreachable is downloaded once more when the library returns. The
-  worker needs a path that only moves the staged file.
-- **A migration framework for stored identities.** The key a track is recognised
-  by is written once. Changing how it is built currently needs lookups that know
-  the older keys; a way to rewrite stored keys would remove that.
+- **Remove the older identity key forms.** Since 1.6.0 stored keys are carried
+  over to the current scheme in the background. The code that still reads the
+  older remix-title form can go once a release requires a finished migration;
+  the earliest is the release after next. Tracks held back because their stored
+  key no longer follows from their title have no way to be accepted yet.
 - **Branch model.** Changes have gone to `main` directly, with `dev` moved up
   afterwards, although the contribution guide names `dev` as the target. Either
   the guide or the practice should change, and `main` should get required checks.
