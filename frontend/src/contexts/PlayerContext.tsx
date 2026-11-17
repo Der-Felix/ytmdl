@@ -3,9 +3,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
+  useState,
 } from 'react'
 import type { ReactNode } from 'react'
 
@@ -31,9 +33,11 @@ import type {
   StopAfterOption,
   VisualizerMode,
 } from '@/lib/audio/types'
+import { notifySuccess } from '@/lib/notify'
 import { joinArtists } from '@/lib/utils/format'
 import type { LibraryTrack } from '@/types/api'
 import { INITIAL_PLAYER_STATE, playerReducer } from './player-reducer'
+import { createProgressStore, PlayerProgressStoreContext } from './player-progress-store'
 
 export interface PlayerProgressContextValue {
   currentTime: number
@@ -736,6 +740,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const playNextAction = useCallback((track: LibraryTrack) => {
     dispatch({ type: 'PLAY_NEXT', payload: { track } })
+    notifySuccess('Wird als Nächstes gespielt', track.title)
   }, [])
 
   const playQueueIndexAction = useCallback((index: number) => {
@@ -748,6 +753,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const addToQueueAction = useCallback((tracks: LibraryTrack[] | LibraryTrack) => {
     dispatch({ type: 'ADD_TO_QUEUE', payload: { tracks } })
+    const list = Array.isArray(tracks) ? tracks : [tracks]
+    if (list.length === 1 && list[0]) notifySuccess('Zur Warteschlange hinzugefügt', list[0].title)
+    else if (list.length > 1) notifySuccess(`${list.length} Titel zur Warteschlange hinzugefügt`)
   }, [])
 
   const removeFromQueueAction = useCallback((index: number) => {
@@ -1026,6 +1034,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [state.currentTime, state.duration],
   )
 
+  // The same position as a subscribable store, for readers that only need a
+  // value derived from it (the active lyric line) and should redraw only when
+  // that value changes, not on every tick.
+  const [progressStore] = useState(() => createProgressStore(progressValue))
+  useLayoutEffect(() => progressStore.set(progressValue), [progressStore, progressValue])
+
   const stateWithoutProgress = useMemo<PlayerStateContextValue>(() => {
     const { currentTime: _c, duration: _d, ...rest } = state
     return rest
@@ -1075,11 +1089,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   return (
     <PlayerActionsContext.Provider value={actionsValue}>
+      <PlayerProgressStoreContext.Provider value={progressStore}>
       <PlayerProgressContext.Provider value={progressValue}>
         <PlayerStateContext.Provider value={stateWithoutProgress}>
           <PlayerContext.Provider value={combinedValue}>{children}</PlayerContext.Provider>
         </PlayerStateContext.Provider>
       </PlayerProgressContext.Provider>
+      </PlayerProgressStoreContext.Provider>
     </PlayerActionsContext.Provider>
   )
 }
