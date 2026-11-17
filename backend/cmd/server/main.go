@@ -26,6 +26,7 @@ import (
 	"ytdm/backend/internal/downloader"
 	"ytdm/backend/internal/ffmpeg"
 	"ytdm/backend/internal/httpx"
+	"ytdm/backend/internal/identitymigration"
 	"ytdm/backend/internal/jobs"
 	libsvc "ytdm/backend/internal/library"
 	"ytdm/backend/internal/logging"
@@ -108,6 +109,7 @@ type application struct {
 	subscriptions  *subscriptions.Service
 	scheduler      *subscriptions.Scheduler
 	libraryService *libsvc.Service
+	identity       *identitymigration.Migrator
 	sessionPool    *mediasession.SessionPool
 
 	// shutdownDeadline is the single absolute budget for one controlled
@@ -200,6 +202,9 @@ func (a *application) stopWorkers() <-chan struct{} {
 			}
 			if a.libraryService != nil {
 				a.libraryService.Stop()
+			}
+			if a.identity != nil {
+				a.identity.Stop()
 			}
 		}()
 	})
@@ -573,6 +578,24 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		StartDelay:    15 * time.Second,
 		RetryInterval: 10 * time.Minute,
 	})
+	// Identity keys stored under an older identity scheme are carried over
+	// the same way. It is started once the wiring cannot fail any more.
+	identityMigration, err := identitymigration.New(identitymigration.Options{
+		Enabled:       cfg.Library.IdentityMigration,
+		Store:         catalogRepo,
+		Settings:      settingsRepo,
+		Logger:        logger,
+		StartDelay:    15 * time.Second,
+		RetryInterval: 10 * time.Minute,
+	})
+	if err != nil {
+		authLimiter.Close()
+		stopScheduler(scheduler)
+		subscriptionService.Stop()
+		manager.Stop()
+		db.Close()
+		return nil, err
+	}
 	updateService := update.NewService(update.Config{
 		Enabled:       cfg.Update.Enabled,
 		Repository:    cfg.Update.Repository,
@@ -609,6 +632,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Settings:       settingsService,
 		Library:        library,
 		LibraryService: libraryService,
+		Identity:       identityMigration,
 		Resolver:       resolve.NewService(ytdlpClient),
 		Auth:           authService,
 		Database:       db,
@@ -652,6 +676,8 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		return nil, err
 	}
 
+	identityMigration.Start(ctx)
+
 	return &application{
 		cfg:            cfg,
 		logger:         logger,
@@ -663,6 +689,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		subscriptions:  subscriptionService,
 		scheduler:      scheduler,
 		libraryService: libraryService,
+		identity:       identityMigration,
 		sessionPool:    sessionPool,
 	}, nil
 }

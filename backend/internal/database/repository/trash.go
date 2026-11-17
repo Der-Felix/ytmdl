@@ -214,7 +214,10 @@ func (c *Catalog) RestoreTrashMetadata(ctx context.Context, e *TrashEntry) error
 			return err
 		}
 		for _, q := range []string{
-			`INSERT INTO tracks SELECT * FROM jsonb_populate_record(NULL::tracks,$1::jsonb->'track')`,
+			// A track trashed before schema 19 has no identity_scheme. It is
+			// restored as scheme 1, so the identity migration looks at its
+			// key again and the lookup still knows the older key forms.
+			`INSERT INTO tracks SELECT * FROM jsonb_populate_record(NULL::tracks,jsonb_build_object('identity_scheme',1)||($1::jsonb->'track'))`,
 			`INSERT INTO files SELECT * FROM jsonb_populate_recordset(NULL::files,$1::jsonb->'files')`,
 			`INSERT INTO track_sources SELECT * FROM jsonb_populate_recordset(NULL::track_sources,$1::jsonb->'sources')`,
 			`INSERT INTO track_overrides SELECT * FROM jsonb_populate_recordset(NULL::track_overrides,$1::jsonb->'overrides')`,

@@ -201,10 +201,20 @@ func TestIdentityOfTreatsOnlyLiveReleasesAsAVersion(t *testing.T) {
 	}
 
 	// An unbracketed remix title is still found under the key earlier
-	// versions built, which kept only the first word of the title.
+	// versions built, which kept only the first word of the title — but only
+	// as a key of the older scheme, which the lookup applies to unmigrated
+	// rows alone.
 	remix := IdentityOf(track("Blinding Lights Major Lazer Remix"))
-	if len(remix.Keys) != 2 || remix.Keys[0] == remix.Keys[1] {
-		t.Errorf("remix identity keys = %q, want the current and the earlier key", remix.Keys)
+	if len(remix.Keys) != 1 || len(remix.OlderSchemeKeys) != 1 || remix.OlderSchemeKeys[0] == remix.Keys[0] {
+		t.Errorf("remix identity = %+v, want the current key and the earlier one as an older-scheme key", remix)
+	}
+	if len(remix.OlderSchemeLiveKeys) != 0 {
+		t.Errorf("remix identity = %+v: no live release, so no older-scheme live key", remix)
+	}
+	liveRemix := IdentityOf(track("Blinding Lights Major Lazer Remix", withRelease(music.ReleaseLive, "Live in Paris", 2012)))
+	if len(liveRemix.OlderSchemeKeys) != 0 || len(liveRemix.OlderSchemeLiveKeys) != 1 ||
+		liveRemix.OlderSchemeLiveKeys[0] != remix.OlderSchemeKeys[0] {
+		t.Errorf("live remix identity = %+v, want the earlier key (without the release's live marker) as an older-scheme live key", liveRemix)
 	}
 }
 

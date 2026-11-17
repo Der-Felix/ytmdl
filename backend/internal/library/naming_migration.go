@@ -9,13 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"ytdm/backend/internal/apperr"
+	"ytdm/backend/internal/bgmigration"
 	"ytdm/backend/internal/database/repository"
 	"ytdm/backend/internal/logging"
 	"ytdm/backend/internal/music"
@@ -69,11 +69,9 @@ const maxRecordedSkips = 200
 // Nothing was recorded as done; the run is repeated later.
 var errNamingStorageUnavailable = errors.New("library storage is not reachable or not writable")
 
-// SettingsStore is the key value store the migration keeps its marker in.
-type SettingsStore interface {
-	Get(ctx context.Context, key string) (string, bool, error)
-	Set(ctx context.Context, key, value string) error
-}
+// SettingsStore is the key value store the migration keeps its marker in. It
+// is the one every background data migration uses.
+type SettingsStore = bgmigration.Settings
 
 // filePathUpdater moves a files row to a new path while keeping its ID. The
 // database repository implements it; a store without it falls back to delete
@@ -305,34 +303,11 @@ func (s *Service) StartNamingMigration(opts NamingMigrationOptions) {
 		return
 	}
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		if opts.StartDelay > 0 {
-			timer := time.NewTimer(opts.StartDelay)
-			select {
-			case <-s.ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-		}
-		for {
-			_, err := s.RunNamingMigration(s.ctx, opts.Settings)
-			if err == nil || s.ctx.Err() != nil {
-				return
-			}
-			s.logger.Warn("library naming migration will be retried",
-				"retry_in", opts.RetryInterval.String(), logging.KeyError, err.Error())
-			timer := time.NewTimer(opts.RetryInterval)
-			select {
-			case <-s.ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-		}
-	}()
+	bgmigration.Schedule(s.ctx, &s.wg, s.logger, "library naming migration",
+		opts.StartDelay, opts.RetryInterval, func(ctx context.Context) error {
+			_, err := s.RunNamingMigration(ctx, opts.Settings)
+			return err
+		})
 }
 
 // NamingMigrationStatus returns the state of the automatic move, or nil when
@@ -381,15 +356,8 @@ func (s *Service) loadNamingStatus(ctx context.Context, settings SettingsStore) 
 
 // appliedNamingScheme reads the marker. ok is false when there is none.
 func (s *Service) appliedNamingScheme(ctx context.Context, settings SettingsStore) (storage.NamingScheme, bool) {
-	raw, ok, err := settings.Get(ctx, NamingSchemeSettingKey)
-	if err != nil || !ok {
-		return 0, false
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil || n <= 0 {
-		return 0, false
-	}
-	return storage.NamingScheme(n), true
+	n, ok := bgmigration.ReadScheme(ctx, settings, NamingSchemeSettingKey)
+	return storage.NamingScheme(n), ok
 }
 
 // RunNamingMigration moves every catalogued file whose path differs only
@@ -492,7 +460,7 @@ func (s *Service) RunNamingMigration(ctx context.Context, settings SettingsStore
 	finished := time.Now().UTC()
 	run.status.FinishedAt = &finished
 	if run.status.Skipped == 0 {
-		if err := settings.Set(ctx, NamingSchemeSettingKey, strconv.Itoa(int(run.to))); err != nil {
+		if err := bgmigration.WriteScheme(ctx, settings, NamingSchemeSettingKey, int(run.to)); err != nil {
 			return fail(NamingStateFailed, err)
 		}
 		run.status.State = NamingStateCompleted

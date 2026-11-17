@@ -144,6 +144,7 @@ provider family either.
 | `MUSICDL_LIBRARY_LYRICS_ENABLED` | `true` | Resolve lyrics during download. Dynamic. |
 | `MUSICDL_LIBRARY_LYRICS_WRITE_SIDECAR` | `true` | Write `.lrc` / `.txt` sidecar files. Dynamic. |
 | `MUSICDL_LIBRARY_AUTO_RENAME` | `true` | After an update that changes the [file naming scheme](/features/library#file-names), move existing files to their new names automatically, in the background. Set `false` to keep the old names until you choose the moment (media servers such as Plex track files by path); set it back and restart to run the move. Read at startup. |
+| `MUSICDL_LIBRARY_IDENTITY_MIGRATION` | `true` | After an update that changes how the backend recognises a track it already owns (its identity key), carry the keys of stored tracks over to the new form in the background, about 15 seconds after start. Only the key and its scheme number change; no file and no other data is touched. Set `false` to keep the stored keys; tracks are still found by their older keys. State at `GET /api/v1/library/identity-migration`. Read at startup. |
 
 ---
 

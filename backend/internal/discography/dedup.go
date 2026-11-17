@@ -241,17 +241,29 @@ func identityKey(t music.Track, base string, versions matcher.VersionSet) string
 // including rows that an earlier version stored under a different key. New
 // rows are only ever written with Keys[0].
 type Identity struct {
-	// Keys holds the current key first, then the key built from the earlier
-	// reading of an unbracketed remix title where that differs.
+	// Keys holds the current key.
 	Keys []string
 	// Live reports whether the recording is a live one, by its title or by
 	// its release.
 	Live bool
-	// LegacyLiveKeys are the keys a track of a live release was stored under
-	// before the release counted towards its identity: the same keys without
-	// the live marker. They are the studio recording's keys as well, so a row
-	// found by them only counts when it belongs to a live release.
+	// LegacyLiveKeys holds the key without the live marker when only the
+	// release makes the track live. Rows of such a release carry it when they
+	// were written before the release counted towards the identity, or while
+	// the stored release was not (yet) typed live — the type of a stored
+	// release follows the provider and InferLiveRelease, so this is not only
+	// history and no identity migration can retire it. It is the studio
+	// recording's key as well, so a row found by it only counts when it
+	// belongs to a live release.
 	LegacyLiveKeys []string
+	// OlderSchemeKeys and OlderSchemeLiveKeys are the keys versions up to
+	// 1.3.0 wrote for the same title: an unbracketed remix title read with
+	// the earlier, greedier expression. They only ever match rows marked with
+	// a scheme below RemixReadingScheme, that is
+	// rows the identity migration has not reached yet or held for review; a
+	// migrated row carries the current key. The Live variant is matched under
+	// the same condition as LegacyLiveKeys.
+	OlderSchemeKeys     []string
+	OlderSchemeLiveKeys []string
 	// ReleaseProvider and ReleaseSourceID name the provider release the track
 	// was resolved from. A row of that very release that was stored under one
 	// of the LegacyLiveKeys is this track, whatever type the stored release
@@ -264,28 +276,40 @@ type Identity struct {
 // IdentityOf builds the lookup identity of a track.
 func IdentityOf(t music.Track) Identity {
 	current := matcher.Analyze(t.Title)
-	legacy := matcher.AnalyzeLegacy(t.Title)
 
 	versions := recordingVersions(t, current)
 	id := Identity{
-		Keys:           []string{identityKey(t, current.Base, versions)},
-		Live:           versions.Has(matcher.VersionLive),
-		LegacyLiveKeys: []string{},
+		Keys:                []string{identityKey(t, current.Base, versions)},
+		Live:                versions.Has(matcher.VersionLive),
+		LegacyLiveKeys:      []string{},
+		OlderSchemeKeys:     []string{},
+		OlderSchemeLiveKeys: []string{},
 	}
 	if provider, release := strings.TrimSpace(t.SourceProvider), strings.TrimSpace(t.ReleaseID); provider != "" && release != "" {
 		id.ReleaseProvider, id.ReleaseSourceID = provider, release
 	}
-	if key := identityKey(t, legacy.Base, recordingVersions(t, legacy)); key != id.Keys[0] {
-		id.Keys = append(id.Keys, key)
-	}
-	if versions != current.Versions {
-		// The live marker comes from the release alone.
+	releaseLive := versions != current.Versions
+	if releaseLive {
 		id.LegacyLiveKeys = append(id.LegacyLiveKeys, identityKey(t, current.Base, current.Versions))
-		if key := identityKey(t, legacy.Base, legacy.Versions); key != id.LegacyLiveKeys[0] {
-			id.LegacyLiveKeys = append(id.LegacyLiveKeys, key)
+	}
+	// The versions that read remix titles the earlier way (up to 1.3.0) did
+	// not add the release's live marker yet, so the key they wrote is that
+	// reading of the title alone.
+	if older := olderSchemeKey(t); older != id.Keys[0] && (!releaseLive || older != id.LegacyLiveKeys[0]) {
+		if releaseLive {
+			id.OlderSchemeLiveKeys = append(id.OlderSchemeLiveKeys, older)
+		} else {
+			id.OlderSchemeKeys = append(id.OlderSchemeKeys, older)
 		}
 	}
 	return id
+}
+
+// olderSchemeKey is the key versions up to 1.3.0 wrote for a track; their
+// rows are scheme 1 rows.
+func olderSchemeKey(t music.Track) string {
+	legacy := matcher.AnalyzeLegacy(t.Title)
+	return identityKey(t, legacy.Base, legacy.Versions)
 }
 
 // recordingVersions returns the version markers that identify a recording: the

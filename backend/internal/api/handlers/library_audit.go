@@ -9,6 +9,8 @@ import (
 	"ytdm/backend/internal/api/response"
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/database/repository"
+	"ytdm/backend/internal/discography"
+	"ytdm/backend/internal/identitymigration"
 	"ytdm/backend/internal/library"
 	"ytdm/backend/internal/music"
 )
@@ -114,6 +116,20 @@ func (h *Handlers) GetNamingMigration(w http.ResponseWriter, r *http.Request) {
 		status = &library.NamingMigrationStatus{State: library.NamingStatePending}
 	}
 	response.Data(w, http.StatusOK, status)
+}
+
+// GetIdentityMigration answers GET /library/identity-migration: the state of
+// the background carry-over of stored identity keys to the current identity
+// scheme, with the tracks it held at their older key and why.
+func (h *Handlers) GetIdentityMigration(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Identity == nil {
+		response.Data(w, http.StatusOK, &identitymigration.Status{
+			ToScheme: discography.IdentityScheme,
+			State:    identitymigration.StatePending,
+		})
+		return
+	}
+	response.Data(w, http.StatusOK, h.deps.Identity.Status())
 }
 
 // GetLibraryAudit answers GET /library/audits/{id}.
