@@ -20,33 +20,22 @@ import { Cover } from '@/components/music/Cover'
 import { QueueDrawer } from '@/components/player/QueueDrawer'
 import { Button } from '@/components/ui/button'
 import { useOptionalFavorites } from '@/hooks/useFavorites'
-import { usePlayer } from '@/hooks/usePlayer'
+import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { Link, paths } from '@/lib/router'
-import { formatDuration, formatPlaybackTime, joinArtists } from '@/lib/utils/format'
+import { joinArtists } from '@/lib/utils/format'
+import { MobileProgress, SeekBar } from './SeekBar'
 
+/*
+ * The bar reads the player state and its actions; only the two progress
+ * displays below subscribe to the playback position. A progress tick thereby
+ * redraws a time label and a slider, not the bar and its open queue.
+ */
 export function MiniPlayer() {
-  const {
-    currentTrack,
-    queue,
-    status,
-    currentTime,
-    duration,
-    volume,
-    muted,
-    shuffle,
-    repeatMode,
-    togglePlayPause,
-    previous,
-    next,
-    seek,
-    setVolume,
-    toggleMute,
-    toggleShuffle,
-    cycleRepeatMode,
-  } = usePlayer()
+  const { currentTrack, queue, status, volume, muted, shuffle, repeatMode } = usePlayerState()
+  const { togglePlayPause, previous, next, setVolume, toggleMute, toggleShuffle, cycleRepeatMode } =
+    usePlayerActions()
 
   const [queueOpen, setQueueOpen] = useState(false)
-  const [seekingValue, setSeekingValue] = useState<number | null>(null)
   const favorites = useOptionalFavorites()
 
   if (!currentTrack) {
@@ -55,8 +44,6 @@ export function MiniPlayer() {
 
   const isPlaying = status === 'playing'
   const isBuffering = status === 'buffering'
-  const displayTime = seekingValue ?? currentTime
-  const progressPercent = duration > 0 ? Math.min(100, (displayTime / duration) * 100) : 0
   const artistText =
     currentTrack.artists?.length > 0
       ? joinArtists(currentTrack.artists)
@@ -66,25 +53,10 @@ export function MiniPlayer() {
     <>
       <aside
         aria-label="Audioplayer"
-      className="fixed bottom-0 left-0 right-0 z-40 h-[80px] sm:h-[86px] border-t border-border bg-surface transition"
+        data-slot="mini-player"
+        className="fixed bottom-0 left-0 right-0 z-40 h-[80px] sm:h-[86px] border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] box-content"
     >
-      {/* Mobile Top Thin Progress Bar (24px interactive hit area completely within player) */}
-      <div
-        className="sm:hidden absolute top-0 left-0 right-0 h-6 flex items-start cursor-pointer z-10"
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect()
-          const clickX = e.clientX - rect.left
-          const ratio = Math.max(0, Math.min(1, clickX / rect.width))
-          seek(ratio * (duration || 0))
-        }}
-      >
-        <div className="w-full h-1 bg-input">
-          <div
-            className="h-full bg-primary transition-[width]"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      </div>
+      <MobileProgress />
 
       <div className="mx-auto flex h-full max-w-[94rem] items-center justify-between px-3 sm:px-6 gap-2 sm:gap-6 pt-6 sm:pt-0">
         
@@ -130,9 +102,10 @@ export function MiniPlayer() {
               onClick={() => void favorites.toggleFavorite(currentTrack.id)}
               className={`hidden sm:inline-flex size-8 shrink-0 rounded-full transition-colors ${
                 favorites.isFavorite(currentTrack.id)
-                  ? 'text-rose-500 hover:text-rose-400'
-                  : 'text-muted-foreground hover:text-rose-400'
+                  ? 'text-primary hover:text-accent-foreground'
+                  : 'text-muted-foreground hover:text-accent-foreground'
               }`}
+              aria-pressed={favorites.isFavorite(currentTrack.id)}
               title={
                 favorites.isFavorite(currentTrack.id)
                   ? 'Aus Favoriten entfernen'
@@ -147,7 +120,7 @@ export function MiniPlayer() {
               <Heart
                 className={`size-4 ${
                   favorites.isFavorite(currentTrack.id)
-                    ? 'fill-rose-500 text-rose-500'
+                    ? 'fill-current'
                     : ''
                 }`}
               />
@@ -243,43 +216,9 @@ export function MiniPlayer() {
             </Button>
           </div>
 
-          {/* Bottom Seekbar Row (Desktop & Tablet with hidden thumb by default) */}
-          <div className="hidden sm:flex w-full items-center justify-between gap-3 text-xs text-muted-foreground font-mono">
-            <span className="w-10 text-right text-[11px] tabular-nums select-none">
-              {formatPlaybackTime(displayTime)}
-            </span>
-            <div className="relative flex-1 group py-1.5 flex items-center">
-              <input
-                type="range"
-                min={0}
-                max={duration || 1}
-                step={0.1}
-                value={displayTime}
-                onMouseDown={() => setSeekingValue(currentTime)}
-                onTouchStart={() => setSeekingValue(currentTime)}
-                onChange={(e) => setSeekingValue(parseFloat(e.target.value))}
-                onMouseUp={() => {
-                  if (seekingValue !== null) {
-                    seek(seekingValue)
-                    setSeekingValue(null)
-                  }
-                }}
-                onTouchEnd={() => {
-                  if (seekingValue !== null) {
-                    seek(seekingValue)
-                    setSeekingValue(null)
-                  }
-                }}
-                className="slider-quiet w-full outline-none"
-                style={{
-                  background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${progressPercent}%, rgba(255,255,255,0.15) ${progressPercent}%, rgba(255,255,255,0.15) 100%)`,
-                }}
-                aria-label="Fortschritt"
-              />
-            </div>
-            <span className="w-10 text-left text-[11px] tabular-nums select-none">
-              {formatDuration(duration * 1000)}
-            </span>
+          {/* Seek bar on tablets and wider; phones get the line on top. */}
+          <div className="hidden w-full sm:block">
+            <SeekBar layout="inline" />
           </div>
         </div>
 
@@ -312,9 +251,9 @@ export function MiniPlayer() {
                 step={0.01}
                 value={muted ? 0 : volume}
                 onChange={(e) => setVolume(parseFloat(e.target.value))}
-                className="slider-quiet w-20 outline-none"
+                className="slider-quiet w-20"
                 style={{
-                  background: `linear-gradient(to right, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.7) ${(muted ? 0 : volume) * 100}%, rgba(255,255,255,0.15) ${(muted ? 0 : volume) * 100}%, rgba(255,255,255,0.15) 100%)`,
+                  background: `linear-gradient(to right, var(--muted-foreground) 0%, var(--muted-foreground) ${(muted ? 0 : volume) * 100}%, var(--input) ${(muted ? 0 : volume) * 100}%, var(--input) 100%)`,
                 }}
                 aria-label="Lautstärkeregler"
               />
@@ -336,7 +275,7 @@ export function MiniPlayer() {
           >
             <ListMusic className="size-4" strokeWidth={1.8} />
             {queue.length > 1 && (
-              <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-primary-foreground shadow">
+              <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 figures text-[9px] font-bold text-primary-foreground">
                 {queue.length}
               </span>
             )}

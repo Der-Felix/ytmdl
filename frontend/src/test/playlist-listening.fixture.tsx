@@ -5,6 +5,7 @@ import { PlayerProvider } from '@/contexts/PlayerContext'
 import { Playlists } from '@/pages/Playlists'
 import { PlaylistDetail } from '@/pages/PlaylistDetail'
 import { PlaylistArtwork } from '@/components/music/PlaylistArtwork'
+import { Toaster } from '@/components/ui/toast'
 import { playlistPreview } from '@/lib/playlist-artwork'
 
 const originalFetch = globalThis.fetch
@@ -61,7 +62,8 @@ it('keeps original positions when filtering and requires confirmation before rem
     const data = url.endsWith('/auth/status') ? { authenticated: true, user: { id: 'fixture', username: 'fixture', role: 'user' } } : { ...playlists[0], tracks }
     return new Response(JSON.stringify({ data }))
   }) as typeof fetch
-  render(<AuthProvider><PlayerProvider><PlaylistDetail id="list-0" /></PlayerProvider></AuthProvider>)
+  // A failed write is reported as a toast; its alert text is the live region.
+  render(<Toaster><AuthProvider><PlayerProvider><PlaylistDetail id="list-0" /></PlayerProvider></AuthProvider></Toaster>)
   await screen.findByLabelText('In dieser Playlist suchen')
   fireEvent.change(screen.getByLabelText('In dieser Playlist suchen'), { target: { value: 'Song 2' } })
   fireEvent.click(screen.getByRole('button', { name: 'Aktionen für Song 2' }))

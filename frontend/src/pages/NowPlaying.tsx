@@ -1,11 +1,8 @@
 import { libraryArtwork } from '@/lib/artwork'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowUp,
   FolderPlus,
-  GripVertical,
   Heart,
   ListMusic,
   Maximize2,
@@ -32,7 +29,6 @@ import {
   Trash2,
   Volume2,
   VolumeX,
-  X,
 } from 'lucide-react'
 
 import { AddToPlaylistDialog } from '@/components/music/AddToPlaylistDialog'
@@ -42,7 +38,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useOptionalFavorites } from '@/hooks/useFavorites'
-import { usePlayer } from '@/hooks/usePlayer'
+import { usePlayerProgressSelector } from '@/contexts/player-progress-store'
+import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
+import { QueueList } from '@/components/player/QueueList'
+import { SeekBar } from '@/components/player/SeekBar'
+import { notifyError } from '@/lib/notify'
 import { refreshTrackLyrics, trackLyrics } from '@/lib/api/library'
 import {
   BUILTIN_PRESETS,
@@ -57,11 +57,16 @@ import type {
   VisualizerMode,
 } from '@/lib/audio/types'
 import { Link, navigate, paths, useLocation } from '@/lib/router'
-import { formatDuration, formatPlaybackTime, joinArtists } from '@/lib/utils/format'
+import { formatDuration, joinArtists } from '@/lib/utils/format'
 import { parseLrc } from '@/lib/utils/lrc'
 import type { TrackLyrics } from '@/types/api'
 
 type PrimaryTab = 'lyrics' | 'queue' | 'equalizer' | 'audio'
+
+/** A unique id for a new parametric filter; filters are stored with the player state. */
+function newFilterId() {
+  return `filter-${Date.now()}`
+}
 
 export function NowPlaying() {
   const location = useLocation()
@@ -72,9 +77,6 @@ export function NowPlaying() {
     queue,
     queueIndex,
     status,
-    error: playbackError,
-    currentTime,
-    duration,
     volume,
     muted,
     shuffle,
@@ -126,12 +128,9 @@ export function NowPlaying() {
     setBalance,
     setMono,
     setVisualizerMode,
-    playQueueIndex,
-    removeFromQueue,
-    reorderQueue,
     clearUpcomingQueue,
     clearQueue,
-  } = usePlayer()
+  } = { ...usePlayerState(), ...usePlayerActions() }
 
   const initialTab: PrimaryTab =
     tabParam === 'eq' || tabParam === 'parametric'
@@ -143,16 +142,12 @@ export function NowPlaying() {
           : 'lyrics'
 
   const [activeTab, setActiveTab] = useState<PrimaryTab>(initialTab)
-  const [seekingValue, setSeekingValue] = useState<number | null>(null)
   const [savePresetOpen, setSavePresetOpen] = useState(false)
   const [customPresetName, setCustomPresetName] = useState('')
   const [showHistory, setShowHistory] = useState(false)
-  const [draggedQueueIndex, setDraggedQueueIndex] = useState<number | null>(null)
-  const [dropTargetQueueIndex, setDropTargetQueueIndex] = useState<number | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [visualizerMenuOpen, setVisualizerMenuOpen] = useState(false)
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false)
-  const [errorDismissed, setErrorDismissed] = useState(false)
   const favorites = useOptionalFavorites()
   const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false)
 
@@ -179,6 +174,9 @@ export function NowPlaying() {
       // Native fullscreen consumes Escape itself; a second Escape closes the large view.
       if (document.fullscreenElement) return
       if (playlistDialogOpen || savePresetOpen) return
+      // Escape that closes the command menu or another dialog stays there.
+      // Toasts are dialogs too, but not modal ones; they do not count.
+      if (document.querySelector('[role="dialog"]:not([data-slot="toast"]), [role="alertdialog"]:not([data-slot="toast"])')) return
       event.preventDefault()
       if (optionsMenuOpen || visualizerMenuOpen) {
         setOptionsMenuOpen(false)
@@ -246,8 +244,8 @@ export function NowPlaying() {
       // The track may have changed while the lookup ran. Lyrics of the
       // previous track must not replace those of the one playing now.
       if (lyricsTrackIdRef.current === requestedTrackId) setLyricsData(refreshed)
-    } catch {
-      // Refresh error handled safely
+    } catch (error) {
+      notifyError('Lyrics konnten nicht nachgeladen werden', error)
     } finally {
       setLyricsRefreshing(false)
     }
@@ -260,21 +258,18 @@ export function NowPlaying() {
     return parsed.lines.length > 0 ? parsed.lines : null
   }, [lyricsData?.content, lyricsData?.synced])
 
-  // Current active synced line index
-  const activeLrcIndex = useMemo(() => {
-    if (!parsedLrcLines || parsedLrcLines.length === 0) return -1
-    const time = currentTime
+  // The active synced line. Derived from the position through a selector, so
+  // the page redraws when the line changes, not on every progress tick.
+  const activeLrcIndex = usePlayerProgressSelector(({ currentTime }) => {
+    if (!parsedLrcLines) return -1
     let activeIdx = -1
     for (let i = 0; i < parsedLrcLines.length; i++) {
       const line = parsedLrcLines[i]
-      if (line && line.timeSeconds <= time) {
-        activeIdx = i
-      } else {
-        break
-      }
+      if (line && line.timeSeconds <= currentTime) activeIdx = i
+      else break
     }
     return activeIdx
-  }, [parsedLrcLines, currentTime])
+  })
 
   // Scroll only the panel; scrollIntoView also moves the page and hides controls.
   useEffect(() => {
@@ -316,8 +311,6 @@ export function NowPlaying() {
 
   const isPlaying = status === 'playing'
   const isBuffering = status === 'buffering'
-  const displayTime = seekingValue ?? currentTime
-  const progressPercent = duration > 0 ? Math.min(100, (displayTime / duration) * 100) : 0
   const artistText =
     currentTrack.artists?.length > 0
       ? joinArtists(currentTrack.artists)
@@ -327,7 +320,7 @@ export function NowPlaying() {
 
   const handleAddParametricFilter = () => {
     const newFilter: ParametricFilter = {
-      id: `filter-${Date.now()}`,
+      id: newFilterId(),
       type: 'peaking',
       frequency: 1000,
       gain: 0,
@@ -350,43 +343,6 @@ export function NowPlaying() {
         />
         <div className="absolute inset-0 bg-radial from-transparent via-background/70 to-background" />
       </div>
-
-      {/* Floating Error Toast (Never Displaces Main Grid) */}
-      {playbackError && !errorDismissed && (
-        <div className="fixed top-16 right-6 z-50 max-w-sm rounded-2xl bg-destructive/20 border border-destructive/40 p-3.5 text-xs text-destructive-foreground shadow-2xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="min-w-0">
-            <p className="font-semibold">{playbackError}</p>
-            <p className="text-muted-foreground text-[11px] mt-0.5">
-              Der Titel konnte nicht geladen werden.
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => playTrack(currentTrack)}
-              className="h-7 px-2 text-xs border-destructive/40 text-foreground hover:bg-destructive/20"
-            >
-              Erneut
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => next(true)}
-              className="h-7 px-2 text-xs bg-destructive text-foreground hover:bg-destructive/80"
-            >
-              Weiter
-            </Button>
-            <button
-              type="button"
-              onClick={() => setErrorDismissed(true)}
-              className="p-1 rounded-lg hover:bg-input text-muted-foreground hover:text-foreground transition-colors"
-              title="Meldung schließen"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Top Header Bar (Clean & Minimal) */}
       <header className="relative z-20 flex h-14 shrink-0 items-center justify-between px-4 sm:px-8">
@@ -524,53 +480,8 @@ export function NowPlaying() {
               </div>
             </div>
 
-            {/* Seekbar & Timestamps (Quiet Slider - Thumb on Hover only) */}
-            <div className="w-full space-y-1.5 pt-1">
-              <div className="relative flex items-center py-1 group">
-                <input
-                  type="range"
-                  min={0}
-                  max={duration || 1}
-                  step={0.1}
-                  value={displayTime}
-                  onMouseDown={() => setSeekingValue(currentTime)}
-                  onTouchStart={() => setSeekingValue(currentTime)}
-                  onChange={(e) => setSeekingValue(parseFloat(e.target.value))}
-                  onKeyUp={(e) => {
-                    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
-                      seek(Number(e.currentTarget.value))
-                      setSeekingValue(null)
-                    }
-                  }}
-                  onBlur={() => {
-                    if (seekingValue !== null) seek(seekingValue)
-                    setSeekingValue(null)
-                  }}
-                  onMouseUp={() => {
-                    if (seekingValue !== null) {
-                      seek(seekingValue)
-                      setSeekingValue(null)
-                    }
-                  }}
-                  onTouchEnd={() => {
-                    if (seekingValue !== null) {
-                      seek(seekingValue)
-                      setSeekingValue(null)
-                    }
-                  }}
-                  className="slider-quiet w-full outline-none"
-                  style={{
-                    background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${progressPercent}%, var(--input) ${progressPercent}%, var(--input) 100%)`,
-                  }}
-                  aria-label="Fortschritt"
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
-                <span className="tabular-nums">{formatPlaybackTime(displayTime)}</span>
-                <span className="tabular-nums">{formatDuration(duration * 1000)}</span>
-              </div>
-            </div>
+            {/* Seek bar: the only part of this page that follows the position. */}
+            <SeekBar layout="stacked" />
 
             {/* Primary Playback Controls (Centered, Tight 20-24px Gap) */}
             <div className="flex items-center justify-center lg:justify-start gap-4 sm:gap-5 w-full pt-0.5">
@@ -742,7 +653,7 @@ export function NowPlaying() {
                     title="Wiedergabeoptionen"
                   >
                     <MoreHorizontal className="size-3.5" />
-                    <span className="font-mono text-[11px]">{playbackRate}x</span>
+                    <span className="figures text-[11px]">{playbackRate}x</span>
                     {sleepTimer !== 'off' && (
                       <span className="size-1.5 rounded-full bg-primary" />
                     )}
@@ -764,7 +675,7 @@ export function NowPlaying() {
                                 setPlaybackRate(rate)
                                 setOptionsMenuOpen(false)
                               }}
-                              className={`py-1 text-xs font-mono rounded-lg transition-colors ${
+                              className={`py-1 text-xs figures rounded-lg transition-colors ${
                                 playbackRate === rate
                                   ? 'bg-primary text-primary-foreground font-bold'
                                   : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -868,7 +779,7 @@ export function NowPlaying() {
                 <ListMusic className="size-4" strokeWidth={1.8} />
                 <span>Queue</span>
                 {queue.length > 0 && (
-                  <Badge variant="outline" className="py-0 px-1.5 text-[10px] font-mono border-input text-muted-foreground">
+                  <Badge variant="outline" className="py-0 px-1.5 text-[10px] figures border-input text-muted-foreground">
                     {queue.length}
                   </Badge>
                 )}
@@ -1058,117 +969,7 @@ export function NowPlaying() {
                   )}
 
                   {/* Active Queue List */}
-                  {!showHistory && queue.length > 0 && (
-                    <div className="space-y-1">
-                      {queue.map((track, idx) => {
-                        const isCurrent = idx === queueIndex
-                        const isDragging = draggedQueueIndex === idx
-                        const isDropTarget = dropTargetQueueIndex === idx
-                        return (
-                          <div
-                            key={`${track.id}-${idx}`}
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData('text/plain', String(idx))
-                              e.dataTransfer.effectAllowed = 'move'
-                              setDraggedQueueIndex(idx)
-                            }}
-                            onDragOver={(e) => {
-                              e.preventDefault()
-                              e.dataTransfer.dropEffect = 'move'
-                              if (dropTargetQueueIndex !== idx) {
-                                setDropTargetQueueIndex(idx)
-                              }
-                            }}
-                            onDrop={(e) => {
-                              e.preventDefault()
-                              const fromStr = e.dataTransfer.getData('text/plain')
-                              const fromIdx = parseInt(fromStr, 10)
-                              if (!isNaN(fromIdx) && fromIdx !== idx) {
-                                reorderQueue(fromIdx, idx)
-                              }
-                              setDraggedQueueIndex(null)
-                              setDropTargetQueueIndex(null)
-                            }}
-                            onDragEnd={() => {
-                              setDraggedQueueIndex(null)
-                              setDropTargetQueueIndex(null)
-                            }}
-                            aria-current={isCurrent ? 'true' : undefined}
-                            className={`group flex items-center justify-between gap-3 p-2 rounded-xl transition cursor-pointer select-none border ${
-                              isCurrent
-                                ? 'bg-primary/10 border-primary/40 text-primary-foreground'
-                                : 'border-transparent hover:bg-muted text-foreground'
-                            } ${isDragging ? 'opacity-30 scale-98' : ''} ${
-                              isDropTarget && !isDragging ? 'border-primary/60 bg-secondary' : ''
-                            }`}
-                            onClick={() => playQueueIndex(idx)}
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <button
-                                type="button"
-                                className="cursor-grab active:cursor-grabbing p-1 text-muted-foreground/80 hover:text-foreground/80 opacity-60 group-hover:opacity-100 transition-opacity shrink-0"
-                                title="Verschieben per Drag & Drop"
-                                aria-label="Verschieben per Drag & Drop"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <GripVertical className="size-3.5" />
-                              </button>
-                              <Cover
-                                src={libraryArtwork('tracks', track.id)} fallbackSrc={track.cover_url}
-                                alt={track.title}
-                                shape="square"
-                                className="size-9 rounded-lg shrink-0 border border-input"
-                              />
-                              <div className="min-w-0 flex-1">
-                                <p className={`truncate text-xs sm:text-sm font-semibold ${isCurrent ? 'text-primary' : 'text-foreground'}`}>
-                                  {track.title}
-                                </p>
-                                <p className="truncate text-[11px] text-muted-foreground">
-                                  {track.artists?.length > 0 ? joinArtists(track.artists) : track.album_artist}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                              <span className="text-[11px] font-mono text-muted-foreground tabular-nums pr-1">
-                                {formatDuration(track.duration_ms)}
-                              </span>
-                              <button
-                                type="button"
-                                disabled={idx === 0}
-                                onClick={() => reorderQueue(idx, idx - 1)}
-                                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-input disabled:opacity-20 disabled:pointer-events-none transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                title="Nach oben verschieben"
-                                aria-label={`Titel ${track.title} nach oben verschieben`}
-                              >
-                                <ArrowUp className="size-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                disabled={idx === queue.length - 1}
-                                onClick={() => reorderQueue(idx, idx + 1)}
-                                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-input disabled:opacity-20 disabled:pointer-events-none transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                title="Nach unten verschieben"
-                                aria-label={`Titel ${track.title} nach unten verschieben`}
-                              >
-                                <ArrowDown className="size-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => removeFromQueue(idx)}
-                                className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                title="Aus Warteschlange entfernen"
-                                aria-label={`Titel ${track.title} aus Warteschlange entfernen`}
-                              >
-                                <X className="size-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
+                  {!showHistory && queue.length > 0 && <QueueList />}
 
                   {/* History List */}
                   {showHistory && history.length > 0 && (
@@ -1195,7 +996,7 @@ export function NowPlaying() {
                               </p>
                             </div>
                           </div>
-                          <span className="text-[11px] font-mono text-muted-foreground/80 tabular-nums">
+                          <span className="figures text-[11px] text-muted-foreground/80">
                             {formatDuration(item.track.duration_ms)}
                           </span>
                         </div>
@@ -1343,7 +1144,7 @@ export function NowPlaying() {
                         const gain = graphicBands[idx] ?? 0
                         return (
                           <div key={freq} className="flex flex-col items-center gap-2 group">
-                            <span className="text-[10px] font-mono text-foreground/80 tabular-nums">
+                            <span className="figures text-[10px] text-foreground/80">
                               {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}
                             </span>
 
@@ -1361,7 +1162,7 @@ export function NowPlaying() {
                               />
                             </div>
 
-                            <span className="text-[9px] sm:text-[10px] font-mono text-muted-foreground text-center select-none">
+                            <span className="text-[9px] sm:text-[10px] figures text-muted-foreground text-center select-none">
                               {formatFrequency(freq)}
                             </span>
                           </div>
@@ -1396,7 +1197,7 @@ export function NowPlaying() {
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-2">
-                                <span className="text-xs font-mono text-muted-foreground">#{index + 1}</span>
+                                <span className="text-xs figures text-muted-foreground">#{index + 1}</span>
                                 <select
                                   value={filter.type}
                                   onChange={(e) =>
@@ -1446,7 +1247,7 @@ export function NowPlaying() {
                               <div className="space-y-1">
                                 <div className="flex justify-between text-[10px] text-muted-foreground">
                                   <span>Frequenz</span>
-                                  <span className="font-mono text-foreground">{filter.frequency} Hz</span>
+                                  <span className="figures text-foreground">{filter.frequency} Hz</span>
                                 </div>
                                 <input
                                   type="range"
@@ -1467,7 +1268,7 @@ export function NowPlaying() {
                               <div className="space-y-1">
                                 <div className="flex justify-between text-[10px] text-muted-foreground">
                                   <span>Gain</span>
-                                  <span className="font-mono text-foreground">
+                                  <span className="figures text-foreground">
                                     {filter.gain > 0 ? `+${filter.gain}` : filter.gain} dB
                                   </span>
                                 </div>
@@ -1490,7 +1291,7 @@ export function NowPlaying() {
                               <div className="space-y-1">
                                 <div className="flex justify-between text-[10px] text-muted-foreground">
                                   <span>Güte (Q)</span>
-                                  <span className="font-mono text-foreground">{filter.q.toFixed(2)}</span>
+                                  <span className="figures text-foreground">{filter.q.toFixed(2)}</span>
                                 </div>
                                 <input
                                   type="range"
@@ -1538,7 +1339,7 @@ export function NowPlaying() {
                     </div>
                     <div className="flex items-center justify-between text-xs text-foreground/80">
                       <label htmlFor="player-crossfade">Überblendung zwischen Liedern</label>
-                      <span className="font-mono text-foreground">{crossfadeSeconds === 0 ? 'Aus' : `${crossfadeSeconds} s`}</span>
+                      <span className="figures text-foreground">{crossfadeSeconds === 0 ? 'Aus' : `${crossfadeSeconds} s`}</span>
                     </div>
                     <input id="player-crossfade" type="range" min={0} max={12} step={1}
                       value={crossfadeSeconds} onChange={(e) => setCrossfade(Number(e.target.value))}
@@ -1587,7 +1388,7 @@ export function NowPlaying() {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between text-xs text-foreground/80">
                         <span>Vorverstärkung (Preamp)</span>
-                        <span className="font-mono font-medium text-foreground">
+                        <span className="figures font-medium text-foreground">
                           {preamp > 0 ? `+${preamp}` : preamp} dB
                         </span>
                       </div>
@@ -1658,7 +1459,7 @@ export function NowPlaying() {
                   <div className="p-3.5 rounded-xl bg-muted border border-border space-y-2">
                     <div className="flex items-center justify-between text-xs text-foreground/80">
                       <span>Stereo Balance (L/R)</span>
-                      <span className="font-mono text-foreground">
+                      <span className="figures text-foreground">
                         {balance === 0 ? 'Mitte' : balance < 0 ? `L ${Math.abs(Math.round(balance * 100))}%` : `R ${Math.round(balance * 100)}%`}
                       </span>
                     </div>

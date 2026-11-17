@@ -34,6 +34,7 @@ import {
   updateJob,
 } from '@/lib/api/jobs'
 import { isAbortError } from '@/lib/api/client'
+import { notifyError } from '@/lib/notify'
 import { cn } from '@/lib/utils'
 import { formatContinuationTime, formatNumber, formatRelative } from '@/lib/utils/format'
 import type { Job, JobItem, JobPriority, JobStatus } from '@/types/api'
@@ -70,7 +71,6 @@ function JobCard({
   const [itemFilter, setItemFilter] = useState<'all' | 'failed'>('all')
   const [detailError, setDetailError] = useState<unknown>(null)
   const [actionPending, setActionPending] = useState(false)
-  const [actionError, setActionError] = useState<unknown>(null)
 
   async function showDetails(filter: 'all' | 'failed' = 'all') {
     setItemFilter(filter)
@@ -96,12 +96,11 @@ function JobCard({
 
   async function handleTogglePause() {
     setActionPending(true)
-    setActionError(null)
     try {
       const updated = job.paused ? await resumeJob(job.id) : await pauseJob(job.id)
       onUpdated?.(updated)
     } catch (e) {
-      if (!isAbortError(e)) setActionError(e)
+      if (!isAbortError(e)) notifyError('Auftrag konnte nicht geändert werden', e)
     } finally {
       setActionPending(false)
     }
@@ -110,12 +109,11 @@ function JobCard({
   async function handleSetPriority(priority: JobPriority) {
     if (priority === job.priority) return
     setActionPending(true)
-    setActionError(null)
     try {
       const updated = await updateJob(job.id, { priority })
       onUpdated?.(updated)
     } catch (e) {
-      if (!isAbortError(e)) setActionError(e)
+      if (!isAbortError(e)) notifyError('Auftrag konnte nicht geändert werden', e)
     } finally {
       setActionPending(false)
     }
@@ -123,7 +121,6 @@ function JobCard({
 
   async function handleRetryFailed() {
     setActionPending(true)
-    setActionError(null)
     try {
       const res = await retryFailedJob(job.id)
       onUpdated?.(res.job)
@@ -132,7 +129,7 @@ function JobCard({
         setItems(detail.items)
       }
     } catch (e) {
-      if (!isAbortError(e)) setActionError(e)
+      if (!isAbortError(e)) notifyError('Auftrag konnte nicht geändert werden', e)
     } finally {
       setActionPending(false)
     }
@@ -140,14 +137,13 @@ function JobCard({
 
   async function handleRetryItem(itemId: string) {
     setActionPending(true)
-    setActionError(null)
     try {
       await retryJobItem(job.id, itemId)
       const detail = await getJob(job.id)
       setItems(detail.items)
       onUpdated?.(detail.job)
     } catch (e) {
-      if (!isAbortError(e)) setActionError(e)
+      if (!isAbortError(e)) notifyError('Auftrag konnte nicht geändert werden', e)
     } finally {
       setActionPending(false)
     }
@@ -196,7 +192,7 @@ function JobCard({
                 JOB_STATUS_LABELS[job.status]
               )}
             </span>
-            <span className="shrink-0 tabular-nums text-muted-foreground">
+            <span className="figures shrink-0 text-muted-foreground">
               {job.total > 0
                 ? `${formatNumber(processed(job))} / ${formatNumber(job.total)}`
                 : 'Wird ermittelt'}
@@ -229,7 +225,6 @@ function JobCard({
         </button>
       )}
 
-      {actionError !== null && <ErrorState error={actionError} />}
 
       {/* Job Actions Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/40">
@@ -408,7 +403,7 @@ function Outcome({ job }: { job: Job }) {
               part.tone === 'neutral' && 'bg-muted-foreground',
             )}
           />
-          <span className="tabular-nums text-foreground">{formatNumber(part.value)}</span>
+          <span className="figures text-foreground">{formatNumber(part.value)}</span>
           <span className="text-muted-foreground">{part.label}</span>
         </li>
       ))}

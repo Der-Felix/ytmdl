@@ -129,7 +129,7 @@ function DiscographyDialog({
                 <span className="flex-1 text-sm text-foreground">
                   {RELEASE_TYPE_LABELS[row.type].many}
                 </span>
-                <span className="text-xs tabular-nums text-muted-foreground">
+                <span className="figures text-xs text-muted-foreground">
                   {unavailable ? 'keine' : formatNumber(count)}
                 </span>
               </label>

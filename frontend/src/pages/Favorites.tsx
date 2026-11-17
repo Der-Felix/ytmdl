@@ -123,7 +123,7 @@ export function Favorites() {
             Deine persönlich markierten Favoriten auf einen Blick.
           </p>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground font-mono">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground figures">
             <span>
               {tracks.length} {tracks.length === 1 ? 'Titel' : 'Titel'}
             </span>

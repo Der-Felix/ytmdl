@@ -279,7 +279,7 @@ function LibraryOverview() {
                   <entry.icon className="size-3.5" />
                   {entry.label}
                 </dt>
-                <dd className="mt-1.5 font-heading text-xl font-semibold tabular-nums text-foreground">
+                <dd className="mt-1.5 figures text-xl font-semibold text-foreground">
                   {state.status === 'loading' ? (
                     <Skeleton className="h-6 w-12 rounded-md" />
                   ) : (

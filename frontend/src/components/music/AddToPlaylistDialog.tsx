@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/api/client'
 import { addTrackToPlaylist, createPlaylist, listPlaylists } from '@/lib/api/playlists'
 import { addPlaylistTracks } from '@/lib/api/libraryTools'
+import { notifySuccess } from '@/lib/notify'
 import type { LibraryTrack } from '@/types/api'
 import type { Playlist } from '@/types/playlist'
 
@@ -68,6 +69,9 @@ export function AddToPlaylistDialog({
     void load()
   }, [open])
 
+  const addedTitle = () =>
+    tracks && tracks.length > 1 ? `${tracks.length} Titel zur Playlist hinzugefügt` : 'Zur Playlist hinzugefügt'
+
   const handleAddToPlaylist = async (playlistId: string) => {
     if (!track && !tracks?.length) return
     try {
@@ -80,6 +84,7 @@ export function AddToPlaylistDialog({
         )
       else if (track) await addTrackToPlaylist(playlistId, track.id)
       setAddedIds((prev) => new Set(prev).add(playlistId))
+      notifySuccess(addedTitle(), playlists.find((p) => p.id === playlistId)?.name)
       // Auto-close dialog after brief feedback
       setTimeout(() => {
         onOpenChange(false)
@@ -119,6 +124,7 @@ export function AddToPlaylistDialog({
         )
       else if (track) await addTrackToPlaylist(created.id, track.id)
       setAddedIds((prev) => new Set(prev).add(created.id))
+      notifySuccess(addedTitle(), created.name)
       setPlaylists((prev) => [created, ...prev])
       setNewPlaylistName('')
       setIsCreating(false)

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { deleteArtwork, uploadArtwork } from '@/lib/api/libraryTools'
+import { notifyError, notifySuccess } from '@/lib/notify'
 export function ArtworkEditor({
   kind,
   id,
@@ -10,19 +11,17 @@ export function ArtworkEditor({
   id: string
   onSaved?: () => void
 }) {
-  const [busy, setBusy] = useState(false),
-    [message, setMessage] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const save = async (file?: File) => {
     if (busy) return
     setBusy(true)
-    setMessage(null)
     try {
       if (file) await uploadArtwork(kind, id, file)
       else await deleteArtwork(kind, id)
-      setMessage(file ? 'Bild gespeichert.' : 'Eigenes Bild entfernt.')
+      notifySuccess(file ? 'Bild gespeichert' : 'Eigenes Bild entfernt')
       onSaved?.()
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : 'Bild konnte nicht gespeichert werden.')
+      notifyError('Bild konnte nicht gespeichert werden', e)
     } finally {
       setBusy(false)
     }
@@ -50,7 +49,6 @@ export function ArtworkEditor({
       <p className="text-muted-foreground">
         JPEG oder PNG, bis 8 MiB. Audiodateien bleiben unverändert.
       </p>
-      {message && <p role="status">{message}</p>}
     </div>
   )
 }

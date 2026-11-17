@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 /* YTMDL is a dark-only application. The variant stays defined because the
    shadcn components carry dark: utilities; <html class="dark"> switches them
@@ -9,10 +10,10 @@
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
-    /* Durations, counters and other figures. No mono face is bundled yet, so
-       this falls back to the platform's own; add one with the next dependency
-       update and only this line changes. */
-    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', monospace;
+    /* Durations, counters and other figures: Geist Mono, the monospaced
+       sibling of the text face, self-hosted like it. Apply it through the
+       `figures` utility below, which adds tabular figures. */
+    --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', monospace;
 
     --color-surface: var(--surface);
     --color-overlay: var(--overlay);
@@ -115,6 +116,10 @@
     --duration-base: 200ms;
     --duration-slow: 300ms;
 
+    /* Height of the mini player while it is on screen; toasts and other
+       bottom-anchored overlays sit above it. */
+    --player-height: 0px;
+
     --sidebar: transparent;
     --sidebar-foreground: var(--foreground);
     --sidebar-primary: var(--primary);
@@ -123,6 +128,16 @@
     --sidebar-accent-foreground: var(--accent-foreground);
     --sidebar-border: var(--border);
     --sidebar-ring: var(--ring);
+}
+
+/* Outside @layer base on purpose: the default above is unlayered, and an
+   unlayered declaration beats a layered one whatever its specificity. */
+:root:has([data-slot="mini-player"]) {
+    --player-height: calc(5rem + env(safe-area-inset-bottom));
+
+    @media (width >= 40rem) {
+        --player-height: calc(5.375rem + env(safe-area-inset-bottom));
+    }
 }
 
 @layer base {
@@ -223,10 +238,20 @@
     );
 }
 
-:where(button, [role="button"], [data-slot="button"]):focus-visible,
+/* One visible focus ring for everything that can be reached by keyboard.
+   Text fields keep their own border ring from the input component. */
+:where(button, [role="button"], [data-slot="button"], a[href], summary, select, input[type="range"], input[type="checkbox"], input[type="radio"], [tabindex]:not([tabindex="-1"])):focus-visible,
 [data-slot="button"]:has(:focus-visible) {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+}
+
+/* Durations, counters and other figures that change or sit in columns: the
+   mono face with tabular figures, so digits keep their width. */
+@utility figures {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
 }
 
 /* A panel: the flat, finely bordered surface every card, list and section in
@@ -313,8 +338,8 @@
 .slider-quiet::-webkit-slider-runnable-track {
     height: 3px;
     border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.15);
-    transition: height 120ms ease;
+    background: color-mix(in oklab, var(--foreground) 15%, transparent);
+    transition: height var(--duration-fast) ease;
 }
 
 .slider-quiet:hover::-webkit-slider-runnable-track,
@@ -329,10 +354,10 @@
     height: 8px;
     border-radius: 9999px;
     background-color: var(--foreground);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 1px 3px color-mix(in oklab, var(--overlay) 60%, transparent);
     margin-top: -2.5px;
     opacity: 0;
-    transition: opacity 120ms ease, transform 120ms ease;
+    transition: opacity var(--duration-fast) ease, transform var(--duration-fast) ease;
 }
 
 .slider-quiet:hover::-webkit-slider-thumb,
@@ -345,7 +370,7 @@
 .slider-quiet::-moz-range-track {
     height: 3px;
     border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.15);
+    background: color-mix(in oklab, var(--foreground) 15%, transparent);
     border: none;
 }
 
@@ -356,7 +381,7 @@
     background-color: var(--foreground);
     border: none;
     opacity: 0;
-    transition: opacity 120ms ease;
+    transition: opacity var(--duration-fast) ease;
 }
 
 .slider-quiet:hover::-moz-range-thumb,
@@ -378,7 +403,7 @@
 .slider-eq::-webkit-slider-runnable-track {
     width: 3px;
     border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--input);
 }
 
 .slider-eq::-webkit-slider-thumb {
@@ -388,9 +413,9 @@
     height: 6px;
     border-radius: 3px;
     background-color: var(--muted-foreground);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 1px 3px color-mix(in oklab, var(--overlay) 60%, transparent);
     margin-left: -7.5px;
-    transition: background-color 120ms ease, transform 120ms ease;
+    transition: background-color var(--duration-fast) ease, transform var(--duration-fast) ease;
 }
 
 .slider-eq:hover::-webkit-slider-thumb,
@@ -403,7 +428,7 @@
 .slider-eq::-moz-range-track {
     width: 3px;
     border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--input);
     border: none;
 }
 
@@ -413,7 +438,7 @@
     border-radius: 3px;
     background-color: var(--muted-foreground);
     border: none;
-    transition: background-color 120ms ease;
+    transition: background-color var(--duration-fast) ease;
 }
 
 .slider-eq:hover::-moz-range-thumb,

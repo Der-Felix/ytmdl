@@ -435,7 +435,7 @@ export function LibrarySearchField({
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        <span className="text-xs text-muted-foreground/80 font-mono mr-1">
+                        <span className="text-xs text-muted-foreground/80 figures mr-1">
                           {formatDuration(track.duration_ms)}
                         </span>
                         {playerActions && (

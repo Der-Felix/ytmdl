@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { MenuIcon, XIcon } from 'lucide-react'
+import { MenuIcon, SearchIcon, XIcon } from 'lucide-react'
 
+import { CommandMenu } from '@/components/layout/CommandMenu'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { MiniPlayer } from '@/components/player/MiniPlayer'
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,7 @@ interface AppShellProps {
  */
 function AppShell({ route, activeDownloads, children }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [commandOpen, setCommandOpen] = useState(false)
   const { currentTrack } = usePlayerState()
   const isPlayerRoute = route.name === 'player'
   const showMiniPlayer = Boolean(currentTrack) && !isPlayerRoute
@@ -62,7 +64,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
       {/* Desktop sidebar (Hidden in player mode) */}
       {!isPlayerRoute && (
         <aside className="sticky top-0 hidden h-dvh border-r border-border md:block">
-          <Sidebar route={route} activeDownloads={activeDownloads} />
+          <Sidebar route={route} activeDownloads={activeDownloads} onOpenCommandMenu={() => setCommandOpen(true)} />
         </aside>
       )}
 
@@ -80,6 +82,10 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
               route={route}
               activeDownloads={activeDownloads}
               onNavigate={() => setDrawerOpen(false)}
+              onOpenCommandMenu={() => {
+                setDrawerOpen(false)
+                setCommandOpen(true)
+              }}
             />
           </aside>
         </div>
@@ -119,6 +125,16 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
                 YTMDL
               </span>
             </Link>
+
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="ml-auto"
+              aria-label="Suchen und Befehle"
+              onClick={() => setCommandOpen(true)}
+            >
+              <SearchIcon />
+            </Button>
           </header>
         )}
 
@@ -140,6 +156,8 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
       </div>
 
       {showMiniPlayer && <MiniPlayer />}
+
+      <CommandMenu open={commandOpen} onOpenChange={setCommandOpen} />
     </div>
   )
 }

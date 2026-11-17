@@ -215,7 +215,7 @@ export function OfflinePage() {
               className="w-full accent-primary"
             />
           </label>
-          <div className="flex justify-between text-xs text-muted-foreground font-mono">
+          <div className="flex justify-between text-xs text-muted-foreground figures">
             <span>{time(progress.currentTime)}</span>
             <span>{time(progress.duration)}</span>
           </div>
