@@ -60,6 +60,8 @@ let mockState = {
 
 mock.module('@/hooks/usePlayer', () => ({
   usePlayer: () => mockState,
+  usePlayerState: () => mockState,
+  usePlayerActions: () => mockState,
 }))
 
 describe('QueueDrawer', () => {
@@ -156,5 +158,18 @@ describe('QueueDrawer', () => {
     render(<QueueDrawer open={true} onOpenChange={() => {}} />)
 
     expect(screen.getByText('Die Warteschlange ist leer')).toBeDefined()
+  })
+
+  it('gives every row a drag grip and a play button that work without a pointer', () => {
+    mockState = { ...mockState, queue: [dummyTrack1, dummyTrack2, dummyTrack3], queueIndex: 0, currentTrack: dummyTrack1 }
+    mockPlayQueueIndex.mockClear()
+    render(<QueueDrawer open={true} onOpenChange={() => {}} />)
+
+    expect(screen.getByRole('button', { name: 'Track Two verschieben' }).tagName).toBe('BUTTON')
+    const play = screen.getByRole('button', { name: 'Track Three abspielen' })
+    play.focus()
+    fireEvent.click(play)
+    expect(mockPlayQueueIndex).toHaveBeenCalledWith(2)
+    expect(screen.getByRole('button', { name: 'Track One abspielen' }).getAttribute('aria-current')).toBe('true')
   })
 })
