@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  CheckCircle2Icon,
   KeyIcon,
   PlusIcon,
   ShieldIcon,
@@ -33,6 +32,7 @@ import {
   updateUser,
 } from '@/lib/api/users'
 import { errorMessage } from '@/lib/api/client'
+import { notifyError, notifySuccess } from '@/lib/notify'
 import type { Role, UserSummary } from '@/types/api'
 
 export function Users() {
@@ -41,7 +41,6 @@ export function Users() {
   const [users, setUsers] = useState<UserSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
 
   // Create User dialog state
   const [createOpen, setCreateOpen] = useState(false)
@@ -114,7 +113,7 @@ export function Users() {
         password: newPassword,
         role: newRole,
       })
-      setSuccess(`Benutzer "${newUsername.trim()}" erfolgreich erstellt.`)
+      notifySuccess(`Benutzer "${newUsername.trim()}" erfolgreich erstellt.`)
       setCreateOpen(false)
       setNewUsername('')
       setNewDisplayName('')
@@ -129,32 +128,28 @@ export function Users() {
   }
 
   const handleToggleStatus = async (targetUser: UserSummary) => {
-    setError(null)
-    setSuccess(null)
     try {
       const nextStatus = !targetUser.enabled
       await updateUser(targetUser.id, { enabled: nextStatus })
-      setSuccess(
+      notifySuccess(
         `Benutzer "${targetUser.username}" wurde ${nextStatus ? 'aktiviert' : 'deaktiviert'}.`,
       )
       await loadUsers()
     } catch (err) {
-      setError(errorMessage(err))
+      notifyError('Änderung nicht gespeichert', errorMessage(err))
     }
   }
 
   const handleToggleRole = async (targetUser: UserSummary) => {
-    setError(null)
-    setSuccess(null)
     try {
       const nextRole: Role = targetUser.role === 'admin' ? 'user' : 'admin'
       await updateUser(targetUser.id, { role: nextRole })
-      setSuccess(
+      notifySuccess(
         `Rolle von "${targetUser.username}" geändert zu ${nextRole === 'admin' ? 'Administrator' : 'Benutzer'}.`,
       )
       await loadUsers()
     } catch (err) {
-      setError(errorMessage(err))
+      notifyError('Änderung nicht gespeichert', errorMessage(err))
     }
   }
 
@@ -171,7 +166,7 @@ export function Users() {
     try {
       setResetting(true)
       await resetPassword(resetTargetUser.id, resetNewPassword)
-      setSuccess(`Passwort für "${resetTargetUser.username}" erfolgreich zurückgesetzt.`)
+      notifySuccess(`Passwort für "${resetTargetUser.username}" erfolgreich zurückgesetzt.`)
       setResetTargetUser(null)
       setResetNewPassword('')
     } catch (err) {
@@ -188,7 +183,7 @@ export function Users() {
     try {
       setDeleting(true)
       await deleteUser(deleteTargetUser.id)
-      setSuccess(`Benutzer "${deleteTargetUser.username}" erfolgreich gelöscht.`)
+      notifySuccess(`Benutzer "${deleteTargetUser.username}" erfolgreich gelöscht.`)
       setDeleteTargetUser(null)
       await loadUsers()
     } catch (err) {
@@ -301,16 +296,6 @@ export function Users() {
           className="rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 text-sm text-destructive"
         >
           {error}
-        </div>
-      )}
-
-      {success && (
-        <div
-          role="status"
-          className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-sm text-emerald-400"
-        >
-          <CheckCircle2Icon className="h-4 w-4 shrink-0" />
-          {success}
         </div>
       )}
 

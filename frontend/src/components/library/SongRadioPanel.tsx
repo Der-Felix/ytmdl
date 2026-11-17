@@ -117,10 +117,7 @@ export function SongRadioPanel() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                addToQueue(tracks)
-                setMessage('Radio-Mix zur Warteschlange hinzugefügt.')
-              }}
+              onClick={() => addToQueue(tracks)}
             >
               <ListPlus className="size-4" />
               Zur Warteschlange

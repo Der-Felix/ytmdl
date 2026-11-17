@@ -23,6 +23,7 @@ import {
   previewLibraryRepairs,
   startLibraryAudit,
 } from '@/lib/api/library'
+import { notifyError } from '@/lib/notify'
 import { formatRelative } from '@/lib/utils/format'
 import type {
   AuditFinding,
@@ -173,7 +174,7 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
         setPreviewDialogOpen(true)
       }
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Vorschau fehlgeschlagen.')
+      notifyError('Vorschau fehlgeschlagen', err)
     } finally {
       setPreviewLoading(false)
     }
@@ -322,11 +323,11 @@ export function IntegrityPanel({ isAdmin }: IntegrityPanelProps) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
             <div className="p-2.5 rounded-lg bg-card/60 border border-border/60">
               <div className="text-muted-foreground/80 text-[11px]">Geprüfte Einträge</div>
-              <div className="text-sm font-semibold text-foreground font-mono mt-0.5">{currentRun.scanned}</div>
+              <div className="text-sm font-semibold text-foreground figures mt-0.5">{currentRun.scanned}</div>
             </div>
             <div className="p-2.5 rounded-lg bg-card/60 border border-border/60">
               <div className="text-muted-foreground/80 text-[11px]">Gefundene Probleme</div>
-              <div className="text-sm font-semibold text-amber-400 font-mono mt-0.5">{currentRun.findings_count}</div>
+              <div className="text-sm font-semibold text-amber-400 figures mt-0.5">{currentRun.findings_count}</div>
             </div>
             <div className="p-2.5 rounded-lg bg-card/60 border border-border/60">
               <div className="text-muted-foreground/80 text-[11px]">Status</div>

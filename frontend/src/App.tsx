@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import type { ReactNode } from 'react'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { PlaybackErrorToast } from '@/components/player/PlaybackErrorToast'
+import { Toaster } from '@/components/ui/toast'
 import { FavoritesProvider } from '@/contexts/FavoritesContext'
 import { PlayerProvider } from '@/contexts/PlayerContext'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
@@ -108,13 +110,16 @@ export function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <FavoritesProvider>
-        <PlayerProvider>
-          <AppContent />
-        </PlayerProvider>
-      </FavoritesProvider>
-    </AuthProvider>
+    <Toaster>
+      <AuthProvider>
+        <FavoritesProvider>
+          <PlayerProvider>
+            <PlaybackErrorToast />
+            <AppContent />
+          </PlayerProvider>
+        </FavoritesProvider>
+      </AuthProvider>
+    </Toaster>
   )
 }
 

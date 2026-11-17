@@ -14,6 +14,7 @@ import {
   listFavoriteIDs,
   unfavoriteTrack,
 } from '@/lib/api/playlists'
+import { notifyError } from '@/lib/notify'
 
 interface FavoritesContextValue {
   favoriteIds: Set<string>
@@ -84,7 +85,8 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
         }
         return nextFav
       } catch (err) {
-        // Rollback on failure
+        // Rollback on failure. Most callers fire and forget, so the failure
+        // is reported here instead of rejecting into a void promise.
         setFavoriteIds((prev) => {
           const next = new Set(prev)
           if (currentlyFav) {
@@ -94,7 +96,11 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
           }
           return next
         })
-        throw err
+        notifyError(
+          nextFav ? 'Favorit konnte nicht gespeichert werden' : 'Favorit konnte nicht entfernt werden',
+          err,
+        )
+        return currentlyFav
       }
     },
     [favoriteIds],

@@ -41,6 +41,7 @@ import { formatDuration, joinArtists } from '@/lib/utils/format'
 import { SmartRuleEditor } from '@/components/music/SmartRuleEditor'
 import { OfflineSavePanel } from '@/components/music/OfflineSavePanel'
 import { setPlaylistRules } from '@/lib/api/libraryTools'
+import { notifyError } from '@/lib/notify'
 import type { SmartRules } from '@/types/playlist'
 import type { PlaylistTrack } from '@/types/playlist'
 
@@ -72,7 +73,6 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
   // Track removal/reordering feedback
   const [reordering, setReordering] = useState(false)
   const [actionTrackId, setActionTrackId] = useState<string | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [removing, setRemoving] = useState<PlaylistTrack | null>(null)
 
@@ -167,7 +167,6 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
   const handleRemoveTrack = async (trackId: string) => {
     if (!playlist || actionTrackId || reordering) return
     try {
-      setActionError(null)
       setActionTrackId(trackId)
       // Optimistic update
       const prevTracks = playlist.tracks
@@ -183,7 +182,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
 
       await removePlaylistTrack(id, trackId)
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Titel konnte nicht entfernt werden.')
+      notifyError('Titel konnte nicht entfernt werden', error)
       // Rollback on error
       void reload()
     } finally {
@@ -194,7 +193,6 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
   // Move track position up/down
   const handleMoveTrack = async (index: number, direction: 'up' | 'down') => {
     if (!playlist || reordering || actionTrackId) return
-    setActionError(null)
     const targetIndex = direction === 'up' ? index - 1 : index + 1
     if (targetIndex < 0 || targetIndex >= playlist.tracks.length) return
 
@@ -220,7 +218,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       setReordering(true)
       await reorderPlaylistTracks(id, newTrackIds)
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Reihenfolge konnte nicht gespeichert werden.')
+      notifyError('Reihenfolge konnte nicht gespeichert werden', error)
       // Rollback
       void reload()
     } finally {
@@ -300,7 +298,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
             </p>
           )}
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground font-mono">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground figures">
             <span>
               {playlist.track_count} {playlist.track_count === 1 ? 'Titel' : 'Titel'}
             </span>
@@ -362,7 +360,6 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
           <div><h2 className="text-lg font-semibold">Titel</h2><p className="text-sm text-muted-foreground">{visible.length} von {tracks.length} · Reihenfolge der Playlist</p></div>
           <Input aria-label="In dieser Playlist suchen" placeholder="Titel, Künstler oder Album suchen …" value={query} onChange={(event) => setQuery(event.target.value)} className="sm:max-w-sm" />
         </div>
-        {actionError && <p role="alert" className="px-5 pt-4 text-sm text-destructive">{actionError}</p>}
         {tracks.length === 0 ? <EmptyState title="Noch keine Titel" description="Füge Musik aus der Bibliothek über „Zur Playlist hinzufügen“ hinzu." action={<Link href={paths.library()} className="text-primary hover:underline">Bibliothek öffnen</Link>} /> :
           visible.length === 0 ? <div className="p-10 text-center"><p>Keine passenden Titel.</p><Button variant="ghost" onClick={() => setQuery('')}>Suche zurücksetzen</Button></div> :
           <ol className="divide-y divide-white/5">
@@ -380,8 +377,8 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                   <span className="block truncate text-sm text-muted-foreground">{joinArtists(pt.artists || []) || pt.album_artist} <span className="hidden sm:inline">· {pt.album || 'Ohne Album'}</span></span>
                 </button>
                 {pt.codec && <Badge variant="outline" className="hidden uppercase text-xs lg:inline-flex">{pt.codec}</Badge>}
-                <span className="hidden text-sm tabular-nums text-muted-foreground sm:block">{formatDuration(pt.duration_ms)}</span>
-                {favorites && <Button variant="ghost" size="icon" className={`size-11 shrink-0 ${isFav ? 'text-primary' : 'text-muted-foreground'}`} aria-label={`${pt.title}: ${isFav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}`} onClick={() => { setActionError(null); void favorites.toggleFavorite(pt.id).catch((error: unknown) => setActionError(error instanceof Error ? error.message : 'Favorit konnte nicht gespeichert werden.')) }}><Heart className={`size-5 ${isFav ? 'fill-current' : ''}`} /></Button>}
+                <span className="figures hidden text-sm text-muted-foreground sm:block">{formatDuration(pt.duration_ms)}</span>
+                {favorites && <Button variant="ghost" size="icon" className={`size-11 shrink-0 ${isFav ? 'text-primary' : 'text-muted-foreground'}`} aria-label={`${pt.title}: ${isFav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}`} onClick={() => void favorites.toggleFavorite(pt.id)}><Heart className={`size-5 ${isFav ? 'fill-current' : ''}`} /></Button>}
                 <PlaylistTrackMenu title={pt.title} smart={!!playlist.smart_rules} busy={reordering || !!actionTrackId}
                   moveUp={index > 0 ? () => void handleMoveTrack(index, 'up') : undefined}
                   moveDown={index < tracks.length - 1 ? () => void handleMoveTrack(index, 'down') : undefined}
