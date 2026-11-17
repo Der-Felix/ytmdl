@@ -243,13 +243,13 @@ export function SubscriptionImportDialog({
                   <div className="text-xs text-muted-foreground">Gesamt</div>
                   <div className="text-lg font-semibold text-foreground">{preview.total}</div>
                 </div>
-                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-center">
-                  <div className="text-xs text-emerald-400">Neu</div>
-                  <div className="text-lg font-semibold text-emerald-400">+{preview.new}</div>
+                <div className="rounded-xl border border-success/20 bg-success/5 p-3 text-center">
+                  <div className="text-xs text-success">Neu</div>
+                  <div className="text-lg font-semibold text-success">+{preview.new}</div>
                 </div>
-                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-center">
-                  <div className="text-xs text-amber-400">Aktualisierungen</div>
-                  <div className="text-lg font-semibold text-amber-400">{preview.would_update}</div>
+                <div className="rounded-xl border border-warning/20 bg-warning/5 p-3 text-center">
+                  <div className="text-xs text-warning">Aktualisierungen</div>
+                  <div className="text-lg font-semibold text-warning">{preview.would_update}</div>
                 </div>
                 <div className="rounded-xl border border-border bg-muted p-3 text-center">
                   <div className="text-xs text-muted-foreground">Unverändert</div>
@@ -283,7 +283,7 @@ export function SubscriptionImportDialog({
                           </Badge>
                         </div>
                         {item.changes && item.changes.length > 0 && (
-                          <div className="text-[11px] text-amber-400/90 truncate">
+                          <div className="text-[11px] text-warning/90 truncate">
                             {item.changes.join(', ')}
                           </div>
                         )}
@@ -302,24 +302,24 @@ export function SubscriptionImportDialog({
           {/* 3. RESULT STAGE */}
           {stage === 'result' && result && (
             <div className="space-y-4">
-              <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-400">
+              <div className="flex items-center gap-3 rounded-xl border border-success/30 bg-success/10 p-4 text-success">
                 <CheckCircle2Icon className="size-6 shrink-0" />
                 <div className="space-y-0.5">
                   <p className="text-sm font-semibold">Import erfolgreich angewendet</p>
-                  <p className="text-xs text-emerald-300/80">
+                  <p className="text-xs text-success/80">
                     Abonnements wurden aktualisiert. Bestehende Jobs und Downloads bleiben unverändert.
                   </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-center">
-                  <div className="text-xs text-emerald-400">Neu erstellt</div>
-                  <div className="text-lg font-semibold text-emerald-400">{result.created}</div>
+                <div className="rounded-xl border border-success/20 bg-success/5 p-3 text-center">
+                  <div className="text-xs text-success">Neu erstellt</div>
+                  <div className="text-lg font-semibold text-success">{result.created}</div>
                 </div>
-                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-center">
-                  <div className="text-xs text-amber-400">Aktualisiert</div>
-                  <div className="text-lg font-semibold text-amber-400">{result.updated}</div>
+                <div className="rounded-xl border border-warning/20 bg-warning/5 p-3 text-center">
+                  <div className="text-xs text-warning">Aktualisiert</div>
+                  <div className="text-lg font-semibold text-warning">{result.updated}</div>
                 </div>
                 <div className="rounded-xl border border-border bg-muted p-3 text-center">
                   <div className="text-xs text-muted-foreground">Unverändert</div>
@@ -397,13 +397,13 @@ function StatusBadge({ status }: { status: ImportItemStatus }) {
   switch (status) {
     case 'new':
       return (
-        <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-400 shrink-0">
+        <Badge variant="outline" className="border-success/40 bg-success/10 text-success shrink-0">
           Neu
         </Badge>
       )
     case 'would_update':
       return (
-        <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-400 shrink-0">
+        <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning shrink-0">
           Änderung
         </Badge>
       )

@@ -293,7 +293,7 @@ export function MediaSessionsPanel() {
             <button
               type="button"
               onClick={() => setNotification(null)}
-              className="text-current opacity-70 hover:opacity-100"
+              className="focus-ring rounded text-current opacity-70 hover:opacity-100"
               aria-label="Hinweis schließen"
             >
               <XIcon className="size-4" />

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { Settings } from './Settings'
+import { ApiError } from '@/lib/api/client'
+
+// Switches the mocked API into its failure or empty variants for one test.
+const variant = { settingsFail: false, noProviders: false }
 
 // Mock APIs used by Settings
 mock.module('@/lib/api/settings', () => ({
@@ -17,7 +21,11 @@ mock.module('@/lib/api/settings', () => ({
       'yt-dlp': 'ok',
     },
   }),
-  getSettings: async () => ({
+  getSettings: async () => {
+    if (variant.settingsFail) {
+      throw new ApiError({ status: 500, code: 'INTERNAL_ERROR', message: 'Datenbankfehler.' })
+    }
+    return {
     concurrent_downloads: 2,
     rate_limit_kbs: 0,
     download_window_start: '',
@@ -30,8 +38,9 @@ mock.module('@/lib/api/settings', () => ({
     match_min_score: 80,
     match_duration_tolerance_ms: 5000,
     allow_transcode: true,
-  }),
-  listProviders: async () => [
+    }
+  },
+  listProviders: async () => variant.noProviders ? [] : [
     {
       id: 'ytmusic',
       name: 'YouTube Music',
@@ -98,6 +107,47 @@ describe('Settings Page Local Tabs', () => {
 
   afterEach(() => {
     window.location.hash = ''
+    variant.settingsFail = false
+    variant.noProviders = false
+  })
+
+  it('marks the open section in the section navigation', async () => {
+    render(<Settings />)
+
+    const nav = screen.getByRole('navigation', { name: 'Einstellungsbereiche' })
+    expect(nav.querySelector('[aria-current="page"]')?.textContent).toContain('Allgemein')
+    expect(nav.querySelectorAll('[aria-current]').length).toBe(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /Speicher/i }))
+    await waitFor(() =>
+      expect(nav.querySelector('[aria-current="page"]')?.textContent).toContain('Speicher'),
+    )
+  })
+
+  it('shows the startup configuration while loading and as soon as it arrived', async () => {
+    render(<Settings />)
+
+    expect(screen.getByText('Serverkonfiguration wird geladen')).toBeDefined()
+    expect(await screen.findByText('Beim Start festgelegt')).toBeDefined()
+    expect(screen.queryByText('Serverkonfiguration wird geladen')).toBeNull()
+  })
+
+  it('explains a failed configuration load and offers a retry on Allgemein', async () => {
+    variant.settingsFail = true
+    render(<Settings />)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Unerwarteter Fehler')
+    expect(screen.getByRole('button', { name: /Erneut versuchen/ })).toBeDefined()
+    expect(screen.queryByText('Beim Start festgelegt')).toBeNull()
+  })
+
+  it('says so when the server reports no providers', async () => {
+    variant.noProviders = true
+    window.location.hash = '#providers'
+    render(<Settings />)
+
+    expect(await screen.findByText('Keine Provider gemeldet')).toBeDefined()
   })
 
   it('renders Servereinstellungen header and 4 local tabs', async () => {

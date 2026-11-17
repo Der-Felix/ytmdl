@@ -218,9 +218,9 @@ function JobCard({
         <button
           type="button"
           onClick={() => void showDetails('failed')}
-          className="flex w-full items-center justify-between gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-left text-xs text-foreground transition-colors hover:bg-amber-500/10 focus-visible:outline-2 focus-visible:outline-ring"
+          className="flex w-full items-center justify-between gap-3 rounded-lg border border-warning/20 bg-warning/5 px-3 py-2.5 text-left text-xs text-foreground transition-colors hover:bg-warning/10 focus-visible:outline-2 focus-visible:outline-ring"
         >
-          <span className="flex items-center gap-2"><AlertCircleIcon aria-hidden className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />{formatNumber(job.failed)} {job.failed === 1 ? 'Track braucht' : 'Tracks brauchen'} Prüfung</span>
+          <span className="flex items-center gap-2"><AlertCircleIcon aria-hidden className="size-4 shrink-0 text-warning" />{formatNumber(job.failed)} {job.failed === 1 ? 'Track braucht' : 'Tracks brauchen'} Prüfung</span>
           <span className="shrink-0 text-muted-foreground">Ansehen</span>
         </button>
       )}
@@ -255,7 +255,7 @@ function JobCard({
                   onChange={(e) => handleSetPriority(e.target.value as JobPriority)}
                   disabled={actionPending}
                   aria-label="Priorität ändern"
-                  className="rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground focus-ring"
                 >
                   <option value="very_high">Sehr hoch</option>
                   <option value="high">Hoch</option>
@@ -449,9 +449,9 @@ function PriorityBadge({ priority }: { priority?: JobPriority }) {
   const p = priority || 'normal'
   const tone =
     p === 'very_high'
-      ? 'border-rose-500/30 bg-rose-500/10 text-rose-500 font-semibold'
+      ? 'border-destructive/30 bg-destructive/10 text-destructive font-semibold'
       : p === 'high'
-      ? 'border-amber-500/30 bg-amber-500/10 text-amber-500'
+      ? 'border-warning/30 bg-warning/10 text-warning'
       : p === 'low'
       ? 'border-slate-500/20 bg-slate-500/10 text-muted-foreground'
       : 'border-border bg-secondary text-secondary-foreground'
@@ -478,7 +478,7 @@ function ItemStatusBadge({ status, errorCode }: { status: string; errorCode?: st
       : status === 'retry_wait' ||
         status === 'waiting_for_storage' ||
         status === 'waiting_for_space'
-      ? 'text-amber-500'
+      ? 'text-warning'
       : 'text-muted-foreground'
 
   const label = isWaiting ? 'Wartet auf Provider' : (ITEM_STATUS_LABELS[status] || status)

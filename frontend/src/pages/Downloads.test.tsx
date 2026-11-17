@@ -470,3 +470,46 @@ describe('Downloads page tab counts', () => {
     })
   })
 })
+
+describe('Downloads page states', () => {
+  it('announces the queue summary and the job list while they load', () => {
+    globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch
+    render(
+      <AuthProvider>
+        <Downloads />
+      </AuthProvider>,
+    )
+
+    expect(screen.getByText('Warteschlangen-Status wird geladen')).toBeDefined()
+    expect(screen.getByText('Downloads werden geladen')).toBeDefined()
+  })
+
+  it('names the status tabs as a group', async () => {
+    stubFetch([], mockSummary, 0)
+    render(
+      <AuthProvider>
+        <Downloads />
+      </AuthProvider>,
+    )
+
+    const group = await screen.findByRole('group', { name: 'Status' })
+    expect(group.querySelectorAll('button').length).toBe(6)
+  })
+
+  it('explains an empty filtered view and resets the filters', async () => {
+    stubFetch([], mockSummary, 0)
+    setTestURL('/downloads?view=failed&priority=high')
+    render(
+      <AuthProvider>
+        <Downloads />
+      </AuthProvider>,
+    )
+
+    expect(await screen.findByText('Keine passenden Aufträge')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Filter zurücksetzen' }))
+
+    expect(await screen.findByText('Keine Downloads vorhanden')).toBeDefined()
+    expect(screen.getByRole('link', { name: 'Entdecken' })).toBeDefined()
+    expect((screen.getByRole('combobox', { name: 'Priorität:' }) as HTMLSelectElement).value).toBe('all')
+  })
+})

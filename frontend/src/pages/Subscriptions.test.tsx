@@ -374,3 +374,68 @@ describe('sync completion', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 })
+
+describe('Subscriptions page filters and labels', () => {
+  it('explains an empty filter result and resets the filters', async () => {
+    stubFetch(listing([subscription()]))
+
+    render(<Subscriptions />)
+    fireEvent.change(await screen.findByLabelText('Künstler suchen'), {
+      target: { value: 'zzz' },
+    })
+
+    expect(await screen.findByText('Keine passenden Abonnements')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Filter zurücksetzen' }))
+
+    expect(await screen.findByText('Daft Punk')).toBeDefined()
+    expect((screen.getByLabelText('Künstler suchen') as HTMLInputElement).value).toBe('')
+  })
+
+  it('labels the filter controls, the search reset and the row controls', async () => {
+    stubFetch(listing([subscription()]))
+
+    render(<Subscriptions />)
+    const search = (await screen.findByLabelText('Künstler suchen')) as HTMLInputElement
+
+    for (const name of [
+      'Nach Status filtern',
+      'Nach Zustand filtern',
+      'Nach Auto-Download filtern',
+      'Sortierung',
+    ]) {
+      expect(screen.getByLabelText(name).tagName).toBe('SELECT')
+    }
+    expect(screen.getAllByLabelText('Auto-Download für Daft Punk').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Filter und Priorität für Daft Punk' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Suche leeren' })).toBeNull()
+
+    fireEvent.change(search, { target: { value: 'daft' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Suche leeren' }))
+    expect(search.value).toBe('')
+  })
+
+  it('reports the selection state of the row and the select-all control', async () => {
+    stubFetch(listing([subscription()]))
+
+    render(<Subscriptions />)
+    const row = await screen.findByRole('button', { name: 'Daft Punk auswählen' })
+    const all = screen.getByRole('button', { name: 'Alle auswählen' })
+    expect(row.getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.click(row)
+
+    expect(row.getAttribute('aria-pressed')).toBe('true')
+    expect(all.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('toolbar', { name: 'Aktionen für die Auswahl' })).toBeDefined()
+  })
+
+  it('gives the table a caption and column headers', async () => {
+    stubFetch(listing([subscription()]))
+
+    render(<Subscriptions />)
+    await screen.findByText('Daft Punk')
+
+    expect(screen.getByRole('table', { name: 'Abonnierte Künstler' })).toBeDefined()
+    expect(screen.getAllByRole('columnheader').length).toBe(9)
+  })
+})

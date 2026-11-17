@@ -108,7 +108,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
         {/* Paused Jobs */}
         <div className="rounded-lg border border-border/50 bg-muted p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <PauseCircleIcon className="size-3.5 text-amber-400" />
+            <PauseCircleIcon className="size-3.5 text-warning" />
             <span>Pausiert</span>
           </div>
           <div className="figures mt-1.5 text-xl font-bold text-foreground">

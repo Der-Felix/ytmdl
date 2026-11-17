@@ -46,7 +46,7 @@ const failureText: Record<UpdateFailure, string> = {
 
 function PrereleaseBadge() {
   return (
-    <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-600 dark:text-amber-400">
+    <Badge variant="outline" className="gap-1 border-warning/40 text-warning">
       <FlaskConicalIcon className="h-3 w-3" />
       Vorabversion
     </Badge>
@@ -76,8 +76,8 @@ function CommandLine({ command }: { command: string }) {
       >
         {copied ? (
           <>
-            <CheckIcon className="h-3 w-3 text-emerald-500" />
-            <span className="text-emerald-500 text-[11px]">Kopiert!</span>
+            <CheckIcon className="h-3 w-3 text-success" />
+            <span className="text-success text-[11px]">Kopiert!</span>
           </>
         ) : (
           <>
@@ -160,14 +160,14 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
         )
       case 'update_available':
         return (
-          <Badge variant="default" className="gap-1 bg-sky-600 text-foreground hover:bg-sky-500">
+          <Badge variant="default" className="gap-1">
             <ArrowUpCircleIcon className="h-3 w-3" />
             Update verfügbar
           </Badge>
         )
       case 'ahead_of_channel':
         return (
-          <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-600 dark:text-amber-400">
+          <Badge variant="outline" className="gap-1 border-warning/40 text-warning">
             <ShieldCheckIcon className="h-3 w-3" />
             Neuer als Kanal
           </Badge>
@@ -197,7 +197,7 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
       case 'invalid_release':
       default:
         return (
-          <Badge variant="outline" className="gap-1 text-amber-500 border-amber-500/30">
+          <Badge variant="outline" className="gap-1 text-warning border-warning/30">
             <AlertCircleIcon className="h-3 w-3" />
             Nicht verfügbar
           </Badge>
@@ -273,7 +273,7 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
           Der Kanal bestimmt nur, welche Version angeboten wird. Er installiert nichts und startet nichts neu.
         </p>
         {pendingChannel === 'development' && (
-          <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+          <div className="space-y-2 rounded-md border border-warning/30 bg-warning/5 p-3 text-xs">
             <p className="text-foreground">
               Vorabversionen sind qualifiziert, aber noch nicht als stabil freigegeben. Aktualisiert wird weiterhin nur
               über <code>ytmdlctl</code> auf dem Host, mit Backup und Prüfungen.
@@ -297,7 +297,7 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
       )}
 
       {current.state === 'update_available' && (
-        <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-4 space-y-3">
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h4 className="text-sm font-semibold text-foreground">
@@ -336,7 +336,7 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
 
           <div className="space-y-1.5 rounded-md border border-border/60 bg-background/50 p-3">
             {needsCLIUpgradeNotice && (
-              <p role="note" className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-foreground">
+              <p role="note" className="rounded-md border border-warning/30 bg-warning/5 p-2 text-xs text-foreground">
                 Bei deaktiviertem Storage Identity Guard blockiert die CLI aus v0.28.0 dieses Update.
                 Lade zuerst die CLI aus dem Ziel-Release {current.latest_version} für deinen Host herunter,
                 prüfe sie mit <code>SHA256SUMS</code> und verwende sie als <code>ytmdlctl</code> für die Befehle unten.
@@ -364,7 +364,7 @@ export function UpdatePanel({ initialData, onReload }: UpdatePanelProps) {
       )}
 
       {current.state === 'ahead_of_channel' && (
-        <div className="space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 text-xs">
+        <div className="space-y-2 rounded-lg border border-warning/20 bg-warning/5 p-4 text-xs">
           <p className="text-foreground">
             Die installierte Version {current.current_version} ist neuer als die neueste Version
             {current.latest_version ? ` ${current.latest_version}` : ''} im Kanal {channelLabel[channel]}. Es wird nichts

@@ -77,3 +77,42 @@ it('keeps original positions when filtering and requires confirmation before rem
   fireEvent.click(within(dialog).getByRole('button', { name: 'Abbrechen' }))
   expect(writes.length).toBe(1)
 })
+
+it('announces the playlist list while it loads and offers a retry when it fails', async () => {
+  globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch
+  const first = render(<PlayerProvider><Playlists /></PlayerProvider>)
+  expect(screen.getByText('Playlists werden geladen')).toBeTruthy()
+  first.unmount()
+
+  globalThis.fetch = (async () => new Response(JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'Datenbankfehler.' } }), { status: 500 })) as typeof fetch
+  render(<PlayerProvider><Playlists /></PlayerProvider>)
+  expect((await screen.findByRole('alert')).textContent).toContain('Unerwarteter Fehler')
+  expect(screen.getByRole('button', { name: /Erneut versuchen/ })).toBeTruthy()
+})
+
+it('explains an empty playlist list and labels the create dialog fields', async () => {
+  globalThis.fetch = (async () => new Response(JSON.stringify({ data: [] }))) as typeof fetch
+  render(<PlayerProvider><Playlists /></PlayerProvider>)
+  expect(await screen.findByText('Keine Playlists vorhanden')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Playlist erstellen' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByLabelText(/Name/)).toBeTruthy()
+  expect(within(dialog).getByLabelText(/Beschreibung/)).toBeTruthy()
+})
+
+it('shows a detail skeleton while loading and explains a search without results', async () => {
+  globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch
+  const first = render(<Toaster><AuthProvider><PlayerProvider><PlaylistDetail id="list-0" /></PlayerProvider></AuthProvider></Toaster>)
+  expect(screen.getByText('Playlist wird geladen')).toBeTruthy()
+  first.unmount()
+
+  globalThis.fetch = (async (input) => {
+    const data = String(input).endsWith('/auth/status') ? { authenticated: true, user: { id: 'fixture', username: 'fixture', role: 'user' } } : { ...playlists[0], tracks }
+    return new Response(JSON.stringify({ data }))
+  }) as typeof fetch
+  render(<Toaster><AuthProvider><PlayerProvider><PlaylistDetail id="list-0" /></PlayerProvider></AuthProvider></Toaster>)
+  fireEvent.change(await screen.findByLabelText('In dieser Playlist suchen'), { target: { value: 'zzz' } })
+  expect(await screen.findByText('Keine passenden Titel')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Suche zurücksetzen' }))
+  expect(await screen.findByRole('button', { name: 'Song 1 abspielen' })).toBeTruthy()
+})

@@ -20,6 +20,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Panel, PanelHeader } from '@/components/ui/panel'
 import {
+  EmptyState,
   ErrorState,
   ListSkeleton,
   LoadingRegion,
@@ -161,7 +162,10 @@ function Settings() {
       </header>
 
       {/* Local Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-border pb-3 overflow-x-auto scrollbar-none">
+      <nav
+        aria-label="Einstellungsbereiche"
+        className="flex items-center gap-2 overflow-x-auto border-b border-border px-1 py-1 pb-3 scrollbar-none"
+      >
         {SETTINGS_TABS.map((tab) => {
           const isActive = activeTab === tab.id
           const Icon = tab.icon
@@ -172,13 +176,14 @@ function Settings() {
               size="sm"
               className={cn('text-sm font-medium gap-2', !isActive && 'text-muted-foreground')}
               onClick={() => handleTabClick(tab.hash)}
+              aria-current={isActive ? 'page' : undefined}
             >
-              <Icon className="size-4" />
+              <Icon aria-hidden className="size-4" />
               {tab.label}
             </Button>
           )
         })}
-      </div>
+      </nav>
 
       {activeTab === 'general' && (
         <div className="space-y-8">
@@ -227,6 +232,16 @@ function Settings() {
             )}
           </section>
 
+          {settings.state.status === 'loading' && (
+            <LoadingRegion label="Serverkonfiguration wird geladen">
+              <ListSkeleton rows={2} />
+            </LoadingRegion>
+          )}
+          {settings.state.status === 'error' && (
+            <Panel>
+              <ErrorState error={settings.state.error} onRetry={settings.reload} />
+            </Panel>
+          )}
           {settings.state.status === 'success' && (
             <section id="startup" aria-labelledby="startup-heading" className="space-y-3 scroll-mt-24">
               <StartupSettings settings={settings.state.data} />
@@ -483,7 +498,7 @@ function SettingsForm({
               id="max-workers"
               value={maxWorkers}
               onChange={(e) => setMaxWorkers(Number(e.target.value))}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus-ring"
             >
               <option value={1}>1 Worker (schonend)</option>
               <option value={2}>2 Worker (Standard)</option>
@@ -502,6 +517,7 @@ function SettingsForm({
             <div className="flex gap-2">
               <select
                 id="rate-limit-preset"
+                aria-label="Bandbreitenlimit wählen"
                 value={
                   rateLimit === '' || ['1M', '2M', '5M', '10M', '25M'].includes(rateLimit)
                     ? rateLimit
@@ -512,7 +528,7 @@ function SettingsForm({
                     setRateLimit(e.target.value)
                   }
                 }}
-                className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="min-w-0 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus-ring"
               >
                 <option value="">Unbegrenzt</option>
                 <option value="1M">1 MB/s</option>
@@ -527,7 +543,7 @@ function SettingsForm({
                 value={rateLimit}
                 onChange={(e) => setRateLimit(e.target.value.trim())}
                 placeholder="z.B. 5M, 500K"
-                className="flex-1 text-sm font-mono"
+                className="min-w-0 flex-1 text-sm font-mono"
               />
             </div>
             <p className="text-[0.6875rem] text-muted-foreground">
@@ -614,7 +630,7 @@ function SettingsForm({
               id="sub-default-priority"
               value={subPriority}
               onChange={(e) => setSubPriority(e.target.value as JobPriority)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus-ring"
             >
               <option value="low">Niedrig (empfohlen für Hintergrund-Abos)</option>
               <option value="normal">Normal</option>
@@ -752,7 +768,9 @@ function SettingsForm({
       )}
 
       <div className="flex items-center justify-end gap-3 border-t border-border pt-4">
-        {saved && <span className="text-xs text-success">Gespeichert.</span>}
+        <span role="status" className="text-xs text-success">
+          {saved ? 'Gespeichert.' : ''}
+        </span>
         <Button variant="default" onClick={handleSave} disabled={!isDirty || saving}>
           <SaveIcon />
           {saving ? 'Speichert …' : 'Speichern'}
@@ -869,6 +887,18 @@ function ProvidersPanel({
       (p) => p.name === configuredMetadataProvider && p.available,
     )
 
+  if (metadata.length === 0 && media.length === 0) {
+    return (
+      <Panel>
+        <EmptyState
+          icon={<RadioIcon />}
+          title="Keine Provider gemeldet"
+          description="Der Server hat keine Metadaten- oder Audioquellen zurückgegeben. Prüfe unter „Allgemein“ die Systemdiagnose und lade die Seite neu."
+        />
+      </Panel>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <Panel className="space-y-4 p-4 sm:p-5">
@@ -953,7 +983,7 @@ function StartupSettings({ settings }: { settings: SettingsModel }) {
   return (
     <Panel className="space-y-4 p-4 sm:p-6">
       <PanelHeader
-        title="Beim Start festgelegt"
+        title={<span id="startup-heading">Beim Start festgelegt</span>}
         description="Diese Werte stammen aus der Serverkonfiguration und lassen sich nur dort ändern."
       />
 
