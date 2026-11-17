@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 
 import { AppContent } from './App'
+import { Toaster } from '@/components/ui/toast'
 import { AuthContext } from '@/contexts/auth-context'
 import { navigate } from '@/lib/router'
 
@@ -282,6 +283,7 @@ describe('App Layout Consolidation and Route Permissions', () => {
     const requested: string[] = []
     let streams = 0
     const baseFetch = globalThis.fetch
+    const baseEventSource = globalThis.EventSource
     globalThis.fetch = ((input: RequestInfo | URL) => {
       requested.push(typeof input === 'string' ? input : input.toString())
       return baseFetch(input)
@@ -295,15 +297,60 @@ describe('App Layout Consolidation and Route Permissions', () => {
       static readonly CLOSED = 2
     } as unknown as typeof EventSource
 
-    render(
-      <AuthContext.Provider value={unauthenticatedAuth}>
+    try {
+      render(
+        <AuthContext.Provider value={unauthenticatedAuth}>
+          <Toaster>
+            <AppContent />
+          </Toaster>
+        </AuthContext.Provider>,
+      )
+      await screen.findByRole('heading', { level: 1, name: /Anmelden bei YTMDL/i })
+      const beforeShortcut = requested.length
+      // The command menu belongs to the signed-in shell: its shortcut does
+      // nothing here and asks the server for nothing.
+      fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(requested.length).toBe(beforeShortcut)
+      expect(requested.filter((url) => url.includes('/jobs'))).toEqual([])
+      expect(streams).toBe(0)
+    } finally {
+      globalThis.fetch = baseFetch
+      globalThis.EventSource = baseEventSource
+    }
+  })
+
+  it('opens the command menu with Ctrl+K and offers the admin views only to admins', async () => {
+    ;(window as any).happyDOM.setURL('http://localhost/playlists')
+
+    const { unmount } = render(
+      <AuthContext.Provider value={normalUserAuth}>
         <AppContent />
       </AuthContext.Provider>,
     )
-    await screen.findByRole('heading', { level: 1, name: /Anmelden bei YTMDL/i })
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await screen.findByRole('heading', { level: 1, name: 'Playlists' })
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('option', { name: 'Bibliothek' })).toBeDefined()
+    expect(within(dialog).queryByRole('option', { name: 'Benutzerverwaltung' })).toBeNull()
+    expect(within(dialog).queryByRole('option', { name: 'Servereinstellungen' })).toBeNull()
+    unmount()
 
-    expect(requested.filter((url) => url.includes('/jobs'))).toEqual([])
-    expect(streams).toBe(0)
+    render(
+      <AuthContext.Provider value={adminAuth}>
+        <AppContent />
+      </AuthContext.Provider>,
+    )
+    await screen.findByRole('heading', { level: 1, name: 'Playlists' })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Suchen und Befehle' })[0]!)
+    const adminDialog = await screen.findByRole('dialog')
+    expect(within(adminDialog).getByRole('option', { name: 'Benutzerverwaltung' })).toBeDefined()
+
+    // A search term becomes a library and a catalogue search.
+    fireEvent.change(within(adminDialog).getByRole('combobox'), { target: { value: 'Radiohead' } })
+    fireEvent.click(await within(adminDialog).findByRole('option', { name: /In der Bibliothek suchen/ }))
+    expect(window.location.pathname + window.location.search).toBe('/library?q=Radiohead')
   })
 })
