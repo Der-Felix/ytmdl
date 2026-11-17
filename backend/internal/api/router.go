@@ -80,7 +80,8 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 		v1.Get("/health", h.Health)
 
 		v1.Route("/auth", func(authRouter chi.Router) {
-			authRouter.Get("/status", h.Status)
+			// The only endpoint that issues a CSRF token to a signed-out client.
+			authRouter.With(middleware.IssueCSRF(opts.CookieSecure)).Get("/status", h.Status)
 
 			// Pre-auth mutating routes (must supply valid CSRF token)
 			authRouter.Group(func(preAuth chi.Router) {
