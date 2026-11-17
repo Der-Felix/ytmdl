@@ -1238,14 +1238,15 @@ func (s *Service) persistNamingStatus(ctx context.Context, run *namingRun, force
 		return
 	}
 	run.lastPersist = now
-	snapshot := s.storeNamingSnapshot(run)
-	raw, err := json.Marshal(snapshot)
-	if err != nil {
-		return
+	// The row is written before the snapshot is published, so a reader that
+	// sees a finished state also finds it saved.
+	raw, err := json.Marshal(run.status)
+	if err == nil {
+		if err := run.settings.Set(context.WithoutCancel(ctx), NamingMigrationStatusKey, string(raw)); err != nil {
+			s.logger.Warn("naming migration status could not be saved", logging.KeyError, err.Error())
+		}
 	}
-	if err := run.settings.Set(context.WithoutCancel(ctx), NamingMigrationStatusKey, string(raw)); err != nil {
-		s.logger.Warn("naming migration status could not be saved", logging.KeyError, err.Error())
-	}
+	s.storeNamingSnapshot(run)
 }
 
 // storeNamingSnapshot publishes a copy of the run's status for readers; the

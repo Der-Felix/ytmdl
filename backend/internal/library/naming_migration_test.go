@@ -47,6 +47,12 @@ func (s *memSettings) value(key string) string {
 	return s.m[key]
 }
 
+func (s *memSettings) count(key string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sets[key]
+}
+
 // namingFixture is a library written under the legacy scheme.
 type namingFixture struct {
 	svc      *Service
@@ -479,12 +485,12 @@ func TestNamingMigrationStartsInTheBackgroundAndRunsOnce(t *testing.T) {
 	// A second start is a no-op: a file that sits at an old-scheme path now
 	// (restored by hand, say) is left to the integrity audit.
 	other := f.addTrack(t, release, music.Track{ID: "t2", Title: "Other", TrackNumber: 2}, "", "audio 2")
-	statusWrites := f.settings.sets[NamingMigrationStatusKey]
+	statusWrites := f.settings.count(NamingMigrationStatusKey)
 	st := f.run(t)
 	if st.State != NamingStateCompleted || f.pathOf(t, other.ID) != other.Path {
 		t.Fatalf("second run status %+v moved %q", st, f.pathOf(t, other.ID))
 	}
-	if f.settings.sets[NamingMigrationStatusKey] != statusWrites {
+	if f.settings.count(NamingMigrationStatusKey) != statusWrites {
 		t.Fatal("the second run wrote its status again")
 	}
 }
