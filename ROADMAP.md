@@ -27,11 +27,14 @@ Work that is in progress or blocks a release.
 
 Agreed work that starts when the items above are done.
 
-- **File names.** Decide how a track is named on disk when the provider's title
-  carries an edition note ("Remastered 2011", "Single Version"), when the title
-  contains characters a filesystem refuses, and for multi-disc releases, where
-  disc 2, track 2 is currently stored as `202 - Title`. Existing libraries need a
-  way to move to a new scheme without breaking media servers.
+- **File names.** Decided: edition notes ("Remastered 2011", "Single Version")
+  stay in the name as the provider spells them; characters a filesystem refuses
+  become fullwidth look-alikes (`AC／DC`); disc 2, track 2 is `2-02 - Title`,
+  still in one folder per release. Existing libraries move automatically after
+  the update, in the background and resumable, with an opt-out
+  (`MUSICDL_LIBRARY_AUTO_RENAME=false`) for those whose media server should not
+  see the change yet. Implemented for the next minor release; what remains is a
+  check against a large real library on a network share and a media server.
 - **Live recordings the provider does not label.** A live album is recognised by
   its title or, since 1.4.1, by the live markers in its track titles (at least
   three tracks and three quarters of the list). One that has fewer marked tracks
