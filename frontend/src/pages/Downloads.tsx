@@ -292,7 +292,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
                 {typeof tab.count === 'number' && tab.count > 0 && (
                   <span
                     className={cn(
-                      'ml-0.5 rounded-full px-1.5 py-0.2 text-[0.6875rem] font-semibold',
+                      'figures ml-0.5 rounded-full px-1.5 py-0.5 text-[0.6875rem] font-semibold',
                       isActive ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground',
                     )}
                   >

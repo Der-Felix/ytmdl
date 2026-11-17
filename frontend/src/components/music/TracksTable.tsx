@@ -191,7 +191,7 @@ export function TracksTable({
                   <input type="checkbox" aria-label={`${track.title} auswählen`}
                     checked={selection.has(track.id)} onChange={() => toggle(track.id)} />
                 </td>
-                <td className="py-2.5 px-3 text-center font-mono text-xs relative">
+                <td className="py-2.5 px-3 text-center figures text-xs relative">
                   <TrackPlaybackButton
                     number={track.track_number || '–'}
                     title={track.title}
@@ -202,7 +202,7 @@ export function TracksTable({
                 </td>
 
                 {showDiscNumber && (
-                  <td className="py-2.5 px-2 text-center text-muted-foreground/80 font-mono text-xs">
+                  <td className="py-2.5 px-2 text-center text-muted-foreground/80 figures text-xs">
                     {track.disc_number || '1'}
                   </td>
                 )}
@@ -247,7 +247,7 @@ export function TracksTable({
                   <LyricsBadge state={track.lyrics_state} />
                 </td>
 
-                <td className="py-2.5 px-3 text-right text-muted-foreground font-mono text-xs">
+                <td className="py-2.5 px-3 text-right text-muted-foreground figures text-xs">
                   {formatDuration(track.duration_ms)}
                 </td>
 

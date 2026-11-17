@@ -229,7 +229,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
                 </>
               )}
               <span>·</span>
-              <span>{formatDuration(totalDurationMS)}</span>
+              <span className="figures">{formatDuration(totalDurationMS)}</span>
               <span>·</span>
               <span className="flex items-center gap-1">
                 <HardDriveIcon className="size-3.5" />

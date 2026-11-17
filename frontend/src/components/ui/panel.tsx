@@ -59,7 +59,7 @@ function SectionHeading({
         {title}
       </h2>
       {count !== undefined && (
-        <span className="text-sm text-muted-foreground tabular-nums">{count}</span>
+        <span className="figures text-sm text-muted-foreground">{count}</span>
       )}
       <span aria-hidden className="h-px flex-1 bg-border" />
     </div>

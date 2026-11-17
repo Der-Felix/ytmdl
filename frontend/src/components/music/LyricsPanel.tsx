@@ -191,7 +191,7 @@ export function LyricsPanel({
               {parsedLrc.lines.map((line, idx) => (
                 <div key={idx} className="flex items-start gap-3 py-0.5 group">
                   {showTimestamps && (
-                    <span className="font-mono text-xs text-muted-foreground/80 select-none pt-0.5 w-10 shrink-0">
+                    <span className="figures text-xs text-muted-foreground/80 select-none pt-0.5 w-10 shrink-0">
                       {line.timestamp}
                     </span>
                   )}

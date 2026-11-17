@@ -214,7 +214,7 @@ export function TrackDetailDialog({
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground mb-1">Dauer</div>
-                    <div className="font-medium text-foreground font-mono">
+                    <div className="font-medium text-foreground figures">
                       {formatDuration(track.duration_ms)}
                     </div>
                   </div>

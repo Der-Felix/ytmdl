@@ -65,7 +65,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
             <ListMusicIcon className="size-3.5" />
             <span>Offene Tracks</span>
           </div>
-          <div className="mt-1.5 text-xl font-bold tracking-tight text-foreground">
+          <div className="figures mt-1.5 text-xl font-bold text-foreground">
             {formatNumber(summary.remaining_items)}
           </div>
           <div className="mt-0.5 text-[0.6875rem] text-muted-foreground">
@@ -79,7 +79,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
             <PlayCircleIcon className="size-3.5 text-primary" />
             <span>In Bearbeitung</span>
           </div>
-          <div className="mt-1.5 text-xl font-bold tracking-tight text-foreground">
+          <div className="figures mt-1.5 text-xl font-bold text-foreground">
             {summary.active_items}
           </div>
           <div className="mt-0.5 text-[0.6875rem] text-muted-foreground">
@@ -93,7 +93,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
             <GaugeIcon className="size-3.5" />
             <span>Durchsatz</span>
           </div>
-          <div className="mt-1.5 text-xl font-bold tracking-tight text-foreground">
+          <div className="figures mt-1.5 text-xl font-bold text-foreground">
             {summary.throughput_items_per_hour > 0
               ? `~${summary.throughput_items_per_hour.toFixed(0)}`
               : '—'}
@@ -111,7 +111,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
             <PauseCircleIcon className="size-3.5 text-amber-400" />
             <span>Pausiert</span>
           </div>
-          <div className="mt-1.5 text-xl font-bold tracking-tight text-foreground">
+          <div className="figures mt-1.5 text-xl font-bold text-foreground">
             {formatNumber(summary.paused_jobs)}
           </div>
           <div className="mt-0.5 text-[0.6875rem] text-muted-foreground">
@@ -125,7 +125,7 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
             <AlertTriangleIcon className={cn('size-3.5', summary.retry_wait_items > 0 ? 'text-warning' : 'text-muted-foreground')} />
             <span>Wiederholung geplant</span>
           </div>
-          <div className={cn('mt-1.5 text-xl font-bold tracking-tight', summary.retry_wait_items > 0 ? 'text-warning' : 'text-foreground')}>
+          <div className={cn('figures mt-1.5 text-xl font-bold', summary.retry_wait_items > 0 ? 'text-warning' : 'text-foreground')}>
             {summary.retry_wait_items}
           </div>
           <div className="mt-0.5 text-[0.6875rem] text-muted-foreground">

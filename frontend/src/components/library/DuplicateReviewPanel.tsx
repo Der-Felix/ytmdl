@@ -464,7 +464,7 @@ function DuplicateComparison({
         <dt className="text-muted-foreground">Album</dt>
         <dd className="break-words">{track.album || 'Unbekannt'}</dd>
         <dt className="text-muted-foreground">Dauer</dt>
-        <dd>{formatDuration(track.duration_ms)}</dd>
+        <dd className="figures">{formatDuration(track.duration_ms)}</dd>
         <dt className="text-muted-foreground">Format</dt>
         <dd>
           {track.codec?.toUpperCase() || 'Unbekannt'}{' '}
@@ -743,7 +743,7 @@ function DuplicateComparison({
                     {challenger.album || 'Unbekanntes Album'}
                   </p>
                   <div className="duplicate-review-chips">
-                    <span>{formatDuration(challenger.duration_ms)}</span>
+                    <span className="figures">{formatDuration(challenger.duration_ms)}</span>
                     <span>
                       {challenger.codec?.toUpperCase() || 'Format unbekannt'}
                       {challenger.bitrate_kbps

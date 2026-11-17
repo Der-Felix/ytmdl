@@ -202,7 +202,7 @@ function TrackList({
                 key={`${targetId}-${index}`}
                 className="group flex items-center gap-4 px-4 py-3 transition-colors hover:bg-muted sm:px-6"
               >
-                <span className="w-7 shrink-0 text-center font-mono text-xs tabular-nums text-muted-foreground">
+                <span className="figures w-7 shrink-0 text-center text-xs text-muted-foreground">
                   {trackNum}
                 </span>
 
@@ -226,7 +226,7 @@ function TrackList({
                   )}
                 </div>
 
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                <span className="figures shrink-0 text-xs text-muted-foreground">
                   {duration}
                 </span>
 
