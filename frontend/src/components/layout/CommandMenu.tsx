@@ -47,16 +47,9 @@ function rankEntry(value: string, search: string, keywords?: string[]): number {
   if (label.startsWith(needle)) return 1
   if (label.includes(needle)) return 0.9
   const haystack = [label, ...(keywords ?? []).map((keyword) => keyword.toLowerCase())]
-  if (haystack.some((text) => text.includes(needle))) return 0.7
-  const inOrder = (text: string) => {
-    let at = 0
-    for (const char of needle) {
-      at = text.indexOf(char, at) + 1
-      if (at === 0) return false
-    }
-    return true
-  }
-  return haystack.some(inOrder) ? 0.3 : 0
+  // No letters-in-order matching: "dash" would then match "Zufallswiedergabe
+  // ausschalten" and, in a group listed earlier, be the entry Enter runs.
+  return haystack.some((text) => text.includes(needle)) ? 0.7 : 0
 }
 
 interface CommandMenuProps {
