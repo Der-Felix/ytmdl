@@ -3,6 +3,7 @@ package matcher
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -129,10 +130,12 @@ func (m *Matcher) DurationToleranceMS() int { return m.durationToleranceMS }
 func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Result {
 	wantInfo := Analyze(track.Title)
 	haveInfo := Analyze(candidate.Title)
+	wantVersions := RecordingVersions(track, wantInfo)
+	haveVersions := offeredVersions(track, candidate, haveInfo)
 
 	var bd Breakdown
-	bd.WantedVersions = wantInfo.Versions.String()
-	bd.OfferedVersions = haveInfo.Versions.String()
+	bd.WantedVersions = wantVersions.String()
+	bd.OfferedVersions = haveVersions.String()
 	// Matching title/credits (even an ISRC) cannot compensate for a known
 	// runtime that describes a different section or recording.
 	if !music.CompatibleDuration(track.DurationMS, candidate.DurationMS) {
@@ -188,7 +191,7 @@ func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Re
 	score := 100 * total / weights
 	bd.Base = score
 
-	if diff := wantInfo.Versions ^ haveInfo.Versions; diff != 0 {
+	if diff := wantVersions ^ haveVersions; diff != 0 {
 		count := popcount(uint32(diff))
 		bd.VersionPenalty = firstVersionPenalty + float64(count-1)*extraVersionPenalty
 		score -= bd.VersionPenalty
@@ -198,6 +201,60 @@ func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Re
 	}
 
 	return Result{Candidate: candidate, Score: clampScore(score), Breakdown: bd}
+}
+
+// RecordingVersions returns the version markers that identify the recording a
+// track stands for: the ones in its title, plus "live" for every track of a
+// live release. Live albums usually list their tracks under the plain song
+// title, so the title alone would describe the studio recording.
+//
+// A remix release is deliberately not treated the same way: its plainly titled
+// track is, as a rule, the original that the remixes are of.
+func RecordingVersions(t music.Track, info TitleInfo) VersionSet {
+	versions := info.Versions
+	if t.ReleaseType == music.ReleaseLive {
+		versions |= VersionLive
+	}
+	return versions
+}
+
+// liveAlbumRe matches the unbracketed ways a release names itself a live
+// recording ("Live at Wembley", "MTV Unplugged"). A bare "live" is not enough,
+// so that an album called "Long Live" or "Live Forever" keeps its meaning;
+// bracketed and dash separated markers are found by Analyze.
+var liveAlbumRe = regexp.MustCompile(`(?i)\blive (at|in|from|on|aus|im)\b|\blive album\b|\bunplugged\b`)
+
+// AlbumNamesLiveRelease reports whether a release title says that the release
+// is a live recording.
+func AlbumNamesLiveRelease(title string) bool {
+	if strings.TrimSpace(title) == "" {
+		return false
+	}
+	return Analyze(title).Versions.Has(VersionLive) || liveAlbumRe.MatchString(title)
+}
+
+// offeredVersions returns the version markers of a candidate: the ones in its
+// title, plus "live" when the candidate names the release it comes from and
+// that release is a live one. Uploads of an album track (YouTube Music "Topic"
+// videos) carry the plain song title and the album name, so the album is the
+// only place a live recording shows itself there.
+//
+// A candidate from the wanted track's own album is the same kind of recording
+// as far as the release goes: it takes the wanted release's type instead of a
+// second reading of the same title.
+func offeredVersions(track music.Track, candidate provider.MediaCandidate, info TitleInfo) VersionSet {
+	versions := info.Versions
+	album := strings.TrimSpace(candidate.Album)
+	switch {
+	case album == "":
+	case strings.EqualFold(album, strings.TrimSpace(track.Album)):
+		if track.ReleaseType == music.ReleaseLive {
+			versions |= VersionLive
+		}
+	case AlbumNamesLiveRelease(album):
+		versions |= VersionLive
+	}
+	return versions
 }
 
 // Composer/work credits alone cannot establish the requested performance.

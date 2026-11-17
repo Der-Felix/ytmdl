@@ -162,7 +162,15 @@ func (s *Service) ResolveArtist(ctx context.Context, req ArtistRequest, progress
 		// The release the track was resolved from decides where it is filed
 		// later and who its album artist is, so the whole context is applied
 		// here, in the one place every download path goes through.
-		music.ApplyReleaseContext(&releases[i], releaseTracks, artist.DisplayName())
+		applyReleaseContext(&releases[i], releaseTracks, artist.DisplayName())
+		// The track list can show an album to be a live recording. The filter
+		// was applied to the type the discography listing reported, so it is
+		// asked again for such a release.
+		if !filter.Allows(releases[i].ReleaseType) {
+			logger.Info("release skipped: its tracks mark it as a live recording",
+				logging.KeyRelease, releases[i].DisplayTitle())
+			continue
+		}
 		readReleases = append(readReleases, releases[i])
 		readTracks = append(readTracks, releaseTracks)
 	}
@@ -217,7 +225,7 @@ func (s *Service) ResolveRelease(ctx context.Context, providerName, releaseID st
 	if err != nil {
 		return nil, err
 	}
-	music.ApplyReleaseContext(release, tracks, "")
+	applyReleaseContext(release, tracks, "")
 
 	result := &Result{
 		Artist: music.Artist{
@@ -268,7 +276,7 @@ func (s *Service) ResolveTrack(ctx context.Context, providerName, trackID, relea
 	// normalisation. A release the provider cannot describe is not fatal here:
 	// the track list alone still identifies the recording.
 	if release, relErr := metadata.GetRelease(ctx, releaseID); relErr == nil && release != nil {
-		music.ApplyReleaseContext(release, tracks, "")
+		applyReleaseContext(release, tracks, "")
 	}
 	for _, track := range tracks {
 		if track.SourceID == trackID || track.ID == trackID {
@@ -348,7 +356,7 @@ func (s *Service) Release(ctx context.Context, providerName, releaseID string) (
 	if err != nil {
 		return nil, nil, err
 	}
-	music.ApplyReleaseContext(release, tracks, "")
+	applyReleaseContext(release, tracks, "")
 	return release, tracks, nil
 }
 
