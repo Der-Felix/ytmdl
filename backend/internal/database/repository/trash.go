@@ -167,6 +167,7 @@ func (c *Catalog) SetTrashState(ctx context.Context, id, from, to string) error 
 	}
 	return nil
 }
+
 // RetargetTrash replaces the restore targets of a ready entry: the original
 // paths of its moves and the file paths in its payload. A restore after a
 // change of the library's naming scheme uses it to bring a song back under its
