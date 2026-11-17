@@ -130,6 +130,16 @@
     --sidebar-ring: var(--ring);
 }
 
+/* Outside @layer base on purpose: the default above is unlayered, and an
+   unlayered declaration beats a layered one whatever its specificity. */
+:root:has([data-slot="mini-player"]) {
+    --player-height: calc(5rem + env(safe-area-inset-bottom));
+
+    @media (width >= 40rem) {
+        --player-height: calc(5.375rem + env(safe-area-inset-bottom));
+    }
+}
+
 @layer base {
     * {
         @apply border-border;
@@ -138,14 +148,6 @@
     html {
         color-scheme: dark;
         scrollbar-gutter: stable;
-    }
-
-    :root:has([data-slot="mini-player"]) {
-        --player-height: calc(5rem + env(safe-area-inset-bottom));
-
-        @media (width >= 40rem) {
-            --player-height: calc(5.375rem + env(safe-area-inset-bottom));
-        }
     }
 
     body {
