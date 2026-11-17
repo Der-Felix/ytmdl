@@ -25,7 +25,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/state-view'
+import { EmptyState, ErrorState, LoadingRegion } from '@/components/ui/state-view'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useAsync } from '@/hooks/useAsync'
 import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
@@ -37,7 +38,7 @@ import {
   updatePlaylist,
 } from '@/lib/api/playlists'
 import { Link, useNavigate, paths } from '@/lib/router'
-import { formatDuration, joinArtists } from '@/lib/utils/format'
+import { formatDuration, formatNumber, joinArtists } from '@/lib/utils/format'
 import { SmartRuleEditor } from '@/components/music/SmartRuleEditor'
 import { OfflineSavePanel } from '@/components/music/OfflineSavePanel'
 import { setPlaylistRules } from '@/lib/api/libraryTools'
@@ -228,29 +229,40 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
 
   if (state.status === 'loading') {
     return (
-      <div className="space-y-6 pb-24">
-        <div className="flex items-center gap-4">
-          <Link
-            href={paths.playlists()}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-            Zurück zu Playlists
-          </Link>
-        </div>
-        <ListSkeleton rows={5} />
+      <div className="space-y-6">
+        <Link
+          href={paths.playlists()}
+          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft aria-hidden className="size-4" />
+          Zurück zu Playlists
+        </Link>
+        <LoadingRegion label="Playlist wird geladen">
+          <div className="space-y-6" aria-hidden>
+            <div className="flex flex-col gap-6 rounded-3xl border border-border p-6 md:flex-row md:items-end">
+              <Skeleton className="size-44 shrink-0 rounded-2xl sm:size-56" />
+              <div className="min-w-0 flex-1 space-y-3">
+                <Skeleton className="h-5 w-24" />
+                <Skeleton className="h-10 w-3/4 sm:h-14" />
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-10 w-full max-w-xs rounded-xl" />
+              </div>
+            </div>
+            <Skeleton className="h-72 w-full rounded-2xl" />
+          </div>
+        </LoadingRegion>
       </div>
     )
   }
 
   if (state.status === 'error' || !playlist) {
     return (
-      <div className="space-y-6 pb-24">
+      <div className="space-y-6">
         <Link
           href={paths.playlists()}
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="size-4" />
+          <ArrowLeft aria-hidden className="size-4" />
           Zurück zu Playlists
         </Link>
         <ErrorState
@@ -266,30 +278,30 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
     `${track.title} ${joinArtists(track.artists || [])} ${track.album || ''}`.toLocaleLowerCase('de').includes(query.trim().toLocaleLowerCase('de')))
 
   return (
-    <div className="space-y-6 pb-28">
+    <div className="space-y-6">
       {/* Navigation Breadcrumb */}
       <div className="flex items-center justify-between">
         <Link
           href={paths.playlists()}
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ArrowLeft className="size-4" />
+          <ArrowLeft aria-hidden className="size-4" />
           Zurück zu Playlists
         </Link>
       </div>
 
       {/* Playlist Hero Header */}
-      <div className="flex flex-col md:flex-row md:items-end gap-6 p-6 rounded-3xl border border-border bg-gradient-to-b from-white/[0.04] to-white/[0.01]">
+      <div className="flex flex-col md:flex-row md:items-end gap-6 p-6 rounded-3xl border border-border bg-gradient-to-b from-foreground/[0.04] to-foreground/[0.01]">
         <PlaylistArtwork tracks={tracks} name={playlist.name} className="size-44 sm:size-56 shrink-0 shadow-xl" />
 
         <div className="flex-1 min-w-0 space-y-2">
           <Badge
             variant="outline"
-            className="text-[11px] uppercase tracking-wider text-primary border-primary/30"
+            className="text-[0.6875rem] uppercase tracking-wider text-primary border-primary/30"
           >
             {playlist.smart_rules ? 'Intelligente Playlist' : 'Playlist'}
           </Badge>
-          <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-foreground break-words">
+          <h1 className="font-heading text-3xl font-semibold tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-5xl">
             {playlist.name}
           </h1>
           {playlist.description && (
@@ -300,7 +312,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground figures">
             <span>
-              {playlist.track_count} {playlist.track_count === 1 ? 'Titel' : 'Titel'}
+              {formatNumber(playlist.track_count)} Titel
             </span>
             <span>•</span>
             <span>{formatDuration(totalDurationMs)}</span>
@@ -357,12 +369,12 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
 
       <section aria-label="Titel dieser Playlist" className="rounded-2xl border border-input bg-muted">
         <div className="flex flex-col gap-3 border-b border-input p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div><h2 className="text-lg font-semibold">Titel</h2><p className="text-sm text-muted-foreground">{visible.length} von {tracks.length} · Reihenfolge der Playlist</p></div>
+          <div><h2 className="text-lg font-semibold">Titel</h2><p aria-live="polite" className="figures text-sm text-muted-foreground">{visible.length} von {tracks.length} · Reihenfolge der Playlist</p></div>
           <Input aria-label="In dieser Playlist suchen" placeholder="Titel, Künstler oder Album suchen …" value={query} onChange={(event) => setQuery(event.target.value)} className="sm:max-w-sm" />
         </div>
         {tracks.length === 0 ? <EmptyState title="Noch keine Titel" description="Füge Musik aus der Bibliothek über „Zur Playlist hinzufügen“ hinzu." action={<Link href={paths.library()} className="text-primary hover:underline">Bibliothek öffnen</Link>} /> :
-          visible.length === 0 ? <div className="p-10 text-center"><p>Keine passenden Titel.</p><Button variant="ghost" onClick={() => setQuery('')}>Suche zurücksetzen</Button></div> :
-          <ol className="divide-y divide-white/5">
+          visible.length === 0 ? <EmptyState title="Keine passenden Titel" description="Versuche einen anderen Suchbegriff oder setze die Suche zurück." action={<Button variant="outline" size="sm" onClick={() => setQuery('')}>Suche zurücksetzen</Button>} /> :
+          <ol className="divide-y divide-border">
             {visible.map(({ track: pt, index }) => {
               const isCurrent = currentTrack?.id === pt.id
               const isPlaying = isCurrent && status === 'playing'
@@ -371,13 +383,13 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                 <Button variant="ghost" size="icon" className={`size-11 shrink-0 rounded-full ${isCurrent ? 'bg-primary/15 text-primary' : ''}`} aria-label={`${pt.title} ${isPlaying ? 'pausieren' : 'abspielen'}`} onClick={() => handlePlayTrack(pt, index)}>
                   {isPlaying ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
                 </Button>
-                <Cover src={libraryArtwork('tracks', pt.id)} alt={pt.title} className="size-12 shrink-0 rounded-lg sm:size-14" />
-                <button onClick={() => handlePlayTrack(pt, index)} aria-label={`${pt.title} auswählen`} className="min-w-0 flex-1 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-ring">
+                <Cover src={libraryArtwork('tracks', pt.id)} alt="" className="size-12 shrink-0 rounded-lg sm:size-14" />
+                <button type="button" onClick={() => handlePlayTrack(pt, index)} aria-label={`${pt.title} auswählen`} className="focus-ring min-w-0 flex-1 rounded-lg text-left">
                   <span className={`block truncate text-base font-medium ${isCurrent ? 'text-primary' : ''}`}>{pt.title}</span>
                   <span className="block truncate text-sm text-muted-foreground">{joinArtists(pt.artists || []) || pt.album_artist} <span className="hidden sm:inline">· {pt.album || 'Ohne Album'}</span></span>
                 </button>
                 {pt.codec && <Badge variant="outline" className="hidden uppercase text-xs lg:inline-flex">{pt.codec}</Badge>}
-                <span className="figures hidden text-sm text-muted-foreground sm:block">{formatDuration(pt.duration_ms)}</span>
+                <span className="figures hidden shrink-0 text-sm text-muted-foreground sm:block">{formatDuration(pt.duration_ms)}</span>
                 {favorites && <Button variant="ghost" size="icon" className={`size-11 shrink-0 ${isFav ? 'text-primary' : 'text-muted-foreground'}`} aria-label={`${pt.title}: ${isFav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}`} onClick={() => void favorites.toggleFavorite(pt.id)}><Heart className={`size-5 ${isFav ? 'fill-current' : ''}`} /></Button>}
                 <PlaylistTrackMenu title={pt.title} smart={!!playlist.smart_rules} busy={reordering || !!actionTrackId}
                   moveUp={index > 0 ? () => void handleMoveTrack(index, 'up') : undefined}
@@ -408,7 +420,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
             </DialogHeader>
 
             {updateError && (
-              <div className="my-3 rounded-lg bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive">
+              <div role="alert" className="my-3 rounded-lg bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive">
                 {updateError}
               </div>
             )}
@@ -416,10 +428,11 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
             <div className="space-y-4 py-4 max-h-[65dvh] overflow-y-auto">
               <SmartRuleEditor value={editRules} onChange={setEditRules} />
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground/80">
+                <label htmlFor="edit-playlist-name" className="text-xs font-semibold text-foreground/80">
                   Name <span className="text-destructive">*</span>
                 </label>
                 <Input
+                  id="edit-playlist-name"
                   autoFocus
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
@@ -429,8 +442,9 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground/80">Beschreibung</label>
+                <label htmlFor="edit-playlist-description" className="text-xs font-semibold text-foreground/80">Beschreibung</label>
                 <Input
+                  id="edit-playlist-description"
                   value={editDescription}
                   onChange={(e) => setEditDescription(e.target.value)}
                   maxLength={500}
@@ -471,7 +485,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
           </DialogHeader>
 
           {deleteError && (
-            <div className="my-3 rounded-lg bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive">
+            <div role="alert" className="my-3 rounded-lg bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive">
               {deleteError}
             </div>
           )}

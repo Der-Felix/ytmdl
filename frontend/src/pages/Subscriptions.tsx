@@ -244,6 +244,14 @@ export function Subscriptions() {
     sortBy,
   ])
 
+  function resetFilters() {
+    setSearch('')
+    setStatusFilter('all')
+    setEnabledFilter('all')
+    setAutoDownloadFilter('all')
+    setProviderFilter('all')
+  }
+
   // Multi-select handlers
   const allFilteredSelected =
     filteredList.length > 0 &&
@@ -411,8 +419,12 @@ export function Subscriptions() {
           {/* Filter Toolbar */}
           <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card/60 p-3.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <SearchIcon
+                aria-hidden
+                className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
+              />
               <Input
+                aria-label="Künstler suchen"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Künstler suchen..."
@@ -422,9 +434,10 @@ export function Subscriptions() {
                 <button
                   type="button"
                   onClick={() => setSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Suche leeren"
+                  className="focus-ring absolute right-2.5 top-1/2 -translate-y-1/2 rounded text-muted-foreground hover:text-foreground"
                 >
-                  <XIcon className="size-3.5" />
+                  <XIcon aria-hidden className="size-3.5" />
                 </button>
               )}
             </div>
@@ -432,9 +445,10 @@ export function Subscriptions() {
             <div className="flex flex-wrap items-center gap-2">
               {/* Status filter */}
               <select
+                aria-label="Nach Status filtern"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as 'all' | SyncStatus)}
-                className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus-ring"
               >
                 <option value="all">Status: Alle</option>
                 <option value="success">Status: Erfolgreich</option>
@@ -445,11 +459,12 @@ export function Subscriptions() {
 
               {/* Enabled / Paused filter */}
               <select
+                aria-label="Nach Zustand filtern"
                 value={enabledFilter}
                 onChange={(e) =>
                   setEnabledFilter(e.target.value as 'all' | 'enabled' | 'disabled')
                 }
-                className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus-ring"
               >
                 <option value="all">Zustand: Alle</option>
                 <option value="enabled">Zustand: Aktiv</option>
@@ -458,11 +473,12 @@ export function Subscriptions() {
 
               {/* Auto Download filter */}
               <select
+                aria-label="Nach Auto-Download filtern"
                 value={autoDownloadFilter}
                 onChange={(e) =>
                   setAutoDownloadFilter(e.target.value as 'all' | 'on' | 'off')
                 }
-                className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus-ring"
               >
                 <option value="all">Auto-Download: Alle</option>
                 <option value="on">Auto-Download: Aktiviert</option>
@@ -472,9 +488,10 @@ export function Subscriptions() {
               {/* Provider filter */}
               {distinctProviders.length > 1 && (
                 <select
+                  aria-label="Nach Provider filtern"
                   value={providerFilter}
                   onChange={(e) => setProviderFilter(e.target.value)}
-                  className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus-ring"
                 >
                   <option value="all">Provider: Alle</option>
                   {distinctProviders.map((p) => (
@@ -487,9 +504,10 @@ export function Subscriptions() {
 
               {/* Sort by */}
               <select
+                aria-label="Sortierung"
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+                className="h-9 rounded-xl border border-border bg-background px-2.5 text-xs text-foreground focus-ring font-medium"
               >
                 <option value="name_asc">Name (A–Z)</option>
                 <option value="name_desc">Name (Z–A)</option>
@@ -504,7 +522,11 @@ export function Subscriptions() {
 
           {/* Bulk Selection Toolbar */}
           {selectedCount > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-2.5 text-xs animate-in fade-in duration-150">
+            <div
+              role="toolbar"
+              aria-label="Aktionen für die Auswahl"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/10 px-4 py-2.5 text-xs animate-in fade-in duration-150"
+            >
               <div className="flex items-center gap-2.5">
                 <span className="font-semibold text-primary">
                   {selectedCount} von {filteredList.length} Abonnements ausgewählt
@@ -527,7 +549,7 @@ export function Subscriptions() {
                   onClick={() => void handleBulkEnable(true)}
                   className="h-7 px-2.5 text-xs gap-1"
                 >
-                  <PlayIcon className="size-3 text-emerald-400" />
+                  <PlayIcon className="size-3 text-success" />
                   Aktivieren
                 </Button>
 
@@ -579,12 +601,22 @@ export function Subscriptions() {
 
           {/* Subscriptions Table / List */}
           {filteredList.length === 0 ? (
-            <Panel className="p-8 text-center text-xs text-muted-foreground">
-              Keine Abonnements für die aktuellen Filterkriterien gefunden.
+            <Panel>
+              <EmptyState
+                icon={<SearchIcon />}
+                title="Keine passenden Abonnements"
+                description="Keine Abonnements für die aktuellen Filterkriterien gefunden. Ändere die Suche oder setze die Filter zurück."
+                action={
+                  <Button variant="outline" size="sm" onClick={resetFilters}>
+                    Filter zurücksetzen
+                  </Button>
+                }
+              />
             </Panel>
           ) : (
             <div className="overflow-x-auto rounded-2xl border border-border bg-card">
               <table className="w-full text-left text-xs">
+                <caption className="sr-only">Abonnierte Künstler</caption>
                 <thead>
                   <tr className="border-b border-border bg-muted font-medium text-muted-foreground">
                     <th className="w-10 py-3 pl-4 pr-1">
@@ -592,8 +624,9 @@ export function Subscriptions() {
                         type="button"
                         onClick={toggleSelectAll}
                         aria-label="Alle auswählen"
+                        aria-pressed={allFilteredSelected}
                         className={cn(
-                          'flex size-4 items-center justify-center rounded border transition-colors',
+                          'focus-ring flex size-4 items-center justify-center rounded border transition-colors',
                           allFilteredSelected
                             ? 'border-primary bg-primary text-primary-foreground'
                             : 'border-muted-foreground/40 hover:border-primary',
@@ -602,14 +635,14 @@ export function Subscriptions() {
                         {allFilteredSelected && <CheckIcon className="size-3 stroke-[3]" />}
                       </button>
                     </th>
-                    <th className="py-3 px-3">Künstler</th>
-                    <th className="py-3 px-3">Provider</th>
-                    <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3">Downloads</th>
-                    <th className="py-3 px-3">Filter</th>
-                    <th className="py-3 px-3">Zuletzt geprüft</th>
-                    <th className="py-3 px-3">Nächste Prüfung</th>
-                    <th className="py-3 pl-3 pr-4 text-right">Aktionen</th>
+                    <th scope="col" className="py-3 px-3">Künstler</th>
+                    <th scope="col" className="hidden py-3 px-3 md:table-cell">Provider</th>
+                    <th scope="col" className="py-3 px-3">Status</th>
+                    <th scope="col" className="py-3 px-3">Downloads</th>
+                    <th scope="col" className="hidden py-3 px-3 xl:table-cell">Filter</th>
+                    <th scope="col" className="py-3 px-3">Zuletzt geprüft</th>
+                    <th scope="col" className="hidden py-3 px-3 lg:table-cell">Nächste Prüfung</th>
+                    <th scope="col" className="py-3 pl-3 pr-4 text-right">Aktionen</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -789,8 +822,9 @@ function SubscriptionTableRow({
             type="button"
             onClick={onToggleSelect}
             aria-label={`${subscription.artist_name} auswählen`}
+            aria-pressed={selected}
             className={cn(
-              'flex size-4 items-center justify-center rounded border transition-colors',
+              'focus-ring flex size-4 items-center justify-center rounded border transition-colors',
               selected
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'border-muted-foreground/40 hover:border-primary',
@@ -834,7 +868,7 @@ function SubscriptionTableRow({
         </td>
 
         {/* Provider */}
-        <td className="py-3 px-3 whitespace-nowrap">
+        <td className="hidden py-3 px-3 whitespace-nowrap md:table-cell">
           <Badge variant="outline" className="text-[10px] uppercase font-mono">
             {subscription.provider}
           </Badge>
@@ -873,6 +907,7 @@ function SubscriptionTableRow({
         <td className="py-3 px-3 whitespace-nowrap">
           <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-foreground">
             <Checkbox
+              aria-label={`Auto-Download für ${subscription.artist_name}`}
               checked={subscription.auto_download}
               onCheckedChange={(checked) =>
                 onUpdate({ auto_download: checked === true })
@@ -885,7 +920,7 @@ function SubscriptionTableRow({
         </td>
 
         {/* Release Filter Summary */}
-        <td className="py-3 px-3 whitespace-nowrap text-muted-foreground text-[11px] max-w-[180px] truncate" title={filterList}>
+        <td className="hidden max-w-[180px] truncate py-3 px-3 whitespace-nowrap text-[11px] text-muted-foreground xl:table-cell" title={filterList}>
           {filterList}
         </td>
 
@@ -895,7 +930,7 @@ function SubscriptionTableRow({
         </td>
 
         {/* Next Sync */}
-        <td className="py-3 px-3 whitespace-nowrap text-muted-foreground" title={formatDateTime(subscription.next_sync_at)}>
+        <td className="hidden py-3 px-3 whitespace-nowrap text-muted-foreground lg:table-cell" title={formatDateTime(subscription.next_sync_at)}>
           {subscription.enabled ? formatRelative(subscription.next_sync_at) : 'pausiert'}
         </td>
 
@@ -926,6 +961,7 @@ function SubscriptionTableRow({
               size="sm"
               onClick={openSettings}
               title="Filter & Priorität"
+              aria-label={`Filter und Priorität für ${subscription.artist_name}`}
               className="h-7 px-2 text-xs"
             >
               <Settings2Icon className="size-3.5" />
@@ -959,9 +995,11 @@ function SubscriptionTableRow({
                   variant="ghost"
                   size="sm"
                   onClick={() => setConfirmingDelete(false)}
+                  aria-label="Entfernen abbrechen"
+                  title="Abbrechen"
                   className="h-7 px-1.5 text-[10px]"
                 >
-                  X
+                  <XIcon aria-hidden className="size-3" />
                 </Button>
               </div>
             ) : (
@@ -1012,7 +1050,7 @@ function SubscriptionTableRow({
                   id="sub-priority"
                   value={editPriority}
                   onChange={(e) => setEditPriority(e.target.value as JobPriority)}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus-ring"
                 >
                   <option value="low">Niedrig (Standard für Abos)</option>
                   <option value="normal">Normal</option>

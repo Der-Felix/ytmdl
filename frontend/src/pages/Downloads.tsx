@@ -15,7 +15,7 @@ import { ActiveWorkersCard } from '@/components/downloads/ActiveWorkersCard'
 import { JobCard } from '@/components/downloads/JobCard'
 import { NextUpCard } from '@/components/downloads/NextUpCard'
 import { QueueSummaryCard } from '@/components/downloads/QueueSummaryCard'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,7 @@ import {
 
 import { Pagination } from '@/components/ui/pagination'
 import { Panel } from '@/components/ui/panel'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   EmptyState,
   ErrorState,
@@ -38,7 +39,7 @@ import { useCurrentTracks, useJobs } from '@/hooks/useJobs'
 import { useQueueSummary } from '@/hooks/useQueueSummary'
 import { deleteJobHistory, isTerminal, section } from '@/lib/api/jobs'
 import { errorMessage, isAbortError } from '@/lib/api/client'
-import { useLocation, useNavigate } from '@/lib/router'
+import { Link, paths, useLocation, useNavigate } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import { formatNumber, pluralize } from '@/lib/utils/format'
 import type { JobPriority, QueueSummary } from '@/types/api'
@@ -129,6 +130,8 @@ function Downloads({ jobId }: DownloadsPageProps) {
       failed: summary?.failed_jobs,
     }
   }, [summary, meta?.total, activeTab, jobId])
+
+  const isFiltered = activeTab !== 'all' || priorityFilter !== 'all'
 
   const filteredJobs = useMemo(() => {
     if (!rawJobs) return []
@@ -228,7 +231,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
       {summary && (
         <section aria-label="Warteschlangen-Status und Vorschau" className="space-y-4">
           {summaryState.status === 'error' && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300">
+            <div role="status" className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-warning/30 bg-warning/10 px-4 py-2.5 text-xs text-warning">
               <div className="flex items-start sm:items-center gap-2 min-w-0">
                 <AlertTriangleIcon className="size-4 shrink-0 mt-0.5 sm:mt-0" />
                 <span className="leading-relaxed">Hintergrundaktualisierung fehlgeschlagen — angezeigte Warteschlangendaten sind möglicherweise veraltet.</span>
@@ -237,7 +240,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
                 variant="ghost"
                 size="sm"
                 onClick={reloadSummary}
-                className="h-7 self-start sm:self-auto shrink-0 text-xs text-amber-200 hover:text-foreground hover:bg-amber-500/20"
+                className="h-7 self-start sm:self-auto shrink-0 text-xs text-warning hover:bg-warning/15 hover:text-foreground"
               >
                 Erneut versuchen
               </Button>
@@ -253,13 +256,15 @@ function Downloads({ jobId }: DownloadsPageProps) {
       )}
 
       {!summary && summaryState.status === 'loading' && (
-        <div className="space-y-4" aria-busy="true">
-          <div className="h-44 rounded-xl border border-border/50 bg-muted animate-pulse" />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="h-40 rounded-xl border border-border/50 bg-muted animate-pulse" />
-            <div className="h-40 rounded-xl border border-border/50 bg-muted animate-pulse" />
+        <LoadingRegion label="Warteschlangen-Status wird geladen">
+          <div className="space-y-4" aria-hidden>
+            <Skeleton className="h-44 w-full rounded-xl" />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Skeleton className="h-40 w-full rounded-xl" />
+              <Skeleton className="h-40 w-full rounded-xl" />
+            </div>
           </div>
-        </div>
+        </LoadingRegion>
       )}
 
       {!summary && summaryState.status === 'error' && (
@@ -271,7 +276,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
       {/* Filter Toolbar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
         {/* Status Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto py-1">
+        <div role="group" aria-label="Status" className="flex flex-wrap items-center gap-1.5 py-1">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.key
             return (
@@ -281,7 +286,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
                 aria-pressed={isActive}
                 onClick={() => updateUrl({ view: tab.key, page: 1 })}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                  'focus-ring flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                   isActive
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -305,7 +310,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
         </div>
 
         {/* Priority Filter */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 sm:shrink-0">
           <label htmlFor="priority-filter" className="text-xs text-muted-foreground whitespace-nowrap">
             Priorität:
           </label>
@@ -313,7 +318,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
             id="priority-filter"
             value={priorityFilter}
             onChange={(e) => updateUrl({ priority: e.target.value as JobPriority | 'all', page: 1 })}
-            className="rounded-lg border border-border bg-background px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            className="focus-ring min-w-0 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground"
           >
             <option value="all">Alle Prioritäten</option>
             <option value="very_high">Sehr hoch</option>
@@ -340,11 +345,31 @@ function Downloads({ jobId }: DownloadsPageProps) {
         <Panel>
           <EmptyState
             icon={<DownloadIcon />}
-            title={activeTab === 'all' ? 'Keine Downloads vorhanden' : `Keine Aufträge: ${tabs.find((tab) => tab.key === activeTab)?.label}`}
+            title={isFiltered ? 'Keine passenden Aufträge' : 'Keine Downloads vorhanden'}
             description={
-              priorityFilter !== 'all'
-                ? 'Mit dem gewählten Prioritätsfilter wurden keine Aufträge gefunden.'
-                : 'Fügen Sie neue Downloads über die Suche oder Entdecken-Seite hinzu.'
+              isFiltered
+                ? `In dieser Ansicht (${tabs.find((tab) => tab.key === activeTab)?.label}${
+                    priorityFilter !== 'all' ? ', mit dem gewählten Prioritätsfilter' : ''
+                  }) gibt es keine Aufträge. Wähle eine andere Ansicht oder setze die Filter zurück.`
+                : 'Über „Entdecken“ oder die Suche auf der Startseite startest du den ersten Download.'
+            }
+            action={
+              isFiltered ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => updateUrl({ view: 'all', priority: 'all', page: 1 })}
+                >
+                  Filter zurücksetzen
+                </Button>
+              ) : (
+                <Link
+                  href={paths.discover()}
+                  className={buttonVariants({ variant: 'default', size: 'sm' })}
+                >
+                  Entdecken
+                </Link>
+              )
             }
           />
         </Panel>
@@ -414,7 +439,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
                 id="cleanup-days"
                 value={cleanupDays}
                 onChange={(e) => setCleanupDays(Number(e.target.value))}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="focus-ring w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
               >
                 <option value={7}>7 Tage</option>
                 <option value={14}>14 Tage</option>

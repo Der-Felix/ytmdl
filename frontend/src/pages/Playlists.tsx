@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/state-view'
+import { EmptyState, ErrorState, GridSkeleton, LoadingRegion } from '@/components/ui/state-view'
 import { useAsync } from '@/hooks/useAsync'
 import { usePlayerActions } from '@/hooks/usePlayer'
 import { createPlaylist, getPlaylist, listPlaylists } from '@/lib/api/playlists'
@@ -20,7 +20,7 @@ import { PlaylistArtwork } from '@/components/music/PlaylistArtwork'
 import { playlistPreview } from '@/lib/playlist-artwork'
 import { Pagination } from '@/components/ui/pagination'
 import type { LibraryTrack } from '@/types/api'
-import { formatDuration, formatRelative } from '@/lib/utils/format'
+import { formatDuration, formatRelative, pluralize } from '@/lib/utils/format'
 import { SmartRuleEditor } from '@/components/music/SmartRuleEditor'
 import type { SmartRules } from '@/types/playlist'
 import type { Playlist } from '@/types/playlist'
@@ -119,12 +119,12 @@ export function Playlists() {
   )
 
   return (
-    <div className="space-y-6 pb-24">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
-            <ListMusic className="size-7 text-primary" />
+          <h1 className="flex items-center gap-3 font-heading text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            <ListMusic aria-hidden className="size-7 text-primary" />
             Playlists
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Deine persönlichen Wiedergabelisten</p>
@@ -145,7 +145,14 @@ export function Playlists() {
       </div>
 
       {/* Main Content */}
-      {state.status === 'loading' && <ListSkeleton rows={4} />}
+      {state.status === 'loading' && (
+        <LoadingRegion label="Playlists werden geladen">
+          <GridSkeleton
+            tiles={8}
+            className="grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 sm:gap-6"
+          />
+        </LoadingRegion>
+      )}
 
       {state.status === 'error' && <ErrorState error={state.error} onRetry={reload} />}
 
@@ -175,10 +182,10 @@ export function Playlists() {
       {state.status === 'success' && all.length > 0 && <>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Input aria-label="Playlists durchsuchen" placeholder="Deine Playlists durchsuchen …" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} className="sm:max-w-md" />
-          <select aria-label="Playlists sortieren" value={sort} onChange={(event) => { setSort(event.target.value); setPage(1) }} className="rounded-xl border border-border bg-background px-3 py-2 text-sm">
+          <select aria-label="Playlists sortieren" value={sort} onChange={(event) => { setSort(event.target.value); setPage(1) }} className="focus-ring rounded-xl border border-border bg-background px-3 py-2 text-sm">
             <option value="recent">Zuletzt geändert</option><option value="name">Name A–Z</option>
           </select>
-          <span className="text-sm text-muted-foreground sm:ml-auto">{filtered.length} Playlists</span>
+          <span aria-live="polite" className="text-sm text-muted-foreground sm:ml-auto">{pluralize(filtered.length, 'Playlist', 'Playlists')}</span>
         </div>
         {playError && <p role="alert" className="text-sm text-destructive">{playError}</p>}
         {!filtered.length && <EmptyState title="Keine passende Playlist" description="Versuche einen anderen Namen oder setze die Suche zurück." action={<Button variant="outline" onClick={() => setQuery('')}>Suche zurücksetzen</Button>} />}
@@ -187,7 +194,7 @@ export function Playlists() {
             <Link href={paths.playlist(playlist.id)} className="block rounded-xl focus-visible:outline-2 focus-visible:outline-ring">
               <PlaylistArtwork name={playlist.name} tracks={previews[playlist.id] || []} className="mb-4 w-full" />
               <h2 className="truncate text-base font-semibold sm:text-lg">{playlist.name}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{playlist.track_count} Titel · {formatDuration(playlist.duration_ms)}</p>
+              <p className="figures mt-1 text-sm text-muted-foreground">{playlist.track_count} Titel · {formatDuration(playlist.duration_ms)}</p>
               {playlist.smart_rules && <span className="mt-2 inline-block text-xs text-primary">Intelligente Playlist</span>}
               {playlist.description && <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{playlist.description}</p>}
             </Link>
@@ -217,7 +224,7 @@ export function Playlists() {
             </DialogHeader>
 
             {createError && (
-              <div className="my-3 rounded-lg bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive">
+              <div role="alert" className="my-3 rounded-lg bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive">
                 {createError}
               </div>
             )}
@@ -225,10 +232,11 @@ export function Playlists() {
             <div className="space-y-4 py-4 max-h-[65dvh] overflow-y-auto">
               <SmartRuleEditor value={rules} onChange={setRules} />
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground/80">
+                <label htmlFor="create-playlist-name" className="text-xs font-semibold text-foreground/80">
                   Name <span className="text-destructive">*</span>
                 </label>
                 <Input
+                  id="create-playlist-name"
                   autoFocus
                   placeholder="z.B. Rock Classics, Chillout..."
                   value={name}
@@ -239,10 +247,11 @@ export function Playlists() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground/80">
+                <label htmlFor="create-playlist-description" className="text-xs font-semibold text-foreground/80">
                   Beschreibung (optional)
                 </label>
                 <Input
+                  id="create-playlist-description"
                   placeholder="Kurze Notiz oder Genre..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
