@@ -22,7 +22,7 @@ import { useOptionalAuth } from '@/hooks/useAuth'
 import { usePlayerActions } from '@/hooks/usePlayer'
 import { libraryArtistDetail, updateArtistGenres } from '@/lib/api/library'
 import { Link, paths } from '@/lib/router'
-import { formatBytes, pluralize } from '@/lib/utils/format'
+import { formatBytes, pluralize, releaseTypeLabel } from '@/lib/utils/format'
 import type { LibraryArtistDetail, LibraryTrack } from '@/types/api'
 
 interface LibraryArtistProps {
@@ -282,10 +282,10 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
                     key={t}
                     variant={releaseTypeFilter === t ? 'default' : 'ghost'}
                     size="sm"
-                    className="h-7 text-xs capitalize"
+                    className="h-7 text-xs"
                     onClick={() => setReleaseTypeFilter(t)}
                   >
-                    {t} ({count})
+                    {releaseTypeLabel(t)} ({count})
                   </Button>
                 )
               })}

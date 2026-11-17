@@ -21,6 +21,7 @@ import { ArtistCard } from '@/components/music/ArtistCard'
 import { ReleaseCard } from '@/components/music/ReleaseCard'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
 import { LibraryToolsPanel } from '@/components/library/LibraryToolsPanel'
+import { NamingMigrationCard } from '@/components/library/NamingMigrationCard'
 import { TracksTable } from '@/components/music/TracksTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -56,6 +57,7 @@ import { cn } from '@/lib/utils'
 import {
   formatBytes,
   pluralize,
+  releaseTypeLabel,
 } from '@/lib/utils/format'
 import type {
   CompatReport,
@@ -428,7 +430,7 @@ export function Library() {
           <div className="flex flex-wrap items-center gap-4 text-xs text-foreground/80 pt-2">
             <span className="flex items-center gap-1.5 font-medium">
               <UserIcon className="size-4 text-muted-foreground" />
-              {stats?.total_artists !== undefined ? pluralize(stats.total_artists, 'Künstler') : '–'}
+              {stats?.total_artists !== undefined ? pluralize(stats.total_artists, 'Künstler', 'Künstler') : '–'}
             </span>
             <span>·</span>
             <span className="flex items-center gap-1.5 font-medium">
@@ -595,10 +597,10 @@ export function Library() {
                   key={t}
                   variant={currentType === t ? 'secondary' : 'ghost'}
                   size="sm"
-                  className="h-7 text-xs capitalize"
+                  className="h-7 text-xs"
                   onClick={() => updateUrl({ type: t, page: 1 })}
                 >
-                  {t}
+                  {releaseTypeLabel(t)}
                 </Button>
               ))}
             </div>
@@ -641,9 +643,9 @@ export function Library() {
               {currentType && (
                 <Badge
                   variant="outline"
-                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border capitalize"
+                  className="gap-1.5 py-0.5 px-2 text-xs bg-muted/90 text-foreground border-border"
                 >
-                  <span>Typ: {currentType}</span>
+                  <span>Typ: {releaseTypeLabel(currentType)}</span>
                   <button
                     type="button"
                     onClick={() => updateUrl({ type: undefined, page: 1 })}
@@ -1189,7 +1191,12 @@ export function Library() {
 
       {/* Tab 4: Maintenance & Scan */}
       {view === 'tools' && <LibraryToolsPanel isAdmin={isAdmin} />}
-      {view === 'maintenance' && <IntegrityPanel isAdmin={isAdmin} />}
+      {view === 'maintenance' && (
+        <div className="space-y-6">
+          <NamingMigrationCard />
+          <IntegrityPanel isAdmin={isAdmin} />
+        </div>
+      )}
 
       {/* Track Detail Dialog (with deep-link support) */}
       <TrackDetailDialog
