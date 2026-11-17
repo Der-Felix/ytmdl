@@ -383,7 +383,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
                 <Button variant="ghost" size="icon" className={`size-11 shrink-0 rounded-full ${isCurrent ? 'bg-primary/15 text-primary' : ''}`} aria-label={`${pt.title} ${isPlaying ? 'pausieren' : 'abspielen'}`} onClick={() => handlePlayTrack(pt, index)}>
                   {isPlaying ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
                 </Button>
-                <Cover src={libraryArtwork('tracks', pt.id)} alt="" className="hidden size-12 shrink-0 rounded-lg min-[400px]:block sm:size-14" />
+                <Cover src={libraryArtwork('tracks', pt.id)} alt="" className="size-12 shrink-0 rounded-lg sm:size-14" />
                 <button type="button" onClick={() => handlePlayTrack(pt, index)} aria-label={`${pt.title} auswählen`} className="focus-ring min-w-0 flex-1 rounded-lg text-left">
                   <span className={`block truncate text-base font-medium ${isCurrent ? 'text-primary' : ''}`}>{pt.title}</span>
                   <span className="block truncate text-sm text-muted-foreground">{joinArtists(pt.artists || []) || pt.album_artist} <span className="hidden sm:inline">· {pt.album || 'Ohne Album'}</span></span>
