@@ -10,44 +10,28 @@ Last updated: 2026-11-17.
 
 Work that is in progress or blocks a release.
 
-- **Stop a failed release run from using up its version.** 1.3.1 and 1.3.2 were
-  lost because the release workflow pushed the version tags before the upgrade
-  qualification. It now pushes `candidate-*` tags, qualifies those images,
-  upgrades included, and gives the qualified digests the version tag only
-  afterwards; published version tags are still never replaced. A rehearsal run
-  has exercised this path without a release. What remains: the first real
-  release with it, which is the only run that creates the version tag, the draft
-  and the release. Failed runs and rehearsals delete their own `candidate-*`
-  package versions.
-- **Check the new theme with real content.** The theme shipped in 1.4.0 was
-  reviewed on an empty library. Covers, long lists, the playing view and narrow
-  screens still need a pass, and the documentation screenshots show the old look.
+- **Check the new theme with real content.** The dashboard, the library, the
+  release view and the player page were checked with a filled library at desktop
+  width and at 375 px. What remains is a pass over the other views (downloads,
+  subscriptions, settings, playlists) and new documentation screenshots, which
+  still show the old look.
 
 ## Next
 
 Agreed work that starts when the items above are done.
 
-- **File names.** Decided: edition notes ("Remastered 2011", "Single Version")
-  stay in the name as the provider spells them; characters a filesystem refuses
-  become fullwidth look-alikes (`AC／DC`); disc 2, track 2 is `2-02 - Title`,
-  still in one folder per release. Existing libraries move automatically after
-  the update, in the background and resumable, with an opt-out
-  (`MUSICDL_LIBRARY_AUTO_RENAME=false`) for those whose media server should not
-  see the change yet. Implemented for the next minor release; what remains is a
-  check against a large real library on a network share and a media server.
 - **Live recordings the provider does not label.** A live album is recognised by
   its title or, since 1.4.1, by the live markers in its track titles (at least
   three tracks and three quarters of the list). One that has fewer marked tracks
   still shares its tracks' identity with the studio recordings, and its plainly
   titled tracks can still be matched to a studio recording.
 - **Finish the web interface to the standard the theme sets.**
-  - Toasts for results and errors, a command menu, and a queue that can be
-    dragged on touch devices.
-  - A monospaced face for durations and counters.
   - A pass over every view for loading, empty and error states, keyboard order,
     and the widths from 360 to 1920 px.
-  - Less re-rendering while a track plays; the queue and the player page are
-    redrawn on every progress tick.
+  - A focus trap for the mobile navigation drawer.
+- **Show Live and Remix in the library's release-type filter?** The fixed chip
+  list offers Album, EP, Single and Compilation only. To decide whether the
+  other release types belong there.
 - **Apple app.**
   - Move the macOS session items to the data protection keychain. This depends
     on how the app is signed; the DMG is ad-hoc signed today.
