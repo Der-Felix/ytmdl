@@ -8,6 +8,7 @@ import {
   formatYear,
   joinArtists,
   pluralize,
+  releaseTypeLabel,
 } from './format'
 
 describe('formatDuration', () => {
@@ -49,6 +50,12 @@ describe('formatNumber & pluralize', () => {
   it('pluralizes nouns with one and many', () => {
     expect(pluralize(1, 'Track')).toBe('1 Track')
     expect(pluralize(5, 'Track')).toBe('5 Tracks')
+    expect(pluralize(1, 'Künstler', 'Künstler')).toBe('1 Künstler')
+    expect(pluralize(12, 'Künstler', 'Künstler')).toBe('12 Künstler')
+    expect(releaseTypeLabel('ep')).toBe('EP')
+    expect(releaseTypeLabel('album')).toBe('Album')
+    expect(releaseTypeLabel('remix')).toBe('Remix')
+    expect(releaseTypeLabel('podcast')).toBe('Podcast')
     expect(pluralize(1, 'Album', 'Alben')).toBe('1 Album')
     expect(pluralize(3, 'Album', 'Alben')).toBe('3 Alben')
   })

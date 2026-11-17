@@ -29,6 +29,36 @@ import { useAuth } from '@/hooks/useAuth'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { navigate, paths } from '@/lib/router'
 
+/** Value prefix of the two search entries; they always rank behind real matches. */
+const SEARCH_VALUE = 'search-'
+
+/**
+ * Ranks an entry for the typed text: prefix of the label, then a contiguous
+ * match, then the letters in order (also over the keywords). The search entries
+ * are force-mounted, so they only need to rank last: a view, player action or
+ * account entry that matches comes first and is the selected one; when nothing
+ * else matches, the search entries stand alone.
+ */
+function rankEntry(value: string, search: string, keywords?: string[]): number {
+  if (value.startsWith(SEARCH_VALUE)) return 0.0001
+  const needle = search.trim().toLowerCase()
+  if (!needle) return 1
+  const label = value.toLowerCase()
+  if (label.startsWith(needle)) return 1
+  if (label.includes(needle)) return 0.9
+  const haystack = [label, ...(keywords ?? []).map((keyword) => keyword.toLowerCase())]
+  if (haystack.some((text) => text.includes(needle))) return 0.7
+  const inOrder = (text: string) => {
+    let at = 0
+    for (const char of needle) {
+      at = text.indexOf(char, at) + 1
+      if (at === 0) return false
+    }
+    return true
+  }
+  return haystack.some(inOrder) ? 0.3 : 0
+}
+
 interface CommandMenuProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -78,7 +108,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       title="Befehlsmenü"
       description="Ansicht öffnen, suchen oder eine Aktion ausführen"
     >
-      <Command loop>
+      <Command loop filter={rankEntry}>
         <CommandInput
           value={query}
           onValueChange={setQuery}
@@ -87,31 +117,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         />
         <CommandList>
           <CommandEmpty>Kein Treffer. Mit Eingabe suchst du in Bibliothek oder Katalog.</CommandEmpty>
-
-          {trimmed && (
-            <CommandGroup heading="Suchen" forceMount>
-              <CommandItem
-                value={`search-library ${trimmed}`}
-                forceMount
-                onSelect={run(() => navigate(paths.library({ q: trimmed })))}
-              >
-                <LibraryIcon aria-hidden="true" />
-                <span className="min-w-0 truncate">
-                  In der Bibliothek suchen: <span className="font-medium">„{trimmed}“</span>
-                </span>
-              </CommandItem>
-              <CommandItem
-                value={`search-catalog ${trimmed}`}
-                forceMount
-                onSelect={run(() => navigate(paths.discover(trimmed)))}
-              >
-                <CompassIcon aria-hidden="true" />
-                <span className="min-w-0 truncate">
-                  Im Katalog entdecken: <span className="font-medium">„{trimmed}“</span>
-                </span>
-              </CommandItem>
-            </CommandGroup>
-          )}
 
           {currentTrack && (
             <CommandGroup heading="Wiedergabe">
@@ -160,6 +165,31 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             <MenuItem icon={UserIcon} label="Profil & Sicherheit" keywords={['passwort', 'konto', 'geräte']} onSelect={run(() => navigate(paths.profile()))} />
             <MenuItem icon={LogOutIcon} label="Abmelden" keywords={['logout', 'sign out']} onSelect={run(() => void logout())} />
           </CommandGroup>
+
+          {trimmed && (
+            <CommandGroup heading="Suchen" forceMount>
+              <CommandItem
+                value={`${SEARCH_VALUE}library ${trimmed}`}
+                forceMount
+                onSelect={run(() => navigate(paths.library({ q: trimmed })))}
+              >
+                <LibraryIcon aria-hidden="true" />
+                <span className="min-w-0 truncate">
+                  In der Bibliothek suchen: <span className="font-medium">„{trimmed}“</span>
+                </span>
+              </CommandItem>
+              <CommandItem
+                value={`${SEARCH_VALUE}catalog ${trimmed}`}
+                forceMount
+                onSelect={run(() => navigate(paths.discover(trimmed)))}
+              >
+                <CompassIcon aria-hidden="true" />
+                <span className="min-w-0 truncate">
+                  Im Katalog entdecken: <span className="font-medium">„{trimmed}“</span>
+                </span>
+              </CommandItem>
+            </CommandGroup>
+          )}
         </CommandList>
         <div className="hidden items-center justify-end gap-3 border-t border-border px-3 py-2 text-[11px] text-muted-foreground pointer-fine:flex">
           <span>

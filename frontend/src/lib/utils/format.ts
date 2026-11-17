@@ -137,6 +137,20 @@ export function joinArtists(artists: string[] | undefined): string {
   return cleaned.length > 0 ? cleaned.join(' · ') : 'Unbekannter Künstler'
 }
 
+const RELEASE_TYPE_LABELS: Record<string, string> = {
+  album: 'Album',
+  ep: 'EP',
+  single: 'Single',
+  compilation: 'Compilation',
+  live: 'Live',
+  remix: 'Remix',
+}
+
+/** The display label of a release type value: "ep" becomes "EP". */
+export function releaseTypeLabel(type: string): string {
+  return RELEASE_TYPE_LABELS[type.toLowerCase()] ?? type.charAt(0).toUpperCase() + type.slice(1)
+}
+
 /** The year, or an empty string when the provider delivered none. */
 export function formatYear(year: number | undefined): string {
   return year && year > 0 ? String(year) : ''

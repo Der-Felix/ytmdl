@@ -1187,3 +1187,38 @@ export interface UpdateMediaSessionPayload {
   name?: string
   enabled?: boolean
 }
+
+/** The states of the automatic move to the current file naming scheme. */
+export type NamingMigrationState =
+  | 'disabled'
+  | 'pending'
+  | 'running'
+  | 'waiting_for_storage'
+  | 'incomplete'
+  | 'completed'
+  | 'failed'
+
+/** One file the naming migration left where it was. */
+export interface NamingMigrationSkip {
+  path: string
+  target?: string
+  reason: string
+  detail?: string
+}
+
+/** GET /library/naming-migration */
+export interface NamingMigrationStatus {
+  from_scheme: number
+  to_scheme: number
+  state: NamingMigrationState
+  started_at?: string
+  finished_at?: string
+  planned: number
+  moved: number
+  skipped: number
+  extras_carried: number
+  folders_removed: number
+  skips?: NamingMigrationSkip[]
+  notes?: NamingMigrationSkip[]
+  last_error?: string
+}

@@ -1,4 +1,4 @@
-import { request, requestList, type ListResult } from '@/lib/api/client'
+import { ApiError, request, requestList, type ListResult } from '@/lib/api/client'
 import type {
   AuditFinding,
   AuditRun,
@@ -13,6 +13,7 @@ import type {
   LibraryStats,
   LibraryTrack,
   LibraryTrackDetail,
+  NamingMigrationStatus,
   ReorganizeRequest,
   ReorganizeResult,
   RepairApplyRequest,
@@ -357,6 +358,23 @@ export async function listLibraryAudits(
     },
     signal: options.signal,
   })
+}
+
+/**
+ * GET /library/naming-migration. A server that predates the endpoint answers
+ * 404; that is "nothing to show", so it resolves to null instead of failing.
+ */
+export async function getNamingMigration(
+  options: { signal?: AbortSignal } = {},
+): Promise<NamingMigrationStatus | null> {
+  try {
+    return await request<NamingMigrationStatus>('/library/naming-migration', {
+      signal: options.signal,
+    })
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null
+    throw err
+  }
 }
 
 /** GET /library/audits/current */

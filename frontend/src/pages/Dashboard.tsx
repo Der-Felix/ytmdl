@@ -82,6 +82,7 @@ function Dashboard() {
             <Button
               variant="ghost"
               size="sm"
+              nativeButton={false}
               render={<Link href={paths.downloads()} />}
             >
               Alle Downloads
@@ -258,7 +259,7 @@ function LibraryOverview() {
       <PanelHeader
         title="Bibliothek"
         action={
-          <Button variant="ghost" size="sm" render={<Link href={paths.library()} />}>
+          <Button variant="ghost" size="sm" nativeButton={false} render={<Link href={paths.library()} />}>
             Öffnen
             <ArrowRightIcon />
           </Button>
@@ -368,7 +369,7 @@ function ServerStatus() {
       <PanelHeader
         title="Serverstatus"
         action={
-          <Button variant="ghost" size="sm" render={<Link href={paths.settings()} />}>
+          <Button variant="ghost" size="sm" nativeButton={false} render={<Link href={paths.settings()} />}>
             Einstellungen
             <ArrowRightIcon />
           </Button>

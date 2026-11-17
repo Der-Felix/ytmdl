@@ -28,11 +28,11 @@ function NotFound({ pathname }: NotFoundProps) {
           description="Die aufgerufene Seite existiert nicht oder wurde verschoben."
           action={
             <div className="flex flex-wrap items-center gap-3">
-              <Button variant="default" render={<Link href={paths.dashboard()} />}>
+              <Button variant="default" nativeButton={false} render={<Link href={paths.dashboard()} />}>
                 <LayoutDashboardIcon />
                 Zum Dashboard
               </Button>
-              <Button variant="outline" render={<Link href={paths.discover()} />}>
+              <Button variant="outline" nativeButton={false} render={<Link href={paths.discover()} />}>
                 <CompassIcon />
                 Musik suchen
               </Button>
