@@ -20,6 +20,7 @@ import (
 	"ytdm/backend/internal/auth"
 	"ytdm/backend/internal/database/repository"
 	"ytdm/backend/internal/discography"
+	"ytdm/backend/internal/identitymigration"
 	"ytdm/backend/internal/jobs"
 	"ytdm/backend/internal/library"
 	"ytdm/backend/internal/mediasession"
@@ -54,6 +55,7 @@ type Deps struct {
 	Settings       *settings.Service
 	Library        *storage.Library
 	LibraryService *library.Service
+	Identity       *identitymigration.Migrator
 	Resolver       *resolve.Service
 	Auth           *auth.Service
 	Database       Pinger

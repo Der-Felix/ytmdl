@@ -606,15 +606,16 @@ func upsertTrack(ctx context.Context, tx executor, track music.Track, releaseID,
 			INSERT INTO tracks (id, release_id, artist_id, title, artists_json, album,
 				album_artist, track_number, track_total, disc_number, disc_total,
 				duration_ms, year, isrc, cover_url, identity_key, compilation,
-				lyrics_state, lyrics_provider, lyrics_checked_at, created_at, updated_at)
+				lyrics_state, lyrics_provider, lyrics_checked_at, created_at, updated_at,
+				identity_scheme)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-				$17, $18, $19, $20, $21, $21)`,
+				$17, $18, $19, $20, $21, $21, $22)`,
 			existingID, nullString(releaseID), nullString(artistID), track.DisplayTitle(),
 			encodeStrings(track.Artists), track.Album, track.DisplayAlbumArtist(),
 			track.TrackNumber, track.TrackTotal, track.DiscNumber, track.DiscTotal,
 			track.DurationMS, track.Year, isrc, track.CoverURL, identity, track.Compilation,
 			string(track.DisplayLyricsState()), track.LyricsProvider,
-			nullTime(track.LyricsCheckedAt), now)
+			nullTime(track.LyricsCheckedAt), now, discography.IdentityScheme)
 		if err != nil {
 			return music.Track{}, wrapDB("insert track", err)
 		}
@@ -729,17 +730,26 @@ func findTrackID(ctx context.Context, exec executor, trackID string, identity di
 	// discography.InferLiveRelease uses — that release was filed as an album
 	// before the track list counted. A row of the very release the track was
 	// resolved from is found by its legacy key in any case.
+	//
+	// The keys of the earlier remix title reading ($7, $8) only match rows
+	// that still carry an identity scheme below the one that retired it: rows
+	// the identity migration has not reached yet, or held for review. A
+	// migrated row carries the current key, and matching it by an older form
+	// of a different title would be a false match.
 	rows, err := exec.QueryContext(ctx, `
 		SELECT t.id, t.duration_ms
 		FROM tracks t LEFT JOIN releases r ON r.id = t.release_id
-		WHERE (t.identity_key = ANY($1)
+		WHERE ((t.identity_key = ANY($1)
+		        OR (t.identity_scheme < $6 AND t.identity_key = ANY($7)))
 		       AND ($3 OR NOT (`+liveReleaseSQL+`
 		                       AND split_part(t.identity_key, chr(31), 3) NOT LIKE 'live%')))
-		   OR (t.identity_key = ANY($2)
+		   OR ((t.identity_key = ANY($2)
+		        OR (t.identity_scheme < $6 AND t.identity_key = ANY($8)))
 		       AND (`+liveReleaseSQL+`
 		            OR ($5::text <> '' AND r.provider = $4::text AND r.source_id = $5::text)))`,
 		identity.Keys, identity.LegacyLiveKeys, identity.Live,
-		identity.ReleaseProvider, identity.ReleaseSourceID)
+		identity.ReleaseProvider, identity.ReleaseSourceID,
+		discography.RemixReadingScheme, identity.OlderSchemeKeys, identity.OlderSchemeLiveKeys)
 	if err != nil {
 		return "", wrapDB("find track by identity", err)
 	}

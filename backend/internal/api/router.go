@@ -248,6 +248,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				library.Get("/audits/{id}", h.GetLibraryAudit)
 				library.Get("/audits/{id}/findings", h.ListLibraryAuditFindings)
 				library.Get("/naming-migration", h.GetNamingMigration)
+				library.Get("/identity-migration", h.GetIdentityMigration)
 
 				library.Group(func(mutating chi.Router) {
 					mutating.Use(middleware.CSRF)

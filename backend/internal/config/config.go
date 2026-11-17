@@ -112,6 +112,11 @@ type LibraryConfig struct {
 	// automatically after an update. Switched off, files keep their names
 	// until it is switched on again.
 	AutoRename bool `yaml:"auto_rename"`
+	// IdentityMigration carries the identity keys of stored tracks over to
+	// the current identity scheme in the background after an update.
+	// Switched off, rows keep their keys and the lookup keeps finding them by
+	// the older key forms.
+	IdentityMigration bool `yaml:"identity_migration"`
 }
 
 // ToolsConfig locates the external programs the backend drives.
@@ -307,6 +312,7 @@ func Default() Config {
 			LyricsEnabled:      true,
 			LyricsWriteSidecar: true,
 			AutoRename:         true,
+			IdentityMigration:  true,
 		},
 		Tools: ToolsConfig{
 			YTDLPPath:   "yt-dlp",
@@ -537,6 +543,7 @@ func (c *Config) applyEnv() error {
 	boolean("MUSICDL_LIBRARY_LYRICS_WRITE_SIDECAR", &c.Library.LyricsWriteSidecar)
 	boolean("YTDM_LIBRARY_LYRICS_WRITE_SIDECAR", &c.Library.LyricsWriteSidecar)
 	boolean("MUSICDL_LIBRARY_AUTO_RENAME", &c.Library.AutoRename)
+	boolean("MUSICDL_LIBRARY_IDENTITY_MIGRATION", &c.Library.IdentityMigration)
 
 	if _, canonical := lookup("MUSICDL_YTDLP"); !canonical {
 		str("YTDM_YTDLP_PATH", &c.Tools.YTDLPPath)
