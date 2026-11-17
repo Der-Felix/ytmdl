@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
+import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { MenuIcon, SearchIcon, XIcon } from 'lucide-react'
 
 import { CommandMenu } from '@/components/layout/CommandMenu'
@@ -35,14 +36,17 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
   // hide what the user just navigated to.
   useEffect(() => setDrawerOpen(false), [route])
 
-  // Escape closes the drawer, matching every other overlay in the application.
+  // The drawer is only meant for narrow widths. If the window grows past the
+  // md breakpoint while it is open, close it; otherwise the page would stay
+  // inert behind a drawer that is no longer visible.
   useEffect(() => {
-    if (!drawerOpen) return
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setDrawerOpen(false)
+    if (!drawerOpen || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(min-width: 768px)')
+    function onChange(event: MediaQueryListEvent) {
+      if (event.matches) setDrawerOpen(false)
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
   }, [drawerOpen])
 
   return (
@@ -68,27 +72,44 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
         </aside>
       )}
 
-      {/* Mobile drawer (Hidden in player mode) */}
-      {!isPlayerRoute && drawerOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <button
-            type="button"
-            aria-label="Navigation schließen"
-            onClick={() => setDrawerOpen(false)}
-            className="absolute inset-0 bg-overlay/70"
-          />
-          <aside className="panel-blur absolute inset-y-0 left-0 w-[17rem] rounded-r-2xl border-y-0 border-l-0 bg-popover">
-            <Sidebar
-              route={route}
-              activeDownloads={activeDownloads}
-              onNavigate={() => setDrawerOpen(false)}
-              onOpenCommandMenu={() => {
-                setDrawerOpen(false)
-                setCommandOpen(true)
-              }}
-            />
-          </aside>
-        </div>
+      {/*
+        Mobile drawer (hidden in player mode). A modal Base UI dialog: focus
+        moves in on open, Tab stays inside, Escape and the backdrop close it,
+        focus returns to the opening button and the page behind is inert.
+      */}
+      {!isPlayerRoute && (
+        <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+          <DialogPrimitive.Portal>
+            <DialogPrimitive.Backdrop className="fixed inset-0 z-50 bg-overlay/70 transition-opacity duration-(--duration-base) ease-(--ease-out) data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 md:hidden" />
+            <DialogPrimitive.Popup
+              data-slot="mobile-nav-drawer"
+              aria-label="Navigation"
+              className="panel-blur fixed inset-y-0 left-0 z-50 w-[17rem] rounded-r-2xl border-y-0 border-l-0 bg-popover outline-none transition-transform duration-(--duration-slow) ease-(--ease-drawer) data-[starting-style]:-translate-x-full data-[ending-style]:-translate-x-full md:hidden"
+            >
+              <DialogPrimitive.Close
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Navigation schließen"
+                    className="absolute top-4 right-3"
+                  />
+                }
+              >
+                <XIcon />
+              </DialogPrimitive.Close>
+              <Sidebar
+                route={route}
+                activeDownloads={activeDownloads}
+                onNavigate={() => setDrawerOpen(false)}
+                onOpenCommandMenu={() => {
+                  setDrawerOpen(false)
+                  setCommandOpen(true)
+                }}
+              />
+            </DialogPrimitive.Popup>
+          </DialogPrimitive.Portal>
+        </DialogPrimitive.Root>
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -103,11 +124,11 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label={drawerOpen ? 'Navigation schließen' : 'Navigation öffnen'}
+              aria-label="Navigation öffnen"
               aria-expanded={drawerOpen}
-              onClick={() => setDrawerOpen((open) => !open)}
+              onClick={() => setDrawerOpen(true)}
             >
-              {drawerOpen ? <XIcon /> : <MenuIcon />}
+              <MenuIcon />
             </Button>
 
             <Link
