@@ -23,6 +23,7 @@ import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { Link, paths } from '@/lib/router'
 import { joinArtists } from '@/lib/utils/format'
+import { sliderFill } from '@/lib/utils/slider'
 import { MobileProgress, SeekBar } from './SeekBar'
 
 /*
@@ -252,9 +253,7 @@ export function MiniPlayer() {
                 value={muted ? 0 : volume}
                 onChange={(e) => setVolume(parseFloat(e.target.value))}
                 className="slider-quiet w-20"
-                style={{
-                  background: `linear-gradient(to right, var(--muted-foreground) 0%, var(--muted-foreground) ${(muted ? 0 : volume) * 100}%, var(--input) ${(muted ? 0 : volume) * 100}%, var(--input) 100%)`,
-                }}
+                style={sliderFill(muted ? 0 : volume, 0, 1, 'var(--muted-foreground)')}
                 aria-label="Lautstärkeregler"
               />
             </div>

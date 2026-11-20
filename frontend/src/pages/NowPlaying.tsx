@@ -59,6 +59,7 @@ import type {
 import { Link, navigate, paths, useLocation } from '@/lib/router'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
 import { parseLrc } from '@/lib/utils/lrc'
+import { sliderFill } from '@/lib/utils/slider'
 import type { TrackLyrics } from '@/types/api'
 
 type PrimaryTab = 'lyrics' | 'queue' | 'equalizer' | 'audio'
@@ -591,9 +592,7 @@ export function NowPlaying() {
                     value={muted ? 0 : volume}
                     onChange={(e) => setVolume(parseFloat(e.target.value))}
                     className="slider-quiet w-24 outline-none"
-                    style={{
-                      background: `linear-gradient(to right, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.7) ${(muted ? 0 : volume) * 100}%, rgba(255,255,255,0.15) ${(muted ? 0 : volume) * 100}%, rgba(255,255,255,0.15) 100%)`,
-                    }}
+                    style={sliderFill(muted ? 0 : volume, 0, 1, 'color-mix(in oklab, var(--foreground) 70%, transparent)')}
                     aria-label="Lautstärkeregler"
                   />
                 </div>
