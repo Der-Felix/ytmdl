@@ -25,7 +25,7 @@ func NewSubscriptions(db *database.DB) *Subscriptions { return &Subscriptions{db
 
 const subscriptionColumns = `id, provider, artist_source_id, artist_name, artist_image_url,
 	enabled, auto_download, last_sync_at, next_sync_at, last_sync_status, last_error,
-	created_at, updated_at, release_filter, download_priority`
+	created_at, updated_at, release_filter, download_priority, include_appearances`
 
 func scanSubscription(scan func(dest ...any) error) (subscriptions.Subscription, error) {
 	var (
@@ -34,12 +34,17 @@ func scanSubscription(scan func(dest ...any) error) (subscriptions.Subscription,
 		status       string
 		filterJSON   []byte
 		priorityRank int
+		appearances  sql.NullBool
 	)
 	err := scan(&s.ID, &s.Provider, &s.ArtistSourceID, &s.ArtistName, &s.ArtistImageURL,
 		&s.Enabled, &s.AutoDownload, &lastSyncAt, &s.NextSyncAt, &status, &s.LastError,
-		&s.CreatedAt, &s.UpdatedAt, &filterJSON, &priorityRank)
+		&s.CreatedAt, &s.UpdatedAt, &filterJSON, &priorityRank, &appearances)
 	if err != nil {
 		return subscriptions.Subscription{}, err
+	}
+	if appearances.Valid {
+		value := appearances.Bool
+		s.IncludeAppearances = &value
 	}
 	s.LastSyncStatus = subscriptions.SyncStatus(status)
 	s.LastSyncAt = timePtr(lastSyncAt)
@@ -103,8 +108,9 @@ func (r *Subscriptions) Create(ctx context.Context, req subscriptions.NewSubscri
 	row := r.db.QueryRowContext(ctx, `
 		INSERT INTO artist_subscriptions (id, provider, artist_source_id, artist_name,
 			artist_image_url, enabled, auto_download, last_sync_at, next_sync_at,
-			last_sync_status, last_error, created_at, updated_at, release_filter, download_priority)
-		VALUES ($1, $2, $3, COALESCE(NULLIF($4::text, ''), $9), $5, $12, $6, NULL, $7, $8, '', $7, $7, $10, $11)
+			last_sync_status, last_error, created_at, updated_at, release_filter, download_priority,
+			include_appearances)
+		VALUES ($1, $2, $3, COALESCE(NULLIF($4::text, ''), $9), $5, $12, $6, NULL, $7, $8, '', $7, $7, $10, $11, $13)
 		ON CONFLICT (provider, artist_source_id) DO UPDATE SET
 			artist_name      = CASE WHEN $4::text <> ''
 			                        THEN $4::text ELSE artist_subscriptions.artist_name END,
@@ -114,7 +120,7 @@ func (r *Subscriptions) Create(ctx context.Context, req subscriptions.NewSubscri
 		RETURNING `+subscriptionColumns,
 		music.NewID(), strings.TrimSpace(req.Provider), strings.TrimSpace(req.ArtistSourceID),
 		name, image, req.AutoDownload, now, string(subscriptions.StatusPending),
-		music.UnknownArtist, filterJSON, priority.Rank(), enabled)
+		music.UnknownArtist, filterJSON, priority.Rank(), enabled, nullableBool(req.IncludeAppearances))
 
 	sub, err := scanSubscription(row.Scan)
 	if err != nil {
@@ -195,7 +201,14 @@ func (r *Subscriptions) Update(ctx context.Context, id string, update subscripti
 		autoDownload any
 		filterJSON   any
 		priorityRank any
+		appearances  any
 	)
+	// include_appearances is nullable, so COALESCE cannot tell "leave it" from
+	// "clear it": a separate flag says whether the PATCH named the field.
+	setAppearances := update.IncludeAppearances.Set
+	if setAppearances {
+		appearances = nullableBool(update.IncludeAppearances.Value)
+	}
 	if update.Enabled != nil {
 		enabled = *update.Enabled
 	}
@@ -219,10 +232,11 @@ func (r *Subscriptions) Update(ctx context.Context, id string, update subscripti
 			auto_download     = COALESCE($2::boolean, auto_download),
 			release_filter    = COALESCE($3::jsonb, release_filter),
 			download_priority = COALESCE($4::integer, download_priority),
+			include_appearances = CASE WHEN $8::boolean THEN $7::boolean ELSE include_appearances END,
 			updated_at        = $5
 		WHERE id = $6
 		RETURNING `+subscriptionColumns,
-		enabled, autoDownload, filterJSON, priorityRank, time.Now().UTC(), id)
+		enabled, autoDownload, filterJSON, priorityRank, time.Now().UTC(), id, appearances, setAppearances)
 
 	sub, err := scanSubscription(row.Scan)
 	if err != nil {
@@ -327,18 +341,21 @@ func (r *Subscriptions) ApplyImport(ctx context.Context, newSubs []subscriptions
 			res, err := tx.ExecContext(ctx, `
 				INSERT INTO artist_subscriptions (id, provider, artist_source_id, artist_name,
 					artist_image_url, enabled, auto_download, last_sync_at, next_sync_at,
-					last_sync_status, last_error, created_at, updated_at, release_filter, download_priority)
-				VALUES ($1, $2, $3, COALESCE(NULLIF($4::text, ''), $9), $5, $6, $7, NULL, $8, 'pending', '', $8, $8, $10, $11)
+					last_sync_status, last_error, created_at, updated_at, release_filter, download_priority,
+					include_appearances)
+				VALUES ($1, $2, $3, COALESCE(NULLIF($4::text, ''), $9), $5, $6, $7, NULL, $8, 'pending', '', $8, $8, $10, $11, $12)
 				ON CONFLICT (provider, artist_source_id) DO UPDATE SET
 					enabled           = excluded.enabled,
 					auto_download     = excluded.auto_download,
 					release_filter    = excluded.release_filter,
 					download_priority = excluded.download_priority,
+					include_appearances = excluded.include_appearances,
 					artist_name       = CASE WHEN $4::text <> '' THEN $4::text ELSE artist_subscriptions.artist_name END,
 					artist_image_url  = CASE WHEN $5::text <> '' THEN $5::text ELSE artist_subscriptions.artist_image_url END,
 					updated_at        = excluded.updated_at`,
 				music.NewID(), strings.TrimSpace(item.Provider), strings.TrimSpace(item.ArtistSourceID),
-				name, image, enabled, item.AutoDownload, now, music.UnknownArtist, filterJSON, priority.Rank())
+				name, image, enabled, item.AutoDownload, now, music.UnknownArtist, filterJSON, priority.Rank(),
+				nullableBool(item.IncludeAppearances))
 			if err != nil {
 				result.Failed++
 				result.Errors = append(result.Errors, subscriptions.ImportError{
@@ -374,11 +391,13 @@ func (r *Subscriptions) ApplyImport(ctx context.Context, newSubs []subscriptions
 					auto_download     = $2,
 					release_filter    = $3,
 					download_priority = $4,
+					include_appearances = $9,
 					artist_name       = CASE WHEN $5::text <> '' THEN $5::text ELSE artist_subscriptions.artist_name END,
 					artist_image_url  = CASE WHEN $6::text <> '' THEN $6::text ELSE artist_subscriptions.artist_image_url END,
 					updated_at        = $7
 				WHERE id = $8`,
-				up.Enabled, up.AutoDownload, filterJSON, up.DownloadPriority.Rank(), name, image, now, up.ID)
+				up.Enabled, up.AutoDownload, filterJSON, up.DownloadPriority.Rank(), name, image, now, up.ID,
+				nullableBool(up.IncludeAppearances))
 			if err != nil {
 				result.Failed++
 				result.Errors = append(result.Errors, subscriptions.ImportError{

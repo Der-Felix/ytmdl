@@ -536,7 +536,8 @@ func TestSubscriptionMigrationAppliesToAnExistingDatabase(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DROP TABLE artist_subscriptions`); err != nil {
 		t.Fatalf("roll back the subscriptions table: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version IN (2, 7)`); err != nil {
+	// 0020 adds a column to the table as well, so it goes with it.
+	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version IN (2, 7, 20)`); err != nil {
 		t.Fatalf("roll back the migration record: %v", err)
 	}
 
@@ -576,6 +577,119 @@ func TestSubscriptionMigrationAppliesToAnExistingDatabase(t *testing.T) {
 	// Applying the migration a second time must stay a no-op.
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("re-running the migration failed: %v", err)
+	}
+}
+
+func optionalBoolString(v *bool) string {
+	if v == nil {
+		return "<nil>"
+	}
+	if *v {
+		return "true"
+	}
+	return "false"
+}
+
+func expectIncludeAppearances(t *testing.T, label string, got *bool, want *bool) {
+	t.Helper()
+	if optionalBoolString(got) != optionalBoolString(want) {
+		t.Fatalf("%s: include_appearances = %s, want %s", label, optionalBoolString(got), optionalBoolString(want))
+	}
+}
+
+// TestSubscriptionIncludeAppearancesRoundTrip pins the per-subscription
+// exception in all three states: NULL (follow the setting) unless the request
+// says otherwise, unchanged by an update that does not name it, cleared by an
+// explicit null, and carried by both import paths.
+func TestSubscriptionIncludeAppearancesRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	repo := NewSubscriptions(openTestDB(t))
+	off, on := false, true
+
+	byDefault, err := repo.Create(ctx, newSubscription("deezer", "4492087", "Bebe Rexha"))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	expectIncludeAppearances(t, "create without a choice", byDefault.IncludeAppearances, nil)
+
+	for _, want := range []*bool{&off, &on} {
+		req := newSubscription("deezer", "own-"+optionalBoolString(want), "Artist")
+		req.IncludeAppearances = want
+		created, err := repo.Create(ctx, req)
+		if err != nil {
+			t.Fatalf("create with %s: %v", optionalBoolString(want), err)
+		}
+		expectIncludeAppearances(t, "create", created.IncludeAppearances, want)
+		loaded, err := repo.Get(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		expectIncludeAppearances(t, "reload", loaded.IncludeAppearances, want)
+	}
+
+	// Re-subscribing does not touch an existing choice.
+	again := newSubscription("deezer", "own-false", "Artist")
+	again.IncludeAppearances = &on
+	resubscribed, err := repo.Create(ctx, again)
+	if err != nil {
+		t.Fatalf("re-subscribe: %v", err)
+	}
+	expectIncludeAppearances(t, "re-subscribe", resubscribed.IncludeAppearances, &off)
+
+	id := byDefault.ID
+	steps := []struct {
+		label  string
+		update subscriptions.Update
+		want   *bool
+	}{
+		{"set false", subscriptions.Update{IncludeAppearances: subscriptions.NullableBool{Set: true, Value: &off}}, &off},
+		{"absent", subscriptions.Update{AutoDownload: &on}, &off},
+		{"set true", subscriptions.Update{IncludeAppearances: subscriptions.NullableBool{Set: true, Value: &on}}, &on},
+		{"null", subscriptions.Update{IncludeAppearances: subscriptions.NullableBool{Set: true}}, nil},
+		{"absent after null", subscriptions.Update{Enabled: &on}, nil},
+	}
+	for _, step := range steps {
+		updated, err := repo.Update(ctx, id, step.update)
+		if err != nil {
+			t.Fatalf("%s: %v", step.label, err)
+		}
+		expectIncludeAppearances(t, step.label, updated.IncludeAppearances, step.want)
+	}
+	reloaded, err := repo.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !reloaded.AutoDownload {
+		t.Fatal("the update that did not name include_appearances did not apply its own field")
+	}
+	expectIncludeAppearances(t, "reload after updates", reloaded.IncludeAppearances, nil)
+
+	// Import: new subscriptions with and without a choice, and updates that
+	// set and clear one.
+	withChoice := newSubscription("deezer", "1", "Imported")
+	withChoice.IncludeAppearances = &off
+	withoutChoice := newSubscription("deezer", "2", "Imported Too")
+	if _, err := repo.ApplyImport(ctx, []subscriptions.NewSubscription{withChoice, withoutChoice}, []subscriptions.ImportUpdate{
+		{ID: id, Enabled: true, ReleaseFilter: music.DefaultReleaseFilter(),
+			DownloadPriority: jobs.PriorityLow, IncludeAppearances: &off},
+		{ID: resubscribed.ID, Enabled: true, ReleaseFilter: music.DefaultReleaseFilter(),
+			DownloadPriority: jobs.PriorityLow, IncludeAppearances: nil},
+	}); err != nil {
+		t.Fatalf("apply import: %v", err)
+	}
+	for sourceID, want := range map[string]*bool{"1": &off, "2": nil} {
+		imported, err := repo.FindBySource(ctx, "deezer", sourceID)
+		if err != nil || imported == nil {
+			t.Fatalf("find imported %s: %v", sourceID, err)
+		}
+		expectIncludeAppearances(t, "import new "+sourceID, imported.IncludeAppearances, want)
+	}
+	for updatedID, want := range map[string]*bool{id: &off, resubscribed.ID: nil} {
+		loaded, err := repo.Get(ctx, updatedID)
+		if err != nil {
+			t.Fatalf("get updated: %v", err)
+		}
+		expectIncludeAppearances(t, "import update", loaded.IncludeAppearances, want)
 	}
 }
 

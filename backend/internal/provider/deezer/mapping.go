@@ -9,11 +9,10 @@ import (
 	"ytdm/backend/internal/music"
 )
 
-var (
-	liveMarkers  = regexp.MustCompile(`(?i)(\blive\b|\bunplugged\b|\bin concert\b|\bconcert\b)`)
-	remixMarkers = regexp.MustCompile(`(?i)(\bremix(es|ed)?\b|\bthe remixes\b)`)
-	epMarkers    = regexp.MustCompile(`(?i)(\bep\b|\(\s*ep\s*\)|\[\s*ep\s*\]| - ep$)`)
-)
+// epMarkers reads an EP from the title of a release Deezer calls an album.
+// Live and remix markers are shared with the other providers
+// (music.TitleReleaseType).
+var epMarkers = regexp.MustCompile(`(?i)(\bep\b|\(\s*ep\s*\)|\[\s*ep\s*\]| - ep$)`)
 
 type apiArtistRef struct {
 	ID   int64  `json:"id"`
@@ -141,6 +140,7 @@ func toRelease(a *apiAlbum) music.Release {
 		Title:       strings.TrimSpace(a.Title),
 		Artists:     artists,
 		AlbumArtist: albumArtist,
+		ArtistIDs:   ownArtistIDs(a.Artist, a.Contributors),
 		ReleaseType: relType,
 		Year:        year,
 		TrackCount:  a.NbTracks,
@@ -149,6 +149,41 @@ func toRelease(a *apiAlbum) music.Release {
 		SourceID:    idStr,
 		SourceURL:   link,
 	}
+}
+
+// ownArtistIDs returns the ids of the artists an album belongs to.
+//
+// That is the album's own artist. Deezer's contributor list is no substitute:
+// it marks a guest who shares the credit as "Main" too — David Guetta's "I'm
+// Good (Blue)" lists Bebe Rexha as a main contributor although the album is
+// filed under David Guetta. Only when the album artist is itself a joined
+// display string ("LACAZETTE & Bushido") are the main contributors it names
+// owners as well.
+//
+// Deezer's artist album listing carries no artist at all, so a release read
+// from it has no ids; the album itself (GetRelease) does.
+func ownArtistIDs(albumArtist *apiArtistRef, contributors []apiContributor) []string {
+	if albumArtist == nil || albumArtist.ID == 0 {
+		return nil
+	}
+	ids := []string{strconv.FormatInt(albumArtist.ID, 10)}
+
+	parts := music.SplitCredit(albumArtist.Name)
+	if len(parts) < 2 {
+		return ids
+	}
+	for _, c := range contributors {
+		if c.ID == 0 || c.ID == albumArtist.ID || !strings.EqualFold(strings.TrimSpace(c.Role), "main") {
+			continue
+		}
+		for _, part := range parts {
+			if strings.EqualFold(part, strings.TrimSpace(c.Name)) {
+				ids = append(ids, strconv.FormatInt(c.ID, 10))
+				break
+			}
+		}
+	}
+	return ids
 }
 
 func toTrack(t *apiTrack, album *music.Release) music.Track {
@@ -249,11 +284,23 @@ func extractArtists(mainArtist *apiArtistRef, contributors []apiContributor) []s
 	return names
 }
 
+// classifyRelease maps Deezer's record_type and the title onto a release type.
+//
+// The order is the one every metadata provider uses: a compilation Deezer
+// declared stays a compilation; otherwise a live or remix marker in the title
+// wins over the record type, because Deezer files "I'm Good (Blue) (Oliver
+// Heldens Remix)" as a single and "Say My Name (Remixes)" as an EP, and a
+// release filter without remixes must not let them through.
 func classifyRelease(recordType, title string, trackCount int) music.ReleaseType {
 	recType := strings.ToLower(strings.TrimSpace(recordType))
-	switch recType {
-	case "compile", "compilation":
+	if recType == "compile" || recType == "compilation" {
 		return music.ReleaseCompilation
+	}
+	if kind, ok := music.TitleReleaseType(title); ok {
+		return kind
+	}
+
+	switch recType {
 	case "ep":
 		return music.ReleaseEP
 	case "single":
@@ -262,18 +309,10 @@ func classifyRelease(recordType, title string, trackCount int) music.ReleaseType
 		}
 		return music.ReleaseSingle
 	}
-
-	// For general albums, inspect title heuristics for Live, Remix, EP markers
-	switch {
-	case liveMarkers.MatchString(title):
-		return music.ReleaseLive
-	case remixMarkers.MatchString(title):
-		return music.ReleaseRemix
-	case epMarkers.MatchString(title):
+	if epMarkers.MatchString(title) {
 		return music.ReleaseEP
-	default:
-		return music.ReleaseAlbum
 	}
+	return music.ReleaseAlbum
 }
 
 func parseYear(dateStr string) int {

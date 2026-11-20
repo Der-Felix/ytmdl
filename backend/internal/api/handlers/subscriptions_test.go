@@ -58,6 +58,14 @@ func (*subscriptionProvider) GetReleaseTracks(context.Context, string) ([]music.
 // so the endpoints are exercised over the same code path production uses.
 func newSubscriptionTestHandler(t *testing.T) *Handlers {
 	t.Helper()
+	return newSubscriptionTestHandlerWithAppearances(t, nil)
+}
+
+// newSubscriptionTestHandlerWithAppearances is newSubscriptionTestHandler with
+// the server-wide include-appearances setting supplied by the test; nil means
+// the default (on).
+func newSubscriptionTestHandlerWithAppearances(t *testing.T, global func() bool) *Handlers {
+	t.Helper()
 
 	db := dbtest.Open(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -80,6 +88,8 @@ func newSubscriptionTestHandler(t *testing.T) *Handlers {
 		Logger:        quiet,
 		SyncInterval:  24 * time.Hour,
 		RetryInterval: time.Hour,
+
+		IncludeAppearances: global,
 	})
 	if err != nil {
 		t.Fatalf("subscription service: %v", err)

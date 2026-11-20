@@ -91,6 +91,18 @@ func artistNames(artists []apiArtist) []string {
 	return out
 }
 
+// artistIDs returns the ids of an album's artists. Spotify's album artists
+// are the artists the album belongs to; guests are credited on the tracks.
+func artistIDs(artists []apiArtist) []string {
+	var out []string
+	for _, a := range artists {
+		if id := strings.TrimSpace(a.ID); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // yearFromReleaseDate reads the year out of Spotify's release date, which is
 // either "YYYY", "YYYY-MM" or "YYYY-MM-DD".
 func yearFromReleaseDate(date string) int {
@@ -105,31 +117,30 @@ func yearFromReleaseDate(date string) int {
 	return year
 }
 
-var (
-	epTitleRe    = regexp.MustCompile(`(?i)(\bep\b|\(\s*ep\s*\)|\[\s*ep\s*\]| - ep$)`)
-	liveTitleRe  = regexp.MustCompile(`(?i)(\blive\b|\bunplugged\b|\bin concert\b|\bconcert\b)`)
-	remixTitleRe = regexp.MustCompile(`(?i)(\bremix(es|ed)?\b|\bthe remixes\b)`)
-)
+// epTitleRe reads an EP from a title. Live and remix markers are shared with
+// the other providers (music.TitleReleaseType).
+var epTitleRe = regexp.MustCompile(`(?i)(\bep\b|\(\s*ep\s*\)|\[\s*ep\s*\]| - ep$)`)
 
 // classifyRelease maps a Spotify album onto an internal release type.
 //
-// Spotify only knows "album", "single" and "compilation". Titles carry the
-// remaining information, so explicit markers in the title win. Releases that
+// Spotify only knows "album", "single" and "compilation". A compilation
+// Spotify declared stays one; otherwise titles carry the remaining
+// information, so live, remix and EP markers in the title win. Releases that
 // Spotify calls a single but that carry four or more tracks are treated as EPs,
 // which is how the industry uses the two terms.
 func classifyRelease(albumType string, totalTracks int, title string) music.ReleaseType {
-	switch {
-	case liveTitleRe.MatchString(title):
-		return music.ReleaseLive
-	case remixTitleRe.MatchString(title):
-		return music.ReleaseRemix
-	case epTitleRe.MatchString(title):
+	kind := strings.ToLower(strings.TrimSpace(albumType))
+	if kind == "compilation" {
+		return music.ReleaseCompilation
+	}
+	if marked, ok := music.TitleReleaseType(title); ok {
+		return marked
+	}
+	if epTitleRe.MatchString(title) {
 		return music.ReleaseEP
 	}
 
-	switch strings.ToLower(strings.TrimSpace(albumType)) {
-	case "compilation":
-		return music.ReleaseCompilation
+	switch kind {
 	case "single":
 		if totalTracks >= 4 {
 			return music.ReleaseEP
@@ -166,6 +177,7 @@ func toRelease(a apiAlbum) music.Release {
 		Title:       a.Name,
 		Artists:     names,
 		AlbumArtist: music.ResolveAlbumArtist(firstName(names), names),
+		ArtistIDs:   artistIDs(a.Artists),
 		ReleaseType: classifyRelease(albumType, a.TotalTracks, a.Name),
 		Year:        yearFromReleaseDate(a.ReleaseDate),
 		ReleaseDate: a.ReleaseDate,

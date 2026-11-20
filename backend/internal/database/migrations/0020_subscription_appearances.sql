@@ -1,0 +1,13 @@
+-- A subscription can leave out the releases its artist only appears on: a
+-- single filed under another artist, another artist's remix package. When
+-- appearances are off, the sync keeps only the releases whose primary artist
+-- is the subscribed one; a release whose primary artist cannot be told is kept.
+--
+-- Whether appearances are loaded is a server-wide setting
+-- (subscriptions.include_appearances, on by default). This column is only the
+-- per-subscription exception: NULL follows the setting, true or false
+-- overrides it. Every existing subscription starts as NULL and so keeps its
+-- behaviour, which considered every release the provider lists. Adding a
+-- nullable column without a default is a catalogue-only change; no row is
+-- rewritten.
+ALTER TABLE artist_subscriptions ADD COLUMN include_appearances boolean;

@@ -187,7 +187,7 @@ describe('SubscribeControl', () => {
     })
     render(<SubscribeControl artist={artist} />)
 
-    const toggle = await screen.findByRole('checkbox')
+    const toggle = await screen.findByRole('checkbox', { name: 'Neue Tracks automatisch herunterladen' })
     expect(toggle.getAttribute('aria-checked')).toBe('false')
 
     fireEvent.click(toggle)
@@ -199,8 +199,18 @@ describe('SubscribeControl', () => {
       auto_download: true,
     })
     await waitFor(() => {
-      expect(screen.getByRole('checkbox').getAttribute('aria-checked')).toBe('true')
+      expect(screen.getByRole('checkbox', { name: 'Neue Tracks automatisch herunterladen' }).getAttribute('aria-checked')).toBe('true')
     })
+  })
+
+  it('leaves the appearance exception to the subscription settings', async () => {
+    // Appearances are a server-wide setting; the rare per-artist exception
+    // lives in the subscription dialog, not on every artist page.
+    stubFetch(alreadySubscribed)
+    render(<SubscribeControl artist={artist} />)
+
+    await screen.findByRole('checkbox', { name: 'Neue Tracks automatisch herunterladen' })
+    expect(screen.queryByText(/Beteiligungen/)).toBeNull()
   })
 
   it('pauses a subscription without unsubscribing', async () => {

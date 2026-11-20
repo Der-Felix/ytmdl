@@ -7,6 +7,7 @@
 package subscriptions
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -65,6 +66,19 @@ type Subscription struct {
 	ReleaseFilter    music.ReleaseFilter `json:"release_filter"`
 	DownloadPriority jobs.Priority       `json:"download_priority"`
 
+	// IncludeAppearances is this subscription's own choice about the releases
+	// whose primary artist is someone else — a single the artist is featured
+	// on, another artist's remix package. Nil follows the server-wide setting
+	// (settings: subscription_include_appearances); true or false is an
+	// exception for this artist. When the effective value is false, a sync
+	// considers only the artist's own releases (joint releases included); a
+	// release whose primary artist cannot be determined is still kept.
+	IncludeAppearances *bool `json:"include_appearances"`
+	// EffectiveIncludeAppearances is what applies right now: the subscription's
+	// own value when it has one, otherwise the server-wide setting. It is
+	// filled in by the service and never stored.
+	EffectiveIncludeAppearances bool `json:"effective_include_appearances"`
+
 	LastSyncAt     *time.Time `json:"last_sync_at,omitempty"`
 	NextSyncAt     time.Time  `json:"next_sync_at"`
 	LastSyncStatus SyncStatus `json:"last_sync_status"`
@@ -97,6 +111,43 @@ type NewSubscription struct {
 	AutoDownload     bool
 	ReleaseFilter    *music.ReleaseFilter
 	DownloadPriority *jobs.Priority
+	// IncludeAppearances is the subscription's own appearance choice; nil
+	// follows the server-wide setting.
+	IncludeAppearances *bool
+}
+
+// ResolveIncludeAppearances returns the appearance switch that applies to a
+// subscription: its own value when set, otherwise the server-wide one.
+func ResolveIncludeAppearances(own *bool, global bool) bool {
+	if own != nil {
+		return *own
+	}
+	return global
+}
+
+// NullableBool is a JSON field that tells three states apart: absent (Set is
+// false), explicit null (Set is true, Value is nil) and true or false. A PATCH
+// uses it to put a per-subscription choice back to "follow the setting".
+type NullableBool struct {
+	Set   bool
+	Value *bool
+}
+
+// UnmarshalJSON records that the field was present; a JSON null leaves Value
+// nil. encoding/json calls it for null too because NullableBool is not a
+// pointer.
+func (n *NullableBool) UnmarshalJSON(data []byte) error {
+	n.Set = true
+	if string(data) == "null" {
+		n.Value = nil
+		return nil
+	}
+	var value bool
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	n.Value = &value
+	return nil
 }
 
 // Validate rejects a request that cannot identify an artist.
@@ -132,6 +183,10 @@ type ExportSubscription struct {
 	AutoDownload     bool                `json:"auto_download"`
 	ReleaseFilter    music.ReleaseFilter `json:"release_filter"`
 	DownloadPriority jobs.Priority       `json:"download_priority"`
+	// IncludeAppearances is written only when the subscription has its own
+	// choice. Absent or null on import means "follow the server-wide setting",
+	// which is also how a file written before the field existed reads.
+	IncludeAppearances *bool `json:"include_appearances,omitempty"`
 }
 
 // ExportPayload represents the versioned export file structure.
@@ -155,19 +210,20 @@ const (
 
 // ImportPreviewItem describes the evaluation of a single imported subscription.
 type ImportPreviewItem struct {
-	Index            int                 `json:"index"`
-	ArtistName       string              `json:"artist_name"`
-	Provider         string              `json:"provider"`
-	ArtistSourceID   string              `json:"artist_source_id"`
-	ArtistImageURL   string              `json:"artist_image_url,omitempty"`
-	Enabled          bool                `json:"enabled"`
-	AutoDownload     bool                `json:"auto_download"`
-	ReleaseFilter    music.ReleaseFilter `json:"release_filter"`
-	DownloadPriority jobs.Priority       `json:"download_priority"`
-	Status           ImportItemStatus    `json:"status"`
-	ExistingID       string              `json:"existing_id,omitempty"`
-	Changes          []string            `json:"changes,omitempty"`
-	Error            string              `json:"error,omitempty"`
+	Index              int                 `json:"index"`
+	ArtistName         string              `json:"artist_name"`
+	Provider           string              `json:"provider"`
+	ArtistSourceID     string              `json:"artist_source_id"`
+	ArtistImageURL     string              `json:"artist_image_url,omitempty"`
+	Enabled            bool                `json:"enabled"`
+	AutoDownload       bool                `json:"auto_download"`
+	ReleaseFilter      music.ReleaseFilter `json:"release_filter"`
+	DownloadPriority   jobs.Priority       `json:"download_priority"`
+	IncludeAppearances *bool               `json:"include_appearances"`
+	Status             ImportItemStatus    `json:"status"`
+	ExistingID         string              `json:"existing_id,omitempty"`
+	Changes            []string            `json:"changes,omitempty"`
+	Error              string              `json:"error,omitempty"`
 }
 
 // ImportPreview contains summary statistics and item breakdown for an import before application.
@@ -210,6 +266,8 @@ type ImportUpdate struct {
 	AutoDownload     bool
 	ReleaseFilter    music.ReleaseFilter
 	DownloadPriority jobs.Priority
+	// IncludeAppearances replaces the stored choice; nil follows the setting.
+	IncludeAppearances *bool
 }
 
 // Update carries the fields a PATCH may change. A nil field is left as it is.
@@ -218,11 +276,15 @@ type Update struct {
 	AutoDownload     *bool
 	ReleaseFilter    *music.ReleaseFilter
 	DownloadPriority *jobs.Priority
+	// IncludeAppearances is left as it is unless Set; Set with a nil Value
+	// puts the subscription back to following the server-wide setting.
+	IncludeAppearances NullableBool
 }
 
 // Empty reports whether the update would change nothing.
 func (u Update) Empty() bool {
-	return u.Enabled == nil && u.AutoDownload == nil && u.ReleaseFilter == nil && u.DownloadPriority == nil
+	return u.Enabled == nil && u.AutoDownload == nil && u.ReleaseFilter == nil &&
+		u.DownloadPriority == nil && !u.IncludeAppearances.Set
 }
 
 // ListFilter narrows a subscription listing. Provider and ArtistSourceID
@@ -250,6 +312,9 @@ type SyncResult struct {
 
 	ReleasesSeen int `json:"releases_seen"`
 	NewReleases  int `json:"new_releases"`
+	// AppearancesSkipped counts the releases left out because the
+	// subscription excludes appearances.
+	AppearancesSkipped int `json:"appearances_skipped,omitempty"`
 
 	// TracksSeen counts the distinct recordings the deduplication produced,
 	// which is the set the classification below was run against.

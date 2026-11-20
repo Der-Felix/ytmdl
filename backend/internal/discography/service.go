@@ -62,6 +62,11 @@ type ArtistRequest struct {
 	Provider string
 	ArtistID string
 	Filter   music.ReleaseFilter
+	// ExcludeAppearances drops the releases whose primary artist is someone
+	// else (see ReleaseOwnership). A release whose owner cannot be told is
+	// kept. The zero value keeps every release the provider lists, which is
+	// what a manual discography download does.
+	ExcludeAppearances bool
 }
 
 // Result is the resolved catalogue.
@@ -82,6 +87,8 @@ type Result struct {
 	// release that is simply gone. A subscription uses it to decide whether
 	// to come back early or to wait for its normal interval.
 	TransientWarnings int `json:"transient_warnings,omitempty"`
+	// AppearancesSkipped counts the releases ExcludeAppearances dropped.
+	AppearancesSkipped int `json:"appearances_skipped,omitempty"`
 }
 
 // Tracks returns the representative track of every group.
@@ -132,10 +139,15 @@ func (s *Service) ResolveArtist(ctx context.Context, req ArtistRequest, progress
 		return nil, err
 	}
 	releases := music.FilterReleases(discography, filter)
-	logger.Info("discography resolved",
-		"releases_total", len(discography), "releases_selected", len(releases))
 
 	result := &Result{Artist: *artist}
+	if req.ExcludeAppearances {
+		releases, result.AppearancesSkipped = ownReleases(ctx, metadata, releases,
+			req.ArtistID, artist.Name, logger)
+	}
+	logger.Info("discography resolved",
+		"releases_total", len(discography), "releases_selected", len(releases),
+		"appearances_skipped", result.AppearancesSkipped)
 
 	readReleases := make([]music.Release, 0, len(releases))
 	readTracks := make([][]music.Track, 0, len(releases))

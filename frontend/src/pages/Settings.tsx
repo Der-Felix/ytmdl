@@ -393,6 +393,10 @@ function SettingsForm({
     },
   )
 
+  // Applies to every subscription without its own choice, not only to new ones.
+  const initialSubAppearances = initialSettings.subscription_include_appearances ?? true
+  const [subAppearances, setSubAppearances] = useState<boolean>(initialSubAppearances)
+
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -412,6 +416,7 @@ function SettingsForm({
     scheduleTimezone !== (initialSettings.schedule_timezone || '') ||
     subAutoDownload !== (initialSettings.subscription_default_auto_download || false) ||
     subPriority !== (initialSettings.subscription_default_priority || 'low') ||
+    subAppearances !== initialSubAppearances ||
     JSON.stringify(subFilter) !==
       JSON.stringify(
         initialSettings.subscription_default_release_filter || {
@@ -469,6 +474,9 @@ function SettingsForm({
         ...(JSON.stringify(subFilter) !==
           JSON.stringify(initialSettings.subscription_default_release_filter) && {
           subscription_default_release_filter: subFilter,
+        }),
+        ...(subAppearances !== initialSubAppearances && {
+          subscription_include_appearances: subAppearances,
         }),
       })
       setSaved(true)
@@ -608,13 +616,23 @@ function SettingsForm({
         )}
       </div>
 
-      {/* 3. Subscription Defaults */}
+      {/* 3. Subscriptions: one setting for all, then the defaults for new ones */}
       <div className="space-y-4 border-t border-border/40 pt-4">
         <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
           <UsersIcon className="size-4 text-primary" />
-          Standardwerte für neue Abonnements
+          Abonnements
         </h3>
         <div className="space-y-3 pl-1">
+          <Switch
+            checked={subAppearances}
+            onChange={setSubAppearances}
+            label="Beteiligungen laden"
+            description="Lädt bei Abos auch Releases anderer Künstler, an denen der abonnierte Künstler beteiligt ist. Gilt für alle Abos ohne eigene Einstellung."
+          />
+
+          <p className="px-2 pt-1 text-xs font-medium text-foreground">
+            Standardwerte für neue Abonnements
+          </p>
           <Switch
             checked={subAutoDownload}
             onChange={setSubAutoDownload}

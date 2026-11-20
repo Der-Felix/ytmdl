@@ -190,6 +190,153 @@ describe('Subscriptions page', () => {
     expect(await screen.findByText('Auto-Download')).toBeDefined()
   })
 
+  it('offers the three-way appearance choice, naming the server-wide value', async () => {
+    stubFetch(
+      listing([
+        subscription({ include_appearances: null, effective_include_appearances: false }),
+      ]),
+    )
+
+    render(<Subscriptions />)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Filter und Priorität für Daft Punk' }),
+    )
+
+    const choice = (await screen.findByLabelText('Beteiligungen laden:')) as HTMLSelectElement
+    expect(choice.tagName).toBe('SELECT')
+    expect(choice.value).toBe('setting')
+    // A subscription that follows the setting already tells what it is.
+    expect(Array.from(choice.options).map((option) => option.textContent)).toEqual([
+      'Wie in den Einstellungen (aus)',
+      'Immer laden',
+      'Nie laden',
+    ])
+    const help = document.getElementById(choice.getAttribute('aria-describedby') ?? '')
+    expect(help?.textContent).toBe(
+      'Lädt auch Releases anderer Künstler, an denen dieser Künstler beteiligt ist.',
+    )
+  })
+
+  it('treats a subscription from an older backend as following the setting', async () => {
+    stubFetch(listing([subscription()]))
+
+    render(<Subscriptions />)
+    await screen.findByText('Daft Punk')
+    expect(screen.queryByText(/nur eigene Releases/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Filter und Priorität für Daft Punk' }))
+
+    const choice = (await screen.findByLabelText('Beteiligungen laden:')) as HTMLSelectElement
+    expect(choice.value).toBe('setting')
+    expect(choice.options[0].textContent).toBe('Wie in den Einstellungen')
+  })
+
+  it('shows "nur eigene Releases" in the summary when the effective value is off', async () => {
+    stubFetch(
+      listing([
+        // Off through the server-wide setting, without a choice of its own.
+        subscription({ include_appearances: null, effective_include_appearances: false }),
+        // An own "Immer laden" wins over a setting that is off.
+        subscription({
+          id: 'sub-2',
+          artist_source_id: '99',
+          artist_name: 'Kevin MacLeod',
+          include_appearances: true,
+          effective_include_appearances: true,
+        }),
+      ]),
+    )
+
+    render(<Subscriptions />)
+
+    expect((await screen.findAllByText('Standard, nur eigene Releases')).length).toBe(1)
+    expect(screen.getByText('Kevin MacLeod')).toBeDefined()
+  })
+
+  it('selects the opening value of an own choice', async () => {
+    stubFetch({
+      ...listing([
+        subscription({ include_appearances: false, effective_include_appearances: false }),
+      ]),
+      'GET /api/v1/settings': () => ({ body: { data: { subscription_include_appearances: true } } }),
+    })
+
+    render(<Subscriptions />)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Filter und Priorität für Daft Punk' }),
+    )
+
+    const choice = (await screen.findByLabelText('Beteiligungen laden:')) as HTMLSelectElement
+    expect(choice.value).toBe('never')
+    expect(choice.options[0].textContent).toMatch(/^Wie in den Einstellungen/)
+  })
+
+  for (const [option, sent] of [
+    ['never', false],
+    ['always', true],
+  ] as const) {
+    it(`saves include_appearances: ${sent} from the settings dialog`, async () => {
+      const recorded = stubFetch({
+        ...listing([
+          subscription({ include_appearances: null, effective_include_appearances: true }),
+        ]),
+        'PATCH /api/v1/subscriptions/sub-1': () => ({
+          body: {
+            data: subscription({ include_appearances: sent, effective_include_appearances: sent }),
+          },
+        }),
+      })
+
+      render(<Subscriptions />)
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Filter und Priorität für Daft Punk' }),
+      )
+      fireEvent.change(await screen.findByLabelText('Beteiligungen laden:'), {
+        target: { value: option },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+      await waitFor(() => {
+        expect(
+          (recorded.find((call) => call.method === 'PATCH')?.body as Record<string, unknown>)
+            ?.include_appearances,
+        ).toBe(sent)
+      })
+      if (!sent) {
+        expect((await screen.findAllByText('Standard, nur eigene Releases')).length).toBe(1)
+      }
+    })
+  }
+
+  it('sends null to go back to following the setting', async () => {
+    const recorded = stubFetch({
+      ...listing([
+        subscription({ include_appearances: false, effective_include_appearances: false }),
+      ]),
+      'GET /api/v1/settings': () => ({ body: { data: { subscription_include_appearances: true } } }),
+      'PATCH /api/v1/subscriptions/sub-1': () => ({
+        body: {
+          data: subscription({ include_appearances: null, effective_include_appearances: true }),
+        },
+      }),
+    })
+
+    render(<Subscriptions />)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Filter und Priorität für Daft Punk' }),
+    )
+    fireEvent.change(await screen.findByLabelText('Beteiligungen laden:'), {
+      target: { value: 'setting' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => {
+      const body = recorded.find((call) => call.method === 'PATCH')?.body as Record<string, unknown>
+      expect(body !== undefined && 'include_appearances' in body).toBe(true)
+      expect(body.include_appearances).toBeNull()
+    })
+    await waitFor(() => expect(screen.queryByText(/nur eigene Releases/)).toBeNull())
+  })
+
   it('pauses and resumes a subscription', async () => {
     let enabled = true
     const recorded = stubFetch({

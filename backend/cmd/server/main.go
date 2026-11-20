@@ -506,6 +506,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		RetryInterval:       cfg.Subscriptions.RetryInterval,
 		SyncTimeout:         cfg.Subscriptions.SyncTimeout,
 		DurationToleranceMS: cfg.Matching.DurationToleranceMS,
+		IncludeAppearances:  settingsService.SubscriptionIncludeAppearances,
 	})
 	if err != nil {
 		manager.Stop()

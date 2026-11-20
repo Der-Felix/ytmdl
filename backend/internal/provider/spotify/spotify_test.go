@@ -299,6 +299,13 @@ func TestClassifyRelease(t *testing.T) {
 		{"album", 10, "The Remixes", music.ReleaseRemix},
 		{"album", 5, "Debut EP", music.ReleaseEP},
 		{"album", 12, "Unplugged", music.ReleaseLive},
+		{"single", 1, "I'm Good (Blue) (Oliver Heldens Remix)", music.ReleaseRemix},
+		{"single", 5, "Say My Name (Remixes)", music.ReleaseRemix},
+		{"single", 1, "Meant To Be (Live From CMA Fest 2018)", music.ReleaseLive},
+		{"single", 1, "Live Your Life", music.ReleaseSingle},
+		{"single", 1, "Heart Still Beating (Extended)", music.ReleaseSingle},
+		// A compilation Spotify declared keeps that type.
+		{"compilation", 30, "Dance Hits (The Remixes)", music.ReleaseCompilation},
 	}
 	for _, tc := range tests {
 		if got := classifyRelease(tc.albumType, tc.totalTracks, tc.title); got != tc.want {

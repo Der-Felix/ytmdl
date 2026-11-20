@@ -40,6 +40,14 @@ type Release struct {
 	Artists     []string `json:"artists"`
 	AlbumArtist string   `json:"album_artist"`
 
+	// ArtistIDs holds the provider ids of the artists the release belongs to
+	// — the release's own (album) artists, not every contributor — when the
+	// provider names them. It is empty when the provider supplies no ids,
+	// for example in Deezer's artist album listing. It is not stored; a
+	// subscription sync uses it to tell an artist's own releases from
+	// releases the artist only appears on.
+	ArtistIDs []string `json:"artist_ids,omitempty"`
+
 	ReleaseType ReleaseType `json:"release_type"`
 
 	// Compilation marks a release whose tracks are by different artists and
