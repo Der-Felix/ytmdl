@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.6.1 — 2026-11-20
+
+The seek bar and the volume slider of the player no longer show as thick bars in Firefox.
+
+### Changes
+
+- **Web interface:** in Firefox the filled part of the seek bar and of the volume slider covered the whole height of the control, so both looked like thick bars instead of a thin track. The fill is now drawn on the track itself, in the mini player and on the player page. Firefox also shows the slightly taller track on hover that other browsers already had.
+- **Database Schema:** Remains at schema 19; no database migration is required. Keep a verified backup before any update.
+- Qualify v1.6.0 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1 and v1.5.0.
+
+### Upgrade from v1.6.0
+
+Use the checksum-verified v1.6.1 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.6.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.6.1`. Protect the media separately;
+the database dump does not contain music files.
+
 ## 1.6.0 — 2026-11-17
 
 A download that finished while the library was unreachable is no longer downloaded again, stored track identities can be carried over to a new form, and the remaining views of the web interface follow the theme.
