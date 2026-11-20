@@ -159,7 +159,9 @@ func TestReleaseDirLocksExcludeSharedHolders(t *testing.T) {
 	unlockShared2 := lib.ShareReleaseDir("A/B") // shared holders do not block each other
 
 	acquired := make(chan struct{})
+	released := make(chan struct{})
 	go func() {
+		defer close(released)
 		unlock := lib.LockReleaseDirs("A/C", "A/B", "A/B")
 		close(acquired)
 		unlock()
@@ -190,7 +192,18 @@ func TestReleaseDirLocksExcludeSharedHolders(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	if n := len(lib.dirLocks.locks); n != 0 {
+	// The first goroutine signals acquired before it unlocks. Without waiting
+	// for it here, its two locks may still be held when the map is counted,
+	// and the count would read the map while that goroutine deletes from it.
+	select {
+	case <-released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("exclusive lock never released")
+	}
+	lib.dirLocks.mu.Lock()
+	n := len(lib.dirLocks.locks)
+	lib.dirLocks.mu.Unlock()
+	if n != 0 {
 		t.Fatalf("%d idle locks retained", n)
 	}
 }
