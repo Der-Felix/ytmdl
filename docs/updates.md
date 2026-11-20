@@ -34,6 +34,31 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.7.0
+
+Use the checksum-verified **v1.7.0** CLI from the
+[v1.7.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.7.0).
+Run `ytmdlctl update --channel stable --target 1.7.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.7.0`.
+
+The update migrates the database to schema 20, which adds one nullable column
+to the subscriptions table; no row is rewritten. Verify a database backup
+first: going back to an earlier version requires restoring it. The release
+qualifies v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0,
+v1.6.0 and v1.6.1 sources with Docker and rootless Podman. Preserve private
+configuration, proxy settings, mounts, cookies and the database volume.
+
+The new setting **Beteiligungen laden** (Settings → Downloads) is on, so
+subscriptions keep downloading releases the artist only appears on until you
+turn it off. One thing changes without a setting: a single or EP with a remix
+or live marker in its title now counts as a remix or live release, so a
+subscription whose filter excludes remixes no longer downloads it. Releases
+already in the library keep their type, folder and files.
+
+Coming from v1.5.0 or earlier, read the v1.6.0 section below as well: that
+update migrates the database to schema 19 and carries stored track identities
+over in the background.
+
 ## Upgrade to v1.6.1
 
 Use the checksum-verified **v1.6.1** CLI from the
