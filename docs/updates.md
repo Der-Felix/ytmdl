@@ -34,6 +34,24 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.6.1
+
+Use the checksum-verified **v1.6.1** CLI from the
+[v1.6.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.6.1).
+Run `ytmdlctl update --channel stable --target 1.6.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.6.1`.
+
+The database stays at schema 19; this release needs no migration. It fixes the
+seek bar and the volume slider of the player, which showed as thick bars in
+Firefox. The release qualifies v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0,
+v1.4.1, v1.5.0 and v1.6.0 sources with Docker and rootless Podman. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume,
+and verify a database backup before updating.
+
+Coming from v1.5.0 or earlier, read the v1.6.0 section below as well: that
+update migrates the database to schema 19 and carries stored track identities
+over in the background.
+
 ## Upgrade to v1.6.0
 
 Use the checksum-verified **v1.6.0** CLI from the
