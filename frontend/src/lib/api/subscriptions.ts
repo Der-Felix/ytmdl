@@ -151,6 +151,7 @@ export async function exportSubscriptionsToFile(selectedSubs?: Subscription[]): 
         enabled: s.enabled,
         auto_download: s.auto_download,
         release_filter: s.release_filter,
+        include_appearances: s.include_appearances ?? true,
         download_priority: s.download_priority,
       })),
     }

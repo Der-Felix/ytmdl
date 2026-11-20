@@ -522,6 +522,8 @@ export interface Subscription {
   enabled: boolean
   auto_download: boolean
   release_filter: ReleaseFilter
+  /** Absent on older backends; treat as true. */
+  include_appearances?: boolean
   download_priority: JobPriority
   last_sync_at?: string
   next_sync_at: string
@@ -572,6 +574,7 @@ export interface SubscribeRequest {
   artist_image_url?: string
   auto_download?: boolean
   release_filter?: ReleaseFilter
+  include_appearances?: boolean
   download_priority?: JobPriority
 }
 
@@ -580,6 +583,7 @@ export interface SubscriptionUpdate {
   enabled?: boolean
   auto_download?: boolean
   release_filter?: ReleaseFilter
+  include_appearances?: boolean
   download_priority?: JobPriority
 }
 
@@ -593,6 +597,7 @@ export interface ExportSubscriptionItem {
   enabled: boolean
   auto_download: boolean
   release_filter: ReleaseFilter
+  include_appearances?: boolean
   download_priority: JobPriority
 }
 
@@ -619,6 +624,7 @@ export interface ImportPreviewItem {
   enabled: boolean
   auto_download: boolean
   release_filter: ReleaseFilter
+  include_appearances?: boolean
   download_priority: JobPriority
   status: ImportItemStatus
   existing_id?: string

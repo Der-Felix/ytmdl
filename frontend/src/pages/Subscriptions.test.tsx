@@ -190,6 +190,58 @@ describe('Subscriptions page', () => {
     expect(await screen.findByText('Auto-Download')).toBeDefined()
   })
 
+  it('treats a missing include_appearances as on and adds nothing to the summary', async () => {
+    stubFetch(listing([subscription()]))
+
+    render(<Subscriptions />)
+    await screen.findByText('Daft Punk')
+    fireEvent.click(screen.getByRole('button', { name: 'Filter und Priorität für Daft Punk' }))
+
+    const toggle = await screen.findByRole('checkbox', { name: 'Beteiligungen laden' })
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    expect(
+      screen.getByText(
+        'Lädt auch Releases anderer Künstler, an denen dieser Künstler beteiligt ist.',
+      ),
+    ).toBeDefined()
+    expect(screen.queryByText(/nur eigene Releases/)).toBeNull()
+  })
+
+  it('shows "nur eigene Releases" in the summary when appearances are off', async () => {
+    stubFetch(listing([subscription({ include_appearances: false })]))
+
+    render(<Subscriptions />)
+
+    expect((await screen.findAllByText('Standard, nur eigene Releases')).length).toBeGreaterThan(0)
+  })
+
+  it('saves include_appearances: false from the settings dialog', async () => {
+    const recorded = stubFetch({
+      ...listing([subscription()]),
+      'PATCH /api/v1/subscriptions/sub-1': () => ({
+        body: { data: subscription({ include_appearances: false }) },
+      }),
+    })
+
+    render(<Subscriptions />)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Filter und Priorität für Daft Punk' }),
+    )
+    fireEvent.click(await screen.findByText('Beteiligungen laden'))
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: 'Beteiligungen laden' }).getAttribute('aria-checked')).toBe('false')
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => {
+      expect(
+        (recorded.find((call) => call.method === 'PATCH')?.body as Record<string, unknown>)
+          ?.include_appearances,
+      ).toBe(false)
+    })
+    expect((await screen.findAllByText('Standard, nur eigene Releases')).length).toBeGreaterThan(0)
+  })
+
   it('pauses and resumes a subscription', async () => {
     let enabled = true
     const recorded = stubFetch({

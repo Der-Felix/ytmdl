@@ -211,6 +211,30 @@ function SubscribeControl({ artist, className }: SubscribeControlProps) {
         </label>
       )}
 
+      {subscription && (
+        <div className="space-y-1">
+          <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox
+              checked={subscription.include_appearances !== false}
+              disabled={busy}
+              onCheckedChange={(checked) =>
+                perform((signal) =>
+                  updateSubscription(
+                    subscription.id,
+                    { include_appearances: checked === true },
+                    signal,
+                  ),
+                )
+              }
+            />
+            Beteiligungen laden
+          </label>
+          <p className="pl-6 text-xs text-muted-foreground">
+            Lädt auch Releases anderer Künstler, an denen dieser Künstler beteiligt ist.
+          </p>
+        </div>
+      )}
+
       {error && (
         <p role="alert" className="flex items-center gap-1.5 text-xs text-destructive">
           <AlertCircleIcon className="size-3.5 shrink-0" />

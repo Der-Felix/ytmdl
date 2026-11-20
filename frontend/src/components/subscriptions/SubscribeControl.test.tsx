@@ -187,7 +187,7 @@ describe('SubscribeControl', () => {
     })
     render(<SubscribeControl artist={artist} />)
 
-    const toggle = await screen.findByRole('checkbox')
+    const toggle = await screen.findByRole('checkbox', { name: 'Neue Tracks automatisch herunterladen' })
     expect(toggle.getAttribute('aria-checked')).toBe('false')
 
     fireEvent.click(toggle)
@@ -199,7 +199,35 @@ describe('SubscribeControl', () => {
       auto_download: true,
     })
     await waitFor(() => {
-      expect(screen.getByRole('checkbox').getAttribute('aria-checked')).toBe('true')
+      expect(screen.getByRole('checkbox', { name: 'Neue Tracks automatisch herunterladen' }).getAttribute('aria-checked')).toBe('true')
+    })
+  })
+
+  it('treats a missing include_appearances as on and turns it off through the toggle', async () => {
+    const recorded = stubFetch({
+      ...alreadySubscribed,
+      'PATCH /api/v1/subscriptions/sub-1': () => ({
+        body: { data: { ...storedSubscription, include_appearances: false } },
+      }),
+    })
+    render(<SubscribeControl artist={artist} />)
+
+    const toggle = await screen.findByRole('checkbox', { name: 'Beteiligungen laden' })
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(recorded.find((call) => call.method === 'PATCH')?.body).toEqual({
+        include_appearances: false,
+      })
+    })
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole('checkbox', { name: 'Beteiligungen laden' })
+          .getAttribute('aria-checked'),
+      ).toBe('false')
     })
   })
 

@@ -736,6 +736,7 @@ interface SubscriptionTableRowProps {
     auto_download?: boolean
     download_priority?: JobPriority
     release_filter?: ReleaseFilter
+    include_appearances?: boolean
   }) => void
   onToggleEnabled: () => void
   onDelete: () => void
@@ -755,6 +756,9 @@ function SubscriptionTableRow({
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const [editAutoDownload, setEditAutoDownload] = useState(subscription.auto_download)
+  const [editAppearances, setEditAppearances] = useState(
+    subscription.include_appearances !== false,
+  )
   const [editPriority, setEditPriority] = useState<JobPriority>(
     subscription.download_priority || 'low',
   )
@@ -771,6 +775,7 @@ function SubscriptionTableRow({
 
   function openSettings() {
     setEditAutoDownload(subscription.auto_download)
+    setEditAppearances(subscription.include_appearances !== false)
     setEditPriority(subscription.download_priority || 'low')
     setEditFilter(
       subscription.release_filter || {
@@ -790,6 +795,7 @@ function SubscriptionTableRow({
       auto_download: editAutoDownload,
       download_priority: editPriority,
       release_filter: editFilter,
+      include_appearances: editAppearances,
     })
     setSettingsOpen(false)
   }
@@ -797,7 +803,8 @@ function SubscriptionTableRow({
   // Format filter badges
   const filterList = useMemo(() => {
     const f = subscription.release_filter
-    if (!f) return 'Standard'
+    const ownOnly = subscription.include_appearances === false ? ', nur eigene Releases' : ''
+    if (!f) return `Standard${ownOnly}`
     const active: string[] = []
     if (f.albums) active.push('Alben')
     if (f.singles) active.push('Singles')
@@ -805,8 +812,9 @@ function SubscriptionTableRow({
     if (f.live) active.push('Live')
     if (f.compilations) active.push('Comp.')
     if (f.remixes) active.push('Remix')
-    return active.length > 0 ? active.join(', ') : 'Keine'
-  }, [subscription.release_filter])
+    const base = active.length > 0 ? active.join(', ') : 'Keine'
+    return `${base}${ownOnly}`
+  }, [subscription.release_filter, subscription.include_appearances])
 
   return (
     <>
@@ -1040,6 +1048,19 @@ function SubscriptionTableRow({
                   />
                   Automatischer Download neuer Tracks
                 </label>
+              </div>
+
+              <div className="space-y-1">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground font-medium">
+                  <Checkbox
+                    checked={editAppearances}
+                    onCheckedChange={(checked) => setEditAppearances(checked === true)}
+                  />
+                  Beteiligungen laden
+                </label>
+                <p className="pl-6 text-xs text-muted-foreground">
+                  Lädt auch Releases anderer Künstler, an denen dieser Künstler beteiligt ist.
+                </p>
               </div>
 
               <div className="space-y-2">
