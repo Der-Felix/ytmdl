@@ -271,7 +271,7 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Subscription, 
 func (s *Service) Update(ctx context.Context, id string, update Update) (*Subscription, error) {
 	if update.Empty() {
 		return nil, apperr.New(apperr.CodeInvalidRequest,
-			"The request changes nothing; set enabled or auto_download.")
+			"The request changes nothing; set enabled, auto_download, release_filter, download_priority or include_appearances.")
 	}
 	if update.DownloadPriority != nil {
 		if !update.DownloadPriority.Valid() {
@@ -318,15 +318,17 @@ func (s *Service) Export(ctx context.Context) (*ExportPayload, error) {
 			priority = priority.Canonical()
 		}
 
+		includeAppearances := sub.IncludeAppearances
 		exported[i] = ExportSubscription{
-			ArtistName:       sub.DisplayName(),
-			Provider:         sub.Provider,
-			ArtistSourceID:   sub.ArtistSourceID,
-			ArtistImageURL:   sub.ArtistImageURL,
-			Enabled:          sub.Enabled,
-			AutoDownload:     sub.AutoDownload,
-			ReleaseFilter:    filter,
-			DownloadPriority: priority,
+			ArtistName:         sub.DisplayName(),
+			Provider:           sub.Provider,
+			ArtistSourceID:     sub.ArtistSourceID,
+			ArtistImageURL:     sub.ArtistImageURL,
+			Enabled:            sub.Enabled,
+			AutoDownload:       sub.AutoDownload,
+			ReleaseFilter:      filter,
+			DownloadPriority:   priority,
+			IncludeAppearances: &includeAppearances,
 		}
 	}
 
@@ -397,6 +399,9 @@ func (s *Service) PreviewImport(ctx context.Context, payload ExportPayload) (*Im
 			AutoDownload:     item.AutoDownload,
 			ReleaseFilter:    filter,
 			DownloadPriority: priority,
+			// A file written before the switch existed reads as true, which
+			// is how its subscriptions behaved.
+			IncludeAppearances: item.IncludesAppearances(),
 		}
 
 		if rawProv == "" || sourceID == "" {
@@ -444,6 +449,10 @@ func (s *Service) PreviewImport(ctx context.Context, payload ExportPayload) (*Im
 			if existing.ReleaseFilter != filter {
 				changes = append(changes, "release_filter modified")
 			}
+			if existing.IncludeAppearances != pItem.IncludeAppearances {
+				changes = append(changes, fmt.Sprintf("include_appearances: %v -> %v",
+					existing.IncludeAppearances, pItem.IncludeAppearances))
+			}
 			if item.ArtistName != "" && existing.ArtistName != name && name != music.UnknownArtist {
 				changes = append(changes, fmt.Sprintf("name: %s -> %s", existing.ArtistName, name))
 			}
@@ -484,24 +493,26 @@ func (s *Service) ApplyImport(ctx context.Context, payload ExportPayload) (*Impo
 		switch item.Status {
 		case ImportStatusNew:
 			newSubs = append(newSubs, NewSubscription{
-				Provider:         item.Provider,
-				ArtistSourceID:   item.ArtistSourceID,
-				ArtistName:       item.ArtistName,
-				ArtistImageURL:   item.ArtistImageURL,
-				Enabled:          &item.Enabled,
-				AutoDownload:     item.AutoDownload,
-				ReleaseFilter:    &item.ReleaseFilter,
-				DownloadPriority: &item.DownloadPriority,
+				Provider:           item.Provider,
+				ArtistSourceID:     item.ArtistSourceID,
+				ArtistName:         item.ArtistName,
+				ArtistImageURL:     item.ArtistImageURL,
+				Enabled:            &item.Enabled,
+				AutoDownload:       item.AutoDownload,
+				ReleaseFilter:      &item.ReleaseFilter,
+				DownloadPriority:   &item.DownloadPriority,
+				IncludeAppearances: &item.IncludeAppearances,
 			})
 		case ImportStatusWouldUpdate:
 			updates = append(updates, ImportUpdate{
-				ID:               item.ExistingID,
-				ArtistName:       item.ArtistName,
-				ArtistImageURL:   item.ArtistImageURL,
-				Enabled:          item.Enabled,
-				AutoDownload:     item.AutoDownload,
-				ReleaseFilter:    item.ReleaseFilter,
-				DownloadPriority: item.DownloadPriority,
+				ID:                 item.ExistingID,
+				ArtistName:         item.ArtistName,
+				ArtistImageURL:     item.ArtistImageURL,
+				Enabled:            item.Enabled,
+				AutoDownload:       item.AutoDownload,
+				ReleaseFilter:      item.ReleaseFilter,
+				DownloadPriority:   item.DownloadPriority,
+				IncludeAppearances: item.IncludeAppearances,
 			})
 		case ImportStatusInvalid, ImportStatusDuplicate:
 			errors = append(errors, ImportError{
@@ -702,9 +713,10 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 	}
 
 	catalogue, err := s.discography.ResolveArtist(ctx, discography.ArtistRequest{
-		Provider: sub.Provider,
-		ArtistID: sub.ArtistSourceID,
-		Filter:   filter,
+		Provider:           sub.Provider,
+		ArtistID:           sub.ArtistSourceID,
+		Filter:             filter,
+		ExcludeAppearances: !sub.IncludeAppearances,
 	}, func(_ discography.Stage, current, total int) {
 		s.publish(jobs.Event{
 			Type: jobs.EventSubscriptionSyncProgress, SubscriptionID: sub.ID,
@@ -719,6 +731,7 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 		result.Artist = catalogue.Artist.DisplayName()
 	}
 	result.ReleasesSeen = len(catalogue.Releases)
+	result.AppearancesSkipped = catalogue.AppearancesSkipped
 	result.TracksSeen = len(catalogue.Groups)
 	result.Warnings = append(result.Warnings, catalogue.Warnings...)
 

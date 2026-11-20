@@ -430,10 +430,27 @@ func TestClassifyRelease(t *testing.T) {
 		{"album", "Live 2007", 12, music.ReleaseLive},
 		{"album", "Human After All: The Remixes", 10, music.ReleaseRemix},
 		{"single", "Get Lucky", 1, music.ReleaseSingle},
-		{"single", "Get Lucky Remix EP", 4, music.ReleaseEP},
+		// A remix marker wins over Deezer's single and EP record types.
+		{"single", "Get Lucky Remix EP", 4, music.ReleaseRemix},
+		{"single", "I'm Good (Blue) (Oliver Heldens Remix)", 1, music.ReleaseRemix},
+		{"ep", "Say My Name (Remixes)", 5, music.ReleaseRemix},
+		{"single", "Say My Name (Remixes #2)", 3, music.ReleaseRemix},
+		{"single", "Deep In Your Love (Dimitri Vegas & Like Mike, Ben Nicky & Dr Phunk Remix)", 1, music.ReleaseRemix},
+		{"ep", "In The Name Of Love Remixes", 6, music.ReleaseRemix},
+		{"album", "Expectations (The Remixes)", 12, music.ReleaseRemix},
+		{"ep", "Meant To Be (Extended Remixes)", 4, music.ReleaseRemix},
+		// A live marker wins as well.
+		{"single", "Meant To Be (Live From CMA Fest 2018)", 1, music.ReleaseLive},
+		// Other version markers keep the record type.
+		{"single", "Heart Still Beating (Extended)", 1, music.ReleaseSingle},
+		{"single", "I'm Good (Blue) (Acoustic)", 1, music.ReleaseSingle},
+		{"single", "Live Your Life", 1, music.ReleaseSingle},
+		{"album", "Long Live", 12, music.ReleaseAlbum},
 		{"ep", "Musique Vol. 1 EP", 3, music.ReleaseEP},
 		{"compile", "Greatest Hits", 20, music.ReleaseCompilation},
 		{"compilation", "The Best of 2000s", 15, music.ReleaseCompilation},
+		// A compilation Deezer declared keeps that type.
+		{"compile", "Dance Hits (The Remixes)", 30, music.ReleaseCompilation},
 	}
 
 	for _, tc := range tests {

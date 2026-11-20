@@ -79,7 +79,7 @@ for the one-time exchange, limits and account permissions.
 | `GET` | `/api/v1/subscriptions` | User | List all artist subscriptions and latest sync status. |
 | `POST` | `/api/v1/subscriptions` | User | Subscribe to an artist. |
 | `GET` | `/api/v1/subscriptions/{id}` | User | Get subscription details and sync report. |
-| `PATCH` | `/api/v1/subscriptions/{id}` | User | Update subscription filters, auto-download, or priority. |
+| `PATCH` | `/api/v1/subscriptions/{id}` | User | Update subscription filters, auto-download, priority, or `include_appearances`. |
 | `DELETE` | `/api/v1/subscriptions/{id}` | User | Remove artist subscription. |
 | `POST` | `/api/v1/subscriptions/{id}/sync` | User | Trigger immediate discography check (returns `202 Accepted`). |
 | `GET` | `/api/v1/subscriptions/export` | User | Export subscriptions as JSON. |

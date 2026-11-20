@@ -536,7 +536,8 @@ func TestSubscriptionMigrationAppliesToAnExistingDatabase(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DROP TABLE artist_subscriptions`); err != nil {
 		t.Fatalf("roll back the subscriptions table: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version IN (2, 7)`); err != nil {
+	// 0020 adds a column to the table as well, so it goes with it.
+	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version IN (2, 7, 20)`); err != nil {
 		t.Fatalf("roll back the migration record: %v", err)
 	}
 
@@ -576,6 +577,80 @@ func TestSubscriptionMigrationAppliesToAnExistingDatabase(t *testing.T) {
 	// Applying the migration a second time must stay a no-op.
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatalf("re-running the migration failed: %v", err)
+	}
+}
+
+// TestSubscriptionIncludeAppearancesRoundTrip pins the appearance switch:
+// true unless the request says otherwise, unchanged by an update that does not
+// name it, and carried by both import paths.
+func TestSubscriptionIncludeAppearancesRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	repo := NewSubscriptions(openTestDB(t))
+	off, on := false, true
+
+	byDefault, err := repo.Create(ctx, newSubscription("deezer", "4492087", "Bebe Rexha"))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if !byDefault.IncludeAppearances {
+		t.Fatal("a subscription created without the switch must include appearances")
+	}
+
+	req := newSubscription("deezer", "542", "David Guetta")
+	req.IncludeAppearances = &off
+	ownOnly, err := repo.Create(ctx, req)
+	if err != nil {
+		t.Fatalf("create without appearances: %v", err)
+	}
+	if ownOnly.IncludeAppearances {
+		t.Fatal("include_appearances=false was not stored")
+	}
+	loaded, err := repo.Get(ctx, ownOnly.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if loaded.IncludeAppearances {
+		t.Fatal("include_appearances=false did not survive a reload")
+	}
+
+	// An update that does not name the switch leaves it alone.
+	updated, err := repo.Update(ctx, ownOnly.ID, subscriptions.Update{AutoDownload: &on})
+	if err != nil {
+		t.Fatalf("update auto download: %v", err)
+	}
+	if updated.IncludeAppearances {
+		t.Fatal("an update without include_appearances changed it")
+	}
+	updated, err = repo.Update(ctx, ownOnly.ID, subscriptions.Update{IncludeAppearances: &on})
+	if err != nil {
+		t.Fatalf("update include_appearances: %v", err)
+	}
+	if !updated.IncludeAppearances || !updated.AutoDownload {
+		t.Fatalf("the update did not apply as asked: %+v", updated)
+	}
+
+	// Import: a new subscription and an update of an existing one.
+	newReq := newSubscription("deezer", "1", "Imported")
+	newReq.IncludeAppearances = &off
+	if _, err := repo.ApplyImport(ctx, []subscriptions.NewSubscription{newReq}, []subscriptions.ImportUpdate{{
+		ID: byDefault.ID, Enabled: true, ReleaseFilter: music.DefaultReleaseFilter(),
+		DownloadPriority: jobs.PriorityLow, IncludeAppearances: false,
+	}}); err != nil {
+		t.Fatalf("apply import: %v", err)
+	}
+	imported, err := repo.FindBySource(ctx, "deezer", "1")
+	if err != nil || imported == nil {
+		t.Fatalf("find imported: %v", err)
+	}
+	if imported.IncludeAppearances {
+		t.Fatal("the imported subscription lost include_appearances=false")
+	}
+	reloaded, err := repo.Get(ctx, byDefault.ID)
+	if err != nil {
+		t.Fatalf("get updated: %v", err)
+	}
+	if reloaded.IncludeAppearances {
+		t.Fatal("the import update did not store include_appearances=false")
 	}
 }
 

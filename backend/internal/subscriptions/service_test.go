@@ -146,19 +146,20 @@ func (f *fakeStore) Create(_ context.Context, req NewSubscription) (*Subscriptio
 		enabled = *req.Enabled
 	}
 	sub := &Subscription{
-		ID:               "sub-" + string(rune('a'+f.seq-1)),
-		Provider:         req.Provider,
-		ArtistSourceID:   req.ArtistSourceID,
-		ArtistName:       req.ArtistName,
-		ArtistImageURL:   req.ArtistImageURL,
-		Enabled:          enabled,
-		AutoDownload:     req.AutoDownload,
-		ReleaseFilter:    filter,
-		DownloadPriority: priority,
-		NextSyncAt:       now,
-		LastSyncStatus:   StatusPending,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:                 "sub-" + string(rune('a'+f.seq-1)),
+		Provider:           req.Provider,
+		ArtistSourceID:     req.ArtistSourceID,
+		ArtistName:         req.ArtistName,
+		ArtistImageURL:     req.ArtistImageURL,
+		Enabled:            enabled,
+		AutoDownload:       req.AutoDownload,
+		ReleaseFilter:      filter,
+		DownloadPriority:   priority,
+		IncludeAppearances: req.IncludesAppearances(),
+		NextSyncAt:         now,
+		LastSyncStatus:     StatusPending,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 	f.items[sub.ID] = sub
 	copied := *sub
@@ -239,19 +240,20 @@ func (f *fakeStore) ApplyImport(_ context.Context, newSubs []NewSubscription, up
 			priority = *req.DownloadPriority
 		}
 		sub := &Subscription{
-			ID:               "sub-" + string(rune('a'+f.seq-1)),
-			Provider:         req.Provider,
-			ArtistSourceID:   req.ArtistSourceID,
-			ArtistName:       req.ArtistName,
-			ArtistImageURL:   req.ArtistImageURL,
-			Enabled:          enabled,
-			AutoDownload:     req.AutoDownload,
-			ReleaseFilter:    filter,
-			DownloadPriority: priority,
-			NextSyncAt:       now,
-			LastSyncStatus:   StatusPending,
-			CreatedAt:        now,
-			UpdatedAt:        now,
+			ID:                 "sub-" + string(rune('a'+f.seq-1)),
+			Provider:           req.Provider,
+			ArtistSourceID:     req.ArtistSourceID,
+			ArtistName:         req.ArtistName,
+			ArtistImageURL:     req.ArtistImageURL,
+			Enabled:            enabled,
+			AutoDownload:       req.AutoDownload,
+			ReleaseFilter:      filter,
+			DownloadPriority:   priority,
+			IncludeAppearances: req.IncludesAppearances(),
+			NextSyncAt:         now,
+			LastSyncStatus:     StatusPending,
+			CreatedAt:          now,
+			UpdatedAt:          now,
 		}
 		f.items[sub.ID] = sub
 		result.Created++
@@ -264,6 +266,7 @@ func (f *fakeStore) ApplyImport(_ context.Context, newSubs []NewSubscription, up
 			sub.AutoDownload = up.AutoDownload
 			sub.ReleaseFilter = up.ReleaseFilter
 			sub.DownloadPriority = up.DownloadPriority
+			sub.IncludeAppearances = up.IncludeAppearances
 			if up.ArtistName != "" {
 				sub.ArtistName = up.ArtistName
 			}
@@ -290,6 +293,9 @@ func (f *fakeStore) Update(_ context.Context, id string, update Update) (*Subscr
 	}
 	if update.AutoDownload != nil {
 		sub.AutoDownload = *update.AutoDownload
+	}
+	if update.IncludeAppearances != nil {
+		sub.IncludeAppearances = *update.IncludeAppearances
 	}
 	copied := *sub
 	return &copied, nil

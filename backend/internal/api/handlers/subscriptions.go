@@ -28,15 +28,18 @@ type subscribeRequest struct {
 	AutoDownload     *bool                `json:"auto_download"`
 	ReleaseFilter    *music.ReleaseFilter `json:"release_filter"`
 	DownloadPriority *jobs.Priority       `json:"download_priority"`
+	// IncludeAppearances defaults to true when omitted.
+	IncludeAppearances *bool `json:"include_appearances"`
 }
 
 // updateSubscriptionRequest is the body of PATCH /subscriptions/{id}. An
 // omitted field is left untouched.
 type updateSubscriptionRequest struct {
-	Enabled          *bool                `json:"enabled"`
-	AutoDownload     *bool                `json:"auto_download"`
-	ReleaseFilter    *music.ReleaseFilter `json:"release_filter"`
-	DownloadPriority *jobs.Priority       `json:"download_priority"`
+	Enabled            *bool                `json:"enabled"`
+	AutoDownload       *bool                `json:"auto_download"`
+	ReleaseFilter      *music.ReleaseFilter `json:"release_filter"`
+	DownloadPriority   *jobs.Priority       `json:"download_priority"`
+	IncludeAppearances *bool                `json:"include_appearances"`
 }
 
 // ListSubscriptions answers GET /subscriptions.
@@ -96,13 +99,14 @@ func (h *Handlers) Subscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := subscriptions.NewSubscription{
-		Provider:         body.Provider,
-		ArtistSourceID:   body.ArtistSourceID,
-		ArtistName:       body.ArtistName,
-		ArtistImageURL:   body.ArtistImageURL,
-		AutoDownload:     defaultAutoDownload,
-		ReleaseFilter:    &defaultFilter,
-		DownloadPriority: &defaultPriority,
+		Provider:           body.Provider,
+		ArtistSourceID:     body.ArtistSourceID,
+		ArtistName:         body.ArtistName,
+		ArtistImageURL:     body.ArtistImageURL,
+		AutoDownload:       defaultAutoDownload,
+		ReleaseFilter:      &defaultFilter,
+		DownloadPriority:   &defaultPriority,
+		IncludeAppearances: body.IncludeAppearances,
 	}
 	if body.AutoDownload != nil {
 		req.AutoDownload = *body.AutoDownload
@@ -159,10 +163,11 @@ func (h *Handlers) UpdateSubscription(w http.ResponseWriter, r *http.Request) {
 
 	sub, err := h.deps.Subscriptions.Update(r.Context(), chi.URLParam(r, "id"),
 		subscriptions.Update{
-			Enabled:          body.Enabled,
-			AutoDownload:     body.AutoDownload,
-			ReleaseFilter:    body.ReleaseFilter,
-			DownloadPriority: body.DownloadPriority,
+			Enabled:            body.Enabled,
+			AutoDownload:       body.AutoDownload,
+			ReleaseFilter:      body.ReleaseFilter,
+			DownloadPriority:   body.DownloadPriority,
+			IncludeAppearances: body.IncludeAppearances,
 		})
 	if err != nil {
 		response.Error(w, r, err)

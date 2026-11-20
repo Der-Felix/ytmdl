@@ -1,7 +1,6 @@
 package ytmusic
 
 import (
-	"regexp"
 	"strings"
 
 	"ytdm/backend/internal/music"
@@ -486,25 +485,30 @@ func isReleaseTypeWord(text string) bool {
 	return ok
 }
 
-// liveTitleRe matches the ways a live release names itself. A bare "live"
-// anywhere in the title is deliberately not enough, so that an album called
-// "Long Live" keeps its type.
-var liveTitleRe = regexp.MustCompile(`(?i)(\(live\b|\blive (at|in|from|on|aus|im)\b|\blive album\b|\bunplugged\b| - live\b)`)
-
 // classifyRelease determines the release type from the subtitle and the title.
+//
+// The order is the one every metadata provider uses: a compilation the
+// subtitle declares stays a compilation; otherwise a live or remix marker in
+// the title (music.TitleReleaseType) wins over the subtitle's Album, Single or
+// EP.
 func classifyRelease(subtitle, title string) music.ReleaseType {
 	lowerTitle := strings.ToLower(title)
-	switch {
-	case liveTitleRe.MatchString(title):
-		return music.ReleaseLive
-	case strings.Contains(lowerTitle, "remix"):
-		return music.ReleaseRemix
-	}
 
+	declared, hasDeclared := music.ReleaseType(""), false
 	for _, part := range strings.Split(subtitle, "•") {
 		if kind, ok := releaseTypeWords[strings.ToLower(strings.TrimSpace(part))]; ok {
-			return kind
+			declared, hasDeclared = kind, true
+			break
 		}
+	}
+	if hasDeclared && declared == music.ReleaseCompilation {
+		return declared
+	}
+	if kind, ok := music.TitleReleaseType(title); ok {
+		return kind
+	}
+	if hasDeclared {
+		return declared
 	}
 	if strings.HasSuffix(strings.TrimSpace(lowerTitle), " ep") || strings.Contains(lowerTitle, "(ep)") {
 		return music.ReleaseEP

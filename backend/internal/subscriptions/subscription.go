@@ -65,6 +65,13 @@ type Subscription struct {
 	ReleaseFilter    music.ReleaseFilter `json:"release_filter"`
 	DownloadPriority jobs.Priority       `json:"download_priority"`
 
+	// IncludeAppearances keeps the releases whose primary artist is someone
+	// else — a single the artist is featured on, another artist's remix
+	// package. When false, a sync considers only the artist's own releases
+	// (joint releases included); a release whose primary artist cannot be
+	// determined is still kept.
+	IncludeAppearances bool `json:"include_appearances"`
+
 	LastSyncAt     *time.Time `json:"last_sync_at,omitempty"`
 	NextSyncAt     time.Time  `json:"next_sync_at"`
 	LastSyncStatus SyncStatus `json:"last_sync_status"`
@@ -97,6 +104,13 @@ type NewSubscription struct {
 	AutoDownload     bool
 	ReleaseFilter    *music.ReleaseFilter
 	DownloadPriority *jobs.Priority
+	// IncludeAppearances defaults to true when nil.
+	IncludeAppearances *bool
+}
+
+// IncludesAppearances returns the effective appearance switch of the request.
+func (n NewSubscription) IncludesAppearances() bool {
+	return n.IncludeAppearances == nil || *n.IncludeAppearances
 }
 
 // Validate rejects a request that cannot identify an artist.
@@ -132,6 +146,16 @@ type ExportSubscription struct {
 	AutoDownload     bool                `json:"auto_download"`
 	ReleaseFilter    music.ReleaseFilter `json:"release_filter"`
 	DownloadPriority jobs.Priority       `json:"download_priority"`
+	// IncludeAppearances is a pointer so that a file written before the field
+	// existed reads as true, which is how those subscriptions behaved. The
+	// export always writes it.
+	IncludeAppearances *bool `json:"include_appearances,omitempty"`
+}
+
+// IncludesAppearances returns the effective appearance switch of an exported
+// subscription: true when the file does not carry it.
+func (e ExportSubscription) IncludesAppearances() bool {
+	return e.IncludeAppearances == nil || *e.IncludeAppearances
 }
 
 // ExportPayload represents the versioned export file structure.
@@ -155,19 +179,20 @@ const (
 
 // ImportPreviewItem describes the evaluation of a single imported subscription.
 type ImportPreviewItem struct {
-	Index            int                 `json:"index"`
-	ArtistName       string              `json:"artist_name"`
-	Provider         string              `json:"provider"`
-	ArtistSourceID   string              `json:"artist_source_id"`
-	ArtistImageURL   string              `json:"artist_image_url,omitempty"`
-	Enabled          bool                `json:"enabled"`
-	AutoDownload     bool                `json:"auto_download"`
-	ReleaseFilter    music.ReleaseFilter `json:"release_filter"`
-	DownloadPriority jobs.Priority       `json:"download_priority"`
-	Status           ImportItemStatus    `json:"status"`
-	ExistingID       string              `json:"existing_id,omitempty"`
-	Changes          []string            `json:"changes,omitempty"`
-	Error            string              `json:"error,omitempty"`
+	Index              int                 `json:"index"`
+	ArtistName         string              `json:"artist_name"`
+	Provider           string              `json:"provider"`
+	ArtistSourceID     string              `json:"artist_source_id"`
+	ArtistImageURL     string              `json:"artist_image_url,omitempty"`
+	Enabled            bool                `json:"enabled"`
+	AutoDownload       bool                `json:"auto_download"`
+	ReleaseFilter      music.ReleaseFilter `json:"release_filter"`
+	DownloadPriority   jobs.Priority       `json:"download_priority"`
+	IncludeAppearances bool                `json:"include_appearances"`
+	Status             ImportItemStatus    `json:"status"`
+	ExistingID         string              `json:"existing_id,omitempty"`
+	Changes            []string            `json:"changes,omitempty"`
+	Error              string              `json:"error,omitempty"`
 }
 
 // ImportPreview contains summary statistics and item breakdown for an import before application.
@@ -203,26 +228,29 @@ type ImportResult struct {
 
 // ImportUpdate carries the fields needed to update an existing subscription from an import.
 type ImportUpdate struct {
-	ID               string
-	ArtistName       string
-	ArtistImageURL   string
-	Enabled          bool
-	AutoDownload     bool
-	ReleaseFilter    music.ReleaseFilter
-	DownloadPriority jobs.Priority
+	ID                 string
+	ArtistName         string
+	ArtistImageURL     string
+	Enabled            bool
+	AutoDownload       bool
+	ReleaseFilter      music.ReleaseFilter
+	DownloadPriority   jobs.Priority
+	IncludeAppearances bool
 }
 
 // Update carries the fields a PATCH may change. A nil field is left as it is.
 type Update struct {
-	Enabled          *bool
-	AutoDownload     *bool
-	ReleaseFilter    *music.ReleaseFilter
-	DownloadPriority *jobs.Priority
+	Enabled            *bool
+	AutoDownload       *bool
+	ReleaseFilter      *music.ReleaseFilter
+	DownloadPriority   *jobs.Priority
+	IncludeAppearances *bool
 }
 
 // Empty reports whether the update would change nothing.
 func (u Update) Empty() bool {
-	return u.Enabled == nil && u.AutoDownload == nil && u.ReleaseFilter == nil && u.DownloadPriority == nil
+	return u.Enabled == nil && u.AutoDownload == nil && u.ReleaseFilter == nil &&
+		u.DownloadPriority == nil && u.IncludeAppearances == nil
 }
 
 // ListFilter narrows a subscription listing. Provider and ArtistSourceID
@@ -250,6 +278,9 @@ type SyncResult struct {
 
 	ReleasesSeen int `json:"releases_seen"`
 	NewReleases  int `json:"new_releases"`
+	// AppearancesSkipped counts the releases left out because the
+	// subscription excludes appearances.
+	AppearancesSkipped int `json:"appearances_skipped,omitempty"`
 
 	// TracksSeen counts the distinct recordings the deduplication produced,
 	// which is the set the classification below was run against.
