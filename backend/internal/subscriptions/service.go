@@ -838,6 +838,7 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 	logger.Info("subscription sync finished",
 		"status", string(result.Status),
 		"releases_seen", result.ReleasesSeen, "new_releases", result.NewReleases,
+		"appearances_skipped", result.AppearancesSkipped,
 		"tracks_seen", result.TracksSeen, "new_tracks", result.NewTracks,
 		"queued_tracks", result.QueuedTracks, "skipped_tracks", result.SkippedTracks,
 		"warnings", len(result.Warnings), "warnings_transient", transient,
