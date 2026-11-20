@@ -248,22 +248,22 @@ function Downloads({ jobId }: DownloadsPageProps) {
           )}
           <QueueSummaryCard summary={summary} />
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <ActiveWorkersCard workers={summary.current} />
-            <NextUpCard jobs={summary.next} />
-          </div>
+          {/* Two empty panels would only repeat what the summary already
+              says, so they appear once there is something to show in one. */}
+          {(summary.current.length > 0 || summary.next.length > 0) && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <ActiveWorkersCard workers={summary.current} />
+              <NextUpCard jobs={summary.next} />
+            </div>
+          )}
         </section>
       )}
 
       {!summary && summaryState.status === 'loading' && (
         <LoadingRegion label="Warteschlangen-Status wird geladen">
-          <div className="space-y-4" aria-hidden>
-            <Skeleton className="h-44 w-full rounded-xl" />
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <Skeleton className="h-40 w-full rounded-xl" />
-              <Skeleton className="h-40 w-full rounded-xl" />
-            </div>
-          </div>
+          {/* The height of the idle summary: the common case, so the job list
+              below does not jump when the summary arrives. */}
+          <Skeleton aria-hidden className="h-16 w-full rounded-xl" />
         </LoadingRegion>
       )}
 

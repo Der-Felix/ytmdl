@@ -1,4 +1,4 @@
-import { DiscIcon, ListOrderedIcon } from 'lucide-react'
+import { DiscIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Panel, PanelHeader } from '@/components/ui/panel'
@@ -13,81 +13,59 @@ interface NextUpCardProps {
 
 export function NextUpCard({ jobs, className }: NextUpCardProps) {
   return (
-    <Panel className={cn('p-4 space-y-4 sm:p-5', className)}>
+    <Panel className={cn('space-y-3 p-4 sm:p-5', className)}>
       <PanelHeader
-        title={
-          <div className="flex items-center gap-2">
-            <ListOrderedIcon className="size-4 text-primary" />
-            <span className="font-heading font-semibold">Nächste in der Warteschlange</span>
-          </div>
-        }
+        className="items-center"
+        title="Nächste in der Warteschlange"
         action={
-          <Badge variant="neutral" className="text-xs">
-            {jobs.length > 0 ? `${jobs.length} in Vorschau` : 'Keine'}
-          </Badge>
+          jobs.length > 0 && (
+            <Badge variant="neutral" className="figures text-xs">
+              {jobs.length} in Vorschau
+            </Badge>
+          )
         }
       />
 
       {jobs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-6 text-center text-muted-foreground border border-dashed border-border/60 rounded-lg">
-          <DiscIcon className="size-8 stroke-[1.25] text-muted-foreground/50 mb-2" />
-          <p className="text-sm font-medium text-foreground/80">Keine anstehenden Jobs</p>
-          <p className="text-xs text-muted-foreground max-w-sm mt-0.5">
-            Alle geplanten Downloads wurden verarbeitet oder die Warteschlange ist leer.
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Keine anstehenden Jobs.</span>{' '}
+          Nach den laufenden Downloads ist die Warteschlange leer.
+        </p>
       ) : (
-        <div className="space-y-2.5">
+        <ol className="divide-y divide-border">
           {jobs.map((job, index) => (
-            <div
-              key={job.job_id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-muted p-2.5 transition-colors hover:bg-muted"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[0.6875rem] font-semibold text-muted-foreground">
-                  {index + 1}
-                </span>
+            <li key={job.job_id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+              <span className="figures w-4 shrink-0 text-right text-xs text-muted-foreground">
+                {index + 1}
+              </span>
 
-                {/* Cover / Icon */}
-                <div className="size-9 shrink-0 overflow-hidden rounded border border-border/60 bg-muted flex items-center justify-center">
-                  {job.cover_url ? (
-                    <img
-                      src={job.cover_url}
-                      alt={job.release}
-                      className="size-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <DiscIcon className="size-4 text-muted-foreground/60" />
-                  )}
-                </div>
-
-                <div className="min-w-0 space-y-0.5">
-                  <div className="text-xs font-semibold text-foreground truncate">
-                    {job.artist || 'Unbekannter Künstler'}
-                  </div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {job.release || 'Unbekanntes Release'}
-                  </div>
-                </div>
-              </div>
-
-              <div className="shrink-0 flex items-center gap-2">
-                {typeof job.open_tracks === 'number' &&
-                Number.isFinite(job.open_tracks) &&
-                job.open_tracks >= 0 ? (
-                  <Badge variant="neutral" className="text-[0.6875rem]">
-                    {pluralize(job.open_tracks, 'Track', 'Tracks')} offen
-                  </Badge>
+              <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
+                {job.cover_url ? (
+                  <img src={job.cover_url} alt="" className="size-full object-cover" loading="lazy" />
                 ) : (
-                  <Badge variant="neutral" className="text-[0.6875rem]">
-                    Anzahl unbekannt
-                  </Badge>
+                  <DiscIcon aria-hidden className="size-4 text-muted-foreground" />
                 )}
               </div>
-            </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-foreground">
+                  {job.release || 'Unbekanntes Release'}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {job.artist || 'Unbekannter Künstler'}
+                </div>
+              </div>
+
+              <span className="figures shrink-0 text-xs text-muted-foreground">
+                {typeof job.open_tracks === 'number' &&
+                Number.isFinite(job.open_tracks) &&
+                job.open_tracks >= 0
+                  ? `${pluralize(job.open_tracks, 'Track', 'Tracks')} offen`
+                  : 'Anzahl unbekannt'}
+              </span>
+            </li>
           ))}
-        </div>
+        </ol>
       )}
     </Panel>
   )

@@ -33,8 +33,8 @@ describe('ActiveWorkersCard', () => {
   it('renders empty state when no workers are active', () => {
     render(<ActiveWorkersCard workers={[]} />)
 
-    expect(screen.getByText('Keine Downloads in Bearbeitung')).toBeDefined()
-    expect(screen.getByText('0 Worker aktiv')).toBeDefined()
+    expect(screen.getByText('Keine Downloads in Bearbeitung.')).toBeDefined()
+    expect(screen.queryByText(/Worker aktiv/)).toBeNull()
   })
 
   it('renders active worker details including track number, artist, phase, and progress', () => {

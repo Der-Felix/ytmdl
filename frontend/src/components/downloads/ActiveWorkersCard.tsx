@@ -1,5 +1,3 @@
-import { ArrowDownToLineIcon, CpuIcon } from 'lucide-react'
-
 import { Badge } from '@/components/ui/badge'
 import { Panel, PanelHeader } from '@/components/ui/panel'
 import { Progress } from '@/components/ui/progress'
@@ -14,31 +12,28 @@ interface ActiveWorkersCardProps {
 
 export function ActiveWorkersCard({ workers, className }: ActiveWorkersCardProps) {
   return (
-    <Panel className={cn('p-4 space-y-4 sm:p-5', className)}>
+    <Panel className={cn('space-y-3 p-4 sm:p-5', className)}>
       <PanelHeader
-        title={
-          <div className="flex items-center gap-2">
-            <CpuIcon className="size-4 text-primary" />
-            <span className="font-heading font-semibold">Aktive Verarbeitung</span>
-          </div>
-        }
+        className="items-center"
+        title="Aktive Verarbeitung"
         action={
-          <Badge variant={workers.length > 0 ? 'default' : 'neutral'} className="text-xs">
-            {workers.length} {workers.length === 1 ? 'Worker aktiv' : 'Worker aktiv'}
-          </Badge>
+          workers.length > 0 && (
+            <Badge variant="default" className="figures text-xs">
+              {workers.length} Worker aktiv
+            </Badge>
+          )
         }
       />
 
       {workers.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-6 text-center text-muted-foreground border border-dashed border-border/60 rounded-lg">
-          <ArrowDownToLineIcon className="size-8 stroke-[1.25] text-muted-foreground/50 mb-2" />
-          <p className="text-sm font-medium text-foreground/80">Keine Downloads in Bearbeitung</p>
-          <p className="text-xs text-muted-foreground max-w-sm mt-0.5">
-            Wartende Downloads werden automatisch gestartet, sobald freie Worker-Kapazität verfügbar ist.
-          </p>
-        </div>
+        // One line, not a boxed illustration: the panel beside it carries the
+        // content, and this one only has to say that nothing runs yet.
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Keine Downloads in Bearbeitung.</span>{' '}
+          Wartende Downloads starten, sobald ein Worker frei ist.
+        </p>
       ) : (
-        <div className="space-y-3">
+        <ul className="divide-y divide-border">
           {workers.map((w, index) => {
             const isDownloading = w.phase === 'downloading'
             const percent = isDownloading ? Math.max(0, Math.min(100, Math.round(w.progress_percent))) : null
@@ -49,52 +44,34 @@ export function ActiveWorkersCard({ workers, className }: ActiveWorkersCardProps
               : w.track
 
             return (
-              <div
-                key={w.item_id || index}
-                className="rounded-lg border border-border/60 bg-muted p-3 space-y-2.5 transition-colors"
-              >
+              <li key={w.item_id || index} className="space-y-2 py-3 first:pt-0 last:pb-0">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[0.625rem] font-semibold bg-primary/10 text-primary uppercase tracking-wider">
+                    <div className="truncate text-sm font-medium text-foreground">{trackDisplay}</div>
+                    <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="shrink-0 font-mono text-[0.6875rem] uppercase tracking-wider text-primary">
                         Worker {index + 1}
                       </span>
-                      <span className="text-xs font-semibold text-foreground truncate">
+                      <span className="truncate text-foreground/80">
                         {w.artist || 'Unbekannter Künstler'}
                       </span>
-                      {w.release && (
-                        <span className="text-xs text-muted-foreground truncate">
-                          — {w.release}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs font-medium text-foreground/90 truncate">
-                      {trackDisplay}
+                      {w.release && <span className="truncate">— {w.release}</span>}
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Badge
-                      variant={isDownloading ? 'default' : 'neutral'}
-                      className="text-[0.6875rem] h-5 px-1.5"
-                    >
-                      {phaseLabel}
-                    </Badge>
-                  </div>
+                  <span className="figures shrink-0 text-xs text-muted-foreground">
+                    {percent !== null ? `${percent}%` : phaseLabel}
+                  </span>
                 </div>
 
-                {/* Progress bar */}
-                <div className="space-y-1">
-                  <Progress value={percent} className="h-1.5" />
-                  <div className="flex items-center justify-between text-[0.6875rem] text-muted-foreground">
-                    <span>{phaseLabel}</span>
-                    <span>{percent !== null ? `${percent}%` : 'Verarbeitung …'}</span>
-                  </div>
-                </div>
-              </div>
+                <Progress
+                  value={percent}
+                  className="h-1"
+                  aria-label={`${phaseLabel}: ${w.track}`}
+                />
+              </li>
             )
           })}
-        </div>
+        </ul>
       )}
     </Panel>
   )

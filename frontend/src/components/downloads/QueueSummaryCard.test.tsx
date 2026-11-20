@@ -75,3 +75,47 @@ describe('QueueSummaryCard', () => {
     expect(screen.getByText(/Bibliotheksspeicher ist aktuell nicht schreibbar/)).toBeDefined()
   })
 })
+
+describe('QueueSummaryCard when the queue is idle', () => {
+  const idleSummary: QueueSummary = {
+    ...sampleSummary,
+    active_items: 0,
+    remaining_items: 0,
+    paused_jobs: 0,
+    retry_wait_items: 0,
+    completed_last_hour: 0,
+    throughput_items_per_hour: 0,
+    eta_seconds: null,
+    eta_confidence: 'none',
+    eta_text: 'Keine ausstehenden Downloads',
+  }
+
+  it('says so in one line instead of five zero figures', () => {
+    render(<QueueSummaryCard summary={idleSummary} />)
+
+    expect(screen.getByRole('heading', { name: 'Warteschlange ist leer' })).toBeDefined()
+    expect(screen.queryByText('Offene Tracks')).toBeNull()
+    expect(screen.queryByText('Durchsatz')).toBeNull()
+    expect(screen.queryByText(/letzten Stunde/)).toBeNull()
+  })
+
+  it('mentions what finished in the last hour', () => {
+    render(<QueueSummaryCard summary={{ ...idleSummary, completed_last_hour: 14 }} />)
+
+    expect(screen.getByText('14 Tracks in der letzten Stunde')).toBeDefined()
+  })
+
+  it('keeps the figures while something needs attention', () => {
+    render(<QueueSummaryCard summary={{ ...idleSummary, retry_wait_items: 3 }} />)
+
+    expect(screen.queryByText('Warteschlange ist leer')).toBeNull()
+    expect(screen.getByText('Warten auf Wiederholung')).toBeDefined()
+  })
+
+  it('keeps the figures while the library storage is unreachable', () => {
+    render(<QueueSummaryCard summary={{ ...idleSummary, storage_healthy: false }} />)
+
+    expect(screen.queryByText('Warteschlange ist leer')).toBeNull()
+    expect(screen.getByText(/Bibliotheksspeicher ist aktuell nicht schreibbar/)).toBeDefined()
+  })
+})

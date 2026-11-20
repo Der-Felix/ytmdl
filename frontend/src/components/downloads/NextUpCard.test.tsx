@@ -26,8 +26,8 @@ describe('NextUpCard', () => {
   it('renders empty state when queue has no next jobs', () => {
     render(<NextUpCard jobs={[]} />)
 
-    expect(screen.getByText('Keine anstehenden Jobs')).toBeDefined()
-    expect(screen.getByText('Keine')).toBeDefined()
+    expect(screen.getByText('Keine anstehenden Jobs.')).toBeDefined()
+    expect(screen.queryByText(/in Vorschau/)).toBeNull()
   })
 
   it('renders next-up jobs in exact priority order with track count badges', () => {
