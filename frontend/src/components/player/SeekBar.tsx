@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { usePlayerActions, usePlayerProgress } from '@/hooks/usePlayer'
 import { cn } from '@/lib/utils'
 import { formatDuration, formatPlaybackTime } from '@/lib/utils/format'
+import { sliderFill } from '@/lib/utils/slider'
 
 /*
  * The only parts of the player views that follow the playback position.
@@ -23,9 +24,7 @@ export function SeekBar({ layout }: { layout: 'inline' | 'stacked' }) {
   const [seekingValue, setSeekingValue] = useState<number | null>(null)
 
   const displayTime = seekingValue ?? currentTime
-  const filled = percent(displayTime, duration)
-
-  const commit = () => {
+    const commit = () => {
     if (seekingValue !== null) seek(seekingValue)
     setSeekingValue(null)
   }
@@ -48,9 +47,7 @@ export function SeekBar({ layout }: { layout: 'inline' | 'stacked' }) {
       }}
       onBlur={commit}
       className="slider-quiet w-full"
-      style={{
-        background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${filled}%, var(--input) ${filled}%, var(--input) 100%)`,
-      }}
+      style={sliderFill(displayTime, 0, duration || 1)}
       aria-label="Fortschritt"
       aria-valuetext={`${formatPlaybackTime(displayTime)} von ${formatDuration(duration * 1000)}`}
     />

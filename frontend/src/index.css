@@ -327,10 +327,23 @@
     }
 }
 
-/* Sleek quiet slider with hidden thumb by default, revealing small 8px thumb on hover/focus */
+/* Sleek quiet slider with hidden thumb by default, revealing small 8px thumb on hover/focus.
+
+   The filled part is painted on the track, from --slider-fill (set inline by
+   the component, see sliderFill in lib/utils). It must not be a background on
+   the input itself: the input is as tall as the browser makes it (about 16px
+   in Firefox), so a background there shows as a thick bar instead of the
+   3px track. The input keeps that height as the pointer target. */
 .slider-quiet {
+    --slider-fill: 0%;
+    --slider-color: var(--primary);
+    --slider-rest: color-mix(in oklab, var(--foreground) 15%, transparent);
+    --slider-track: linear-gradient(to right,
+        var(--slider-color) var(--slider-fill),
+        var(--slider-rest) var(--slider-fill));
     -webkit-appearance: none;
     appearance: none;
+    height: 1rem;
     background: transparent;
     cursor: pointer;
 }
@@ -338,13 +351,19 @@
 .slider-quiet::-webkit-slider-runnable-track {
     height: 3px;
     border-radius: 9999px;
-    background: color-mix(in oklab, var(--foreground) 15%, transparent);
+    background: var(--slider-track);
     transition: height var(--duration-fast) ease;
 }
 
 .slider-quiet:hover::-webkit-slider-runnable-track,
 .slider-quiet:active::-webkit-slider-runnable-track {
     height: 5px;
+}
+
+/* The thumb is centred by hand in WebKit; follow the taller track. */
+.slider-quiet:hover::-webkit-slider-thumb,
+.slider-quiet:active::-webkit-slider-thumb {
+    margin-top: -1.5px;
 }
 
 .slider-quiet::-webkit-slider-thumb {
@@ -370,8 +389,14 @@
 .slider-quiet::-moz-range-track {
     height: 3px;
     border-radius: 9999px;
-    background: color-mix(in oklab, var(--foreground) 15%, transparent);
+    background: var(--slider-track);
     border: none;
+    transition: height var(--duration-fast) ease;
+}
+
+.slider-quiet:hover::-moz-range-track,
+.slider-quiet:active::-moz-range-track {
+    height: 5px;
 }
 
 .slider-quiet::-moz-range-thumb {
