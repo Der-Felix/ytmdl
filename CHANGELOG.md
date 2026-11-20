@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.7.0 — 2026-11-20
+
+Subscriptions can leave out releases the artist only appears on, and remix singles are recognised by their title.
 
 ### Changes
 
@@ -9,7 +11,18 @@
   - A single subscription can make an exception in its settings dialog: "Wie in den Einstellungen", "Immer laden" or "Nie laden" (`include_appearances` is `null`, `true` or `false`; `null` is the default for new and existing subscriptions, and a `PATCH` with `null` goes back to following the setting). Every subscription also reports `effective_include_appearances`, the value that applies right now. The export writes `include_appearances` only for a subscription with its own choice; on import a missing field or `null` follows the setting. The export format version stays 1.
   - A sync report counts the releases left out this way as `appearances_skipped`.
 - **Release types:** a remix or live marker in the title now decides the type of singles and EPs as well, for Deezer, Spotify and YouTube Music alike. "I'm Good (Blue) (Oliver Heldens Remix)" (a Deezer single) and "Say My Name (Remixes)" (a Deezer EP) are remix releases, so a release filter without remixes leaves them out; "Meant To Be (Live From CMA Fest 2018)" is a live release. Only a compilation the provider declared keeps that type. A bare "live" in a title ("Long Live", "Live Your Life") no longer marks a live release, and YouTube Music no longer reads a word that merely contains "remix" ("Premix") as a remix marker. Releases already in the library keep their stored type, folder and files, and nothing is downloaded twice: a sync recognises a stored release by provider and release id and its tracks by ISRC or track identity, and a remix type does not change a track's identity. With remixes excluded, a stored release that now counts as a remix is no longer part of the sync; it is not deleted. Its stored type only changes when the release itself is downloaded again, after which the library audit reports its existing files as lying outside the new "[Remix]" folder.
-- **Database Schema:** Schema 20 adds the nullable column `artist_subscriptions.include_appearances` without a default (NULL follows the server-wide setting); no row is rewritten. Keep a verified backup before any update.
+- **Database Schema:** Schema 20 adds the nullable column `artist_subscriptions.include_appearances` without a default (NULL follows the server-wide setting); no row is rewritten by the schema migration. Keep a verified backup before any update.
+- The log line that ends a subscription sync names `appearances_skipped`.
+- Qualify v1.6.1 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0 and v1.6.0.
+
+### Upgrade from v1.6.1
+
+Use the checksum-verified v1.7.0 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.7.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.7.0`. The update migrates the
+database to schema 20; verify a backup first. Protect the media separately;
+the database dump does not contain music files.
 
 ## 1.6.1 — 2026-11-20
 
