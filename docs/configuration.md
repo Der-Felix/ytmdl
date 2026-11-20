@@ -40,6 +40,13 @@ the Genius fallback — can also be changed at runtime by an administrator in
 **Settings** (`PUT /api/v1/settings`). Runtime changes are stored in the database
 and take precedence over the environment for those specific fields.
 
+The subscription settings in the **Downloads** tab exist only there and have no
+environment variable: the defaults for new subscriptions (auto download,
+priority, release filter) and **Beteiligungen laden**
+(`subscription_include_appearances`, on by default), which applies to every
+subscription without its own choice from its next sync on. See
+[Artist Subscriptions](/features/subscriptions#appearances).
+
 ---
 
 ## Core Service

@@ -5,7 +5,12 @@ import { Settings } from './Settings'
 import { ApiError } from '@/lib/api/client'
 
 // Switches the mocked API into its failure or empty variants for one test.
-const variant = { settingsFail: false, noProviders: false }
+const variant: {
+  settingsFail: boolean
+  noProviders: boolean
+  includeAppearances?: boolean
+  updates: Record<string, unknown>[]
+} = { settingsFail: false, noProviders: false, updates: [] }
 
 // Mock APIs used by Settings
 mock.module('@/lib/api/settings', () => ({
@@ -38,6 +43,9 @@ mock.module('@/lib/api/settings', () => ({
     match_min_score: 80,
     match_duration_tolerance_ms: 5000,
     allow_transcode: true,
+    ...(variant.includeAppearances !== undefined && {
+      subscription_include_appearances: variant.includeAppearances,
+    }),
     }
   },
   listProviders: async () => variant.noProviders ? [] : [
@@ -49,7 +57,9 @@ mock.module('@/lib/api/settings', () => ({
       authenticated: false,
     },
   ],
-  updateSettings: async () => {},
+  updateSettings: async (update: Record<string, unknown>) => {
+    variant.updates.push(update)
+  },
 }))
 
 mock.module('@/lib/api/storage', () => ({
@@ -109,6 +119,53 @@ describe('Settings Page Local Tabs', () => {
     window.location.hash = ''
     variant.settingsFail = false
     variant.noProviders = false
+    variant.includeAppearances = undefined
+    variant.updates = []
+  })
+
+  it('edits the server-wide appearance setting in the Downloads tab', async () => {
+    window.location.hash = '#downloads'
+    render(<Settings />)
+
+    const toggle = await screen.findByRole('checkbox', { name: /^Beteiligungen laden/ })
+    // An older backend without the field counts as on.
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    expect(
+      screen.getByText(
+        'Lädt bei Abos auch Releases anderer Künstler, an denen der abonnierte Künstler beteiligt ist. Gilt für alle Abos ohne eigene Einstellung.',
+      ),
+    ).toBeDefined()
+
+    fireEvent.click(screen.getByText('Beteiligungen laden'))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: /^Beteiligungen laden/ }).getAttribute('aria-checked'),
+      ).toBe('false'),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Speichern/ }))
+
+    await waitFor(() => expect(variant.updates.length).toBe(1))
+    expect(variant.updates[0].subscription_include_appearances).toBe(false)
+  })
+
+  it('shows a stored "off" and turns it back on', async () => {
+    variant.includeAppearances = false
+    window.location.hash = '#downloads'
+    render(<Settings />)
+
+    const toggle = await screen.findByRole('checkbox', { name: /^Beteiligungen laden/ })
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+
+    fireEvent.click(screen.getByText('Beteiligungen laden'))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: /^Beteiligungen laden/ }).getAttribute('aria-checked'),
+      ).toBe('true'),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Speichern/ }))
+
+    await waitFor(() => expect(variant.updates.length).toBe(1))
+    expect(variant.updates[0].subscription_include_appearances).toBe(true)
   })
 
   it('marks the open section in the section navigation', async () => {

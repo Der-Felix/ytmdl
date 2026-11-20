@@ -34,12 +34,17 @@ func scanSubscription(scan func(dest ...any) error) (subscriptions.Subscription,
 		status       string
 		filterJSON   []byte
 		priorityRank int
+		appearances  sql.NullBool
 	)
 	err := scan(&s.ID, &s.Provider, &s.ArtistSourceID, &s.ArtistName, &s.ArtistImageURL,
 		&s.Enabled, &s.AutoDownload, &lastSyncAt, &s.NextSyncAt, &status, &s.LastError,
-		&s.CreatedAt, &s.UpdatedAt, &filterJSON, &priorityRank, &s.IncludeAppearances)
+		&s.CreatedAt, &s.UpdatedAt, &filterJSON, &priorityRank, &appearances)
 	if err != nil {
 		return subscriptions.Subscription{}, err
+	}
+	if appearances.Valid {
+		value := appearances.Bool
+		s.IncludeAppearances = &value
 	}
 	s.LastSyncStatus = subscriptions.SyncStatus(status)
 	s.LastSyncAt = timePtr(lastSyncAt)
@@ -115,7 +120,7 @@ func (r *Subscriptions) Create(ctx context.Context, req subscriptions.NewSubscri
 		RETURNING `+subscriptionColumns,
 		music.NewID(), strings.TrimSpace(req.Provider), strings.TrimSpace(req.ArtistSourceID),
 		name, image, req.AutoDownload, now, string(subscriptions.StatusPending),
-		music.UnknownArtist, filterJSON, priority.Rank(), enabled, req.IncludesAppearances())
+		music.UnknownArtist, filterJSON, priority.Rank(), enabled, nullableBool(req.IncludeAppearances))
 
 	sub, err := scanSubscription(row.Scan)
 	if err != nil {
@@ -198,8 +203,11 @@ func (r *Subscriptions) Update(ctx context.Context, id string, update subscripti
 		priorityRank any
 		appearances  any
 	)
-	if update.IncludeAppearances != nil {
-		appearances = *update.IncludeAppearances
+	// include_appearances is nullable, so COALESCE cannot tell "leave it" from
+	// "clear it": a separate flag says whether the PATCH named the field.
+	setAppearances := update.IncludeAppearances.Set
+	if setAppearances {
+		appearances = nullableBool(update.IncludeAppearances.Value)
 	}
 	if update.Enabled != nil {
 		enabled = *update.Enabled
@@ -224,11 +232,11 @@ func (r *Subscriptions) Update(ctx context.Context, id string, update subscripti
 			auto_download     = COALESCE($2::boolean, auto_download),
 			release_filter    = COALESCE($3::jsonb, release_filter),
 			download_priority = COALESCE($4::integer, download_priority),
-			include_appearances = COALESCE($7::boolean, include_appearances),
+			include_appearances = CASE WHEN $8::boolean THEN $7::boolean ELSE include_appearances END,
 			updated_at        = $5
 		WHERE id = $6
 		RETURNING `+subscriptionColumns,
-		enabled, autoDownload, filterJSON, priorityRank, time.Now().UTC(), id, appearances)
+		enabled, autoDownload, filterJSON, priorityRank, time.Now().UTC(), id, appearances, setAppearances)
 
 	sub, err := scanSubscription(row.Scan)
 	if err != nil {
@@ -347,7 +355,7 @@ func (r *Subscriptions) ApplyImport(ctx context.Context, newSubs []subscriptions
 					updated_at        = excluded.updated_at`,
 				music.NewID(), strings.TrimSpace(item.Provider), strings.TrimSpace(item.ArtistSourceID),
 				name, image, enabled, item.AutoDownload, now, music.UnknownArtist, filterJSON, priority.Rank(),
-				item.IncludesAppearances())
+				nullableBool(item.IncludeAppearances))
 			if err != nil {
 				result.Failed++
 				result.Errors = append(result.Errors, subscriptions.ImportError{
@@ -389,7 +397,7 @@ func (r *Subscriptions) ApplyImport(ctx context.Context, newSubs []subscriptions
 					updated_at        = $7
 				WHERE id = $8`,
 				up.Enabled, up.AutoDownload, filterJSON, up.DownloadPriority.Rank(), name, image, now, up.ID,
-				up.IncludeAppearances)
+				nullableBool(up.IncludeAppearances))
 			if err != nil {
 				result.Failed++
 				result.Errors = append(result.Errors, subscriptions.ImportError{

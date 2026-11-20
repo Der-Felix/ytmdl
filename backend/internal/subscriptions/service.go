@@ -56,6 +56,12 @@ type Options struct {
 	MaxConcurrentSyncs  int
 	DurationToleranceMS int
 
+	// IncludeAppearances reports the server-wide appearance setting that
+	// every subscription without its own choice follows. It is asked at the
+	// moment it is needed, so a change in the settings reaches the next sync
+	// without touching a subscription. Nil means true.
+	IncludeAppearances func() bool
+
 	Logger *slog.Logger
 }
 
@@ -69,6 +75,8 @@ type Service struct {
 	downloader  Downloader
 	broker      *jobs.Broker
 	logger      *slog.Logger
+
+	globalAppearances func() bool
 
 	syncInterval  time.Duration
 	retryInterval time.Duration
@@ -138,21 +146,26 @@ func New(opts Options) (*Service, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	globalAppearances := opts.IncludeAppearances
+	if globalAppearances == nil {
+		globalAppearances = func() bool { return true }
+	}
 
 	service := &Service{
-		store:         opts.Store,
-		catalog:       opts.Catalog,
-		files:         opts.Files,
-		discography:   opts.Discography,
-		registry:      opts.Registry,
-		downloader:    opts.Downloader,
-		broker:        opts.Broker,
-		logger:        logger,
-		syncInterval:  syncInterval,
-		retryInterval: retryInterval,
-		syncTimeout:   syncTimeout,
-		toleranceMS:   tolerance,
-		syncAdmission: make(chan struct{}, maxConcurrentSyncs),
+		store:             opts.Store,
+		catalog:           opts.Catalog,
+		files:             opts.Files,
+		discography:       opts.Discography,
+		registry:          opts.Registry,
+		downloader:        opts.Downloader,
+		broker:            opts.Broker,
+		logger:            logger,
+		globalAppearances: globalAppearances,
+		syncInterval:      syncInterval,
+		retryInterval:     retryInterval,
+		syncTimeout:       syncTimeout,
+		toleranceMS:       tolerance,
+		syncAdmission:     make(chan struct{}, maxConcurrentSyncs),
 	}
 	service.accepting.Store(true)
 	service.ctx = context.Background()
@@ -261,8 +274,10 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Subscription, 
 	if err != nil {
 		return nil, err
 	}
+	global := s.globalAppearances()
 	for i := range list {
 		list[i].Syncing = s.isSyncing(list[i].ID)
+		list[i].EffectiveIncludeAppearances = ResolveIncludeAppearances(list[i].IncludeAppearances, global)
 	}
 	return list, nil
 }
@@ -318,17 +333,18 @@ func (s *Service) Export(ctx context.Context) (*ExportPayload, error) {
 			priority = priority.Canonical()
 		}
 
-		includeAppearances := sub.IncludeAppearances
 		exported[i] = ExportSubscription{
-			ArtistName:         sub.DisplayName(),
-			Provider:           sub.Provider,
-			ArtistSourceID:     sub.ArtistSourceID,
-			ArtistImageURL:     sub.ArtistImageURL,
-			Enabled:            sub.Enabled,
-			AutoDownload:       sub.AutoDownload,
-			ReleaseFilter:      filter,
-			DownloadPriority:   priority,
-			IncludeAppearances: &includeAppearances,
+			ArtistName:       sub.DisplayName(),
+			Provider:         sub.Provider,
+			ArtistSourceID:   sub.ArtistSourceID,
+			ArtistImageURL:   sub.ArtistImageURL,
+			Enabled:          sub.Enabled,
+			AutoDownload:     sub.AutoDownload,
+			ReleaseFilter:    filter,
+			DownloadPriority: priority,
+			// Written only when the subscription has its own choice; one that
+			// follows the setting keeps following on the importing server.
+			IncludeAppearances: sub.IncludeAppearances,
 		}
 	}
 
@@ -399,9 +415,9 @@ func (s *Service) PreviewImport(ctx context.Context, payload ExportPayload) (*Im
 			AutoDownload:     item.AutoDownload,
 			ReleaseFilter:    filter,
 			DownloadPriority: priority,
-			// A file written before the switch existed reads as true, which
-			// is how its subscriptions behaved.
-			IncludeAppearances: item.IncludesAppearances(),
+			// Absent or null follows the server-wide setting, which is also
+			// how a file written before the field existed reads.
+			IncludeAppearances: item.IncludeAppearances,
 		}
 
 		if rawProv == "" || sourceID == "" {
@@ -449,9 +465,9 @@ func (s *Service) PreviewImport(ctx context.Context, payload ExportPayload) (*Im
 			if existing.ReleaseFilter != filter {
 				changes = append(changes, "release_filter modified")
 			}
-			if existing.IncludeAppearances != pItem.IncludeAppearances {
-				changes = append(changes, fmt.Sprintf("include_appearances: %v -> %v",
-					existing.IncludeAppearances, pItem.IncludeAppearances))
+			if !sameOptionalBool(existing.IncludeAppearances, pItem.IncludeAppearances) {
+				changes = append(changes, fmt.Sprintf("include_appearances: %s -> %s",
+					optionalBoolText(existing.IncludeAppearances), optionalBoolText(pItem.IncludeAppearances)))
 			}
 			if item.ArtistName != "" && existing.ArtistName != name && name != music.UnknownArtist {
 				changes = append(changes, fmt.Sprintf("name: %s -> %s", existing.ArtistName, name))
@@ -501,7 +517,7 @@ func (s *Service) ApplyImport(ctx context.Context, payload ExportPayload) (*Impo
 				AutoDownload:       item.AutoDownload,
 				ReleaseFilter:      &item.ReleaseFilter,
 				DownloadPriority:   &item.DownloadPriority,
-				IncludeAppearances: &item.IncludeAppearances,
+				IncludeAppearances: item.IncludeAppearances,
 			})
 		case ImportStatusWouldUpdate:
 			updates = append(updates, ImportUpdate{
@@ -556,7 +572,29 @@ func (s *Service) ApplyImport(ctx context.Context, payload ExportPayload) (*Impo
 // decorate fills in the process state a stored subscription cannot carry.
 func (s *Service) decorate(sub *Subscription) *Subscription {
 	sub.Syncing = s.isSyncing(sub.ID)
+	sub.EffectiveIncludeAppearances = s.includeAppearances(sub)
 	return sub
+}
+
+// includeAppearances resolves the appearance switch of a subscription against
+// the server-wide setting as it is right now.
+func (s *Service) includeAppearances(sub *Subscription) bool {
+	return ResolveIncludeAppearances(sub.IncludeAppearances, s.globalAppearances())
+}
+
+func sameOptionalBool(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+// optionalBoolText names a per-subscription choice in an import preview.
+func optionalBoolText(v *bool) string {
+	if v == nil {
+		return "setting"
+	}
+	return fmt.Sprintf("%v", *v)
 }
 
 func (s *Service) isSyncing(id string) bool {
@@ -633,6 +671,7 @@ func (s *Service) StartSync(ctx context.Context, id string) (*Subscription, erro
 
 	answer := *sub
 	answer.Syncing = true
+	answer.EffectiveIncludeAppearances = s.includeAppearances(&answer)
 	return &answer, nil
 }
 
@@ -712,11 +751,14 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 		filter = music.DefaultReleaseFilter()
 	}
 
+	// Resolved now rather than when the subscription was loaded, so a change
+	// of the server-wide setting applies from the next run on.
+	includeAppearances := s.includeAppearances(sub)
 	catalogue, err := s.discography.ResolveArtist(ctx, discography.ArtistRequest{
 		Provider:           sub.Provider,
 		ArtistID:           sub.ArtistSourceID,
 		Filter:             filter,
-		ExcludeAppearances: !sub.IncludeAppearances,
+		ExcludeAppearances: !includeAppearances,
 	}, func(_ discography.Stage, current, total int) {
 		s.publish(jobs.Event{
 			Type: jobs.EventSubscriptionSyncProgress, SubscriptionID: sub.ID,

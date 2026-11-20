@@ -28,18 +28,20 @@ type subscribeRequest struct {
 	AutoDownload     *bool                `json:"auto_download"`
 	ReleaseFilter    *music.ReleaseFilter `json:"release_filter"`
 	DownloadPriority *jobs.Priority       `json:"download_priority"`
-	// IncludeAppearances defaults to true when omitted.
+	// IncludeAppearances is the subscription's own exception; omitted or null
+	// follows the server-wide setting subscription_include_appearances.
 	IncludeAppearances *bool `json:"include_appearances"`
 }
 
 // updateSubscriptionRequest is the body of PATCH /subscriptions/{id}. An
-// omitted field is left untouched.
+// omitted field is left untouched. include_appearances also accepts null,
+// which puts the subscription back to following the server-wide setting.
 type updateSubscriptionRequest struct {
-	Enabled            *bool                `json:"enabled"`
-	AutoDownload       *bool                `json:"auto_download"`
-	ReleaseFilter      *music.ReleaseFilter `json:"release_filter"`
-	DownloadPriority   *jobs.Priority       `json:"download_priority"`
-	IncludeAppearances *bool                `json:"include_appearances"`
+	Enabled            *bool                      `json:"enabled"`
+	AutoDownload       *bool                      `json:"auto_download"`
+	ReleaseFilter      *music.ReleaseFilter       `json:"release_filter"`
+	DownloadPriority   *jobs.Priority             `json:"download_priority"`
+	IncludeAppearances subscriptions.NullableBool `json:"include_appearances"`
 }
 
 // ListSubscriptions answers GET /subscriptions.

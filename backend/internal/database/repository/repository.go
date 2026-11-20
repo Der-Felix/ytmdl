@@ -29,6 +29,14 @@ func nullTime(t *time.Time) any {
 	return t.UTC()
 }
 
+// nullableBool turns an optional boolean into a query argument: nil is NULL.
+func nullableBool(v *bool) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
 func timePtr(v sql.NullTime) *time.Time {
 	if !v.Valid {
 		return nil

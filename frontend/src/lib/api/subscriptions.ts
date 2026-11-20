@@ -151,7 +151,11 @@ export async function exportSubscriptionsToFile(selectedSubs?: Subscription[]): 
         enabled: s.enabled,
         auto_download: s.auto_download,
         release_filter: s.release_filter,
-        include_appearances: s.include_appearances ?? true,
+        // Like the server export: only a subscription with its own choice
+        // carries the field; the others keep following the setting.
+        ...(s.include_appearances != null && {
+          include_appearances: s.include_appearances,
+        }),
         download_priority: s.download_priority,
       })),
     }

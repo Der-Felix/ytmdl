@@ -35,6 +35,10 @@ const (
 	KeySubscriptionAutoDownload  = "subscriptions.default_auto_download"
 	KeySubscriptionPriority      = "subscriptions.default_priority"
 	KeySubscriptionReleaseFilter = "subscriptions.default_release_filter"
+	// KeySubscriptionIncludeAppearances is not a default copied into new
+	// subscriptions: every subscription without its own choice follows it at
+	// sync time.
+	KeySubscriptionIncludeAppearances = "subscriptions.include_appearances"
 )
 
 // Repository persists the settings.
@@ -66,6 +70,9 @@ type Settings struct {
 	SubscriptionAutoDownload  bool                `json:"subscription_default_auto_download"`
 	SubscriptionPriority      string              `json:"subscription_default_priority"`
 	SubscriptionReleaseFilter music.ReleaseFilter `json:"subscription_default_release_filter"`
+	// SubscriptionIncludeAppearances applies to every subscription that has
+	// no include_appearances of its own, from its next sync on.
+	SubscriptionIncludeAppearances bool `json:"subscription_include_appearances"`
 
 	LibraryPath         string `json:"library_path"`
 	AllowTranscode      bool   `json:"allow_transcode"`
@@ -99,9 +106,10 @@ type Update struct {
 	ScheduleEnd      *string `json:"schedule_end"`
 	ScheduleTimezone *string `json:"schedule_timezone"`
 
-	SubscriptionAutoDownload  *bool                `json:"subscription_default_auto_download"`
-	SubscriptionPriority      *string              `json:"subscription_default_priority"`
-	SubscriptionReleaseFilter *music.ReleaseFilter `json:"subscription_default_release_filter"`
+	SubscriptionAutoDownload       *bool                `json:"subscription_default_auto_download"`
+	SubscriptionPriority           *string              `json:"subscription_default_priority"`
+	SubscriptionReleaseFilter      *music.ReleaseFilter `json:"subscription_default_release_filter"`
+	SubscriptionIncludeAppearances *bool                `json:"subscription_include_appearances"`
 }
 
 // GeniusController allows the settings service to control runtime state of the Genius lyrics provider.
@@ -120,6 +128,7 @@ type Service struct {
 	subAutoDownload  atomic.Bool
 	subPriority      atomic.Pointer[string]
 	subReleaseFilter atomic.Pointer[music.ReleaseFilter]
+	subAppearances   atomic.Bool
 
 	geniusMu              sync.RWMutex
 	geniusController      GeniusController
@@ -156,6 +165,7 @@ func New(repo Repository, manager *jobs.Manager, engine *matcher.Matcher, cfg co
 	s.subPriority.Store(&defPri)
 	defFilter := music.DefaultReleaseFilter()
 	s.subReleaseFilter.Store(&defFilter)
+	s.subAppearances.Store(true)
 	return s, nil
 }
 
@@ -215,6 +225,9 @@ func (s *Service) Load(ctx context.Context) error {
 			s.subReleaseFilter.Store(&filter)
 		}
 	}
+	if value, ok := parseBool(stored[KeySubscriptionIncludeAppearances]); ok {
+		s.subAppearances.Store(value)
+	}
 
 	if value, ok := parseBool(stored[KeyEmbedCover]); ok {
 		s.manager.SetEmbedCover(value)
@@ -266,6 +279,13 @@ func (s *Service) GetSubscriptionDefaults() (bool, jobs.Priority, music.ReleaseF
 	return autoDownload, pri, filter
 }
 
+// SubscriptionIncludeAppearances reports whether subscriptions without their
+// own choice load the releases their artist only appears on. The subscription
+// service asks it at sync time.
+func (s *Service) SubscriptionIncludeAppearances() bool {
+	return s.subAppearances.Load()
+}
+
 // SetQueuePaused sets the queue pause state and persists it.
 func (s *Service) SetQueuePaused(ctx context.Context, paused bool) error {
 	s.manager.SetQueuePaused(paused)
@@ -297,6 +317,7 @@ func (s *Service) Current() Settings {
 	} else {
 		current.SubscriptionReleaseFilter = music.DefaultReleaseFilter()
 	}
+	current.SubscriptionIncludeAppearances = s.subAppearances.Load()
 
 	current.EmbedCover = s.manager.EmbedCover()
 	current.WriteCoverFile = s.manager.WriteCoverFile()
@@ -402,6 +423,10 @@ func (s *Service) Apply(ctx context.Context, update Update) (Settings, error) {
 			return Settings{}, apperr.Wrap(apperr.CodeInternal, "failed to marshal release filter", err)
 		}
 		values[KeySubscriptionReleaseFilter] = string(b)
+	}
+	if update.SubscriptionIncludeAppearances != nil {
+		s.subAppearances.Store(*update.SubscriptionIncludeAppearances)
+		values[KeySubscriptionIncludeAppearances] = strconv.FormatBool(*update.SubscriptionIncludeAppearances)
 	}
 
 	if update.MatchMinScore != nil {

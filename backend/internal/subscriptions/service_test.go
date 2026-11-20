@@ -155,7 +155,7 @@ func (f *fakeStore) Create(_ context.Context, req NewSubscription) (*Subscriptio
 		AutoDownload:       req.AutoDownload,
 		ReleaseFilter:      filter,
 		DownloadPriority:   priority,
-		IncludeAppearances: req.IncludesAppearances(),
+		IncludeAppearances: copyBool(req.IncludeAppearances),
 		NextSyncAt:         now,
 		LastSyncStatus:     StatusPending,
 		CreatedAt:          now,
@@ -249,7 +249,7 @@ func (f *fakeStore) ApplyImport(_ context.Context, newSubs []NewSubscription, up
 			AutoDownload:       req.AutoDownload,
 			ReleaseFilter:      filter,
 			DownloadPriority:   priority,
-			IncludeAppearances: req.IncludesAppearances(),
+			IncludeAppearances: copyBool(req.IncludeAppearances),
 			NextSyncAt:         now,
 			LastSyncStatus:     StatusPending,
 			CreatedAt:          now,
@@ -266,7 +266,7 @@ func (f *fakeStore) ApplyImport(_ context.Context, newSubs []NewSubscription, up
 			sub.AutoDownload = up.AutoDownload
 			sub.ReleaseFilter = up.ReleaseFilter
 			sub.DownloadPriority = up.DownloadPriority
-			sub.IncludeAppearances = up.IncludeAppearances
+			sub.IncludeAppearances = copyBool(up.IncludeAppearances)
 			if up.ArtistName != "" {
 				sub.ArtistName = up.ArtistName
 			}
@@ -294,8 +294,8 @@ func (f *fakeStore) Update(_ context.Context, id string, update Update) (*Subscr
 	if update.AutoDownload != nil {
 		sub.AutoDownload = *update.AutoDownload
 	}
-	if update.IncludeAppearances != nil {
-		sub.IncludeAppearances = *update.IncludeAppearances
+	if update.IncludeAppearances.Set {
+		sub.IncludeAppearances = copyBool(update.IncludeAppearances.Value)
 	}
 	copied := *sub
 	return &copied, nil
@@ -481,6 +481,16 @@ type harness struct {
 	downloader *fakeDownloader
 	provider   *fakeProvider
 	broker     *jobs.Broker
+	// appearances stands in for the server-wide include-appearances setting.
+	appearances atomic.Bool
+}
+
+func copyBool(v *bool) *bool {
+	if v == nil {
+		return nil
+	}
+	value := *v
+	return &value
 }
 
 func track(title string, durationMS int, isrc string) music.Track {
@@ -511,19 +521,21 @@ func newHarnessWithTimeout(t *testing.T, p *fakeProvider, timeout time.Duration)
 		provider:   p,
 		broker:     jobs.NewBroker(nil),
 	}
+	h.appearances.Store(true)
 
 	service, err := New(Options{
-		Store:         h.store,
-		Catalog:       h.catalog,
-		Files:         h.files,
-		Discography:   disco,
-		Registry:      registry,
-		Downloader:    h.downloader,
-		Broker:        h.broker,
-		Logger:        quiet,
-		SyncInterval:  24 * time.Hour,
-		RetryInterval: time.Hour,
-		SyncTimeout:   timeout,
+		IncludeAppearances: h.appearances.Load,
+		Store:              h.store,
+		Catalog:            h.catalog,
+		Files:              h.files,
+		Discography:        disco,
+		Registry:           registry,
+		Downloader:         h.downloader,
+		Broker:             h.broker,
+		Logger:             quiet,
+		SyncInterval:       24 * time.Hour,
+		RetryInterval:      time.Hour,
+		SyncTimeout:        timeout,
 	})
 	if err != nil {
 		t.Fatalf("subscription service: %v", err)

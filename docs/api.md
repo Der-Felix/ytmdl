@@ -79,7 +79,7 @@ for the one-time exchange, limits and account permissions.
 | `GET` | `/api/v1/subscriptions` | User | List all artist subscriptions and latest sync status. |
 | `POST` | `/api/v1/subscriptions` | User | Subscribe to an artist. |
 | `GET` | `/api/v1/subscriptions/{id}` | User | Get subscription details and sync report. |
-| `PATCH` | `/api/v1/subscriptions/{id}` | User | Update subscription filters, auto-download, priority, or `include_appearances`. |
+| `PATCH` | `/api/v1/subscriptions/{id}` | User | Update subscription filters, auto-download, priority, or `include_appearances` (`true`/`false`, or `null` to follow the server-wide setting). |
 | `DELETE` | `/api/v1/subscriptions/{id}` | User | Remove artist subscription. |
 | `POST` | `/api/v1/subscriptions/{id}/sync` | User | Trigger immediate discography check (returns `202 Accepted`). |
 | `GET` | `/api/v1/subscriptions/export` | User | Export subscriptions as JSON. |
@@ -190,7 +190,7 @@ them, and every repair or delete action require an Administrator.
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/v1/health` | Public | System health check (application, database, ffmpeg, yt-dlp). |
 | `GET` | `/api/v1/settings` | User | Get effective server settings and provider statuses. |
-| `PUT` | `/api/v1/settings` | Admin | Update dynamic server settings (workers, lyrics toggles, match score). |
+| `PUT` | `/api/v1/settings` | Admin | Update dynamic server settings (workers, lyrics toggles, match score, subscription defaults, `subscription_include_appearances`). |
 | `GET` | `/api/v1/storage/status` | Admin | Inspect storage volume capacity, mount health, and identity guard. |
 | `POST` | `/api/v1/storage/probe` | Admin | Re-probe storage accessibility and guard token. |
 | `POST` | `/api/v1/storage/queue/pause` | Admin | Manually pause queue processing for storage maintenance. |

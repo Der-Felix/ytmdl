@@ -39,6 +39,7 @@ import { SubscriptionImportDialog } from '@/components/subscriptions/Subscriptio
 import { useAsync } from '@/hooks/useAsync'
 import { useJobEvents } from '@/hooks/useJobs'
 import { errorMessage, isAbortError } from '@/lib/api/client'
+import { getSettings } from '@/lib/api/settings'
 import {
   SYNC_STATUS_LABELS,
   exportSubscriptionsToFile,
@@ -726,6 +727,70 @@ export function Subscriptions() {
   )
 }
 
+type AppearancesOption = 'setting' | 'always' | 'never'
+
+function toAppearancesOption(value: boolean | null): AppearancesOption {
+  if (value === null) return 'setting'
+  return value ? 'always' : 'never'
+}
+
+function fromAppearancesOption(option: AppearancesOption): boolean | null {
+  if (option === 'setting') return null
+  return option === 'always'
+}
+
+/**
+ * The per-subscription exception to the server-wide "Beteiligungen laden".
+ * The first option names the current server-wide value. A subscription that
+ * follows the setting already reports it as its effective value; only one with
+ * its own choice needs to ask the server.
+ */
+function AppearancesChoice({
+  subscription,
+  value,
+  onChange,
+}: {
+  subscription: Subscription
+  value: boolean | null
+  onChange: (value: boolean | null) => void
+}) {
+  const follows = subscription.include_appearances == null
+  const global = useAsync<boolean | undefined>(
+    (signal) =>
+      follows
+        ? Promise.resolve(subscription.effective_include_appearances)
+        : getSettings(signal).then((s) => s.subscription_include_appearances ?? true),
+    [follows, subscription.effective_include_appearances],
+  )
+  const globalValue = global.state.status === 'success' ? global.state.data : undefined
+  const settingLabel =
+    globalValue === undefined
+      ? 'Wie in den Einstellungen'
+      : `Wie in den Einstellungen (${globalValue ? 'an' : 'aus'})`
+
+  return (
+    <div className="space-y-2">
+      <label htmlFor="sub-appearances" className="text-xs font-medium text-foreground">
+        Beteiligungen laden:
+      </label>
+      <select
+        id="sub-appearances"
+        aria-describedby="sub-appearances-help"
+        value={toAppearancesOption(value)}
+        onChange={(e) => onChange(fromAppearancesOption(e.target.value as AppearancesOption))}
+        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus-ring"
+      >
+        <option value="setting">{settingLabel}</option>
+        <option value="always">Immer laden</option>
+        <option value="never">Nie laden</option>
+      </select>
+      <p id="sub-appearances-help" className="text-xs text-muted-foreground">
+        Lädt auch Releases anderer Künstler, an denen dieser Künstler beteiligt ist.
+      </p>
+    </div>
+  )
+}
+
 interface SubscriptionTableRowProps {
   subscription: Subscription
   selected: boolean
@@ -736,7 +801,7 @@ interface SubscriptionTableRowProps {
     auto_download?: boolean
     download_priority?: JobPriority
     release_filter?: ReleaseFilter
-    include_appearances?: boolean
+    include_appearances?: boolean | null
   }) => void
   onToggleEnabled: () => void
   onDelete: () => void
@@ -756,8 +821,8 @@ function SubscriptionTableRow({
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const [editAutoDownload, setEditAutoDownload] = useState(subscription.auto_download)
-  const [editAppearances, setEditAppearances] = useState(
-    subscription.include_appearances !== false,
+  const [editAppearances, setEditAppearances] = useState<boolean | null>(
+    subscription.include_appearances ?? null,
   )
   const [editPriority, setEditPriority] = useState<JobPriority>(
     subscription.download_priority || 'low',
@@ -775,7 +840,7 @@ function SubscriptionTableRow({
 
   function openSettings() {
     setEditAutoDownload(subscription.auto_download)
-    setEditAppearances(subscription.include_appearances !== false)
+    setEditAppearances(subscription.include_appearances ?? null)
     setEditPriority(subscription.download_priority || 'low')
     setEditFilter(
       subscription.release_filter || {
@@ -803,7 +868,11 @@ function SubscriptionTableRow({
   // Format filter badges
   const filterList = useMemo(() => {
     const f = subscription.release_filter
-    const ownOnly = subscription.include_appearances === false ? ', nur eigene Releases' : ''
+    // What applies right now, whether it comes from this subscription or from
+    // the server-wide setting. An older backend sends no effective value.
+    const effective =
+      subscription.effective_include_appearances ?? subscription.include_appearances !== false
+    const ownOnly = effective ? '' : ', nur eigene Releases'
     if (!f) return `Standard${ownOnly}`
     const active: string[] = []
     if (f.albums) active.push('Alben')
@@ -814,7 +883,11 @@ function SubscriptionTableRow({
     if (f.remixes) active.push('Remix')
     const base = active.length > 0 ? active.join(', ') : 'Keine'
     return `${base}${ownOnly}`
-  }, [subscription.release_filter, subscription.include_appearances])
+  }, [
+    subscription.release_filter,
+    subscription.include_appearances,
+    subscription.effective_include_appearances,
+  ])
 
   return (
     <>
@@ -1050,18 +1123,11 @@ function SubscriptionTableRow({
                 </label>
               </div>
 
-              <div className="space-y-1">
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground font-medium">
-                  <Checkbox
-                    checked={editAppearances}
-                    onCheckedChange={(checked) => setEditAppearances(checked === true)}
-                  />
-                  Beteiligungen laden
-                </label>
-                <p className="pl-6 text-xs text-muted-foreground">
-                  Lädt auch Releases anderer Künstler, an denen dieser Künstler beteiligt ist.
-                </p>
-              </div>
+              <AppearancesChoice
+                subscription={subscription}
+                value={editAppearances}
+                onChange={setEditAppearances}
+              />
 
               <div className="space-y-2">
                 <label htmlFor="sub-priority" className="text-xs font-medium text-foreground">

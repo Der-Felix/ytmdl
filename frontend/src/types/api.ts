@@ -474,6 +474,11 @@ export interface Settings {
   subscription_default_auto_download: boolean
   subscription_default_priority: JobPriority
   subscription_default_release_filter: ReleaseFilter
+  /**
+   * Applies to every subscription without its own include_appearances, from
+   * its next sync on. Absent on older backends; treat as true.
+   */
+  subscription_include_appearances?: boolean
 
   /* Fixed at start-up, reported so a client can explain the behaviour. */
   concurrent_downloads: number
@@ -504,6 +509,7 @@ export interface SettingsUpdate {
   subscription_default_auto_download?: boolean
   subscription_default_priority?: JobPriority
   subscription_default_release_filter?: ReleaseFilter
+  subscription_include_appearances?: boolean
 }
 
 /* -------------------------------------------------------------- subscriptions */
@@ -522,8 +528,13 @@ export interface Subscription {
   enabled: boolean
   auto_download: boolean
   release_filter: ReleaseFilter
-  /** Absent on older backends; treat as true. */
-  include_appearances?: boolean
+  /**
+   * The subscription's own appearance choice. null follows the server-wide
+   * setting `subscription_include_appearances`.
+   */
+  include_appearances?: boolean | null
+  /** What applies right now: the own choice, else the server-wide setting. */
+  effective_include_appearances?: boolean
   download_priority: JobPriority
   last_sync_at?: string
   next_sync_at: string
@@ -552,6 +563,8 @@ export interface SyncResult {
   status: SyncStatus
   releases_seen: number
   new_releases: number
+  /** Releases left out because appearances were excluded. */
+  appearances_skipped?: number
   /** Distinct recordings after deduplication, which is what was compared. */
   tracks_seen: number
   new_tracks: number
@@ -574,16 +587,20 @@ export interface SubscribeRequest {
   artist_image_url?: string
   auto_download?: boolean
   release_filter?: ReleaseFilter
-  include_appearances?: boolean
+  /** Omitted or null follows the server-wide setting. */
+  include_appearances?: boolean | null
   download_priority?: JobPriority
 }
 
-/** PATCH /subscriptions/{id} — an omitted field is left untouched. */
+/**
+ * PATCH /subscriptions/{id} — an omitted field is left untouched;
+ * include_appearances: null goes back to following the server-wide setting.
+ */
 export interface SubscriptionUpdate {
   enabled?: boolean
   auto_download?: boolean
   release_filter?: ReleaseFilter
-  include_appearances?: boolean
+  include_appearances?: boolean | null
   download_priority?: JobPriority
 }
 
@@ -597,7 +614,8 @@ export interface ExportSubscriptionItem {
   enabled: boolean
   auto_download: boolean
   release_filter: ReleaseFilter
-  include_appearances?: boolean
+  /** Written only for a subscription with its own choice. */
+  include_appearances?: boolean | null
   download_priority: JobPriority
 }
 
@@ -624,7 +642,7 @@ export interface ImportPreviewItem {
   enabled: boolean
   auto_download: boolean
   release_filter: ReleaseFilter
-  include_appearances?: boolean
+  include_appearances?: boolean | null
   download_priority: JobPriority
   status: ImportItemStatus
   existing_id?: string

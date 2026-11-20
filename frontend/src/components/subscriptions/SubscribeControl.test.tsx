@@ -203,32 +203,14 @@ describe('SubscribeControl', () => {
     })
   })
 
-  it('treats a missing include_appearances as on and turns it off through the toggle', async () => {
-    const recorded = stubFetch({
-      ...alreadySubscribed,
-      'PATCH /api/v1/subscriptions/sub-1': () => ({
-        body: { data: { ...storedSubscription, include_appearances: false } },
-      }),
-    })
+  it('leaves the appearance exception to the subscription settings', async () => {
+    // Appearances are a server-wide setting; the rare per-artist exception
+    // lives in the subscription dialog, not on every artist page.
+    stubFetch(alreadySubscribed)
     render(<SubscribeControl artist={artist} />)
 
-    const toggle = await screen.findByRole('checkbox', { name: 'Beteiligungen laden' })
-    expect(toggle.getAttribute('aria-checked')).toBe('true')
-
-    fireEvent.click(toggle)
-
-    await waitFor(() => {
-      expect(recorded.find((call) => call.method === 'PATCH')?.body).toEqual({
-        include_appearances: false,
-      })
-    })
-    await waitFor(() => {
-      expect(
-        screen
-          .getByRole('checkbox', { name: 'Beteiligungen laden' })
-          .getAttribute('aria-checked'),
-      ).toBe('false')
-    })
+    await screen.findByRole('checkbox', { name: 'Neue Tracks automatisch herunterladen' })
+    expect(screen.queryByText(/Beteiligungen/)).toBeNull()
   })
 
   it('pauses a subscription without unsubscribing', async () => {

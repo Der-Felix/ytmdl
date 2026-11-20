@@ -2,8 +2,10 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -419,5 +421,57 @@ func TestSettingsValidation(t *testing.T) {
 	emptyFilter := music.ReleaseFilter{}
 	if _, err := svc.Apply(ctx, Update{SubscriptionReleaseFilter: &emptyFilter}); err == nil {
 		t.Fatal("expected error for all-false release filter")
+	}
+}
+
+func TestSubscriptionIncludeAppearancesDefaultsOnAndPersists(t *testing.T) {
+	svc, _, _, repo := setupTestSettings(t)
+	ctx := context.Background()
+
+	if !svc.SubscriptionIncludeAppearances() || !svc.Current().SubscriptionIncludeAppearances {
+		t.Fatal("appearances must be on by default, which is how subscriptions behaved before the setting")
+	}
+
+	off := false
+	updated, err := svc.Apply(ctx, Update{SubscriptionIncludeAppearances: &off})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if updated.SubscriptionIncludeAppearances || svc.SubscriptionIncludeAppearances() {
+		t.Fatal("the setting was not turned off")
+	}
+	if repo.values[KeySubscriptionIncludeAppearances] != "false" {
+		t.Fatalf("the setting was not persisted: %+v", repo.values)
+	}
+
+	// A fresh service reads the stored value back; a damaged one is ignored.
+	fresh, _, _, freshRepo := setupTestSettings(t)
+	freshRepo.values[KeySubscriptionIncludeAppearances] = "false"
+	if err := fresh.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if fresh.SubscriptionIncludeAppearances() {
+		t.Fatal("the stored value was not loaded")
+	}
+	damaged, _, _, damagedRepo := setupTestSettings(t)
+	damagedRepo.values[KeySubscriptionIncludeAppearances] = "maybe"
+	if err := damaged.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !damaged.SubscriptionIncludeAppearances() {
+		t.Fatal("an unreadable value must leave the default in place")
+	}
+
+	raw, err := json.Marshal(svc.Current())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"subscription_include_appearances":false`) {
+		t.Fatalf("the API field is missing: %s", raw)
+	}
+	var decoded Update
+	if err := json.Unmarshal([]byte(`{"subscription_include_appearances":true}`), &decoded); err != nil ||
+		decoded.SubscriptionIncludeAppearances == nil || !*decoded.SubscriptionIncludeAppearances {
+		t.Fatalf("the PUT field does not decode: %v %+v", err, decoded)
 	}
 }

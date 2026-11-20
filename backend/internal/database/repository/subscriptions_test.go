@@ -580,9 +580,27 @@ func TestSubscriptionMigrationAppliesToAnExistingDatabase(t *testing.T) {
 	}
 }
 
-// TestSubscriptionIncludeAppearancesRoundTrip pins the appearance switch:
-// true unless the request says otherwise, unchanged by an update that does not
-// name it, and carried by both import paths.
+func optionalBoolString(v *bool) string {
+	if v == nil {
+		return "<nil>"
+	}
+	if *v {
+		return "true"
+	}
+	return "false"
+}
+
+func expectIncludeAppearances(t *testing.T, label string, got *bool, want *bool) {
+	t.Helper()
+	if optionalBoolString(got) != optionalBoolString(want) {
+		t.Fatalf("%s: include_appearances = %s, want %s", label, optionalBoolString(got), optionalBoolString(want))
+	}
+}
+
+// TestSubscriptionIncludeAppearancesRoundTrip pins the per-subscription
+// exception in all three states: NULL (follow the setting) unless the request
+// says otherwise, unchanged by an update that does not name it, cleared by an
+// explicit null, and carried by both import paths.
 func TestSubscriptionIncludeAppearancesRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	repo := NewSubscriptions(openTestDB(t))
@@ -592,65 +610,86 @@ func TestSubscriptionIncludeAppearancesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if !byDefault.IncludeAppearances {
-		t.Fatal("a subscription created without the switch must include appearances")
+	expectIncludeAppearances(t, "create without a choice", byDefault.IncludeAppearances, nil)
+
+	for _, want := range []*bool{&off, &on} {
+		req := newSubscription("deezer", "own-"+optionalBoolString(want), "Artist")
+		req.IncludeAppearances = want
+		created, err := repo.Create(ctx, req)
+		if err != nil {
+			t.Fatalf("create with %s: %v", optionalBoolString(want), err)
+		}
+		expectIncludeAppearances(t, "create", created.IncludeAppearances, want)
+		loaded, err := repo.Get(ctx, created.ID)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		expectIncludeAppearances(t, "reload", loaded.IncludeAppearances, want)
 	}
 
-	req := newSubscription("deezer", "542", "David Guetta")
-	req.IncludeAppearances = &off
-	ownOnly, err := repo.Create(ctx, req)
+	// Re-subscribing does not touch an existing choice.
+	again := newSubscription("deezer", "own-false", "Artist")
+	again.IncludeAppearances = &on
+	resubscribed, err := repo.Create(ctx, again)
 	if err != nil {
-		t.Fatalf("create without appearances: %v", err)
+		t.Fatalf("re-subscribe: %v", err)
 	}
-	if ownOnly.IncludeAppearances {
-		t.Fatal("include_appearances=false was not stored")
+	expectIncludeAppearances(t, "re-subscribe", resubscribed.IncludeAppearances, &off)
+
+	id := byDefault.ID
+	steps := []struct {
+		label  string
+		update subscriptions.Update
+		want   *bool
+	}{
+		{"set false", subscriptions.Update{IncludeAppearances: subscriptions.NullableBool{Set: true, Value: &off}}, &off},
+		{"absent", subscriptions.Update{AutoDownload: &on}, &off},
+		{"set true", subscriptions.Update{IncludeAppearances: subscriptions.NullableBool{Set: true, Value: &on}}, &on},
+		{"null", subscriptions.Update{IncludeAppearances: subscriptions.NullableBool{Set: true}}, nil},
+		{"absent after null", subscriptions.Update{Enabled: &on}, nil},
 	}
-	loaded, err := repo.Get(ctx, ownOnly.ID)
+	for _, step := range steps {
+		updated, err := repo.Update(ctx, id, step.update)
+		if err != nil {
+			t.Fatalf("%s: %v", step.label, err)
+		}
+		expectIncludeAppearances(t, step.label, updated.IncludeAppearances, step.want)
+	}
+	reloaded, err := repo.Get(ctx, id)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if loaded.IncludeAppearances {
-		t.Fatal("include_appearances=false did not survive a reload")
+	if !reloaded.AutoDownload {
+		t.Fatal("the update that did not name include_appearances did not apply its own field")
 	}
+	expectIncludeAppearances(t, "reload after updates", reloaded.IncludeAppearances, nil)
 
-	// An update that does not name the switch leaves it alone.
-	updated, err := repo.Update(ctx, ownOnly.ID, subscriptions.Update{AutoDownload: &on})
-	if err != nil {
-		t.Fatalf("update auto download: %v", err)
-	}
-	if updated.IncludeAppearances {
-		t.Fatal("an update without include_appearances changed it")
-	}
-	updated, err = repo.Update(ctx, ownOnly.ID, subscriptions.Update{IncludeAppearances: &on})
-	if err != nil {
-		t.Fatalf("update include_appearances: %v", err)
-	}
-	if !updated.IncludeAppearances || !updated.AutoDownload {
-		t.Fatalf("the update did not apply as asked: %+v", updated)
-	}
-
-	// Import: a new subscription and an update of an existing one.
-	newReq := newSubscription("deezer", "1", "Imported")
-	newReq.IncludeAppearances = &off
-	if _, err := repo.ApplyImport(ctx, []subscriptions.NewSubscription{newReq}, []subscriptions.ImportUpdate{{
-		ID: byDefault.ID, Enabled: true, ReleaseFilter: music.DefaultReleaseFilter(),
-		DownloadPriority: jobs.PriorityLow, IncludeAppearances: false,
-	}}); err != nil {
+	// Import: new subscriptions with and without a choice, and updates that
+	// set and clear one.
+	withChoice := newSubscription("deezer", "1", "Imported")
+	withChoice.IncludeAppearances = &off
+	withoutChoice := newSubscription("deezer", "2", "Imported Too")
+	if _, err := repo.ApplyImport(ctx, []subscriptions.NewSubscription{withChoice, withoutChoice}, []subscriptions.ImportUpdate{
+		{ID: id, Enabled: true, ReleaseFilter: music.DefaultReleaseFilter(),
+			DownloadPriority: jobs.PriorityLow, IncludeAppearances: &off},
+		{ID: resubscribed.ID, Enabled: true, ReleaseFilter: music.DefaultReleaseFilter(),
+			DownloadPriority: jobs.PriorityLow, IncludeAppearances: nil},
+	}); err != nil {
 		t.Fatalf("apply import: %v", err)
 	}
-	imported, err := repo.FindBySource(ctx, "deezer", "1")
-	if err != nil || imported == nil {
-		t.Fatalf("find imported: %v", err)
+	for sourceID, want := range map[string]*bool{"1": &off, "2": nil} {
+		imported, err := repo.FindBySource(ctx, "deezer", sourceID)
+		if err != nil || imported == nil {
+			t.Fatalf("find imported %s: %v", sourceID, err)
+		}
+		expectIncludeAppearances(t, "import new "+sourceID, imported.IncludeAppearances, want)
 	}
-	if imported.IncludeAppearances {
-		t.Fatal("the imported subscription lost include_appearances=false")
-	}
-	reloaded, err := repo.Get(ctx, byDefault.ID)
-	if err != nil {
-		t.Fatalf("get updated: %v", err)
-	}
-	if reloaded.IncludeAppearances {
-		t.Fatal("the import update did not store include_appearances=false")
+	for updatedID, want := range map[string]*bool{id: &off, resubscribed.ID: nil} {
+		loaded, err := repo.Get(ctx, updatedID)
+		if err != nil {
+			t.Fatalf("get updated: %v", err)
+		}
+		expectIncludeAppearances(t, "import update", loaded.IncludeAppearances, want)
 	}
 }
 
