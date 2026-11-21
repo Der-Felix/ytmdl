@@ -171,6 +171,10 @@ them, and every repair or delete action require an Administrator.
 | `GET` | `/api/v1/library/audits/{id}/findings` | User | Paginated list of audit findings (missing files, orphan files, etc.). |
 | `GET` | `/api/v1/library/naming-migration` | User | State of the automatic move to the current [file naming scheme](/features/library#moving-an-existing-library-to-the-current-names): counts, and every file left in place with the reason. |
 | `GET` | `/api/v1/library/identity-migration` | User | State of the background carry-over of stored track identity keys to the current identity scheme: counts, and every track held at its older key with the reason (`collision`: another track already carries the new key; `not_derivable`: the stored key no longer follows from the stored title and artists). A held track is still found as before and is looked at again on every start. |
+| `GET` | `/api/v1/library/complete-releases` | User | State of the backfill of incomplete releases: `state` (`idle`, `scanning`, `scanned`, `failed`, `cancelled`), progress, `setting_enabled` (the `complete_releases` setting) and the last scan result: releases a backfill would add copies to, how many copies and how many bytes they need, recordings the library does not hold (`unknown_tracks`), and releases whose lookup failed by error code. Kept in memory only; after a restart the state is `idle`. |
+| `POST` | `/api/v1/library/complete-releases/scan` | Admin | Start the read-only background scan (one metadata lookup per stored release with a provider identity). `409 ALREADY_EXISTS` while one runs. |
+| `DELETE` | `/api/v1/library/complete-releases/scan` | Admin | Cancel the running scan. |
+| `POST` | `/api/v1/library/complete-releases/apply` | Admin | Queue one copies-only release job per release the last finished scan found incomplete. Copies-only jobs never download; they copy recordings the library already holds, whatever `complete_releases` says. Refused without a finished scan, while one runs, after the scan was applied, or when it is older than 24 hours. |
 | `POST` | `/api/v1/library/audits` | Admin | Start new Quick or Deep library audit. |
 | `POST` | `/api/v1/library/audits/{id}/cancel` | Admin | Cancel in-progress library audit. |
 | `POST` | `/api/v1/library/repairs/preview` | Admin | Preview non-destructive audit repair actions. |
@@ -190,7 +194,7 @@ them, and every repair or delete action require an Administrator.
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/v1/health` | Public | System health check (application, database, ffmpeg, yt-dlp). |
 | `GET` | `/api/v1/settings` | User | Get effective server settings and provider statuses. |
-| `PUT` | `/api/v1/settings` | Admin | Update dynamic server settings (workers, lyrics toggles, match score, subscription defaults, `subscription_include_appearances`). |
+| `PUT` | `/api/v1/settings` | Admin | Update dynamic server settings (workers, lyrics toggles, match score, subscription defaults, `subscription_include_appearances`, `complete_releases`: place copies of recordings the library already holds on further releases of new downloads). |
 | `GET` | `/api/v1/storage/status` | Admin | Inspect storage volume capacity, mount health, and identity guard. |
 | `POST` | `/api/v1/storage/probe` | Admin | Re-probe storage accessibility and guard token. |
 | `POST` | `/api/v1/storage/queue/pause` | Admin | Manually pause queue processing for storage maintenance. |

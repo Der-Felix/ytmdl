@@ -128,8 +128,12 @@ type ServiceOptions struct {
 	Catalog   CatalogStore
 	Files     FileStore
 	// Placements is optional; without it the library knows no placements.
-	Placements     PlacementStore
-	Jobs           JobManager
+	Placements PlacementStore
+	Jobs       JobManager
+	// Releases and Copies are optional; without both the library cannot
+	// look for incomplete releases or complete them.
+	Releases       ReleaseResolver
+	Copies         CopyPlanner
 	Prober         AudioProber
 	Tagger         Tagger
 	Broker         EventBroker
@@ -153,6 +157,8 @@ type Service struct {
 	files          FileStore
 	placements     PlacementStore
 	jobs           JobManager
+	releases       ReleaseResolver
+	copies         CopyPlanner
 	prober         AudioProber
 	tagger         Tagger
 	broker         EventBroker
@@ -176,6 +182,7 @@ type Service struct {
 	orphanIssues map[string]string // issueID -> relative path
 
 	backfill     backfillState
+	completion   completionState
 	latestCompat atomic.Pointer[CompatReport]
 
 	namingState
@@ -220,6 +227,8 @@ func NewService(opts ServiceOptions) (*Service, error) {
 		files:          opts.Files,
 		placements:     opts.Placements,
 		jobs:           opts.Jobs,
+		releases:       opts.Releases,
+		copies:         opts.Copies,
 		prober:         opts.Prober,
 		tagger:         opts.Tagger,
 		broker:         opts.Broker,

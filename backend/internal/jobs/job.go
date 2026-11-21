@@ -339,6 +339,11 @@ type Options struct {
 	ReleaseAnnouncement *ReleaseAnnouncement `json:"release_announcement,omitempty"`
 	ReleaseFilter       music.ReleaseFilter  `json:"release_filter"`
 	SkipExisting        bool                 `json:"skip_existing"`
+	// CopiesOnly marks a job that never downloads: it only places copies of
+	// recordings the library already holds on the release it asks for, and
+	// skips every other item. It is what the explicit backfill of incomplete
+	// releases queues, and it also tells such a job apart from a download.
+	CopiesOnly bool `json:"copies_only,omitempty"`
 	// ReleaseID narrows a track job to the release the track belongs to. It is
 	// needed for metadata providers that cannot resolve a single track id.
 	ReleaseID string `json:"release_id,omitempty"`

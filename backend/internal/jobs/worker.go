@@ -78,7 +78,8 @@ func (w *worker) process(ctx context.Context, job Job, item Item) {
 		w.finishItem(job, item, ItemCancelled, err)
 		return
 
-	case apperr.CodeOf(err) == apperr.CodeAlreadyExists:
+	case outcome == ItemSkipped, apperr.CodeOf(err) == apperr.CodeAlreadyExists:
+		// A skip is final and spends no attempt, whatever its reason.
 		w.finishItem(job, item, ItemSkipped, err)
 		return
 
@@ -250,6 +251,12 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 	m := w.manager
 	track := item.Track
 	attempts := item.Attempts + 1
+
+	// 0. A copies-only job never reaches staging, a provider or yt-dlp: every
+	// item ends in the copy decision below.
+	if job.Options.CopiesOnly {
+		return w.copyOnly(ctx, job, item, logger)
+	}
 
 	// 1. Skip check: a recording already in the library is skipped on a
 	// release that holds it and placed as a copy on any further release.
@@ -1031,7 +1038,7 @@ func (m *Manager) recordOutcome(outcome ItemStatus, err error) {
 		m.throughput.Inc("items.completed")
 	case err == nil:
 		m.throughput.Inc("items." + string(outcome))
-	case apperr.CodeOf(err) == apperr.CodeAlreadyExists:
+	case outcome == ItemSkipped, apperr.CodeOf(err) == apperr.CodeAlreadyExists:
 		m.throughput.Inc("items.skipped")
 	case apperr.IsSessionWait(err):
 		m.throughput.Inc("items.session_wait")

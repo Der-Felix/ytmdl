@@ -14,11 +14,17 @@ import (
 // empty code is a completed item, anything else a failed one with that code.
 func finishedReleaseJob(t *testing.T, repo *Jobs, target string, status jobs.Status, codes map[string]apperr.Code) {
 	t.Helper()
+	finishedReleaseJobWith(t, repo, target, status, codes, jobs.DefaultOptions())
+}
+
+// finishedReleaseJobWith is finishedReleaseJob with the job options given.
+func finishedReleaseJobWith(t *testing.T, repo *Jobs, target string, status jobs.Status, codes map[string]apperr.Code, options jobs.Options) {
+	t.Helper()
 	ctx := context.Background()
 
 	job := &jobs.Job{
 		Type: jobs.TypeRelease, Status: jobs.StatusQueued, Label: target,
-		MetadataProvider: "deezer", TargetID: target, Options: jobs.DefaultOptions(),
+		MetadataProvider: "deezer", TargetID: target, Options: options,
 	}
 	if err := repo.Create(ctx, job); err != nil {
 		t.Fatalf("create job: %v", err)
@@ -114,5 +120,28 @@ func TestReleaseMatchFailures(t *testing.T) {
 	}
 	if got.Attempts != 0 {
 		t.Fatalf("a completed job ends the history: %+v", got)
+	}
+}
+
+func TestReleaseMatchFailuresIgnoreCopiesOnlyJobs(t *testing.T) {
+	ctx := context.Background()
+	repo := NewJobs(openTestDB(t))
+
+	const target = "unmatched-then-backfilled"
+	finishedReleaseJob(t, repo, target, jobs.StatusFailed, map[string]apperr.Code{
+		"track-lost": apperr.CodeMatchFailed,
+	})
+	// The backfill of incomplete releases finished a copies-only job for the
+	// release later. It never looked for media, so the wait stays.
+	copies := jobs.DefaultOptions()
+	copies.CopiesOnly = true
+	finishedReleaseJobWith(t, repo, target, jobs.StatusCompleted, map[string]apperr.Code{"track-copied": ""}, copies)
+
+	got, err := repo.ReleaseMatchFailures(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Attempts != 1 || len(got.TrackSourceIDs) != 1 || got.TrackSourceIDs[0] != "track-lost" {
+		t.Fatalf("a copies-only job ended the match history: %+v", got)
 	}
 }
