@@ -2081,3 +2081,39 @@ func TestSyncDeduplicatesEquivalentCatalogReleases_TestF(t *testing.T) {
 		t.Fatalf("no additional release should be queued, got %v", h.downloader.queued())
 	}
 }
+
+// A single whose only track came in with the album is never stored as a
+// release of its own. It must not be reported as new on every run.
+func TestSyncDoesNotCountAReleaseWhoseTracksTheLibraryAlreadyHolds(t *testing.T) {
+	p := discoveryProvider()
+	single := p.tracks["302127"][0]
+	p.releases = append(p.releases, music.Release{
+		Title: single.Title, ReleaseType: music.ReleaseSingle, Year: 2001,
+		Provider: "fake", SourceID: "single-1",
+	})
+	p.tracks["single-1"] = []music.Track{single}
+	h := newHarness(t, p)
+	sub := subscribe(t, h, false)
+
+	h.catalog.addRelease("fake", "302127")
+	for i, tr := range p.tracks["302127"] {
+		id := "track-" + string(rune('a'+i))
+		h.catalog.addTrack(id, tr)
+		h.files.markDownloaded(id)
+	}
+
+	result, err := h.service.Sync(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	if result.ReleasesSeen != 2 {
+		t.Fatalf("expected two releases, got %d", result.ReleasesSeen)
+	}
+	if result.NewTracks != 0 {
+		t.Fatalf("expected no new tracks, got %d", result.NewTracks)
+	}
+	if result.NewReleases != 0 {
+		t.Fatalf("a release without a new track is not new, got %d", result.NewReleases)
+	}
+}

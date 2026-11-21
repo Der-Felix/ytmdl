@@ -783,16 +783,16 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 	// warning text.
 	transient := catalogue.TransientWarnings
 
-	newReleases, err := s.countNewReleases(ctx, sub.Provider, catalogue.Releases)
+	missing, withNewTracks, err := s.classify(ctx, catalogue.Groups, result)
+	if err != nil {
+		return nil, s.recordFailure(ctx, sub, result, err, logger)
+	}
+
+	newReleases, err := s.countNewReleases(ctx, sub.Provider, catalogue.Releases, withNewTracks)
 	if err != nil {
 		return nil, s.recordFailure(ctx, sub, result, err, logger)
 	}
 	result.NewReleases = newReleases
-
-	missing, err := s.classify(ctx, catalogue.Groups, result)
-	if err != nil {
-		return nil, s.recordFailure(ctx, sub, result, err, logger)
-	}
 
 	if sub.AutoDownload {
 		// Work that never reached the queue is transient in the same sense:
@@ -853,10 +853,19 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 	return result, nil
 }
 
-// countNewReleases counts the releases the library does not hold yet.
-func (s *Service) countNewReleases(ctx context.Context, providerName string, releases []music.Release) (int, error) {
+// countNewReleases counts the releases that bring something new: the library
+// does not hold them, and at least one recording on them is unknown.
+//
+// The second condition matters because deduplication assigns a recording to
+// one release only. A single whose track arrived with the album is never
+// stored itself, so counting by the release alone would report it as new on
+// every run although there is nothing left to fetch.
+func (s *Service) countNewReleases(ctx context.Context, providerName string, releases []music.Release, withNewTracks map[string]struct{}) (int, error) {
 	var count int
 	for _, release := range releases {
+		if _, ok := withNewTracks[release.SourceID]; !ok {
+			continue
+		}
 		if err := ctx.Err(); err != nil {
 			return 0, apperr.Wrap(apperr.CodeJobCancelled, "The synchronisation was cancelled.", err)
 		}
@@ -873,30 +882,35 @@ func (s *Service) countNewReleases(ctx context.Context, providerName string, rel
 
 // classify sorts the distinct recordings into the three states that matter and
 // returns the ones that still have to be fetched: the unknown recordings and
-// the ones the catalogue knows but never produced a file for.
-func (s *Service) classify(ctx context.Context, groups []discography.Group, result *SyncResult) ([]music.Track, error) {
+// the ones the catalogue knows but never produced a file for. The second
+// return value names the releases that carry at least one unknown recording.
+func (s *Service) classify(ctx context.Context, groups []discography.Group, result *SyncResult) ([]music.Track, map[string]struct{}, error) {
 	missing := make([]music.Track, 0, len(groups))
+	withNewTracks := make(map[string]struct{})
 
 	for _, group := range groups {
 		if err := ctx.Err(); err != nil {
-			return nil, apperr.Wrap(apperr.CodeJobCancelled, "The synchronisation was cancelled.", err)
+			return nil, nil, apperr.Wrap(apperr.CodeJobCancelled, "The synchronisation was cancelled.", err)
 		}
 
 		// The same lookup the download pipeline uses: ISRC first, identity key
 		// and runtime second. There is no second matching system here.
 		existing, err := s.catalog.FindTrack(ctx, group.Track, s.toleranceMS)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if existing == nil {
 			result.NewTracks++
 			missing = append(missing, group.Track)
+			if group.Track.ReleaseID != "" {
+				withNewTracks[group.Track.ReleaseID] = struct{}{}
+			}
 			continue
 		}
 
 		files, err := s.files.ListByTrack(ctx, existing.ID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(files) > 0 {
 			result.SkippedTracks++
@@ -905,7 +919,7 @@ func (s *Service) classify(ctx context.Context, groups []discography.Group, resu
 		// Known to the catalogue but never downloaded: not new, still missing.
 		missing = append(missing, group.Track)
 	}
-	return missing, nil
+	return missing, withNewTracks, nil
 }
 
 // queue hands the missing recordings to the existing download pipeline.
