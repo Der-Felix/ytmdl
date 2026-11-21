@@ -163,7 +163,7 @@ func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Re
 	weights := 0.0
 	total := 0.0
 
-	bd.Title = Similarity(wantInfo.Base, haveInfo.Base)
+	bd.Title = titleSimilarity(wantInfo, haveInfo)
 	total += weightTitle * bd.Title
 	weights += weightTitle
 
@@ -177,9 +177,12 @@ func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Re
 		weights += weightDuration
 	}
 
-	if wantedAlbum := NormalizeTitle(track.Album); wantedAlbum != "" {
-		if haveAlbum := NormalizeTitle(candidate.Album); haveAlbum != "" {
-			bd.Album = Similarity(wantedAlbum, haveAlbum)
+	if strings.TrimSpace(track.Album) != "" && strings.TrimSpace(candidate.Album) != "" {
+		wantedAlbum, haveAlbum := Analyze(track.Album), Analyze(candidate.Album)
+		// An album whose name leaves no comparable text on one side only
+		// (decoration such as "(Deluxe Edition)" alone) says nothing either way.
+		if (wantedAlbum.Base == "") == (haveAlbum.Base == "") {
+			bd.Album = titleSimilarity(wantedAlbum, haveAlbum)
 			total += weightAlbum * bd.Album
 			weights += weightAlbum
 		}
@@ -201,6 +204,32 @@ func (m *Matcher) Score(track music.Track, candidate provider.MediaCandidate) Re
 	}
 
 	return Result{Candidate: candidate, Score: clampScore(score), Breakdown: bd}
+}
+
+// titleSimilarity compares two analysed titles. Titles are compared by their
+// normalised base; a title written in symbols only ("$$$", "@#!", "///") has
+// none, because normalising keeps letters and digits alone. Two such titles
+// are compared as they are written instead: they match when they are the same
+// symbols and not at all otherwise, since an edit distance between "@#!" and
+// "///" would mean nothing. A symbol title never matches a worded one.
+func titleSimilarity(want, have TitleInfo) float64 {
+	if want.Base != "" || have.Base != "" {
+		return Similarity(want.Base, have.Base)
+	}
+	wantKey, haveKey := symbolKey(want.Original), symbolKey(have.Original)
+	if wantKey != "" && wantKey == haveKey {
+		return 1
+	}
+	return 0
+}
+
+// symbolKey is the comparable form of a title that has no letters or digits:
+// the text outside brackets and annotations, without any whitespace.
+func symbolKey(raw string) string {
+	work := normalisePunctuation(foldASCII(raw))
+	work, _ = extractBracketed(work)
+	work, _ = splitDashSuffixes(work)
+	return strings.Join(strings.Fields(work), "")
 }
 
 // RecordingVersions returns the version markers that identify the recording a
