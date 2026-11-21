@@ -251,6 +251,11 @@ export interface JobOptions {
   release_filter: ReleaseFilter
   skip_existing: boolean
   release_id?: string
+  /**
+   * A backfill job that never downloads: it only places copies of recordings
+   * the library already holds into this release's folder.
+   */
+  copies_only?: boolean
 }
 
 export interface Job {
@@ -479,6 +484,11 @@ export interface Settings {
    * its next sync on. Absent on older backends; treat as true.
    */
   subscription_include_appearances?: boolean
+  /**
+   * New downloads place a copy of an already held recording into every
+   * further release that lists it. Absent on older backends; treat as true.
+   */
+  complete_releases?: boolean
 
   /* Fixed at start-up, reported so a client can explain the behaviour. */
   concurrent_downloads: number
@@ -510,6 +520,7 @@ export interface SettingsUpdate {
   subscription_default_priority?: JobPriority
   subscription_default_release_filter?: ReleaseFilter
   subscription_include_appearances?: boolean
+  complete_releases?: boolean
 }
 
 /* -------------------------------------------------------------- subscriptions */
@@ -1245,4 +1256,69 @@ export interface NamingMigrationStatus {
   skips?: NamingMigrationSkip[]
   notes?: NamingMigrationSkip[]
   last_error?: string
+}
+
+/** The states of a scan for releases that copies would complete. */
+export type CompleteReleasesState = 'idle' | 'scanning' | 'scanned' | 'failed' | 'cancelled'
+
+/** One release a backfill would add copies to. total = held + copies + unknown. */
+export interface CompleteReleasesRelease {
+  release_id: string
+  artist: string
+  title: string
+  total: number
+  held: number
+  copies: number
+  unknown: number
+  bytes: number
+}
+
+/** The result of a finished scan. */
+export interface CompleteReleasesResult {
+  releases_examined: number
+  /** Releases with at least one copy to make. */
+  releases_incomplete: number
+  /** Releases without a provider identity; they cannot be looked up. */
+  releases_without_source: number
+  releases_failed: number
+  failed_by_code: Record<string, number>
+  copies: number
+  bytes: number
+  held_tracks: number
+  /** Listed recordings the library does not hold; the backfill does not download them. */
+  unknown_tracks: number
+  /** Free space on the library volume, when the storage could tell. */
+  free_bytes?: number
+  /** At most 200; releases_truncated says whether there were more. */
+  releases: CompleteReleasesRelease[]
+  releases_truncated: boolean
+}
+
+/** GET /library/complete-releases. Kept in memory: idle again after a restart. */
+export interface CompleteReleasesStatus {
+  state: CompleteReleasesState
+  /** The complete_releases setting for new downloads. */
+  setting_enabled: boolean
+  /** Releases looked up so far. */
+  progress: { done: number; total: number }
+  started_at?: string
+  finished_at?: string
+  /** Until when a scanned, not yet applied result can be applied. */
+  expires_at?: string
+  applied_at?: string
+  error_code?: string
+  error?: string
+  /** Only when state is scanned. */
+  result?: CompleteReleasesResult
+}
+
+/** POST /library/complete-releases/apply */
+export interface CompleteReleasesApply {
+  queued_jobs: number
+  /** Releases that already had an unfinished job. */
+  already_queued: number
+  /** When above zero the scan is not marked applied and can be applied again. */
+  failed_jobs: number
+  copies: number
+  bytes: number
 }

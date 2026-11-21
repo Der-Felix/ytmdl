@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 
 import {
+  applyCompleteReleases,
+  cancelCompleteReleasesScan,
+  getCompleteReleases,
+  startCompleteReleasesScan,
   deleteTrackLyrics,
   getCompatibilityReport,
   refreshTrackLyrics,
@@ -109,6 +113,58 @@ describe('library api client', () => {
       const res = await startLyricsBackfill()
       expect(res.status).toBe('running')
       expect(res.candidates).toBe(10)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('reads, starts, cancels and applies completing releases', async () => {
+    const originalFetch = globalThis.fetch
+    const seen: string[] = []
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      seen.push(`${method} ${new URL(url, 'http://localhost').pathname}`)
+      const data = url.includes('/apply')
+        ? { queued_jobs: 40, already_queued: 1, failed_jobs: 0, copies: 95, bytes: 500000000 }
+        : {
+            state: method === 'POST' ? 'scanning' : method === 'DELETE' ? 'cancelled' : 'idle',
+            setting_enabled: true,
+            progress: { done: 0, total: 168 },
+          }
+      return new Response(JSON.stringify({ data }), {
+        status: method === 'POST' && !url.includes('/apply') ? 202 : 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    try {
+      expect((await getCompleteReleases())?.state).toBe('idle')
+      expect((await startCompleteReleasesScan()).state).toBe('scanning')
+      expect((await cancelCompleteReleasesScan()).state).toBe('cancelled')
+      const applied = await applyCompleteReleases()
+      expect(applied.queued_jobs).toBe(40)
+      expect(applied.already_queued).toBe(1)
+      expect(seen).toEqual([
+        'GET /api/v1/library/complete-releases',
+        'POST /api/v1/library/complete-releases/scan',
+        'DELETE /api/v1/library/complete-releases/scan',
+        'POST /api/v1/library/complete-releases/apply',
+      ])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('reads a missing complete-releases endpoint as nothing to show', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'not found' } }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch
+
+    try {
+      expect(await getCompleteReleases()).toBeNull()
     } finally {
       globalThis.fetch = originalFetch
     }
