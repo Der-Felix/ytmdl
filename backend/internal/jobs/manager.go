@@ -33,9 +33,12 @@ type MediaOrchestrator interface {
 
 // ManagerOptions configures the job manager.
 type ManagerOptions struct {
-	Store        Store
-	Catalog      Catalog
-	Files        FileStore
+	Store   Store
+	Catalog Catalog
+	Files   FileStore
+	// Placements stores the copies of recordings on further releases. A
+	// manager without one never places copies and skips as before.
+	Placements   PlacementStore
 	Library      *storage.Library
 	Staging      *storage.StagingManager
 	Registry     *provider.Registry
@@ -86,6 +89,7 @@ type Manager struct {
 	store        Store
 	catalog      Catalog
 	files        FileStore
+	placements   PlacementStore
 	library      *storage.Library
 	staging      *storage.StagingManager
 	registry     *provider.Registry
@@ -117,6 +121,7 @@ type Manager struct {
 	lyricsEnabled       atomic.Bool
 	lyricsWriteSidecar  atomic.Bool
 	defaultSkipExisting atomic.Bool
+	completeReleases    atomic.Bool
 	allowOfflineStaging atomic.Bool
 	queuePaused         atomic.Bool
 	accepting           atomic.Bool
@@ -213,6 +218,7 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 		store:        opts.Store,
 		catalog:      opts.Catalog,
 		files:        opts.Files,
+		placements:   opts.Placements,
 		library:      opts.Library,
 		staging:      opts.Staging,
 		registry:     opts.Registry,
@@ -265,6 +271,9 @@ func NewManager(opts ManagerOptions) (*Manager, error) {
 	m.lyricsEnabled.Store(opts.LyricsEnabled)
 	m.lyricsWriteSidecar.Store(opts.LyricsWriteSidecar)
 	m.defaultSkipExisting.Store(opts.SkipExisting)
+	// Every release complete is the default; the persisted setting may turn
+	// it off when the settings are loaded.
+	m.completeReleases.Store(true)
 	m.allowOfflineStaging.Store(opts.AllowOfflineStaging)
 	m.accepting.Store(true)
 	return m, nil
@@ -317,6 +326,14 @@ func (m *Manager) SkipExisting() bool { return m.defaultSkipExisting.Load() }
 // SetSkipExisting changes the default for new jobs. Running jobs keep the
 // value they were created with.
 func (m *Manager) SetSkipExisting(value bool) { m.defaultSkipExisting.Store(value) }
+
+// CompleteReleases reports whether a recording the library already holds is
+// placed as a copy on a further release instead of being skipped.
+func (m *Manager) CompleteReleases() bool { return m.completeReleases.Load() }
+
+// SetCompleteReleases switches placing copies on further releases on or off.
+// It applies to every item processed from then on, running jobs included.
+func (m *Manager) SetCompleteReleases(value bool) { m.completeReleases.Store(value) }
 
 // EmbedCover reports whether covers are embedded into the audio file.
 func (m *Manager) EmbedCover() bool { return m.embedCover.Load() }

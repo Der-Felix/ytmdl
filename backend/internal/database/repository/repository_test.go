@@ -39,7 +39,7 @@ func TestMigrationsCreateEveryTable(t *testing.T) {
 	for _, table := range []string{
 		"artists", "releases", "tracks", "track_sources",
 		"jobs", "job_items", "files", "settings", "artist_subscriptions",
-		"users", "sessions", "media_sessions",
+		"users", "sessions", "media_sessions", "track_placements",
 		"schema_migrations",
 	} {
 		var count int

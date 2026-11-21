@@ -39,6 +39,9 @@ const (
 	// subscriptions: every subscription without its own choice follows it at
 	// sync time.
 	KeySubscriptionIncludeAppearances = "subscriptions.include_appearances"
+	// KeyCompleteReleases decides whether a recording that is already in the
+	// library is placed as a copy on every further release it appears on.
+	KeyCompleteReleases = "library.complete_releases"
 )
 
 // Repository persists the settings.
@@ -73,6 +76,10 @@ type Settings struct {
 	// SubscriptionIncludeAppearances applies to every subscription that has
 	// no include_appearances of its own, from its next sync on.
 	SubscriptionIncludeAppearances bool `json:"subscription_include_appearances"`
+	// CompleteReleases places a copy of a recording the library already holds
+	// in the folder of every further release it appears on, so each release
+	// is complete on disk. It is read when a job item or a sync needs it.
+	CompleteReleases bool `json:"complete_releases"`
 
 	LibraryPath         string `json:"library_path"`
 	AllowTranscode      bool   `json:"allow_transcode"`
@@ -110,6 +117,7 @@ type Update struct {
 	SubscriptionPriority           *string              `json:"subscription_default_priority"`
 	SubscriptionReleaseFilter      *music.ReleaseFilter `json:"subscription_default_release_filter"`
 	SubscriptionIncludeAppearances *bool                `json:"subscription_include_appearances"`
+	CompleteReleases               *bool                `json:"complete_releases"`
 }
 
 // GeniusController allows the settings service to control runtime state of the Genius lyrics provider.
@@ -228,6 +236,9 @@ func (s *Service) Load(ctx context.Context) error {
 	if value, ok := parseBool(stored[KeySubscriptionIncludeAppearances]); ok {
 		s.subAppearances.Store(value)
 	}
+	if value, ok := parseBool(stored[KeyCompleteReleases]); ok {
+		s.manager.SetCompleteReleases(value)
+	}
 
 	if value, ok := parseBool(stored[KeyEmbedCover]); ok {
 		s.manager.SetEmbedCover(value)
@@ -286,6 +297,13 @@ func (s *Service) SubscriptionIncludeAppearances() bool {
 	return s.subAppearances.Load()
 }
 
+// CompleteReleases reports whether recordings already in the library are
+// placed as copies on further releases. The subscription service asks it at
+// sync time; the job manager holds the same value for its workers.
+func (s *Service) CompleteReleases() bool {
+	return s.manager.CompleteReleases()
+}
+
 // SetQueuePaused sets the queue pause state and persists it.
 func (s *Service) SetQueuePaused(ctx context.Context, paused bool) error {
 	s.manager.SetQueuePaused(paused)
@@ -318,6 +336,7 @@ func (s *Service) Current() Settings {
 		current.SubscriptionReleaseFilter = music.DefaultReleaseFilter()
 	}
 	current.SubscriptionIncludeAppearances = s.subAppearances.Load()
+	current.CompleteReleases = s.manager.CompleteReleases()
 
 	current.EmbedCover = s.manager.EmbedCover()
 	current.WriteCoverFile = s.manager.WriteCoverFile()
@@ -427,6 +446,10 @@ func (s *Service) Apply(ctx context.Context, update Update) (Settings, error) {
 	if update.SubscriptionIncludeAppearances != nil {
 		s.subAppearances.Store(*update.SubscriptionIncludeAppearances)
 		values[KeySubscriptionIncludeAppearances] = strconv.FormatBool(*update.SubscriptionIncludeAppearances)
+	}
+	if update.CompleteReleases != nil {
+		s.manager.SetCompleteReleases(*update.CompleteReleases)
+		values[KeyCompleteReleases] = strconv.FormatBool(*update.CompleteReleases)
 	}
 
 	if update.MatchMinScore != nil {

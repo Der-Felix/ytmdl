@@ -244,6 +244,25 @@ func (s *Service) executeAudit(ctx context.Context, runID string, mode music.Aud
 		return
 	}
 
+	// Placements are catalogued copies of a recording on further releases.
+	// They are neither untracked nor files of their recording, so they are
+	// kept out of both the file checks and the untracked scan.
+	placements, err := s.listPlacements(ctx)
+	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunCancelled, 0, len(discovered), 0, "Audit cancelled.")
+			return
+		}
+		logger.Error("failed to list placements", logging.KeyError, err.Error())
+		_ = s.auditRepo.CompleteRun(context.Background(), runID, music.AuditRunFailed, 0, len(discovered), 0, "Failed to query placements: "+err.Error())
+		return
+	}
+	discovered = withoutPlacements(discovered, placements)
+	placementsByRelease := make(map[string]int, len(placements))
+	for _, p := range placements {
+		placementsByRelease[p.ReleaseID]++
+	}
+
 	totalItems := len(discovered) + len(dbFiles)
 	_ = s.auditRepo.UpdateRunProgress(ctx, runID, 0, totalItems, 0)
 
@@ -413,7 +432,8 @@ func (s *Service) executeAudit(ctx context.Context, runID string, mode music.Aud
 	// 5. Release Completeness Check
 	for _, rel := range storedReleases {
 		if rel.TrackCount > 0 {
-			var presentFiles int
+			// The copies placed on this release count towards it.
+			presentFiles := placementsByRelease[rel.ID]
 			tracks, _ := s.catalog.ListTracks(ctx, rel.ID, 500, 0)
 			for _, trk := range tracks {
 				if len(dbFilesByTrackID[trk.ID]) > 0 {

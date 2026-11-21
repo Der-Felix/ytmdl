@@ -251,14 +251,14 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 	track := item.Track
 	attempts := item.Attempts + 1
 
-	// 1. Skip check: check if already in library
+	// 1. Skip check: a recording already in the library is skipped on a
+	// release that holds it and placed as a copy on any further release.
 	if job.Options.SkipExisting {
-		exists, err := m.alreadyInLibrary(ctx, track)
+		existing, err := m.findExisting(ctx, track)
 		if err != nil {
 			logger.Warn("library lookup failed", logging.KeyError, err.Error())
-		} else if exists {
-			return ItemSkipped, apperr.Newf(apperr.CodeAlreadyExists,
-				"%q is already in the library.", track.Label())
+		} else if existing != nil {
+			return w.handleExisting(ctx, job, item, existing, logger)
 		}
 	}
 
@@ -490,14 +490,7 @@ func (w *worker) commitStaged(ctx context.Context, job Job, item Item, staged st
 	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
 	defer cancelPersist()
 
-	canonicalArtistID := job.Options.CanonicalArtistID
-	if canonicalArtistID == "" && job.MetadataProvider != "" && job.TargetID != "" {
-		if a, _ := m.catalog.FindArtistBySource(ctx, job.MetadataProvider, job.TargetID); a != nil {
-			canonicalArtistID = a.ID
-		}
-	}
-
-	stored, err := m.persist(persistCtx, track, release, staged.source, file, canonicalArtistID)
+	stored, err := m.persist(persistCtx, track, release, staged.source, file, m.canonicalArtistID(ctx, job))
 	if err != nil {
 		m.removeUncatalogued(file.Path, staged.sha256, logger)
 		return ItemFailed, err
@@ -526,11 +519,24 @@ func (w *worker) commitStaged(ctx context.Context, job Job, item Item, staged st
 	return ItemCompleted, nil
 }
 
+// canonicalArtistID names the artist a job's downloads are filed under: the
+// one the job carries, or the one its metadata target resolves to.
+func (m *Manager) canonicalArtistID(ctx context.Context, job Job) string {
+	id := job.Options.CanonicalArtistID
+	if id == "" && job.MetadataProvider != "" && job.TargetID != "" {
+		if a, _ := m.catalog.FindArtistBySource(ctx, job.MetadataProvider, job.TargetID); a != nil {
+			id = a.ID
+		}
+	}
+	return id
+}
+
 // removeUncatalogued takes back a file this attempt placed in the library when
 // its catalogue entry could not be written. Left behind, the file would be
 // invisible to the catalogue, and the next attempt would store a second copy
 // beside it. Nothing is removed unless the catalogue provably has no row for
-// the path and the file still is the one this attempt staged.
+// the path - neither a file nor a placement - and the file still is the one
+// this attempt staged.
 func (m *Manager) removeUncatalogued(relPath, stagedSHA256 string, logger *slog.Logger) {
 	if relPath == "" || stagedSHA256 == "" {
 		return
@@ -541,6 +547,12 @@ func (m *Manager) removeUncatalogued(relPath, stagedSHA256 string, logger *slog.
 	existing, err := m.files.FindByPath(ctx, relPath)
 	if err != nil || existing != nil {
 		return
+	}
+	if m.placements != nil {
+		placed, err := m.placements.FindByPath(ctx, relPath)
+		if err != nil || placed != nil {
+			return
+		}
 	}
 	abs := filepath.Join(m.library.Root(), relPath)
 	hash, _, err := storage.ComputeChecksum(abs)
@@ -767,23 +779,8 @@ func (m *Manager) applyLyrics(track music.Track, outcome lyricsOutcome, audioPat
 
 // alreadyInLibrary reports whether the recording already exists on disk.
 func (m *Manager) alreadyInLibrary(ctx context.Context, track music.Track) (bool, error) {
-	existing, err := m.catalog.FindTrack(ctx, track, m.toleranceMS)
-	if err != nil || existing == nil {
-		return false, err
-	}
-	files, err := m.files.ListByTrack(ctx, existing.ID)
-	if err != nil {
-		return false, err
-	}
-	for _, file := range files {
-		if track.DurationMS > 0 && (file.DurationMS <= 0 || !music.CompatibleDuration(track.DurationMS, file.DurationMS)) {
-			continue
-		}
-		if m.library.Exists(filepath.Join(m.library.Root(), file.Path)) {
-			return true, nil
-		}
-	}
-	return false, nil
+	existing, err := m.findExisting(ctx, track)
+	return existing != nil, err
 }
 
 // DefaultMaxFallbackCandidates bounds the number of ranked acceptable candidates
@@ -953,18 +950,7 @@ func (m *Manager) persist(ctx context.Context, track music.Track, release music.
 		canonID = strings.TrimSpace(canonicalArtistID[0])
 	}
 
-	if release.Provider != "" && release.SourceID != "" {
-		artistName := release.DisplayAlbumArtist()
-		if len(release.Artists) > 0 && music.PrimaryArtist(release.Artists) != "" {
-			artistName = music.PrimaryArtist(release.Artists)
-		}
-		entry.Artist = &music.Artist{
-			ID:       canonID,
-			Name:     artistName,
-			Provider: release.Provider,
-			SourceID: "artist:" + matcher.NormalizeArtist(artistName),
-		}
-	}
+	entry.Artist = releaseArtist(release, canonID)
 	if release.SourceID != "" {
 		entry.Release = &release
 	}
@@ -986,6 +972,24 @@ func (m *Manager) persist(ctx context.Context, track music.Track, release music.
 	}
 
 	return m.catalog.PersistDownload(ctx, entry, m.toleranceMS)
+}
+
+// releaseArtist is the artist a release is filed under, or nil when the
+// release carries no provider identity to file it by.
+func releaseArtist(release music.Release, canonicalID string) *music.Artist {
+	if release.Provider == "" || release.SourceID == "" {
+		return nil
+	}
+	artistName := release.DisplayAlbumArtist()
+	if len(release.Artists) > 0 && music.PrimaryArtist(release.Artists) != "" {
+		artistName = music.PrimaryArtist(release.Artists)
+	}
+	return &music.Artist{
+		ID:       canonicalID,
+		Name:     artistName,
+		Provider: release.Provider,
+		SourceID: "artist:" + matcher.NormalizeArtist(artistName),
+	}
 }
 
 // releaseOf reconstructs the release a track belongs to.

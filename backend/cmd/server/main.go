@@ -258,6 +258,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	catalogRepo := repository.NewCatalog(db)
 	jobsRepo := repository.NewJobs(db)
 	filesRepo := repository.NewFiles(db)
+	placementsRepo := repository.NewPlacements(db)
 	settingsRepo := repository.NewSettings(db)
 	subscriptionsRepo := repository.NewSubscriptions(db)
 	usersRepo := repository.NewUsers(db)
@@ -434,6 +435,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Store:               jobsRepo,
 		Catalog:             catalogRepo,
 		Files:               filesRepo,
+		Placements:          placementsRepo,
 		Library:             library,
 		Staging:             stagingManager,
 		Registry:            registry,
@@ -508,6 +510,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		SyncTimeout:         cfg.Subscriptions.SyncTimeout,
 		DurationToleranceMS: cfg.Matching.DurationToleranceMS,
 		IncludeAppearances:  settingsService.SubscriptionIncludeAppearances,
+		CompleteReleases:    settingsService.CompleteReleases,
 	})
 	if err != nil {
 		manager.Stop()
@@ -553,6 +556,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Library:     library,
 		Catalog:     catalogRepo,
 		Files:       filesRepo,
+		Placements:  placementsRepo,
 		Jobs:        manager,
 		Lyrics:      lyricsResolver,
 		Prober:      prober,

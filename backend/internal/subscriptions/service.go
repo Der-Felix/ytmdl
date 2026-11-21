@@ -66,6 +66,12 @@ type Options struct {
 	// without touching a subscription. Nil means true.
 	IncludeAppearances func() bool
 
+	// CompleteReleases reports the server-wide complete_releases setting.
+	// With it on, a recording the library already holds is queued again for
+	// a release the library does not hold yet, so the worker places a copy
+	// there. It is asked when a sync runs. Nil means true.
+	CompleteReleases func() bool
+
 	Logger *slog.Logger
 }
 
@@ -82,6 +88,7 @@ type Service struct {
 	logger       *slog.Logger
 
 	globalAppearances func() bool
+	completeReleases  func() bool
 
 	syncInterval  time.Duration
 	retryInterval time.Duration
@@ -155,6 +162,10 @@ func New(opts Options) (*Service, error) {
 	if globalAppearances == nil {
 		globalAppearances = func() bool { return true }
 	}
+	completeReleases := opts.CompleteReleases
+	if completeReleases == nil {
+		completeReleases = func() bool { return true }
+	}
 
 	service := &Service{
 		store:             opts.Store,
@@ -167,6 +178,7 @@ func New(opts Options) (*Service, error) {
 		broker:            opts.Broker,
 		logger:            logger,
 		globalAppearances: globalAppearances,
+		completeReleases:  completeReleases,
 		syncInterval:      syncInterval,
 		retryInterval:     retryInterval,
 		syncTimeout:       syncTimeout,
@@ -789,7 +801,7 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 	// warning text.
 	transient := catalogue.TransientWarnings
 
-	missing, withNewTracks, err := s.classify(ctx, catalogue.Groups, result)
+	missing, copies, withNewTracks, err := s.classify(ctx, sub.Provider, catalogue.Groups, result)
 	if err != nil {
 		return nil, s.recordFailure(ctx, sub, result, err, logger)
 	}
@@ -803,7 +815,7 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 	if sub.AutoDownload {
 		// Work that never reached the queue is transient in the same sense:
 		// the catalogue was read, but what it produced was not acted on.
-		transient += s.queue(ctx, sub, missing, result, logger)
+		transient += s.queue(ctx, sub, missing, copies, result, logger)
 	}
 
 	result.FinishedAt = time.Now().UTC()
@@ -847,7 +859,7 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 		"appearances_skipped", result.AppearancesSkipped,
 		"tracks_seen", result.TracksSeen, "new_tracks", result.NewTracks,
 		"queued_tracks", result.QueuedTracks, "skipped_tracks", result.SkippedTracks,
-		"unmatched_tracks", result.UnmatchedTracks,
+		"unmatched_tracks", result.UnmatchedTracks, "copies_queued", result.CopiesQueued,
 		"warnings", len(result.Warnings), "warnings_transient", transient,
 		"next_sync_in", next.String(),
 		"duration_ms", result.Duration().Milliseconds())
@@ -890,22 +902,27 @@ func (s *Service) countNewReleases(ctx context.Context, providerName string, rel
 // classify sorts the distinct recordings into the three states that matter and
 // returns the ones that still have to be fetched: the unknown recordings and
 // the ones the catalogue knows but never produced a file for. The second
-// return value names the releases that carry at least one unknown recording.
-func (s *Service) classify(ctx context.Context, groups []discography.Group, result *SyncResult) ([]music.Track, map[string]struct{}, error) {
+// return value lists the appearances of downloaded recordings on releases the
+// library does not hold yet, which the worker completes with copies; the third
+// names the releases that carry at least one unknown recording.
+func (s *Service) classify(ctx context.Context, providerName string, groups []discography.Group, result *SyncResult) ([]music.Track, []music.Track, map[string]struct{}, error) {
 	missing := make([]music.Track, 0, len(groups))
+	var copies []music.Track
 	withNewTracks := make(map[string]struct{})
 	unmatched := s.newUnmatchedLookup()
+	completeReleases := s.completeReleases()
+	absent := make(map[string]bool)
 
 	for _, group := range groups {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, apperr.Wrap(apperr.CodeJobCancelled, "The synchronisation was cancelled.", err)
+			return nil, nil, nil, apperr.Wrap(apperr.CodeJobCancelled, "The synchronisation was cancelled.", err)
 		}
 
 		// The same lookup the download pipeline uses: ISRC first, identity key
 		// and runtime second. There is no second matching system here.
 		existing, err := s.catalog.FindTrack(ctx, group.Track, s.toleranceMS)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if existing == nil {
 			if unmatched.waits(ctx, group.Track) {
@@ -923,10 +940,17 @@ func (s *Service) classify(ctx context.Context, groups []discography.Group, resu
 
 		files, err := s.files.ListByTrack(ctx, existing.ID)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if len(files) > 0 {
 			result.SkippedTracks++
+			if completeReleases {
+				placed, err := s.appearancesOnAbsentReleases(ctx, providerName, group, absent)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				copies = append(copies, placed...)
+			}
 			continue
 		}
 		// Known to the catalogue but never downloaded: not new, still missing.
@@ -936,7 +960,36 @@ func (s *Service) classify(ctx context.Context, groups []discography.Group, resu
 		}
 		missing = append(missing, group.Track)
 	}
-	return missing, withNewTracks, nil
+	return missing, copies, withNewTracks, nil
+}
+
+// appearancesOnAbsentReleases returns the occurrences of a downloaded
+// recording on releases the library holds no row for. Only such releases are
+// completed by a sync: a release that is new to the library arrives complete,
+// while the backlog of releases already present and incomplete is filled by
+// an explicit backfill, so a routine sync never grows an existing library by
+// surprise. absent caches the release lookups of one run.
+func (s *Service) appearancesOnAbsentReleases(ctx context.Context, providerName string, group discography.Group, absent map[string]bool) ([]music.Track, error) {
+	var out []music.Track
+	for _, occurrence := range append([]music.Track{group.Track}, group.Duplicates...) {
+		releaseID := occurrence.ReleaseID
+		if releaseID == "" {
+			continue
+		}
+		missing, known := absent[releaseID]
+		if !known {
+			release, err := s.catalog.FindReleaseBySource(ctx, providerName, releaseID)
+			if err != nil {
+				return nil, err
+			}
+			missing = release == nil
+			absent[releaseID] = missing
+		}
+		if missing {
+			out = append(out, occurrence)
+		}
+	}
+	return out, nil
 }
 
 // queue hands the missing recordings to the existing download pipeline.
@@ -945,9 +998,12 @@ func (s *Service) classify(ctx context.Context, groups []discography.Group, resu
 // large discography would otherwise create hundreds of jobs, while one release
 // job covers the same recordings and the worker's own skip-existing check
 // drops whatever the library already owns.
+// copies are appearances of recordings the library already holds; the same
+// release job carries them, and the worker places a copy instead of
+// downloading. They are counted apart from the recordings to fetch.
 // It returns how many hand-offs failed for a reason worth retrying.
-func (s *Service) queue(ctx context.Context, sub *Subscription, missing []music.Track, result *SyncResult, logger *slog.Logger) int {
-	if len(missing) == 0 {
+func (s *Service) queue(ctx context.Context, sub *Subscription, missing, copies []music.Track, result *SyncResult, logger *slog.Logger) int {
+	if len(missing) == 0 && len(copies) == 0 {
 		return 0
 	}
 	if s.downloader == nil {
@@ -974,6 +1030,16 @@ func (s *Service) queue(ctx context.Context, sub *Subscription, missing []music.
 		}
 		counts[releaseID]++
 	}
+	copyCounts := make(map[string]int, len(copies))
+	for _, track := range copies {
+		// classify only lists copies with a release.
+		if _, seen := counts[track.ReleaseID]; !seen {
+			if _, seen := copyCounts[track.ReleaseID]; !seen {
+				order = append(order, track.ReleaseID)
+			}
+		}
+		copyCounts[track.ReleaseID]++
+	}
 
 	var failed int
 	for _, releaseID := range order {
@@ -997,6 +1063,7 @@ func (s *Service) queue(ctx context.Context, sub *Subscription, missing []music.
 				logging.KeyRelease, releaseID)
 		}
 		result.QueuedTracks += counts[releaseID]
+		result.CopiesQueued += copyCounts[releaseID]
 	}
 	return failed
 }

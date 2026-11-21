@@ -181,6 +181,12 @@ func (s *Service) removeDuplicateTracks(ctx context.Context, winner string, ids 
 	}
 	for _, id := range ids {
 		failedID = id
+		// The recording's rows go, and its placement rows with them by
+		// cascade. Its copies on other releases are removed first so they do
+		// not stay behind untracked; they are reproducible and are not trashed.
+		if _, err = s.removePlacementsOfTrack(ctx, id); err != nil {
+			return deleted, failedID, err
+		}
 		if trashUser != "" {
 			if err = s.trashTrackLocked(ctx, root, id, trashUser, files[id], paths, protected); err != nil {
 				return deleted, failedID, err
