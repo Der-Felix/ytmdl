@@ -34,6 +34,29 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.7.1
+
+Use the checksum-verified **v1.7.1** CLI from the
+[v1.7.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.7.1).
+Run `ytmdlctl update --channel stable --target 1.7.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.7.1`.
+
+The database stays at schema 20; this release needs no migration. It changes
+two things about subscriptions. A track no media was found for is no longer
+queued again by every sync: after each attempt the sync waits one day, then
+two, four and eight, and two weeks from the fifth attempt on. The wait is
+derived from the job history, so attempts made before the update count as
+well, and downloading the release by hand is unchanged. And a sync report
+counts a release as new only if it brings a track the library does not know.
+The release qualifies v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1,
+v1.5.0, v1.6.0, v1.6.1 and v1.7.0 sources with Docker and rootless Podman.
+Preserve private configuration, proxy settings, mounts, cookies and the
+database volume, and verify a database backup before updating.
+
+Coming from v1.6.1 or earlier, read the v1.7.0 section below as well: that
+update migrates the database to schema 20 and adds the setting
+**Beteiligungen laden**.
+
 ## Upgrade to v1.7.0
 
 Use the checksum-verified **v1.7.0** CLI from the
