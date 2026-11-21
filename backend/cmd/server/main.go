@@ -500,6 +500,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Discography:         discographyService,
 		Registry:            registry,
 		Downloader:          subscriptions.NewJobQueue(manager),
+		MatchHistory:        jobsRepo,
 		Broker:              broker,
 		Logger:              logger,
 		SyncInterval:        cfg.Subscriptions.SyncInterval,

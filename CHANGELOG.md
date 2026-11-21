@@ -6,6 +6,8 @@
 
 - **Subscriptions:** a sync report no longer counts a release as new when the library already holds all of its tracks. Until now a single whose track had arrived with the album was reported under `new_releases` on every sync, although nothing was left to fetch. A release counts as new only if it is not in the library and carries at least one unknown track.
 
+- **Subscriptions:** a track no media was found for is no longer queued again by every sync. Until now each daily sync created a new job for it, which failed with the same `MATCH_FAILED`. A sync now leaves such a track alone for a growing while after each attempt (one day, then two, four and eight, and two weeks from the fifth attempt on) and reports it as `unmatched_tracks` instead of counting it as new. The wait applies only when no media match was the sole reason the last job for that release lost a track, and it is derived from the job history, so deleting that history starts over. Downloading the release by hand is unchanged.
+
 ## 1.7.0 — 2026-11-20
 
 Subscriptions can leave out releases the artist only appears on, and remix singles are recognised by their title.
