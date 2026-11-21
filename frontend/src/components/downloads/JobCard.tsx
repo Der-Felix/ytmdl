@@ -162,6 +162,11 @@ function JobCard({
                 Pausiert
               </Badge>
             )}
+            {job.options?.copies_only && (
+              <Badge variant="neutral" className="shrink-0 text-[0.6875rem]">
+                Kopien
+              </Badge>
+            )}
           </div>
           <p className="truncate text-xs text-muted-foreground">
             {JOB_TYPE_LABELS[job.type]}
@@ -359,7 +364,11 @@ function JobCard({
                     )}
                   </div>
                 </div>
-                {(item.error_code || item.error_message || item.status === 'failed' || item.status === 'retry_wait') && (
+                {skipNote(item, job.options?.copies_only === true) ? (
+                  <p className="text-[0.6875rem] text-muted-foreground">
+                    {skipNote(item, job.options?.copies_only === true)}
+                  </p>
+                ) : (item.error_code || item.error_message || item.status === 'failed' || item.status === 'retry_wait') && (
                   <ProblemNotice
                     compact
                     code={item.error_code}
@@ -374,6 +383,20 @@ function JobCard({
       )}
     </article>
   )
+}
+
+/**
+ * A skip that is the expected outcome rather than a problem: the track is
+ * already in place, or (in a copies-only job) the library does not hold it
+ * and the job never downloads. Other skips keep their problem notice.
+ */
+function skipNote(item: JobItem, copiesOnly: boolean): string | null {
+  if (item.status !== 'skipped') return null
+  if (item.error_code === 'ALREADY_EXISTS') return 'Liegt schon in der Bibliothek.'
+  if (copiesOnly && item.error_code === 'TRACK_NOT_FOUND') {
+    return 'Nicht in der Bibliothek, wird von diesem Auftrag nicht geladen.'
+  }
+  return null
 }
 
 /** The tally of what the job produced. */

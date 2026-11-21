@@ -9,6 +9,7 @@ const variant: {
   settingsFail: boolean
   noProviders: boolean
   includeAppearances?: boolean
+  completeReleases?: boolean
   updates: Record<string, unknown>[]
 } = { settingsFail: false, noProviders: false, updates: [] }
 
@@ -45,6 +46,9 @@ mock.module('@/lib/api/settings', () => ({
     allow_transcode: true,
     ...(variant.includeAppearances !== undefined && {
       subscription_include_appearances: variant.includeAppearances,
+    }),
+    ...(variant.completeReleases !== undefined && {
+      complete_releases: variant.completeReleases,
     }),
     }
   },
@@ -120,7 +124,52 @@ describe('Settings Page Local Tabs', () => {
     variant.settingsFail = false
     variant.noProviders = false
     variant.includeAppearances = undefined
+    variant.completeReleases = undefined
     variant.updates = []
+  })
+
+  it('edits the complete-releases setting in the Downloads tab', async () => {
+    window.location.hash = '#downloads'
+    render(<Settings />)
+
+    const toggle = await screen.findByRole('checkbox', { name: /^Alben vollständig halten/ })
+    // An older backend without the field counts as on.
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByText(/wird in jeden Release-Ordner kopiert/)).toBeDefined()
+    expect(screen.getByText(/Ausschalten gilt nur für neue Downloads und entfernt nichts/)).toBeDefined()
+
+    fireEvent.click(screen.getByText('Alben vollständig halten'))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: /^Alben vollständig halten/ }).getAttribute('aria-checked'),
+      ).toBe('false'),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Speichern/ }))
+
+    await waitFor(() => expect(variant.updates.length).toBe(1))
+    expect(variant.updates[0].complete_releases).toBe(false)
+    // The neighbouring setting stays untouched.
+    expect('subscription_include_appearances' in variant.updates[0]).toBe(false)
+  })
+
+  it('shows a stored "off" for complete releases and turns it back on', async () => {
+    variant.completeReleases = false
+    window.location.hash = '#downloads'
+    render(<Settings />)
+
+    const toggle = await screen.findByRole('checkbox', { name: /^Alben vollständig halten/ })
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+
+    fireEvent.click(screen.getByText('Alben vollständig halten'))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: /^Alben vollständig halten/ }).getAttribute('aria-checked'),
+      ).toBe('true'),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Speichern/ }))
+
+    await waitFor(() => expect(variant.updates.length).toBe(1))
+    expect(variant.updates[0].complete_releases).toBe(true)
   })
 
   it('edits the server-wide appearance setting in the Downloads tab', async () => {

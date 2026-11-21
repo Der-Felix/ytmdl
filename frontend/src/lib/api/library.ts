@@ -4,6 +4,8 @@ import type {
   AuditRun,
   BackfillResult,
   CompatReport,
+  CompleteReleasesApply,
+  CompleteReleasesStatus,
   Job,
   LibraryArtist,
   LibraryArtistDetail,
@@ -375,6 +377,55 @@ export async function getNamingMigration(
     if (err instanceof ApiError && err.status === 404) return null
     throw err
   }
+}
+
+/* ------------------------------------------------------ complete releases */
+
+/**
+ * GET /library/complete-releases. A server that predates the endpoint answers
+ * 404; that is "nothing to show", so it resolves to null instead of failing.
+ */
+export async function getCompleteReleases(
+  options: { signal?: AbortSignal } = {},
+): Promise<CompleteReleasesStatus | null> {
+  try {
+    return await request<CompleteReleasesStatus>('/library/complete-releases', {
+      signal: options.signal,
+    })
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null
+    throw err
+  }
+}
+
+/** POST /library/complete-releases/scan — starts a scan (202, state scanning). */
+export async function startCompleteReleasesScan(
+  options: { signal?: AbortSignal } = {},
+): Promise<CompleteReleasesStatus> {
+  return request<CompleteReleasesStatus>('/library/complete-releases/scan', {
+    method: 'POST',
+    signal: options.signal,
+  })
+}
+
+/** DELETE /library/complete-releases/scan — cancels the running scan. */
+export async function cancelCompleteReleasesScan(
+  options: { signal?: AbortSignal } = {},
+): Promise<CompleteReleasesStatus> {
+  return request<CompleteReleasesStatus>('/library/complete-releases/scan', {
+    method: 'DELETE',
+    signal: options.signal,
+  })
+}
+
+/** POST /library/complete-releases/apply — queues one copies-only job per release. */
+export async function applyCompleteReleases(
+  options: { signal?: AbortSignal } = {},
+): Promise<CompleteReleasesApply> {
+  return request<CompleteReleasesApply>('/library/complete-releases/apply', {
+    method: 'POST',
+    signal: options.signal,
+  })
 }
 
 /** GET /library/audits/current */

@@ -397,6 +397,10 @@ function SettingsForm({
   const initialSubAppearances = initialSettings.subscription_include_appearances ?? true
   const [subAppearances, setSubAppearances] = useState<boolean>(initialSubAppearances)
 
+  // Applies to new downloads only; an older backend without the field counts as on.
+  const initialCompleteReleases = initialSettings.complete_releases ?? true
+  const [completeReleases, setCompleteReleases] = useState<boolean>(initialCompleteReleases)
+
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -417,6 +421,7 @@ function SettingsForm({
     subAutoDownload !== (initialSettings.subscription_default_auto_download || false) ||
     subPriority !== (initialSettings.subscription_default_priority || 'low') ||
     subAppearances !== initialSubAppearances ||
+    completeReleases !== initialCompleteReleases ||
     JSON.stringify(subFilter) !==
       JSON.stringify(
         initialSettings.subscription_default_release_filter || {
@@ -477,6 +482,9 @@ function SettingsForm({
         }),
         ...(subAppearances !== initialSubAppearances && {
           subscription_include_appearances: subAppearances,
+        }),
+        ...(completeReleases !== initialCompleteReleases && {
+          complete_releases: completeReleases,
         }),
       })
       setSaved(true)
@@ -733,6 +741,12 @@ function SettingsForm({
             onChange={setSkipExisting}
             label="Bereits vorhandene Tracks überspringen"
             description="Tracks, die schon in der Bibliothek liegen, werden nicht erneut geladen."
+          />
+          <Switch
+            checked={completeReleases}
+            onChange={setCompleteReleases}
+            label="Alben vollständig halten"
+            description="Ein Song, der auf mehreren Releases erscheint, wird in jeden Release-Ordner kopiert, damit Medienserver wie Plex vollständige Alben zeigen. Geladen wird nichts doppelt, die Kopien brauchen aber Speicherplatz; Ausschalten gilt nur für neue Downloads und entfernt nichts."
           />
           <Switch
             checked={embedCover}

@@ -470,6 +470,54 @@ describe('JobCard – Failed Job Error Presentation', () => {
   })
 })
 
+describe('JobCard – copies-only backfill jobs', () => {
+  it('labels a copies-only job and shows its expected skips calmly', async () => {
+    const job = mockJob({
+      type: 'release',
+      status: 'completed',
+      total: 3,
+      completed: 1,
+      skipped: 2,
+      options: { ...mockJob().options, copies_only: true },
+    })
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ data: {
+        job,
+        items: [
+          mockItem({ id: 'copied', status: 'completed', label: 'Copied', track: undefined }),
+          mockItem({ id: 'held', status: 'skipped', error_code: 'ALREADY_EXISTS', label: 'Held', track: undefined }),
+          mockItem({ id: 'unknown', status: 'skipped', error_code: 'TRACK_NOT_FOUND', label: 'Unknown', track: undefined }),
+        ],
+        summary: { total: 3, completed: 1, failed: 0, skipped: 2 },
+      } }), { status: 200 })) as typeof fetch
+
+    render(<JobCard job={job} />)
+    expect(screen.getByText('Kopien')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
+    expect(await screen.findByText('Nicht in der Bibliothek, wird von diesem Auftrag nicht geladen.')).toBeDefined()
+    expect(screen.getByText('Liegt schon in der Bibliothek.')).toBeDefined()
+    // Neither skip reads like a failure.
+    expect(screen.queryByText('Keine passende Audioquelle gefunden')).toBeNull()
+    expect(screen.queryByText('Eintrag ist bereits vorhanden')).toBeNull()
+  })
+
+  it('keeps the problem notice for a not-found track in an ordinary job', async () => {
+    const job = mockJob({ status: 'completed', total: 1, skipped: 1 })
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ data: {
+        job,
+        items: [mockItem({ status: 'skipped', error_code: 'TRACK_NOT_FOUND' })],
+        summary: { total: 1, completed: 0, failed: 0, skipped: 1 },
+      } }), { status: 200 })) as typeof fetch
+
+    render(<JobCard job={job} />)
+    expect(screen.queryByText('Kopien')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
+    expect(await screen.findByText('Keine passende Audioquelle gefunden')).toBeDefined()
+  })
+})
+
 describe('checked download causes', () => {
  for (const [code, title] of [
   ['MEDIA_AGE_RESTRICTED', 'Altersfreigabe für diese Aufnahme fehlt'],

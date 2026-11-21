@@ -21,6 +21,7 @@ import { ArtistCard } from '@/components/music/ArtistCard'
 import { ReleaseCard } from '@/components/music/ReleaseCard'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
 import { LibraryToolsPanel } from '@/components/library/LibraryToolsPanel'
+import { CompleteReleasesCard } from '@/components/library/CompleteReleasesCard'
 import { NamingMigrationCard } from '@/components/library/NamingMigrationCard'
 import { TracksTable } from '@/components/music/TracksTable'
 import { Badge } from '@/components/ui/badge'
@@ -1194,6 +1195,7 @@ export function Library() {
       {view === 'maintenance' && (
         <div className="space-y-6">
           <NamingMigrationCard />
+          <CompleteReleasesCard isAdmin={isAdmin} />
           <IntegrityPanel isAdmin={isAdmin} />
         </div>
       )}

@@ -254,6 +254,10 @@ describe('Library Page', () => {
       },
     })
 
+    routes['GET /api/v1/library/complete-releases'] = () => ({
+      body: { data: { state: 'idle', setting_enabled: true, progress: { done: 0, total: 0 } } },
+    })
+
     stubFetch(routes)
 
     renderLibrary()
@@ -267,6 +271,7 @@ describe('Library Page', () => {
       expect(screen.getByText('Daft Punk/Discovery/02 - Aerodynamic.opus')).toBeTruthy()
       expect(screen.getAllByText('PATH_MISMATCH').length).toBeGreaterThan(0)
       expect(screen.getByText('Pfad korrigieren')).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Alben vervollständigen' })).toBeTruthy()
     })
   })
 
