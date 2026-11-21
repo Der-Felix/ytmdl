@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.7.2 — 2026-11-21
+
+Tracks whose title consists of symbols only, and songs an artist uploaded as "Title - Artist", are found again.
+
+### Changes
+
+- **Matching:**
+  - A title written in symbols only, such as "$$$", "@#!" or "///", is matched to the upload that carries the same symbols. Until now such a title had nothing left to compare after normalising, so the title counted as a mismatch and the album was left out: the exact upload reached 55.6 of the 70 points required and the track failed with `MATCH_FAILED`, while unrelated songs of the same artist and length scored the same. Two symbol titles now match only when they are the same symbols, and a symbol title never matches a worded one. The acceptance threshold is unchanged.
+  - An upload on the artist's own channel that is titled "Title - Artist" ("Løve - FiLow") is read that way round. Until now the part before the dash was always taken for the artist. The halves are swapped only when the part after the dash is the name of the uploading channel and the part before it is not. This applies to YouTube and SoundCloud.
+  - Of the candidates a YouTube or YouTube Music search returns, only three are looked up for their artist, album and length, and a candidate without an artist is rejected. Those three lookups now go first to the candidates whose title contains the wanted title, then to the others in search order. The right upload no longer goes unmatched because the search listed it fourth; the number of lookups is the same.
+- **Subscriptions:** a track that failed for one of these reasons is tried again once its wait from 1.7.1 has passed (up to two weeks after five attempts). Downloading its release by hand fetches it at once.
+- **Database Schema:** Remains at schema 20; no database migration is required. Keep a verified backup before any update.
+- Qualify v1.7.1 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0, v1.6.0, v1.6.1 and v1.7.0.
+
+### Upgrade from v1.7.1
+
+Use the checksum-verified v1.7.2 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.7.2 --dry-run` before
+`ytmdlctl update --channel stable --target 1.7.2`. Protect the media separately;
+the database dump does not contain music files.
+
 ## 1.7.1 — 2026-11-21
 
 A subscription no longer tries a track without a media match again on every sync, and a sync report no longer counts releases as new that bring nothing new.
