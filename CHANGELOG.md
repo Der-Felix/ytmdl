@@ -1,12 +1,23 @@
 # Changelog
 
-## Unreleased
+## 1.7.1 — 2026-11-21
+
+A subscription no longer tries a track without a media match again on every sync, and a sync report no longer counts releases as new that bring nothing new.
 
 ### Changes
 
 - **Subscriptions:** a sync report no longer counts a release as new when the library already holds all of its tracks. Until now a single whose track had arrived with the album was reported under `new_releases` on every sync, although nothing was left to fetch. A release counts as new only if it is not in the library and carries at least one unknown track.
-
 - **Subscriptions:** a track no media was found for is no longer queued again by every sync. Until now each daily sync created a new job for it, which failed with the same `MATCH_FAILED`. A sync now leaves such a track alone for a growing while after each attempt (one day, then two, four and eight, and two weeks from the fifth attempt on) and reports it as `unmatched_tracks` instead of counting it as new. The wait applies only when no media match was the sole reason the last job for that release lost a track, and it is derived from the job history, so deleting that history starts over. Downloading the release by hand is unchanged.
+- **Database Schema:** Remains at schema 20; no database migration is required. Keep a verified backup before any update.
+- Qualify v1.7.0 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0, v1.6.0 and v1.6.1.
+
+### Upgrade from v1.7.0
+
+Use the checksum-verified v1.7.1 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.7.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.7.1`. Protect the media separately;
+the database dump does not contain music files.
 
 ## 1.7.0 — 2026-11-20
 
