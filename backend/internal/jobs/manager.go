@@ -427,6 +427,8 @@ type RequestOptions struct {
 	SkipExisting  *bool
 	Priority      *Priority
 	Origin        *Origin
+	// CopiesOnly queues a job that never downloads (see Options.CopiesOnly).
+	CopiesOnly bool
 }
 
 // Enqueue creates a job and hands it to the resolver. The HTTP request returns
@@ -469,6 +471,12 @@ func (m *Manager) Enqueue(ctx context.Context, req Request) (*Job, error) {
 	if req.Options.Origin != nil && req.Options.Origin.Valid() {
 		options.Origin = *req.Options.Origin
 	}
+	if req.Options.CopiesOnly {
+		// A copies-only item must recognise what the release already holds,
+		// whatever the default for downloads says.
+		options.CopiesOnly = true
+		options.SkipExisting = true
+	}
 
 	mediaProvider := req.MediaProvider
 	if mediaProvider == "" {
@@ -506,7 +514,8 @@ func (m *Manager) Enqueue(ctx context.Context, req Request) (*Job, error) {
 	})
 	m.logger.Info("job created",
 		logging.KeyJobID, job.ID, "type", string(job.Type),
-		logging.KeyProvider, job.MetadataProvider, "target_id", job.TargetID)
+		logging.KeyProvider, job.MetadataProvider, "target_id", job.TargetID,
+		"copies_only", job.Options.CopiesOnly)
 
 	m.registerRun(job.ID)
 	m.queueForResolve(job.ID)
@@ -996,6 +1005,38 @@ func (m *Manager) EnqueueReleaseWithPriority(ctx context.Context, provider, rele
 			Priority:     &priority,
 			SkipExisting: &skipExisting,
 			Origin:       &subOrigin,
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// EnqueueCopies queues a copies-only release job: it places copies of the
+// recordings the library already holds on the release and downloads nothing.
+// Like a subscription's release job it is not queued while another job for
+// the release is unfinished; that job decides about the same recordings.
+// It is started by a user, so it carries the manual origin, at normal
+// priority so that it does not push ahead of a user's downloads.
+func (m *Manager) EnqueueCopies(ctx context.Context, metadataProvider, releaseID, label string) (bool, error) {
+	m.enqueueTargetMu.Lock()
+	defer m.enqueueTargetMu.Unlock()
+
+	if exists, err := m.HasUnfinishedJob(ctx, TypeRelease, releaseID); err != nil || exists {
+		return false, err
+	}
+	priority := PriorityNormal
+	origin := OriginManual
+	_, err := m.Enqueue(ctx, Request{
+		Type:             TypeRelease,
+		MetadataProvider: metadataProvider,
+		TargetID:         releaseID,
+		Label:            label,
+		Options: RequestOptions{
+			Priority:   &priority,
+			Origin:     &origin,
+			CopiesOnly: true,
 		},
 	})
 	if err != nil {

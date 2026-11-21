@@ -248,6 +248,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				library.Get("/audits/{id}", h.GetLibraryAudit)
 				library.Get("/audits/{id}/findings", h.ListLibraryAuditFindings)
 				library.Get("/naming-migration", h.GetNamingMigration)
+				library.Get("/complete-releases", h.GetCompleteReleases)
 				library.Get("/identity-migration", h.GetIdentityMigration)
 
 				library.Group(func(mutating chi.Router) {
@@ -281,6 +282,10 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 						}
 						admin.Post("/audits", h.StartLibraryAudit)
 						admin.Post("/audits/{id}/cancel", h.CancelLibraryAudit)
+						// Completing releases writes copies into the shared library.
+						admin.Post("/complete-releases/scan", h.StartCompleteReleasesScan)
+						admin.Delete("/complete-releases/scan", h.CancelCompleteReleasesScan)
+						admin.Post("/complete-releases/apply", h.ApplyCompleteReleases)
 						admin.Post("/repairs/preview", h.PreviewLibraryRepairs)
 						admin.Post("/repairs/apply", h.ApplyLibraryRepairs)
 						admin.Post("/releases/{id}/artwork/preview", h.PreviewReleaseArtwork)

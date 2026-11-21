@@ -54,32 +54,115 @@ func alreadyExists(track music.Track) error {
 	return apperr.Newf(apperr.CodeAlreadyExists, "%q is already in the library.", track.Label())
 }
 
+// notInLibrary is the skip outcome of a copies-only item whose recording the
+// library does not hold: a backfill copies, it never downloads.
+func notInLibrary(track music.Track) error {
+	return apperr.Newf(apperr.CodeTrackNotFound,
+		"%q is not in the library; a backfill only copies recordings the library already holds.", track.Label())
+}
+
 // handleExisting decides what an item whose recording is already in the
 // library needs. The release the item asks for either already holds the
 // recording (its home release, or a placement whose file is on disk) and the
 // item is skipped, or it is a further release and a copy of the existing file
-// is placed there - unless completing releases is switched off.
+// is placed there - unless completing releases is switched off. A copies-only
+// job is the user's explicit request for those copies, so the setting, which
+// is about new downloads, does not stop it.
 func (w *worker) handleExisting(ctx context.Context, job Job, item Item, existing *existingRecording, logger *slog.Logger) (ItemStatus, error) {
 	m := w.manager
 	track := item.Track
-	release := releaseOf(track)
 
-	// A placement row needs a stored release, and a release is only stored
-	// with a source id.
-	if !m.completeReleases.Load() || m.placements == nil || release.SourceID == "" {
+	if !m.completeReleases.Load() && !job.Options.CopiesOnly {
 		return ItemSkipped, alreadyExists(track)
 	}
-	held, err := m.releaseHolds(ctx, existing, release)
+	needed, err := m.needsCopy(ctx, existing, releaseOf(track))
 	if err != nil {
 		// Without a reliable answer a copy could land next to the home file;
 		// skipping is what the item did before placements existed.
 		logger.Warn("placement lookup failed", logging.KeyError, err.Error())
 		return ItemSkipped, alreadyExists(track)
 	}
-	if held {
+	if !needed {
 		return ItemSkipped, alreadyExists(track)
 	}
 	return w.placeCopy(ctx, job, item, existing, logger)
+}
+
+// copyOnly is the whole attempt of a copies-only item: the copy decision of a
+// recording the library holds, and a skip for one it does not.
+func (w *worker) copyOnly(ctx context.Context, job Job, item Item, logger *slog.Logger) (ItemStatus, error) {
+	m := w.manager
+	// An unreachable library looks like one without the recording, so the
+	// item waits for it rather than being skipped as unknown.
+	if status, err := m.requireLibrary(); err != nil {
+		return status, err
+	}
+	existing, err := m.findExisting(ctx, item.Track)
+	if err != nil {
+		return ItemFailed, err
+	}
+	if existing == nil {
+		return ItemSkipped, notInLibrary(item.Track)
+	}
+	return w.handleExisting(ctx, job, item, existing, logger)
+}
+
+// requireLibrary reports the wait state of an item that writes into, or
+// looks at, a library that is not usable now.
+func (m *Manager) requireLibrary() (ItemStatus, error) {
+	if m.library.Guard() == nil {
+		return "", nil
+	}
+	if err := m.library.Guard().RequireWritable(); err != nil {
+		if apperr.IsSpaceWait(err) {
+			return ItemWaitingSpace, err
+		}
+		return ItemWaitingStorage, err
+	}
+	return "", nil
+}
+
+// needsCopy reports whether a copy of an existing recording belongs on a
+// release: the release must be storable and must not hold the recording yet.
+// The worker and the backfill scan both decide by it.
+func (m *Manager) needsCopy(ctx context.Context, existing *existingRecording, release music.Release) (bool, error) {
+	// A placement row needs a stored release, and a release is only stored
+	// with a source id.
+	if m.placements == nil || release.SourceID == "" {
+		return false, nil
+	}
+	held, err := m.releaseHolds(ctx, existing, release)
+	if err != nil {
+		return false, err
+	}
+	return !held, nil
+}
+
+// CopyCheck is what a copies-only item would do with a track.
+type CopyCheck struct {
+	// Known is false when the library holds no usable file of the recording;
+	// the item would be skipped as not in the library.
+	Known bool
+	// Held is true when the track's release already holds the recording (or
+	// cannot hold a placement); the item would be skipped as existing.
+	Held bool
+	// SizeBytes is the size of the file a copy would be made from.
+	SizeBytes int64
+}
+
+// CheckCopy answers, without changing anything, what a copies-only item for
+// the track would do. It asks the same lookups the worker does, so a preview
+// and the job that follows it agree.
+func (m *Manager) CheckCopy(ctx context.Context, track music.Track) (CopyCheck, error) {
+	existing, err := m.findExisting(ctx, track)
+	if err != nil || existing == nil {
+		return CopyCheck{}, err
+	}
+	needed, err := m.needsCopy(ctx, existing, releaseOf(track))
+	if err != nil {
+		return CopyCheck{}, err
+	}
+	return CopyCheck{Known: true, Held: !needed, SizeBytes: existing.file.SizeBytes}, nil
 }
 
 // releaseHolds reports whether a release already has the recording: it is the
@@ -150,13 +233,8 @@ func (w *worker) placeCopy(ctx context.Context, job Job, item Item, existing *ex
 
 	// A copy writes into the library, so it waits for it like a download's
 	// move does. Nothing is staged: redoing a copy later is cheap.
-	if m.library.Guard() != nil {
-		if err := m.library.Guard().RequireWritable(); err != nil {
-			if apperr.IsSpaceWait(err) {
-				return ItemWaitingSpace, err
-			}
-			return ItemWaitingStorage, err
-		}
+	if status, err := m.requireLibrary(); err != nil {
+		return status, err
 	}
 	if m.staging != nil {
 		if err := m.staging.CheckSpace(); err != nil {

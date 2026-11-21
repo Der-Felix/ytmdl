@@ -558,6 +558,8 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		Files:       filesRepo,
 		Placements:  placementsRepo,
 		Jobs:        manager,
+		Releases:    discographyService,
+		Copies:      manager,
 		Lyrics:      lyricsResolver,
 		Prober:      prober,
 		Tagger:      tagger,

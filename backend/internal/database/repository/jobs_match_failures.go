@@ -18,6 +18,10 @@ import (
 // MATCH_FAILED. A job that also lost a track to a network error or a full
 // disk says nothing reliable about the match, and must not make a caller
 // wait.
+//
+// Copies-only jobs (the backfill of incomplete releases) are left out: they
+// never look for media, so they say nothing about the match either way, and
+// one of them must not end a wait that a failed match began.
 func (r *Jobs) ReleaseMatchFailures(ctx context.Context, releaseID string) (jobs.MatchFailures, error) {
 	var none jobs.MatchFailures
 	if releaseID == "" {
@@ -32,6 +36,7 @@ func (r *Jobs) ReleaseMatchFailures(ctx context.Context, releaseID string) (jobs
 		SELECT id, COALESCE(finished_at, updated_at)
 		FROM jobs
 		WHERE type = $1 AND target_id = $2 AND status IN ($3, $4, $5)
+		  AND NOT COALESCE((options_json->>'copies_only')::boolean, false)
 		ORDER BY created_at DESC
 		LIMIT 1`,
 		string(jobs.TypeRelease), releaseID,

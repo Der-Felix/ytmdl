@@ -118,6 +118,63 @@ func (h *Handlers) GetNamingMigration(w http.ResponseWriter, r *http.Request) {
 	response.Data(w, http.StatusOK, status)
 }
 
+// GetCompleteReleases answers GET /library/complete-releases: the state of the
+// scan for releases a backfill could complete with copies, and its last
+// result. The state is kept in memory; after a restart it is idle.
+func (h *Handlers) GetCompleteReleases(w http.ResponseWriter, r *http.Request) {
+	if h.deps.LibraryService == nil {
+		response.Fail(w, r, apperr.CodeInternal, "Library service is unavailable.")
+		return
+	}
+	response.Data(w, http.StatusOK, h.deps.LibraryService.CompleteReleasesStatus())
+}
+
+// StartCompleteReleasesScan answers POST /library/complete-releases/scan. The
+// scan reads every release's track list from its provider, so it runs in the
+// background and the answer is the state it started in.
+func (h *Handlers) StartCompleteReleasesScan(w http.ResponseWriter, r *http.Request) {
+	if h.deps.LibraryService == nil {
+		response.Fail(w, r, apperr.CodeInternal, "Library service is unavailable.")
+		return
+	}
+	status, err := h.deps.LibraryService.StartCompleteReleasesScan()
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Data(w, http.StatusAccepted, status)
+}
+
+// CancelCompleteReleasesScan answers DELETE /library/complete-releases/scan.
+func (h *Handlers) CancelCompleteReleasesScan(w http.ResponseWriter, r *http.Request) {
+	if h.deps.LibraryService == nil {
+		response.Fail(w, r, apperr.CodeInternal, "Library service is unavailable.")
+		return
+	}
+	status, err := h.deps.LibraryService.CancelCompleteReleasesScan()
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Data(w, http.StatusOK, status)
+}
+
+// ApplyCompleteReleases answers POST /library/complete-releases/apply: one
+// copies-only release job per release the last finished scan found
+// incomplete.
+func (h *Handlers) ApplyCompleteReleases(w http.ResponseWriter, r *http.Request) {
+	if h.deps.LibraryService == nil {
+		response.Fail(w, r, apperr.CodeInternal, "Library service is unavailable.")
+		return
+	}
+	result, err := h.deps.LibraryService.ApplyCompleteReleases(r.Context())
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Data(w, http.StatusOK, result)
+}
+
 // GetIdentityMigration answers GET /library/identity-migration: the state of
 // the background carry-over of stored identity keys to the current identity
 // scheme, with the tracks it held at their older key and why.
