@@ -321,6 +321,11 @@ type SyncResult struct {
 	TracksSeen int `json:"tracks_seen"`
 	NewTracks  int `json:"new_tracks"`
 
+	// UnmatchedTracks counts the recordings left alone in this run because
+	// the last download found no media for them and the wait before the next
+	// attempt has not passed. They are neither new nor queued.
+	UnmatchedTracks int `json:"unmatched_tracks,omitempty"`
+
 	// QueuedTracks counts the recordings handed to the download queue, and
 	// SkippedTracks the ones the library already holds as a file.
 	QueuedTracks  int `json:"queued_tracks"`

@@ -2117,3 +2117,114 @@ func TestSyncDoesNotCountAReleaseWhoseTracksTheLibraryAlreadyHolds(t *testing.T)
 		t.Fatalf("a release without a new track is not new, got %d", result.NewReleases)
 	}
 }
+
+// fakeMatchHistory answers the match history from a fixed table.
+type fakeMatchHistory struct {
+	failures map[string]jobs.MatchFailures
+	err      error
+}
+
+func (f *fakeMatchHistory) ReleaseMatchFailures(_ context.Context, releaseID string) (jobs.MatchFailures, error) {
+	if f.err != nil {
+		return jobs.MatchFailures{}, f.err
+	}
+	return f.failures[releaseID], nil
+}
+
+// syncWithHistory runs one sync of the standard catalogue against an empty
+// library, with the given history for its only release.
+func syncWithHistory(t *testing.T, history *fakeMatchHistory) (*SyncResult, *harness) {
+	t.Helper()
+	h := newHarness(t, discoveryProvider())
+	h.service.matchHistory = history
+	sub := subscribe(t, h, true)
+	result, err := h.service.Sync(context.Background(), sub.ID)
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	return result, h
+}
+
+// sourceIDsOf resolves the standard catalogue once and returns the provider
+// identities its tracks carry in a sync.
+func sourceIDsOf(t *testing.T) []string {
+	t.Helper()
+	p := discoveryProvider()
+	ids := make([]string, 0, len(p.tracks["302127"]))
+	for _, tr := range p.tracks["302127"] {
+		if tr.SourceID == "" {
+			t.Fatalf("the fixture track %q has no source id", tr.Title)
+		}
+		ids = append(ids, tr.SourceID)
+	}
+	return ids
+}
+
+func TestSyncLeavesATrackAloneWhileItWaitsAfterAFailedMatch(t *testing.T) {
+	ids := sourceIDsOf(t)
+	result, h := syncWithHistory(t, &fakeMatchHistory{failures: map[string]jobs.MatchFailures{
+		"302127": {Attempts: 3, LastAt: time.Now().Add(-24 * time.Hour), TrackSourceIDs: ids[:1]},
+	}})
+
+	if result.UnmatchedTracks != 1 {
+		t.Fatalf("expected one waiting track, got %d", result.UnmatchedTracks)
+	}
+	if result.NewTracks != 1 || result.QueuedTracks != 1 {
+		t.Fatalf("the other track is still new and queued: new %d, queued %d", result.NewTracks, result.QueuedTracks)
+	}
+	if got := h.downloader.queued(); len(got) != 1 {
+		t.Fatalf("the release still has one track to fetch, queued %v", got)
+	}
+}
+
+func TestSyncQueuesNothingWhenEveryMissingTrackWaits(t *testing.T) {
+	result, h := syncWithHistory(t, &fakeMatchHistory{failures: map[string]jobs.MatchFailures{
+		"302127": {Attempts: 5, LastAt: time.Now().Add(-3 * 24 * time.Hour), TrackSourceIDs: sourceIDsOf(t)},
+	}})
+
+	if result.UnmatchedTracks != 2 || result.NewTracks != 0 || result.NewReleases != 0 {
+		t.Fatalf("waiting %d, new tracks %d, new releases %d",
+			result.UnmatchedTracks, result.NewTracks, result.NewReleases)
+	}
+	if got := h.downloader.queued(); len(got) != 0 {
+		t.Fatalf("nothing is due, but %v was queued", got)
+	}
+	if result.Status != StatusSuccess {
+		t.Fatalf("waiting is not a warning, got %q", result.Status)
+	}
+}
+
+func TestSyncTriesAgainOnceTheWaitHasPassed(t *testing.T) {
+	result, h := syncWithHistory(t, &fakeMatchHistory{failures: map[string]jobs.MatchFailures{
+		"302127": {Attempts: 2, LastAt: time.Now().Add(-2 * 24 * time.Hour), TrackSourceIDs: sourceIDsOf(t)},
+	}})
+
+	if result.UnmatchedTracks != 0 || result.NewTracks != 2 {
+		t.Fatalf("waiting %d, new %d", result.UnmatchedTracks, result.NewTracks)
+	}
+	if got := h.downloader.queued(); len(got) != 1 {
+		t.Fatalf("the release is due again, queued %v", got)
+	}
+}
+
+func TestSyncDoesNotWaitWhenTheHistoryCannotBeRead(t *testing.T) {
+	result, _ := syncWithHistory(t, &fakeMatchHistory{err: errors.New("database is away")})
+
+	if result.UnmatchedTracks != 0 || result.NewTracks != 2 {
+		t.Fatalf("waiting %d, new %d", result.UnmatchedTracks, result.NewTracks)
+	}
+}
+
+func TestUnmatchedWaitGrowsAndIsCapped(t *testing.T) {
+	day := 24 * time.Hour
+	for attempts, want := range map[int]time.Duration{
+		0: 0, 1: day, 2: 2 * day, 3: 4 * day, 4: 8 * day, 5: 14 * day, 40: 14 * day,
+	} {
+		if want > 0 {
+			want -= unmatchedWaitSlack
+		}
+		if got := unmatchedWait(attempts); got != want {
+			t.Errorf("attempts %d: got %s, want %s", attempts, got, want)
+		}
+	}
+}

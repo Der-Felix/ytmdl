@@ -49,6 +49,10 @@ type Options struct {
 	Downloader Downloader
 	// Broker is optional; without one the sync simply publishes no events.
 	Broker *jobs.Broker
+	// MatchHistory is optional. With it, a track the last download found no
+	// media for is left alone for a growing while instead of being queued
+	// again by every sync.
+	MatchHistory MatchHistory
 
 	SyncInterval        time.Duration
 	RetryInterval       time.Duration
@@ -67,14 +71,15 @@ type Options struct {
 
 // Service manages the watched artists and synchronises their catalogue.
 type Service struct {
-	store       Store
-	catalog     Catalog
-	files       FileStore
-	discography *discography.Service
-	registry    *provider.Registry
-	downloader  Downloader
-	broker      *jobs.Broker
-	logger      *slog.Logger
+	store        Store
+	catalog      Catalog
+	files        FileStore
+	discography  *discography.Service
+	registry     *provider.Registry
+	downloader   Downloader
+	matchHistory MatchHistory
+	broker       *jobs.Broker
+	logger       *slog.Logger
 
 	globalAppearances func() bool
 
@@ -158,6 +163,7 @@ func New(opts Options) (*Service, error) {
 		discography:       opts.Discography,
 		registry:          opts.Registry,
 		downloader:        opts.Downloader,
+		matchHistory:      opts.MatchHistory,
 		broker:            opts.Broker,
 		logger:            logger,
 		globalAppearances: globalAppearances,
@@ -841,6 +847,7 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 		"appearances_skipped", result.AppearancesSkipped,
 		"tracks_seen", result.TracksSeen, "new_tracks", result.NewTracks,
 		"queued_tracks", result.QueuedTracks, "skipped_tracks", result.SkippedTracks,
+		"unmatched_tracks", result.UnmatchedTracks,
 		"warnings", len(result.Warnings), "warnings_transient", transient,
 		"next_sync_in", next.String(),
 		"duration_ms", result.Duration().Milliseconds())
@@ -887,6 +894,7 @@ func (s *Service) countNewReleases(ctx context.Context, providerName string, rel
 func (s *Service) classify(ctx context.Context, groups []discography.Group, result *SyncResult) ([]music.Track, map[string]struct{}, error) {
 	missing := make([]music.Track, 0, len(groups))
 	withNewTracks := make(map[string]struct{})
+	unmatched := s.newUnmatchedLookup()
 
 	for _, group := range groups {
 		if err := ctx.Err(); err != nil {
@@ -900,6 +908,11 @@ func (s *Service) classify(ctx context.Context, groups []discography.Group, resu
 			return nil, nil, err
 		}
 		if existing == nil {
+			if unmatched.waits(ctx, group.Track) {
+				// Tried before and nothing fitted: neither new nor due yet.
+				result.UnmatchedTracks++
+				continue
+			}
 			result.NewTracks++
 			missing = append(missing, group.Track)
 			if group.Track.ReleaseID != "" {
@@ -917,6 +930,10 @@ func (s *Service) classify(ctx context.Context, groups []discography.Group, resu
 			continue
 		}
 		// Known to the catalogue but never downloaded: not new, still missing.
+		if unmatched.waits(ctx, group.Track) {
+			result.UnmatchedTracks++
+			continue
+		}
 		missing = append(missing, group.Track)
 	}
 	return missing, withNewTracks, nil
