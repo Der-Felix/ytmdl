@@ -3,6 +3,8 @@ package youtube
 import (
 	"strings"
 	"testing"
+
+	"ytdm/backend/internal/provider"
 )
 
 func TestSplitArtists(t *testing.T) {
@@ -195,6 +197,32 @@ func TestIsWatchURL(t *testing.T) {
 	for _, u := range invalidWatch {
 		if isWatchURL(u) {
 			t.Errorf("isWatchURL(%q) = true, want false", u)
+		}
+	}
+}
+
+func TestEnrichOrderPutsCandidatesNamingTheWantedTitleFirst(t *testing.T) {
+	candidates := []provider.MediaCandidate{
+		{ID: "a", Title: "LID"},
+		{ID: "b", Title: "Lacazette"},
+		{ID: "c", Title: "@#!"},
+		{ID: "d", Title: "/// (Official Video)"},
+		{ID: "e", Title: "///"},
+	}
+	got := enrichOrder(" /// ", candidates)
+	want := []int{3, 4, 0, 1, 2}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	// Without a wanted title the search order is kept.
+	for i, idx := range enrichOrder("", candidates) {
+		if idx != i {
+			t.Fatalf("empty title changed the order at %d", i)
 		}
 	}
 }

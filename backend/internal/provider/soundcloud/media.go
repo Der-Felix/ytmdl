@@ -313,6 +313,7 @@ func (p *MediaProvider) toCandidate(info ytdlp.Info) (provider.MediaCandidate, b
 
 	if len(artists) == 0 {
 		if artist, rest, ok := splitArtistTitle(info.Title); ok {
+			artist, rest = provider.UploaderNamesArtist(artist, rest, uploader)
 			artists = splitArtists(artist)
 			if strings.TrimSpace(info.Track) == "" {
 				title = rest

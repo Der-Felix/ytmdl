@@ -286,3 +286,22 @@ func TestSoundCloud_LimiterPacing(t *testing.T) {
 		t.Errorf("expected pacing delay, got %v", elapsed)
 	}
 }
+
+// An artist's own upload titled "Title - Artist" must not be read as a song
+// called after the artist.
+func TestSoundCloud_ToCandidateReadsTitleFirstUploads(t *testing.T) {
+	p, _ := New(Config{Client: ytdlp.New(ytdlp.Options{})})
+	cand, ok := p.toCandidate(ytdlp.Info{
+		ID:         "762697315",
+		Title:      "Løve - FiLow",
+		Uploader:   "FiLow",
+		Duration:   109,
+		WebpageURL: "https://soundcloud.com/filow/love",
+	})
+	if !ok {
+		t.Fatal("expected candidate to be accepted")
+	}
+	if cand.Title != "Løve" || len(cand.Artists) != 1 || cand.Artists[0] != "FiLow" {
+		t.Errorf("got title %q artists %v, want title %q artists [FiLow]", cand.Title, cand.Artists, "Løve")
+	}
+}

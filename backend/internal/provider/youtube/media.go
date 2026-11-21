@@ -303,7 +303,7 @@ func (p *MediaProvider) Search(ctx context.Context, track music.Track) ([]provid
 		}
 	}
 
-	p.enrichDurations(ctx, candidates)
+	p.enrichDurations(ctx, track.Title, candidates)
 	return candidates, nil
 }
 
@@ -491,6 +491,7 @@ func (p *MediaProvider) toCandidate(info ytdlp.Info) (provider.MediaCandidate, b
 		// A general video title usually reads "Artist - Title"; splitting it
 		// gives the matcher something to compare the credits against.
 		if artist, rest, ok := splitArtistTitle(info.Title); ok {
+			artist, rest = provider.UploaderNamesArtist(artist, rest, uploader)
 			artists = splitArtists(artist)
 			if strings.TrimSpace(info.Track) == "" {
 				title = rest
@@ -519,14 +520,20 @@ func (p *MediaProvider) toCandidate(info ytdlp.Info) (provider.MediaCandidate, b
 // enrichDurations looks up the runtime of the first candidates that came back
 // without one. A candidate whose runtime is unknown cannot be judged reliably,
 // and the flat search result of some platforms omits it.
-func (p *MediaProvider) enrichDurations(ctx context.Context, candidates []provider.MediaCandidate) {
+//
+// The few lookups go to the candidates whose title names the wanted title
+// first, and to the others in search order after that. A flat result carries
+// no artist either, and a candidate without one is rejected outright, so the
+// upload with the right title must not go without a lookup because the search
+// listed it fourth.
+func (p *MediaProvider) enrichDurations(ctx context.Context, wantedTitle string, candidates []provider.MediaCandidate) {
 	if p.enrichLimit <= 0 {
 		return
 	}
 
 	targets := make([]string, 0, p.enrichLimit)
 	index := make(map[string]int, p.enrichLimit)
-	for i := range candidates {
+	for _, i := range enrichOrder(wantedTitle, candidates) {
 		if candidates[i].DurationMS > 0 {
 			continue
 		}
@@ -568,6 +575,23 @@ func (p *MediaProvider) enrichDurations(ctx context.Context, candidates []provid
 			candidates[i].Artists = artists
 		}
 	}
+}
+
+// enrichOrder returns the candidate indices in the order they are looked up:
+// those whose title contains the wanted title, then the rest, each group in
+// search order.
+func enrichOrder(wantedTitle string, candidates []provider.MediaCandidate) []int {
+	wanted := strings.ToLower(strings.TrimSpace(wantedTitle))
+	order := make([]int, 0, len(candidates))
+	var rest []int
+	for i := range candidates {
+		if wanted != "" && strings.Contains(strings.ToLower(candidates[i].Title), wanted) {
+			order = append(order, i)
+			continue
+		}
+		rest = append(rest, i)
+	}
+	return append(order, rest...)
 }
 
 // ValidateMediaURL checks that a URL points at a supported platform.

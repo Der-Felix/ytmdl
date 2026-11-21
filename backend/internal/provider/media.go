@@ -103,6 +103,23 @@ type MediaProvider interface {
 	Resolve(ctx context.Context, candidate MediaCandidate) (*MediaSource, error)
 }
 
+// UploaderNamesArtist corrects the reading of an upload title that was split
+// at its dash. Such a title usually reads "Artist - Title", but artists also
+// upload their own songs as "Title - Artist". When the right half is the name
+// of the uploading channel and the left half is not, the halves are swapped.
+// The decision rests on the upload alone, never on the track that is wanted,
+// so it cannot make an unrelated upload look like a match.
+func UploaderNamesArtist(artist, title, uploader string) (string, string) {
+	uploader = strings.TrimSpace(uploader)
+	if uploader == "" {
+		return artist, title
+	}
+	if strings.EqualFold(strings.TrimSpace(title), uploader) && !strings.EqualFold(strings.TrimSpace(artist), uploader) {
+		return title, artist
+	}
+	return artist, title
+}
+
 // SearchQuery builds the free text query used to look for a track on a media
 // platform.
 //
