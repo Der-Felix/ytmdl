@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+- **Subscriptions:** a sync report no longer counts a release as new when the library already holds all of its tracks. Until now a single whose track had arrived with the album was reported under `new_releases` on every sync, although nothing was left to fetch. A release counts as new only if it is not in the library and carries at least one unknown track.
+
 ## 1.7.0 — 2026-11-20
 
 Subscriptions can leave out releases the artist only appears on, and remix singles are recognised by their title.
