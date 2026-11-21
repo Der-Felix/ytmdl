@@ -52,7 +52,7 @@ into the existing project, retaining the database volume name. Then:
 ```
 
 Substitute the host platform and `--engine podman` as appropriate. This release
-uses database schema 20 and adds migrations for older supported schemas. Verify a
+uses database schema 21 and adds migrations for older supported schemas. Verify a
 backup first; a full schema rollback requires restoring it. A v0.28.0 CLI with disabled Storage Identity Guard cannot
 perform this upgrade; use the verified v1 CLI. A missing or mismatched configured
 guard remains a blocker. Never disable guard verification to hide a bad mount.

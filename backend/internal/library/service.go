@@ -61,6 +61,17 @@ type FileStore interface {
 	Upsert(ctx context.Context, file music.File) (music.File, error)
 }
 
+// PlacementStore lists the copies of recordings placed on further releases.
+// They are not files of the recording, so the library treats them apart: a
+// placement is catalogued, never a duplicate and never moved to a canonical
+// path of its recording.
+type PlacementStore interface {
+	ListAll(ctx context.Context) ([]music.Placement, error)
+	ListByTrack(ctx context.Context, trackID string) ([]music.Placement, error)
+	ListByRelease(ctx context.Context, releaseID string) ([]music.Placement, error)
+	FindByPath(ctx context.Context, path string) (*music.Placement, error)
+}
+
 // JobManager defines download job queue interactions.
 type JobManager interface {
 	Enqueue(ctx context.Context, req jobs.Request) (*jobs.Job, error)
@@ -112,10 +123,12 @@ type AuditStore interface {
 
 // ServiceOptions configures the library service.
 type ServiceOptions struct {
-	Lifecycle      context.Context
-	Library        *storage.Library
-	Catalog        CatalogStore
-	Files          FileStore
+	Lifecycle context.Context
+	Library   *storage.Library
+	Catalog   CatalogStore
+	Files     FileStore
+	// Placements is optional; without it the library knows no placements.
+	Placements     PlacementStore
 	Jobs           JobManager
 	Prober         AudioProber
 	Tagger         Tagger
@@ -138,6 +151,7 @@ type Service struct {
 	library        *storage.Library
 	catalog        CatalogStore
 	files          FileStore
+	placements     PlacementStore
 	jobs           JobManager
 	prober         AudioProber
 	tagger         Tagger
@@ -204,6 +218,7 @@ func NewService(opts ServiceOptions) (*Service, error) {
 		library:        opts.Library,
 		catalog:        opts.Catalog,
 		files:          opts.Files,
+		placements:     opts.Placements,
 		jobs:           opts.Jobs,
 		prober:         opts.Prober,
 		tagger:         opts.Tagger,
@@ -299,6 +314,21 @@ func (s *Service) Reconcile(ctx context.Context) (*ScanResult, error) {
 		s.latestResult.Store(scan)
 		return scan, err
 	}
+
+	// Placement files are catalogued, but not as files; they must not be
+	// reported (or deletable) as orphans.
+	placements, err := s.listPlacements(ctx)
+	if err != nil {
+		scan.Status = ScanFailed
+		scan.Warnings = append(scan.Warnings, err.Error())
+		now := time.Now().UTC()
+		scan.FinishedAt = &now
+		scan.DurationMS = time.Since(startedAt).Milliseconds()
+		s.activeScan.Store(nil)
+		s.latestResult.Store(scan)
+		return scan, err
+	}
+	discovered = withoutPlacements(discovered, placements)
 
 	// Build index maps
 	dbFilesByPath := make(map[string][]music.File)
@@ -815,9 +845,45 @@ func (s *Service) DeleteTrack(ctx context.Context, trackID string) error {
 		}
 		_ = s.files.Delete(ctx, f.ID)
 	}
+	// The placement rows go with the track by cascade, so their copies on
+	// other releases have to go first or they would be left untracked.
+	if _, err := s.removePlacementsOfTrack(ctx, trackID); err != nil {
+		return err
+	}
 
 	_ = s.catalog.DeleteTrack(ctx, trackID)
 	return nil
+}
+
+// removePlacementsOfTrack deletes the copies a recording has on further
+// releases, with their lyrics sidecars, and returns the folders they were in.
+// A placement is a reproducible copy of the recording's own file, so it is
+// removed directly rather than kept in the trash.
+func (s *Service) removePlacementsOfTrack(ctx context.Context, trackID string) ([]string, error) {
+	if s.placements == nil {
+		return nil, nil
+	}
+	placements, err := s.placements.ListByTrack(ctx, trackID)
+	if err != nil {
+		return nil, err
+	}
+	return s.removePlacementFiles(placements)
+}
+
+// removePlacementFiles deletes the audio and sidecars of placements and
+// returns the folders they lived in. The rows are left to the cascade of the
+// track or release being deleted.
+func (s *Service) removePlacementFiles(placements []music.Placement) ([]string, error) {
+	var dirs []string
+	for _, p := range placements {
+		if err := s.removeTrackFile(p.Path); err != nil {
+			return dirs, err
+		}
+		if absPath, _, confErr := VerifyPathConfinement(s.library.Root(), p.Path, true); confErr == nil {
+			dirs = append(dirs, filepath.Dir(absPath))
+		}
+	}
+	return dirs, nil
 }
 
 // removeTrackFile deletes an audio file and its lyrics sidecars. A file that
@@ -903,12 +969,33 @@ func (s *Service) DeleteRelease(ctx context.Context, releaseID string) error {
 			if kept {
 				continue
 			}
+			// The recording goes with its home release, and so do its copies
+			// on other releases; their rows would cascade away and leave the
+			// files untracked otherwise.
+			if _, err := s.removePlacementsOfTrack(ctx, trk.ID); err != nil {
+				removeErr = err
+				continue
+			}
 			if err := s.catalog.DeleteTrack(ctx, trk.ID); err == nil {
 				deleted++
 			}
 		}
 		if len(tracks) < pageSize || deleted == 0 {
 			break
+		}
+	}
+
+	// Copies of recordings whose home is another release live here too. The
+	// recordings stay; only the copies and, by cascade, their rows go.
+	if removeErr == nil && s.placements != nil {
+		placements, err := s.placements.ListByRelease(ctx, releaseID)
+		if err != nil {
+			return err
+		}
+		dirs, err := s.removePlacementFiles(placements)
+		candidateDirs = append(candidateDirs, dirs...)
+		if err != nil {
+			removeErr = err
 		}
 	}
 

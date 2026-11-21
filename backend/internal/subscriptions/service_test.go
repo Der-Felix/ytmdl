@@ -483,6 +483,8 @@ type harness struct {
 	broker     *jobs.Broker
 	// appearances stands in for the server-wide include-appearances setting.
 	appearances atomic.Bool
+	// completeReleases stands in for the server-wide complete_releases setting.
+	completeReleases atomic.Bool
 }
 
 func copyBool(v *bool) *bool {
@@ -522,9 +524,11 @@ func newHarnessWithTimeout(t *testing.T, p *fakeProvider, timeout time.Duration)
 		broker:     jobs.NewBroker(nil),
 	}
 	h.appearances.Store(true)
+	h.completeReleases.Store(true)
 
 	service, err := New(Options{
 		IncludeAppearances: h.appearances.Load,
+		CompleteReleases:   h.completeReleases.Load,
 		Store:              h.store,
 		Catalog:            h.catalog,
 		Files:              h.files,

@@ -475,3 +475,54 @@ func TestSubscriptionIncludeAppearancesDefaultsOnAndPersists(t *testing.T) {
 		t.Fatalf("the PUT field does not decode: %v %+v", err, decoded)
 	}
 }
+
+func TestCompleteReleasesDefaultsOnAndPersists(t *testing.T) {
+	svc, _, _, repo := setupTestSettings(t)
+	ctx := context.Background()
+
+	if !svc.CompleteReleases() || !svc.Current().CompleteReleases || !svc.manager.CompleteReleases() {
+		t.Fatal("completing releases must be on by default")
+	}
+
+	off := false
+	updated, err := svc.Apply(ctx, Update{CompleteReleases: &off})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if updated.CompleteReleases || svc.CompleteReleases() || svc.manager.CompleteReleases() {
+		t.Fatal("the setting was not turned off for the workers")
+	}
+	if repo.values[KeyCompleteReleases] != "false" {
+		t.Fatalf("the setting was not persisted: %+v", repo.values)
+	}
+
+	fresh, _, _, freshRepo := setupTestSettings(t)
+	freshRepo.values[KeyCompleteReleases] = "false"
+	if err := fresh.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if fresh.CompleteReleases() {
+		t.Fatal("the stored value was not loaded")
+	}
+	damaged, _, _, damagedRepo := setupTestSettings(t)
+	damagedRepo.values[KeyCompleteReleases] = "maybe"
+	if err := damaged.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !damaged.CompleteReleases() {
+		t.Fatal("an unreadable value must leave the default in place")
+	}
+
+	raw, err := json.Marshal(svc.Current())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"complete_releases":false`) {
+		t.Fatalf("the API field is missing: %s", raw)
+	}
+	var decoded Update
+	if err := json.Unmarshal([]byte(`{"complete_releases":true}`), &decoded); err != nil ||
+		decoded.CompleteReleases == nil || !*decoded.CompleteReleases {
+		t.Fatalf("the PUT field does not decode: %v %+v", err, decoded)
+	}
+}

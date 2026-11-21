@@ -76,6 +76,19 @@ type FileStore interface {
 	FindByPath(ctx context.Context, path string) (*music.File, error)
 }
 
+// PlacementStore keeps the copies of recordings placed on releases other than
+// their home release. They live apart from FileStore because they are not
+// versions of the recording.
+type PlacementStore interface {
+	// HomeRelease returns the release the recording's own files belong to,
+	// or nil when it has none.
+	HomeRelease(ctx context.Context, trackID string) (*music.Release, error)
+	ListByTrack(ctx context.Context, trackID string) ([]music.Placement, error)
+	FindByPath(ctx context.Context, path string) (*music.Placement, error)
+	// Persist writes artist, release and placement as one atomic unit.
+	Persist(ctx context.Context, entry music.PlacementEntry) (music.Placement, error)
+}
+
 // Tagger writes tags and cover art onto a finished file.
 type Tagger interface {
 	Apply(ctx context.Context, path string, tags metadata.Tags, artwork *metadata.Artwork) error

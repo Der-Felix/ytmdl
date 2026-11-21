@@ -331,6 +331,12 @@ type SyncResult struct {
 	QueuedTracks  int `json:"queued_tracks"`
 	SkippedTracks int `json:"skipped_tracks"`
 
+	// CopiesQueued counts the appearances of recordings the library already
+	// holds (and counts under SkippedTracks) on releases the library does not
+	// hold yet. Their release jobs place a copy of the existing file instead
+	// of downloading, so they are neither new nor in QueuedTracks.
+	CopiesQueued int `json:"copies_queued,omitempty"`
+
 	Warnings []string `json:"warnings,omitempty"`
 }
 

@@ -544,3 +544,22 @@ func TestGenerateSchema20Manifest(t *testing.T) {
 		t.Fatal("schema20 path missing")
 	}
 }
+
+func TestGenerateSchema21Manifest(t *testing.T) {
+	data, err := manifest.Generate(manifest.GeneratorOptions{ManifestVersion: manifest.ManifestVersion3, ReleaseVersion: "1.0.1", ReleaseTag: "v1.0.1", TargetSchema: 21, MinUpgradeFrom: "0.15.0", BackendDigest: validDigest1, FrontendDigest: validDigest2, BackendPlatforms: map[string]string{"linux/amd64": "sha256:" + strings.Repeat("1", 64), "linux/arm64": "sha256:" + strings.Repeat("2", 64)}, FrontendPlatforms: map[string]string{"linux/amd64": "sha256:" + strings.Repeat("3", 64), "linux/arm64": "sha256:" + strings.Repeat("4", 64)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := m.FindUpgradePath(20)
+	if err != nil || p.UpdateClassification != manifest.UpdateSchemaForward || p.RollbackClassification != manifest.RollbackBackupRestoreRequired {
+		t.Fatal("unsafe schema20 upgrade", err)
+	}
+	p, err = m.FindUpgradePath(21)
+	if err != nil || p.UpdateClassification != manifest.UpdateSchemaNeutral {
+		t.Fatal("schema21 path missing")
+	}
+}

@@ -118,9 +118,10 @@ func defaultRepairAction(code music.FindingCode) music.RepairAction {
 	}
 }
 
-// registeredInCatalog reports whether a files row points at the given library
-// path. A lookup error counts as registered, so that an unreachable database
-// never turns a catalogued file into a quarantine candidate.
+// registeredInCatalog reports whether a files row or a placement points at the
+// given library path. A lookup error counts as registered, so that an
+// unreachable database never turns a catalogued file into a quarantine
+// candidate.
 func (s *Service) registeredInCatalog(ctx context.Context, relPaths ...string) bool {
 	for _, rel := range relPaths {
 		if rel == "" {
@@ -129,6 +130,12 @@ func (s *Service) registeredInCatalog(ctx context.Context, relPaths ...string) b
 		stored, err := s.files.FindByPath(ctx, rel)
 		if err != nil || stored != nil {
 			return true
+		}
+		if s.placements != nil {
+			placed, err := s.placements.FindByPath(ctx, rel)
+			if err != nil || placed != nil {
+				return true
+			}
 		}
 	}
 	return false
