@@ -371,7 +371,13 @@ func TestExistingRecordingWithAnotherFileInTheReleaseFolderIsSkipped(t *testing.
 	}
 
 	assertSkipped(t, h.run(t, boxSetTrack()))
-	h.assertNoCopy(t)
+	if len(h.tagger.paths) != 0 || len(h.placements.persisted) != 0 {
+		t.Fatalf("a copy was made: tagged %v, persisted %d", h.tagger.paths, len(h.placements.persisted))
+	}
+	entries, err := os.ReadDir(filepath.Join(h.root, filepath.Dir(second)))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("release folder holds %d entries (%v), want the one file", len(entries), err)
+	}
 	if got := h.read(t, second); got != "box set audio" {
 		t.Fatalf("the file in the release folder changed: %q", got)
 	}
