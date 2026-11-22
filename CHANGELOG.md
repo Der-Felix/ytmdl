@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.8.0 — 2026-11-22
+
+An album, single or compilation in the library now holds all of its tracks, also the ones the library already had on another release.
+
+### Changes
+
+- **Complete releases:**
+  - Until now a recording was stored once, in the folder of the release it was first downloaded with. A later release that carries the same recording (the album after its single, a compilation, a box set) skipped it as `ALREADY_EXISTS`, so its folder had gaps and a media server such as Plex showed an incomplete album. Such a track is now placed in the later release's folder as a copy of the file the library already holds, tagged with that release's album and track number, with its lyrics file beside it. Nothing is downloaded a second time.
+  - New server-wide setting **Alben vollständig halten** (Settings → Metadaten & Dateiverwaltung, `complete_releases` in `/api/v1/settings`, on by default). It applies to downloads from now on. With it off, a recording the library holds is skipped as before.
+  - Releases already in the library are not touched by the update. **Bibliothek → Wartung** has a new card that scans the library without changing it, lists the releases a backfill would complete with the number of copies and their size, and adds the copies only after a confirmation. The scan makes one metadata lookup per stored release. The same steps are available under `/api/v1/library/complete-releases` (`GET`, `POST …/scan`, `DELETE …/scan`, `POST …/apply`).
+  - A backfill job is marked **Kopien** in the download view (`copies_only` in the job options). It never downloads, runs ahead of queued downloads, and reports tracks it could not copy as skipped, not failed.
+  - A subscription sync queues copies for a release it has not stored yet when the library holds some of its recordings, and counts those releases as `copies_queued`.
+  - A copy is a second file and takes its own disk space. The copy is the same recording, so playback in the app, duplicate detection and the library audit keep counting the recording once; the library view and its size total do not list the copies. Deleting a track or a release removes its copies. A copy is not rewritten when the metadata or lyrics of the recording change later.
+- **Database Schema:** Schema 21 adds the table `track_placements`, which records each copy with its release, path, size and checksum; no existing row is rewritten by the schema migration. Keep a verified backup before any update.
+- Qualify v1.7.2 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0, v1.6.0, v1.6.1, v1.7.0 and v1.7.1.
+
+### Upgrade from v1.7.2
+
+Use the checksum-verified v1.8.0 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.8.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.8.0`. The update migrates the
+database to schema 21; verify a backup first. Protect the media separately;
+the database dump does not contain music files.
+
 ## 1.7.2 — 2026-11-21
 
 Tracks whose title consists of symbols only, and songs an artist uploaded as "Title - Artist", are found again.

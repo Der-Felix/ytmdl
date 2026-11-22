@@ -46,7 +46,7 @@ vollständig in PostgreSQL.
 ## Installation der offiziellen Images
 
 Der geprüfte Einstieg ist das versionierte Paket aus dem
-[v1.7.2 Release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.7.2).
+[v1.8.0 Release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.8.0).
 Die [Schnellstartanleitung](/getting-started) beschreibt Download, Prüfsumme und
 `python3 scripts/install.py --engine docker` beziehungsweise `--engine podman`.
 Der Installer bereitet ausschließlich neue Verzeichnisse vor. Vorhandene
