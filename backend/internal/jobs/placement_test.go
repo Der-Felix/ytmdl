@@ -351,3 +351,28 @@ func TestACopyWaitsForAnUnreachableLibrary(t *testing.T) {
 	}
 	h.assertNoCopy(t)
 }
+
+// A recording can have several files. The copy is made from the first usable
+// one, but a later one that already lives in the requested release's folder
+// holds the recording there: no second file may appear beside it.
+func TestExistingRecordingWithAnotherFileInTheReleaseFolderIsSkipped(t *testing.T) {
+	h := newCopyHarness(t)
+	files := h.manager.files.(*fakeFiles)
+	second := filepath.Join(filepath.Dir(boxSetRel), "1-07 - Dancing Queen.opus")
+	files.byTrack = append(files.byTrack, music.File{
+		ID: "file-2", TrackID: "known", Path: second, DurationMS: 230000,
+		SourceProvider: "youtube", SourceID: "vid-2",
+	})
+	if err := os.MkdirAll(filepath.Join(h.root, filepath.Dir(second)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.root, second), []byte("box set audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	assertSkipped(t, h.run(t, boxSetTrack()))
+	h.assertNoCopy(t)
+	if got := h.read(t, second); got != "box set audio" {
+		t.Fatalf("the file in the release folder changed: %q", got)
+	}
+}

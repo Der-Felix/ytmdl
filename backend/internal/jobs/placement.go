@@ -176,6 +176,18 @@ func (m *Manager) releaseHolds(ctx context.Context, existing *existingRecording,
 	if filepath.Clean(filepath.Dir(existing.file.Path)) == dir {
 		return true, nil
 	}
+	// A recording can have several files (versions). The one a copy would be
+	// made from is only the first usable of them; any other that already lives
+	// in the release's folder holds the recording there just as well.
+	files, err := m.files.ListByTrack(ctx, existing.track.ID)
+	if err != nil {
+		return false, err
+	}
+	for _, file := range files {
+		if filepath.Clean(filepath.Dir(file.Path)) == dir && m.library.Exists(filepath.Join(m.library.Root(), file.Path)) {
+			return true, nil
+		}
+	}
 
 	home, err := m.placements.HomeRelease(ctx, existing.track.ID)
 	if err != nil {
