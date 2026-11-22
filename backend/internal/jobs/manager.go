@@ -1017,8 +1017,11 @@ func (m *Manager) EnqueueReleaseWithPriority(ctx context.Context, provider, rele
 // recordings the library already holds on the release and downloads nothing.
 // Like a subscription's release job it is not queued while another job for
 // the release is unfinished; that job decides about the same recordings.
-// It is started by a user, so it carries the manual origin, at normal
-// priority so that it does not push ahead of a user's downloads.
+// It is started by a user, so it carries the manual origin. It runs at the
+// highest priority: the queue is strictly ordered by priority, so behind a
+// backlog of subscription downloads (high priority) a normal job would not
+// start for hours, although a copy takes about a second and asks no provider.
+// The whole backfill is over in minutes and delays the downloads by that much.
 func (m *Manager) EnqueueCopies(ctx context.Context, metadataProvider, releaseID, label string) (bool, error) {
 	m.enqueueTargetMu.Lock()
 	defer m.enqueueTargetMu.Unlock()
@@ -1026,7 +1029,7 @@ func (m *Manager) EnqueueCopies(ctx context.Context, metadataProvider, releaseID
 	if exists, err := m.HasUnfinishedJob(ctx, TypeRelease, releaseID); err != nil || exists {
 		return false, err
 	}
-	priority := PriorityNormal
+	priority := PriorityVeryHigh
 	origin := OriginManual
 	_, err := m.Enqueue(ctx, Request{
 		Type:             TypeRelease,

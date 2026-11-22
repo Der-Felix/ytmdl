@@ -198,7 +198,7 @@ func TestEnqueueCopiesQueuesACopiesOnlyJobOncePerRelease(t *testing.T) {
 	}
 	job := store.jobs[0]
 	if job.Type != TypeRelease || job.TargetID != "rel-1" || !job.Options.CopiesOnly || !job.Options.SkipExisting ||
-		job.Options.Origin != OriginManual || job.Priority != PriorityNormal {
+		job.Options.Origin != OriginManual || job.Priority != PriorityVeryHigh {
 		t.Fatalf("job = %+v", job)
 	}
 }
