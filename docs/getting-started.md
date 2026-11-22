@@ -24,17 +24,17 @@ YTMDL operates as a three-tier service stack orchestrated via Docker or Podman:
 ## Install the Official Package
 
 Download the versioned installation archive and checksums from the
-[v1.7.2 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.7.2).
+[v1.8.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.8.0).
 Use a fresh directory with Python 3 and Docker Compose v2 or newer, or rootless
 Podman with Docker Compose v2 or newer as its provider:
 
 ```sh
-curl -fLO https://github.com/Der-Felix/ytmdl/releases/download/v1.7.2/ytmdl-1.7.2.tar.gz
-curl -fLO https://github.com/Der-Felix/ytmdl/releases/download/v1.7.2/SHA256SUMS
+curl -fLO https://github.com/Der-Felix/ytmdl/releases/download/v1.8.0/ytmdl-1.8.0.tar.gz
+curl -fLO https://github.com/Der-Felix/ytmdl/releases/download/v1.8.0/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS
 # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
-tar -xzf ytmdl-1.7.2.tar.gz
-cd ytmdl-1.7.2
+tar -xzf ytmdl-1.8.0.tar.gz
+cd ytmdl-1.8.0
 python3 scripts/install.py --engine docker
 # Or: python3 scripts/install.py --engine podman
 ```

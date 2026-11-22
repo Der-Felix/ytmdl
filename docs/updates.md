@@ -34,6 +34,32 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.8.0
+
+Use the checksum-verified **v1.8.0** CLI from the
+[v1.8.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.8.0).
+Run `ytmdlctl update --channel stable --target 1.8.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.8.0`.
+
+The update migrates the database to schema 21, which adds one new table; no
+existing row is rewritten. Verify a database backup first: going back to an
+earlier version requires restoring it. The release qualifies v0.28.1, v1.0.0,
+v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0, v1.6.0, v1.6.1, v1.7.0, v1.7.1
+and v1.7.2 sources with Docker and rootless Podman. Preserve private
+configuration, proxy settings, mounts, cookies and the database volume.
+
+The new setting **Alben vollständig halten** (Settings → Metadaten &
+Dateiverwaltung) is on. From now on a release that carries a recording the
+library already holds gets a copy of that file in its own folder, so the
+album is complete for a media server; nothing is downloaded twice. A copy
+takes its own disk space. The update itself changes no file: releases
+already in the library are completed only when you run the scan under
+**Bibliothek → Wartung** and confirm the backfill it proposes.
+
+Coming from v1.6.1 or earlier, read the v1.7.0 section below as well: that
+update migrates the database to schema 20 and adds the setting
+**Beteiligungen laden**.
+
 ## Upgrade to v1.7.2
 
 Use the checksum-verified **v1.7.2** CLI from the
