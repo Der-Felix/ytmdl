@@ -148,10 +148,10 @@ A release tag push first pushes the multi-arch images under a run-unique
 `candidate-<version>-<run>-<attempt>` tag, never under the version. Against
 those candidates, by digest, the workflow scans both image architectures,
 records SBOMs and runtime tool versions, exercises ARM64 runtime under QEMU, and
-performs real v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0 and v1.6.0 upgrades for both
-engines and both storage guard modes (`qualify-upgrade.py --stage-target` pulls
-the candidates by digest and tags them locally as the target version; `ytmdlctl`
-still verifies both digests against the manifest and GHCR). Chromium and Firefox
+performs a real upgrade from every version in `scripts/upgrade-sources.json` for
+both engines and both storage guard modes (`qualify-upgrade.py --stage-target`
+pulls the candidates by digest and tags them locally as the target version;
+`ytmdlctl` still verifies both digests against the manifest and GHCR). Chromium and Firefox
 also qualify explicit offline copies, failed/canceled renewal, byte bounds, real
 local playback and offline restart. Only then does it create the draft release,
 give the qualified index digests the version tag (`docker buildx imagetools
@@ -166,11 +166,38 @@ is not in `release-manifest.json`, which describes the two-image layout
 `qualification.json`, full scan reports and SPDX inventories; every asset is
 covered by `SHA256SUMS`.
 
+The workflow is split into jobs so that the slow parts run side by side:
+
+```text
+version ──┬─ tests ─────────────────────────────────────┐
+          └─ images ─┬─ candidate-checks (4 legs) ──────┤
+                     └─ upgrade (one leg per source) ───┴─ publish ─ cleanup
+```
+
+`images` builds, smoke-tests and qualifies the local builds, pushes the
+candidates and writes the release manifest. The candidate checks (scan, ARM64
+of both layouts, the pushed amd64 single image) and the upgrade legs
+(`qualify-upgrades.yml`, one runner per source version running Docker and then
+Podman) start together after it. `publish` is the gate: it runs only when every
+job and every leg succeeded, checks that again from the job results, and
+requires a result file from each source's leg, for this attempt and this
+manifest, before it writes `qualification.json` (which lists the qualified
+`managed_upgrade_sources`). Nothing gets a version tag, and no draft release
+exists, before `publish`. `cleanup` deletes the candidates of every run that
+did not publish and of every rehearsal.
+
+Release preparation adds the previous release to `scripts/upgrade-sources.json`,
+the only list of upgrade sources; `release.yml` and `upgrade-qualification.yml`
+both read it. A failed release run must be re-run with **Re-run all jobs**: the
+failed attempt has already deleted its candidates, so "Re-run failed jobs" is
+refused by every job after `images` (they compare the attempt that pushed the
+candidates with their own).
+
 Published version tags are immutable: the workflow refuses to start, and refuses
 to promote, if `ytmdl-backend:<version>`, `ytmdl-frontend:<version>` or
 `ytmdl:<version>` already exists. A run that fails before the promotion step leaves only `candidate-*`
 tags (and possibly a draft release), so the version is not used up: delete a
-leftover draft, then push the tag again or re-run the workflow. A run that fails
+leftover draft, then push the tag again or re-run all jobs of the workflow. A run that fails
 after the promotion has published the version tag; that version is then used up
 and the fix is released as the next version. A failed run and a
 rehearsal delete their own `candidate-*` package versions at the end
@@ -191,4 +218,7 @@ gh workflow run release.yml --repo Der-Felix/ytmdl --ref <branch> \
 It pushes `candidate-*` images, qualifies them, upgrades included, and tags them
 `rehearsal-<run>-<attempt>`, and deletes those package versions again at the end.
 `upgrade-qualification.yml` can re-qualify the candidates of a failed release
-run with `-f candidate=candidate-<version>-<run>-<attempt> -f target=<version>`.
+run with `-f candidate=candidate-<version>-<run>-<attempt> -f target=<version>`
+(only while they still exist: the failed run's cleanup deletes them). Without
+`-f sources=...` it qualifies every version in `scripts/upgrade-sources.json`,
+with the same parallel legs as the release.

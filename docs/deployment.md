@@ -260,6 +260,8 @@ Workflows unter `.github/workflows/`:
 | --- | --- | --- |
 | `ci.yml` | PR gegen `dev`/`main`, Push auf `dev` | Tests und Builds; veröffentlicht nichts |
 | `release.yml` | Tag `v*`, manueller Qualifikationslauf | Release-Qualifikation; Veröffentlichung nur bei Release-Tag |
+| `upgrade-qualification.yml` | Manueller Lauf | Upgrade-Qualifikation gegen veröffentlichte Images; veröffentlicht nichts |
+| `qualify-upgrades.yml` | Aufruf durch `release.yml` und `upgrade-qualification.yml` | Ein paralleler Upgrade-Lauf je Quellversion aus `scripts/upgrade-sources.json` |
 | `pages.yml` | Push auf `main`, manueller Lauf | Dokumentations-Deployment |
 
 CI und Release-Qualifikation starten PostgreSQL 18 als isolierten Test-Service

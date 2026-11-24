@@ -5,7 +5,9 @@ name: Upgrade Qualification (verify only)
 # an ALREADY PUBLISHED target version, or against the candidate-* images a
 # release run left behind (input "candidate"). It builds ytmdlctl from the
 # checked-out commit, writes a release manifest from the real GHCR digests and
-# updates disposable installations under Docker and rootless Podman.
+# updates disposable installations under Docker and rootless Podman, one
+# runner per source version, all at once (qualify-upgrades.yml, the same legs
+# release.yml runs).
 #
 # It never publishes: no image push, no tag, no release. The only token
 # permissions are reading the repository and pulling packages.
@@ -19,7 +21,9 @@ on:
       - fix/podman-upgrade-qualification
     paths:
       - .github/workflows/upgrade-qualification.yml
+      - .github/workflows/qualify-upgrades.yml
       - scripts/qualify-upgrade.py
+      - scripts/upgrade-sources.json
       - scripts/install.py
       - compose.ghcr.yaml
       - compose.ghcr.podman.yaml
@@ -32,10 +36,10 @@ on:
         required: true
         default: '1.9.0'
       sources:
-        description: 'Space-separated source versions'
+        description: 'Space-separated source versions; empty means every version in scripts/upgrade-sources.json'
         type: string
-        required: true
-        default: '0.28.1 1.0.0 1.1.1 1.2.0 1.3.0 1.4.0 1.4.1 1.5.0 1.6.0 1.6.1 1.7.0 1.7.1 1.7.2 1.8.0'
+        required: false
+        default: ''
       engines:
         description: 'Space-separated engines (docker, podman)'
         type: string
@@ -56,15 +60,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  qualify:
-    name: Qualify Managed Upgrades
+  prepare:
+    name: Build ytmdlctl and Release Manifest
     # Pinned (not ubuntu-latest): the release qualification is only proven on this
     # image. Changing it means re-running upgrade-qualification.yml first.
     runs-on: ubuntu-26.04
-    timeout-minutes: 60
+    timeout-minutes: 20
+    outputs:
+      target: ${{ steps.inputs.outputs.target }}
+      sources: ${{ steps.inputs.outputs.sources }}
+      engines: ${{ steps.inputs.outputs.engines }}
+      stage_target: ${{ steps.inputs.outputs.stage_target }}
+      inputs_artifact: ${{ steps.inputs.outputs.inputs_artifact }}
     env:
       TARGET: ${{ inputs.target || '1.9.0' }}
-      SOURCES: ${{ inputs.sources || '0.28.1 1.0.0 1.1.1 1.2.0 1.3.0 1.4.0 1.4.1 1.5.0 1.6.0 1.6.1 1.7.0 1.7.1 1.7.2 1.8.0' }}
+      SOURCES: ${{ inputs.sources || '' }}
       ENGINES: ${{ inputs.engines || 'docker podman' }}
       CANDIDATE: ${{ inputs.candidate || '' }}
     steps:
@@ -74,12 +84,19 @@ jobs:
           persist-credentials: false
 
       - name: Validate Inputs
+        id: inputs
         shell: bash
         run: |
+          set -euo pipefail
           [[ "${TARGET}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]] || { echo "::error::Invalid target '${TARGET}'" >&2; exit 1; }
-          for source in ${SOURCES}; do
-            [[ "${source}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid source '${source}'" >&2; exit 1; }
-          done
+          if [ -z "${SOURCES// /}" ]; then
+            sources="$(jq -c . scripts/upgrade-sources.json)"
+          else
+            sources="$(printf '%s\n' ${SOURCES} | jq -R . | jq -cs 'unique')"
+          fi
+          echo "${sources}" | jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' >/dev/null \
+            || { echo "::error::Invalid sources ${sources}" >&2; exit 1; }
+          [ -n "${ENGINES// /}" ] || { echo "::error::No engine given" >&2; exit 1; }
           for engine in ${ENGINES}; do
             [[ "${engine}" =~ ^(docker|podman)$ ]] || { echo "::error::Invalid engine '${engine}'" >&2; exit 1; }
           done
@@ -91,6 +108,16 @@ jobs:
             echo "::error::Release candidates need a v4 manifest with a source commit; this check covers stable targets." >&2
             exit 1
           fi
+          stage_target=false
+          if [ -n "${CANDIDATE}" ]; then stage_target=true; fi
+          {
+            echo "target=${TARGET}"
+            echo "sources=${sources}"
+            echo "engines=$(echo ${ENGINES})"
+            echo "stage_target=${stage_target}"
+            echo "inputs_artifact=upgrade-inputs-${GITHUB_RUN_ATTEMPT}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Target ${TARGET}, sources ${sources}, engines ${ENGINES}"
 
       - name: Set up Go
         uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
@@ -138,12 +165,16 @@ jobs:
             -ldflags "-s -w -X 'main.version=${TARGET}' -X 'main.commit=${GITHUB_SHA}' -X 'main.date=${build_date}'" \
             -o "${PWD}/dist/ytmdlctl-linux-amd64" ./cmd/ytmdlctl
           (cd dist && sha256sum ytmdlctl-linux-amd64 > SHA256SUMS)
-          # Same arguments as release.yml for a stable release.
+          # The schema is the newest migration of the checked-out commit: what
+          # qualify-upgrade.py expects the updated installation to report.
+          schema="$(find backend/internal/database/migrations -maxdepth 1 -name '*.sql' -printf '%f\n' | cut -d_ -f1 | sort -n | tail -n 1 | sed 's/^0*//')"
+          [[ "${schema}" =~ ^[0-9]+$ ]] || { echo "::error::No migration found" >&2; exit 1; }
+          # Otherwise the same arguments as release.yml for a stable release.
           go run -C backend ./cmd/ytmdlctl manifest-gen \
             --version "${TARGET}" \
             --tag "v${TARGET}" \
             --manifest-version 3 \
-            --schema 18 \
+            --schema "${schema}" \
             --min-upgrade 0.15.0 \
             --backend-digest "${BACKEND_DIGEST}" \
             --backend-platform "linux/amd64=${BACKEND_AMD64}" \
@@ -154,71 +185,30 @@ jobs:
             --output "${PWD}/dist/release-manifest.json"
           cat dist/release-manifest.json
 
-      - name: Download Old ytmdlctl (v0.28.0)
-        shell: bash
-        run: |
-          set -euo pipefail
-          old_cli_dir="${RUNNER_TEMP}/ytmdl-old-cli"
-          mkdir -p "${old_cli_dir}"
-          curl -fsSL --connect-timeout 15 --max-time 120 --retry 2 \
-            https://github.com/Der-Felix/ytmdl/releases/download/v0.28.0/ytmdlctl-linux-amd64 -o "${old_cli_dir}/ytmdlctl-linux-amd64"
-          curl -fsSL --connect-timeout 15 --max-time 60 --retry 2 \
-            https://github.com/Der-Felix/ytmdl/releases/download/v0.28.0/SHA256SUMS -o "${old_cli_dir}/SHA256SUMS"
-          (cd "${old_cli_dir}" && sha256sum --ignore-missing -c SHA256SUMS)
-          chmod +x "${old_cli_dir}/ytmdlctl-linux-amd64"
+      - name: Hand Over Upgrade Qualification Inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.inputs.outputs.inputs_artifact }}
+          path: |
+            dist/ytmdlctl-linux-amd64
+            dist/SHA256SUMS
+            dist/release-manifest.json
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Set up Rootless Podman
-        shell: bash
-        run: |
-          set -euo pipefail
-          # As in release.yml ("Qualify Rootless Podman Compose Package").
-          sudo apt-get install -y -qq podman uidmap slirp4netns
-          provider=""
-          for path in /usr/libexec/docker/cli-plugins/docker-compose /usr/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose; do
-            if [ -x "${path}" ]; then provider="${path}"; break; fi
-          done
-          if [ -z "${provider}" ]; then provider="$(command -v docker-compose)"; fi
-          echo "PODMAN_COMPOSE_PROVIDER=${provider}" >> "$GITHUB_ENV"
-          podman info --format '{{.Host.Security.Rootless}}' | grep -qx true
-          podman system service --time=0 > "${RUNNER_TEMP}/podman-service.log" 2>&1 &
-          podman version
-          podman info --format 'network backend: {{.Host.NetworkBackend}}; rootless network cmd: {{.Host.RootlessNetworkCmd}}'
-          docker version --format 'docker server {{.Server.Version}}'
-          "${provider}" version
-
-      - name: Qualify Real Upgrades
-        shell: bash
-        run: |
-          set -euo pipefail
-          stage=()
-          if [ -n "${CANDIDATE}" ]; then stage=(--stage-target); fi
-          for source in ${SOURCES}; do
-            for engine in ${ENGINES}; do
-              echo "::group::${engine} ${source} -> ${TARGET}"
-              python3 scripts/qualify-upgrade.py --engine "${engine}" \
-                --cli "${PWD}/dist/ytmdlctl-linux-amd64" \
-                --source "${source}" \
-                --target "${TARGET}" \
-                --manifest "${PWD}/dist/release-manifest.json" \
-                --old-cli "${RUNNER_TEMP}/ytmdl-old-cli/ytmdlctl-linux-amd64" \
-                "${stage[@]}"
-              echo "::endgroup::"
-            done
-          done
-
-      - name: Engine State After Qualification
-        if: always()
-        shell: bash
-        run: |
-          for engine in podman docker; do
-            command -v "${engine}" >/dev/null || continue
-            echo "== ${engine} networks"
-            "${engine}" network ls || true
-            for network in $("${engine}" network ls --format '{{.Name}}' 2>/dev/null | grep '^ytmdl-' || true); do
-              "${engine}" network inspect "${network}" || true
-            done
-            echo "== ${engine} containers"
-            "${engine}" ps -a --format '{{.ID}} {{.Names}} {{.Status}} {{.Labels}}' || true
-          done
-          echo "== podman system service log (tail)"
-          tail -n 200 "${RUNNER_TEMP}/podman-service.log" 2>/dev/null || true
+  upgrade:
+    name: Qualify Managed Upgrades
+    needs: prepare
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/qualify-upgrades.yml
+    with:
+      target: ${{ needs.prepare.outputs.target }}
+      sources: ${{ needs.prepare.outputs.sources }}
+      engines: ${{ needs.prepare.outputs.engines }}
+      inputs_artifact: ${{ needs.prepare.outputs.inputs_artifact }}
+      stage_target: ${{ needs.prepare.outputs.stage_target == 'true' }}
+      # Nothing is promoted here, so re-running only the failed legs is
+      # allowed: they qualify the same artifact against the same images.
+      expected_attempt: ''
