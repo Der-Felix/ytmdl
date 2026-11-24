@@ -149,27 +149,20 @@ func deriveGenreIDs(counts map[int64]int) []int64 {
 
 // genreName resolves a genre id. The list endpoint is read once; ids it does
 // not contain (Deezer uses some, such as 522 "Singer & Songwriter") are asked
-// for one by one and cached, an unknown one as "".
+// for one by one and cached, an unknown one as "". The lock guards only the
+// cache, never a request: a request waits for the limiter and may retry, and
+// other lookups must not queue behind it. Two callers may then fetch the same
+// thing once each; the cache is checked again before a request goes out.
 func (p *Provider) genreName(ctx context.Context, id int64) (string, error) {
-	g := &p.genres
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.names == nil {
-		g.names = map[int64]string{}
-	}
-	if name, ok := g.names[id]; ok {
+	if name, ok, full := p.genres.get(id); ok {
 		return name, nil
-	}
-	if !g.full {
+	} else if !full {
 		var list apiGenreList
 		if err := p.client.get(ctx, "/genre", &list); err != nil {
 			return "", err
 		}
-		for _, genre := range list.Data {
-			g.names[genre.ID] = strings.TrimSpace(genre.Name)
-		}
-		g.full = true
-		if name, ok := g.names[id]; ok {
+		p.genres.fill(list.Data)
+		if name, ok, _ := p.genres.get(id); ok {
 			return name, nil
 		}
 	}
@@ -178,11 +171,40 @@ func (p *Provider) genreName(ctx context.Context, id int64) (string, error) {
 		// Deezer answers an id it does not know with an error object; the
 		// genre is then left out rather than failing the artist.
 		if code := apperr.CodeOf(err); code == apperr.CodeProviderNotFound || code == apperr.CodeInvalidRequest {
-			g.names[id] = ""
+			p.genres.put(id, "")
 			return "", nil
 		}
 		return "", err
 	}
-	g.names[id] = strings.TrimSpace(one.Name)
-	return g.names[id], nil
+	name := strings.TrimSpace(one.Name)
+	p.genres.put(id, name)
+	return name, nil
+}
+
+func (g *genreNames) get(id int64) (name string, ok, full bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	name, ok = g.names[id]
+	return name, ok, g.full
+}
+
+func (g *genreNames) fill(list []apiGenre) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.names == nil {
+		g.names = map[int64]string{}
+	}
+	for _, genre := range list {
+		g.names[genre.ID] = strings.TrimSpace(genre.Name)
+	}
+	g.full = true
+}
+
+func (g *genreNames) put(id int64, name string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.names == nil {
+		g.names = map[int64]string{}
+	}
+	g.names[id] = name
 }
