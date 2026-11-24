@@ -14,7 +14,8 @@ import {
   UserIcon,
 } from 'lucide-react'
 
-import { ADMIN, PRIMARY } from '@/components/layout/navigation'
+import { ADMIN, DOWNLOAD_NAV, LISTEN_HOME, LISTEN_NAV } from '@/components/layout/navigation'
+import type { NavItem } from '@/components/layout/navigation'
 import {
   Command,
   CommandDialog,
@@ -87,7 +88,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     action()
   }
 
-  const views = isAdmin ? [...PRIMARY, ...ADMIN] : PRIMARY
+  // Every destination, whichever area is open, grouped as the switch groups them.
+  const groups: { heading: string; items: NavItem[] }[] = [
+    { heading: 'Hören', items: [LISTEN_HOME, ...LISTEN_NAV] },
+    { heading: 'Laden', items: DOWNLOAD_NAV },
+    ...(isAdmin ? [{ heading: 'Administration', items: ADMIN }] : []),
+  ]
   const trimmed = query.trim()
 
   return (
@@ -142,17 +148,19 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             </CommandGroup>
           )}
 
-          <CommandGroup heading="Ansichten">
-            {views.map((item) => (
-              <MenuItem
-                key={item.href}
-                icon={item.icon}
-                label={item.label}
-                keywords={['öffnen', 'gehe zu']}
-                onSelect={run(() => navigate(item.href))}
-              />
-            ))}
-          </CommandGroup>
+          {groups.map((group) => (
+            <CommandGroup key={group.heading} heading={group.heading}>
+              {group.items.map((item) => (
+                <MenuItem
+                  key={item.href}
+                  icon={item.icon}
+                  label={item.label}
+                  keywords={['öffnen', 'gehe zu', ...(item.keywords ?? [])]}
+                  onSelect={run(() => navigate(item.href))}
+                />
+              ))}
+            </CommandGroup>
+          ))}
 
           <CommandGroup heading="Konto">
             <MenuItem icon={UserIcon} label="Profil & Sicherheit" keywords={['passwort', 'konto', 'geräte']} onSelect={run(() => navigate(paths.profile()))} />

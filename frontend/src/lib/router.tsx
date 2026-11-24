@@ -98,7 +98,12 @@ export function Link({ href, replace, onClick, ...props }: LinkProps) {
 /* ------------------------------------------------------------------- routes */
 
 export type Route =
-  | { name: 'dashboard' }
+  /** "/" renders nothing itself: it resolves to the start of the last area. */
+  | { name: 'home' }
+  /** The start page of the listening area. */
+  | { name: 'listenHome' }
+  /** The start page of the download area: search, downloads, server. */
+  | { name: 'downloadHome' }
   | { name: 'login' }
   | { name: 'profile' }
   | { name: 'users' }
@@ -126,7 +131,7 @@ export function matchRoute(location: Location): Route {
   const segments = pathname.split('/').filter(Boolean)
   const provider = params.get('provider') ?? undefined
 
-  if (segments.length === 0) return { name: 'dashboard' }
+  if (segments.length === 0) return { name: 'home' }
 
   const [first, second, third] = segments
 
@@ -157,8 +162,14 @@ export function matchRoute(location: Location): Route {
       if (segments.length === 1) return { name: 'users' }
       break
 
+    case 'listen':
+      if (segments.length === 1) return { name: 'listenHome' }
+      break
+
+    case 'search':
+    // The former dashboard: bookmarks to it keep opening the same content.
     case 'dashboard':
-      if (segments.length === 1) return { name: 'dashboard' }
+      if (segments.length === 1) return { name: 'downloadHome' }
       break
 
     case 'discover':
@@ -234,7 +245,10 @@ export function matchRoute(location: Location): Route {
 
 /** The canonical paths, so no route string is spelled out twice. */
 export const paths = {
-  dashboard: () => '/',
+  /** Resolves to the start page of the area the user was last in. */
+  home: () => '/',
+  listenHome: () => '/listen',
+  downloadHome: () => '/search',
   player: () => '/player',
   mixes: () => '/mixes',
   mix: (id: string) => `/mixes/${encodeURIComponent(id)}`,

@@ -1,4 +1,4 @@
-import { CompassIcon, FileQuestionIcon, LayoutDashboardIcon } from 'lucide-react'
+import { CompassIcon, FileQuestionIcon, HomeIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Panel } from '@/components/ui/panel'
@@ -28,9 +28,9 @@ function NotFound({ pathname }: NotFoundProps) {
           description="Die aufgerufene Seite existiert nicht oder wurde verschoben."
           action={
             <div className="flex flex-wrap items-center gap-3">
-              <Button variant="default" nativeButton={false} render={<Link href={paths.dashboard()} />}>
-                <LayoutDashboardIcon />
-                Zum Dashboard
+              <Button variant="default" nativeButton={false} render={<Link href={paths.home()} />}>
+                <HomeIcon />
+                Zur Startseite
               </Button>
               <Button variant="outline" nativeButton={false} render={<Link href={paths.discover()} />}>
                 <CompassIcon />

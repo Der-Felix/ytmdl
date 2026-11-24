@@ -26,7 +26,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useAsync } from '@/hooks/useAsync'
 import { useCurrentTracks, useJobs } from '@/hooks/useJobs'
 import { useQueueSummary } from '@/hooks/useQueueSummary'
-import { isTerminal, section } from '@/lib/api/jobs'
 import {
   libraryReleases,
   libraryStats,
@@ -34,27 +33,49 @@ import {
 import { getHealth } from '@/lib/api/settings'
 import { Link, paths } from '@/lib/router'
 import { formatNumber, formatRelative } from '@/lib/utils/format'
-import type { Health, Job } from '@/types/api'
+import type { Health, Job, NextUpJob } from '@/types/api'
+
+/** How many open jobs the start page lists; the rest live under Downloads. */
+export const ACTIVE_LIMIT = 5
+
+/** How many finished jobs "Zuletzt geladen" lists. */
+const RECENT_LIMIT = 4
 
 /**
- * The entry point: search first, then what is currently happening and what is
- * already there. Deliberately not an admin dashboard — the server metrics get
- * one compact panel at the end, the music gets everything above it.
+ * The start page of the download area: search first, then a short look at
+ * what is running and what arrived. The full queue — it can hold thousands of
+ * jobs — belongs to the Downloads page; this page names its size and links
+ * there. The server metrics get one compact panel at the end.
  */
-function Dashboard() {
-  const jobs = useJobs({ limit: 50 })
+function DownloadHome() {
+  // Only what is shown is requested: the running jobs, at most ACTIVE_LIMIT,
+  // and the last finished ones. Both lists stay live through the event stream.
+  const running = useJobs({ view: 'active', limit: ACTIVE_LIMIT })
+  const finished = useJobs({ view: 'done', limit: RECENT_LIMIT })
   const { state: summaryState } = useQueueSummary()
   const currentTracks = useCurrentTracks()
 
-  const allJobs = jobs.state.status === 'success' ? jobs.state.data : []
-  const active = allJobs.filter((job) => section(job) === 'active' || section(job) === 'queued')
-  const recent = allJobs.filter(isTerminal).slice(0, 4)
+  const runningJobs = useMemo(() => (running.state.status === 'success' ? running.state.data : []), [running.state])
+  const recent = finished.state.status === 'success' ? finished.state.data : []
 
+  const summary = summaryState.status === 'success' ? summaryState.data : undefined
   const openJobsCount = useMemo(() => {
-    if (summaryState.status !== 'success' || !summaryState.data) return undefined
-    const total = (summaryState.data.active_jobs ?? 0) + (summaryState.data.queued_jobs ?? 0)
-    return total > 0 ? total : undefined
-  }, [summaryState])
+    if (!summary) return undefined
+    return (summary.active_jobs ?? 0) + (summary.queued_jobs ?? 0)
+  }, [summary])
+
+  // What the dispatcher picks next fills the list up to ACTIVE_LIMIT. The
+  // summary already carries it in dispatcher order; running jobs appear there
+  // too and are left out.
+  const nextUp = useMemo(() => {
+    const shown = new Set(runningJobs.map((job) => job.id))
+    return (summary?.next ?? [])
+      .filter((job) => !shown.has(job.job_id))
+      .slice(0, Math.max(0, ACTIVE_LIMIT - runningJobs.length))
+  }, [summary, runningJobs])
+
+  const listed = runningJobs.length + nextUp.length
+  const more = openJobsCount !== undefined ? Math.max(0, openJobsCount - listed) : 0
 
   return (
     <div className="space-y-7">
@@ -72,11 +93,9 @@ function Dashboard() {
         <PanelHeader
           title={<span id="active-downloads">Aktive Downloads</span>}
           description={
-            openJobsCount !== undefined
+            openJobsCount !== undefined && openJobsCount > 0
               ? `${formatNumber(openJobsCount)} ${openJobsCount === 1 ? 'offener Job' : 'offene Jobs'}`
-              : active.length > 0
-                ? `${formatNumber(active.length)} ${active.length === 1 ? 'offener Job' : 'offene Jobs'}`
-                : undefined
+              : undefined
           }
           action={
             <Button
@@ -91,19 +110,19 @@ function Dashboard() {
           }
         />
 
-        {jobs.state.status === 'loading' && (
+        {running.state.status === 'loading' && (
           <LoadingRegion label="Downloads werden geladen">
             <ListSkeleton rows={2} />
           </LoadingRegion>
         )}
 
-        {jobs.state.status === 'error' && (
+        {running.state.status === 'error' && (
           <Panel>
-            <ErrorState error={jobs.state.error} onRetry={jobs.reload} />
+            <ErrorState error={running.state.error} onRetry={running.reload} />
           </Panel>
         )}
 
-        {jobs.state.status === 'success' && active.length === 0 && (
+        {running.state.status === 'success' && listed === 0 && (
           <Panel className="flex items-center gap-3 px-4 py-3.5">
             <span
               aria-hidden
@@ -112,27 +131,48 @@ function Dashboard() {
               <DownloadIcon className="size-4" />
             </span>
             <p className="text-sm text-muted-foreground">
-              Zurzeit läuft kein Download.
+              {openJobsCount
+                ? 'Gerade läuft kein Download; die Warteschlange ist pausiert oder wartet.'
+                : 'Zurzeit läuft kein Download.'}
             </p>
           </Panel>
         )}
 
-        {active.length > 0 && (
+        {runningJobs.length > 0 && (
           <div className="space-y-3">
-            {active.map((job) => (
+            {runningJobs.map((job) => (
               <JobCard
                 key={job.id}
                 job={job}
                 currentTrack={currentTracks[job.id]}
-                onCancelled={jobs.reload}
+                onCancelled={running.reload}
               />
             ))}
           </div>
         )}
+
+        {nextUp.length > 0 && <NextUp jobs={nextUp} />}
+
+        {more > 0 && (
+          <p className="px-1 text-sm text-muted-foreground">
+            <Link
+              href={paths.downloads()}
+              className="focus-ring rounded text-foreground underline-offset-4 hover:underline"
+            >
+              {`${formatNumber(more)} ${more === 1 ? 'weiterer Job' : 'weitere Jobs'}`}
+            </Link>{' '}
+            in der Warteschlange
+          </p>
+        )}
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <RecentDownloads jobs={recent} loading={jobs.state.status === 'loading'} />
+        <RecentDownloads
+          jobs={recent}
+          loading={finished.state.status === 'loading'}
+          error={finished.state.status === 'error' ? finished.state.error : undefined}
+          onRetry={finished.reload}
+        />
         <LibraryOverview />
       </div>
 
@@ -145,12 +185,42 @@ function Greeting() {
   return (
     <header className="space-y-1.5">
       <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-        YTMDL
+        Laden
       </h1>
       <p className="text-sm text-muted-foreground">
-        Diskografien auflösen, Musik herunterladen, Bibliothek verwalten.
+        Diskografien auflösen, Musik herunterladen, Bibliothek füllen.
       </p>
     </header>
+  )
+}
+
+/** The jobs the dispatcher takes next, one line each. */
+function NextUp({ jobs }: { jobs: NextUpJob[] }) {
+  return (
+    <Panel className="px-4 py-3">
+      <h3 className="text-xs font-medium text-muted-foreground">Als Nächstes</h3>
+      <ul className="mt-1 divide-y divide-border">
+        {jobs.map((job) => (
+          <li key={job.job_id}>
+            <Link
+              href={paths.downloads(job.job_id)}
+              className="focus-ring flex items-center gap-3 rounded-lg py-2"
+            >
+              <Cover src={job.cover_url} alt="" className="size-8 shrink-0 rounded-lg" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-foreground">{job.release || 'Unbenannter Job'}</span>
+                {job.artist && (
+                  <span className="block truncate text-xs text-muted-foreground">{job.artist}</span>
+                )}
+              </span>
+              <span className="figures shrink-0 text-xs text-muted-foreground">
+                {formatNumber(job.open_tracks)} / {formatNumber(job.total_tracks)}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Panel>
   )
 }
 
@@ -161,17 +231,29 @@ function Greeting() {
  * catalogue is ordered by year and title, so it cannot answer "what arrived
  * most recently". The jobs can.
  */
-function RecentDownloads({ jobs, loading }: { jobs: Job[]; loading: boolean }) {
+function RecentDownloads({
+  jobs,
+  loading,
+  error,
+  onRetry,
+}: {
+  jobs: Job[]
+  loading: boolean
+  error?: unknown
+  onRetry: () => void
+}) {
   return (
     <Panel className="flex flex-col gap-4 p-5">
       <PanelHeader
-        title="Zuletzt heruntergeladen"
+        title="Zuletzt geladen"
         description="Die zuletzt abgeschlossenen Jobs"
       />
 
       {loading && <ListSkeleton rows={3} />}
 
-      {!loading && jobs.length === 0 && (
+      {error !== undefined && <ErrorState error={error} onRetry={onRetry} className="py-7" />}
+
+      {!loading && error === undefined && jobs.length === 0 && (
         <EmptyState
           icon={<CheckCircle2Icon />}
           title="Noch nichts heruntergeladen"
@@ -436,4 +518,4 @@ function HealthSummary({ health }: { health: Health }) {
   )
 }
 
-export { Dashboard }
+export { DownloadHome }

@@ -34,7 +34,7 @@ mock.module('@/lib/api/mixes', () => ({
 }))
 
 const { ForYou, MixDetail } = await import('./ForYou')
-const { PRIMARY } = await import('@/components/layout/navigation')
+const { LISTEN_NAV } = await import('@/components/layout/navigation')
 
 const tracks = Array.from({ length: 12 }, (_, n) => ({
   id: `track-${n}`,
@@ -65,10 +65,11 @@ describe('Für dich', () => {
     listCalls.length = 0
   })
 
-  it('sits next to the player in the navigation', () => {
-    const labels = PRIMARY.map((item) => item.label)
-    expect(labels.indexOf('Für dich')).toBe(labels.indexOf('Player') + 1)
-    expect(PRIMARY.find((item) => item.label === 'Für dich')?.href).toBe('/mixes')
+  it('opens the listening navigation, right before the player', () => {
+    const labels = LISTEN_NAV.map((item) => item.label)
+    expect(labels[0]).toBe('Für dich')
+    expect(labels.indexOf('Player')).toBe(1)
+    expect(LISTEN_NAV.find((item) => item.label === 'Für dich')?.href).toBe('/mixes')
   })
 
   it('renders the mixes as cards and plays one directly', async () => {

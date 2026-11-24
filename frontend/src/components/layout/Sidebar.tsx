@@ -1,9 +1,11 @@
 import { LogOutIcon, SearchIcon, UserIcon } from 'lucide-react'
 
-import { ADMIN, PRIMARY } from '@/components/layout/navigation'
+import { ADMIN, AREA_NAV } from '@/components/layout/navigation'
 import type { NavItem } from '@/components/layout/navigation'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
+import { AREA_START } from '@/lib/areas'
+import type { Area } from '@/lib/areas'
 import { Link, paths } from '@/lib/router'
 import type { Route } from '@/lib/router'
 import { commandShortcutLabel } from '@/lib/shortcut'
@@ -12,6 +14,8 @@ import { formatNumber } from '@/lib/utils/format'
 
 interface SidebarProps {
   route: Route
+  /** The area whose entries are listed; administration and profile always are. */
+  area: Area
   /** Number of jobs currently queued or running; hidden when zero or undefined. */
   activeDownloads?: number
   /** Closes the mobile drawer after a navigation. */
@@ -20,7 +24,7 @@ interface SidebarProps {
   onOpenCommandMenu?: () => void
 }
 
-function Sidebar({ route, activeDownloads, onNavigate, onOpenCommandMenu }: SidebarProps) {
+function Sidebar({ route, area, activeDownloads, onNavigate, onOpenCommandMenu }: SidebarProps) {
   const { user, isAdmin, logout } = useAuth()
 
   const adminItems: NavItem[] = isAdmin ? ADMIN : []
@@ -28,7 +32,7 @@ function Sidebar({ route, activeDownloads, onNavigate, onOpenCommandMenu }: Side
   return (
     <div className="flex h-full flex-col gap-6 px-3 py-5">
       <Link
-        href={paths.dashboard()}
+        href={AREA_START[area]}
         onClick={onNavigate}
         className="focus-ring flex items-center gap-2.5 rounded-xl px-2.5 py-1.5"
       >
@@ -51,7 +55,7 @@ function Sidebar({ route, activeDownloads, onNavigate, onOpenCommandMenu }: Side
 
       <nav aria-label="Hauptnavigation" className="flex-1 overflow-y-auto space-y-6">
         <ul className="space-y-1">
-          {PRIMARY.map((item) => (
+          {AREA_NAV[area].map((item) => (
             <li key={item.href}>
               <NavLink
                 item={item}

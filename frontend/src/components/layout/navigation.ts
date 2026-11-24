@@ -3,17 +3,19 @@ import {
   BellIcon,
   CompassIcon,
   DownloadIcon,
+  HeadphonesIcon,
   HeartIcon,
-  LayoutDashboardIcon,
   LibraryIcon,
   ListMusicIcon,
   RadioIcon,
+  SearchIcon,
   ServerCogIcon,
   SparklesIcon,
   UsersIcon,
   WifiOff,
 } from 'lucide-react'
 
+import type { Area } from '@/lib/areas'
 import { paths } from '@/lib/router'
 import type { Route } from '@/lib/router'
 
@@ -23,23 +25,12 @@ export interface NavItem {
   icon: ComponentType<{ className?: string }>
   /** Which routes render this entry as the current one. */
   matches: Route['name'][]
+  /** Further words the command menu finds the entry by. */
+  keywords?: string[]
 }
 
-/** The main views, in the order of the sidebar; the command menu reuses it. */
-export const PRIMARY: NavItem[] = [
-  {label:'Offline-Musik',href:'/offline',icon:WifiOff,matches:['offline']},
-  {
-    label: 'Dashboard',
-    href: paths.dashboard(),
-    icon: LayoutDashboardIcon,
-    matches: ['dashboard'],
-  },
-  {
-    label: 'Player',
-    href: paths.player(),
-    icon: RadioIcon,
-    matches: ['player'],
-  },
+/** The listening area, in the order of the sidebar. */
+export const LISTEN_NAV: NavItem[] = [
   {
     label: 'Für dich',
     href: paths.mixes(),
@@ -47,22 +38,10 @@ export const PRIMARY: NavItem[] = [
     matches: ['mixes', 'mix'],
   },
   {
-    label: 'Entdecken',
-    href: paths.discover(),
-    icon: CompassIcon,
-    matches: ['discover', 'artist', 'release'],
-  },
-  {
-    label: 'Downloads',
-    href: paths.downloads(),
-    icon: DownloadIcon,
-    matches: ['downloads'],
-  },
-  {
-    label: 'Abonnements',
-    href: paths.subscriptions(),
-    icon: BellIcon,
-    matches: ['subscriptions'],
+    label: 'Player',
+    href: paths.player(),
+    icon: RadioIcon,
+    matches: ['player'],
   },
   {
     label: 'Bibliothek',
@@ -82,7 +61,62 @@ export const PRIMARY: NavItem[] = [
     icon: HeartIcon,
     matches: ['favorites'],
   },
+  // A plain link on purpose: /offline renders outside the signed-in shell, so
+  // it works without a server connection.
+  {
+    label: 'Offline-Musik',
+    href: '/offline',
+    icon: WifiOff,
+    matches: ['offline'],
+  },
 ]
+
+/** The download area, in the order of the sidebar; "Suche" is its start page. */
+export const DOWNLOAD_NAV: NavItem[] = [
+  {
+    label: 'Suche',
+    href: paths.downloadHome(),
+    icon: SearchIcon,
+    matches: ['downloadHome'],
+    keywords: ['start', 'startseite', 'dashboard', 'laden'],
+  },
+  {
+    label: 'Entdecken',
+    href: paths.discover(),
+    icon: CompassIcon,
+    matches: ['discover', 'artist', 'release'],
+  },
+  {
+    label: 'Downloads',
+    href: paths.downloads(),
+    icon: DownloadIcon,
+    matches: ['downloads'],
+  },
+  {
+    label: 'Abonnements',
+    href: paths.subscriptions(),
+    icon: BellIcon,
+    matches: ['subscriptions'],
+  },
+]
+
+/** The sidebar entries of each area. */
+export const AREA_NAV: Record<Area, NavItem[]> = {
+  listen: LISTEN_NAV,
+  download: DOWNLOAD_NAV,
+}
+
+/**
+ * The listening start page. The sidebar leaves it out (the switch and the
+ * wordmark lead there); the command menu offers it.
+ */
+export const LISTEN_HOME: NavItem = {
+  label: 'Übersicht',
+  href: paths.listenHome(),
+  icon: HeadphonesIcon,
+  matches: ['listenHome'],
+  keywords: ['start', 'startseite', 'hören', 'weiterhören'],
+}
 
 /** Views only administrators can open; the routes enforce the same split. */
 export const ADMIN: NavItem[] = [

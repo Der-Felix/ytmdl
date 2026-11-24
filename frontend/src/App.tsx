@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo } from 'react'
 import type { ReactNode } from 'react'
 
 import { AppShell } from '@/components/layout/AppShell'
@@ -8,16 +8,18 @@ import { FavoritesProvider } from '@/contexts/FavoritesContext'
 import { PlayerProvider } from '@/contexts/PlayerContext'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import { useQueueSummary } from '@/hooks/useQueueSummary'
-import { matchRoute, useLocation } from '@/lib/router'
+import { AREA_START, loadArea } from '@/lib/areas'
+import { matchRoute, navigate, useLocation } from '@/lib/router'
 import { Artist } from '@/pages/Artist'
-import { Dashboard } from '@/pages/Dashboard'
 import { Discover } from '@/pages/Discover'
+import { DownloadHome } from '@/pages/DownloadHome'
 import { Downloads } from '@/pages/Downloads'
 import { Favorites } from '@/pages/Favorites'
 import { ForYou, MixDetail } from '@/pages/ForYou'
 import { Library } from '@/pages/Library'
 import { LibraryArtist } from '@/pages/LibraryArtist'
 import { LibraryRelease } from '@/pages/LibraryRelease'
+import { ListenHome } from '@/pages/ListenHome'
 import { Login } from '@/pages/Login'
 import { NotFound } from '@/pages/NotFound'
 import { OfflinePage } from '@/pages/Offline'
@@ -59,6 +61,18 @@ function AuthenticatedShell({
   )
 }
 
+/**
+ * "/" and, once signed in, "/login" have no page of their own: they resolve
+ * to the start page of the area the user was last in. Replacing the entry
+ * keeps Back from bouncing through the redirect.
+ */
+function RedirectToStart() {
+  useLayoutEffect(() => {
+    navigate(AREA_START[loadArea()], { replace: true })
+  }, [])
+  return null
+}
+
 export function AppContent() {
   const location = useLocation()
   const route = useMemo(() => matchRoute(location), [location])
@@ -88,8 +102,9 @@ export function AppContent() {
 
   return (
     <AuthenticatedShell route={route}>
-      {route.name === 'dashboard' && <Dashboard />}
-      {route.name === 'login' && <Dashboard />}
+      {(route.name === 'home' || route.name === 'login') && <RedirectToStart />}
+      {route.name === 'listenHome' && <ListenHome />}
+      {route.name === 'downloadHome' && <DownloadHome />}
       {route.name === 'player' && <NowPlaying />}
       {route.name === 'mixes' && <ForYou />}
       {route.name === 'mix' && <MixDetail id={route.id} />}

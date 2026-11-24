@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { AppContent } from './App'
 import { Toaster } from '@/components/ui/toast'
 import { AuthContext } from '@/contexts/auth-context'
+import { loadArea, resetStoredArea, saveArea } from '@/lib/areas'
 import { navigate } from '@/lib/router'
 
 // Mock sub-page APIs. Keep the job hooks real so other tests can verify requests.
@@ -149,6 +150,13 @@ describe('App Layout Consolidation and Route Permissions', () => {
           headers: { 'Content-Type': 'application/json' },
         })
       }
+      // The start pages and the subscriptions page: empty answers.
+      if (['/api/v1/history', '/api/v1/library/mixes', '/api/v1/library/releases', '/api/v1/subscriptions'].includes(parsed.pathname)) {
+        return new Response(JSON.stringify({ data: [], meta: { count: 0, total: 0 } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
       if (parsed.pathname === '/api/v1/jobs/summary') {
         return new Response(JSON.stringify({ data: { active_jobs: 0, queued_jobs: 0 } }), {
           status: 200,
@@ -261,6 +269,46 @@ describe('App Layout Consolidation and Route Permissions', () => {
     expect(screen.getByRole('navigation', { name: 'Hauptnavigation' })).toBeDefined()
     expect(screen.getByRole('link', { name: /Favoriten/i }).getAttribute('aria-current')).toBe('page')
     expect(await screen.findByRole('heading', { level: 1, name: 'Lieblingstitel' })).toBeDefined()
+  })
+
+  it('resolves / to the start page of the area last used', async () => {
+    resetStoredArea()
+    ;(window as any).happyDOM.setURL('http://localhost/')
+    const first = render(
+      <AuthContext.Provider value={normalUserAuth}>
+        <AppContent />
+      </AuthContext.Provider>,
+    )
+    await waitFor(() => expect(window.location.pathname).toBe('/listen'))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Hören' })).toBeDefined()
+    first.unmount()
+
+    saveArea('download')
+    ;(window as any).happyDOM.setURL('http://localhost/')
+    render(
+      <AuthContext.Provider value={normalUserAuth}>
+        <AppContent />
+      </AuthContext.Provider>,
+    )
+    await waitFor(() => expect(window.location.pathname).toBe('/search'))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Laden' })).toBeDefined()
+    resetStoredArea()
+  })
+
+  it('opens a deep link in its own area whatever was stored', async () => {
+    saveArea('listen')
+    ;(window as any).happyDOM.setURL('http://localhost/subscriptions')
+    render(
+      <AuthContext.Provider value={normalUserAuth}>
+        <AppContent />
+      </AuthContext.Provider>,
+    )
+    const sidebar = screen.getByRole('navigation', { name: 'Hauptnavigation' })
+    expect(within(sidebar).getByRole('link', { name: /Abonnements/ }).getAttribute('aria-current')).toBe('page')
+    expect(within(sidebar).getByRole('link', { name: /Downloads/ })).toBeDefined()
+    expect(within(sidebar).queryByRole('link', { name: /Für dich/ })).toBeNull()
+    await waitFor(() => expect(loadArea()).toBe('download'))
+    resetStoredArea()
   })
 
   it('renders standalone Login page without AppShell when not authenticated', async () => {
