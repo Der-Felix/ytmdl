@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { matchRoute, paths } from './router'
+import { canGoBackInApp, goBack, historyStateWithDepth, matchRoute, navigate, paths } from './router'
 
 describe('matchRoute', () => {
   it('matches the root and the start page of each area', () => {
@@ -193,5 +193,35 @@ describe('playlists and favorites routes', () => {
     expect(paths.playlists()).toBe('/playlists')
     expect(paths.playlist('pl-123')).toBe('/playlists/pl-123')
     expect(paths.favorites()).toBe('/favorites')
+  })
+})
+
+describe('in-app history', () => {
+  it('knows whether the previous entry is a page of the application', () => {
+    window.history.replaceState(null, '', '/player')
+    // A fresh load or a bookmark: Back would leave the application.
+    expect(canGoBackInApp()).toBe(false)
+
+    navigate('/library')
+    expect(canGoBackInApp()).toBe(true)
+    navigate('/player')
+    expect(canGoBackInApp()).toBe(true)
+
+    // Replacing keeps the depth of the entry it replaces.
+    window.history.replaceState(null, '', '/listen')
+    navigate('/player', { replace: true })
+    expect(canGoBackInApp()).toBe(false)
+  })
+
+  it('falls back to the given page when there is no in-app entry behind', () => {
+    window.history.replaceState(null, '', '/player')
+    goBack('/listen')
+    expect(window.location.pathname).toBe('/listen')
+    expect(canGoBackInApp()).toBe(false)
+  })
+
+  it('keeps other history state next to the depth', () => {
+    expect(historyStateWithDepth({ scroll: 3 }, 2)).toEqual({ scroll: 3, ytmdlDepth: 2 })
+    expect(historyStateWithDepth(null, 0)).toEqual({ ytmdlDepth: 0 })
   })
 })

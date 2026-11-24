@@ -1,10 +1,12 @@
 import { libraryArtwork } from '@/lib/artwork'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Tabs } from '@base-ui/react/tabs'
 import {
   ArrowLeft,
   FolderPlus,
   Heart,
   ListMusic,
+  Loader2,
   Maximize2,
   Mic2,
   MonitorSmartphone,
@@ -16,12 +18,9 @@ import {
   Play,
   Plus,
   RefreshCw,
-  Repeat,
-  Repeat1,
   RotateCcw,
   Save,
   Shield,
-  Shuffle,
   SkipBack,
   SkipForward,
   Sliders,
@@ -40,6 +39,7 @@ import { Input } from '@/components/ui/input'
 import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayerProgressSelector } from '@/contexts/player-progress-store'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
+import { RepeatButton, ShuffleButton } from '@/components/player/PlayerModeButtons'
 import { QueueList } from '@/components/player/QueueList'
 import { SeekBar } from '@/components/player/SeekBar'
 import { notifyError } from '@/lib/notify'
@@ -56,13 +56,31 @@ import type {
   SleepTimerOption,
   VisualizerMode,
 } from '@/lib/audio/types'
-import { Link, navigate, paths, useLocation } from '@/lib/router'
+import { Link, goBack, navigate, paths, useLocation } from '@/lib/router'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
 import { parseLrc } from '@/lib/utils/lrc'
 import { sliderFill } from '@/lib/utils/slider'
 import type { TrackLyrics } from '@/types/api'
 
 type PrimaryTab = 'lyrics' | 'queue' | 'equalizer' | 'audio'
+
+/** The panel tabs: an underline marks the selected one. */
+function playerTabClass({ active }: { active: boolean }) {
+  return `flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition border-b-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+    active
+      ? 'border-primary text-foreground bg-muted'
+      : 'border-transparent text-muted-foreground hover:text-foreground'
+  }`
+}
+
+/**
+ * Leaves the large player: back to the in-app page it was opened from, or to
+ * the listening start page when it was opened directly (bookmark, reload of a
+ * fresh tab).
+ */
+function leavePlayer() {
+  goBack(paths.listenHome())
+}
 
 /** A unique id for a new parametric filter; filters are stored with the player state. */
 function newFilterId() {
@@ -170,7 +188,7 @@ export function NowPlaying() {
   }, [])
 
   useEffect(() => {
-    const leavePlayer = (event: KeyboardEvent) => {
+    const onEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
       // Native fullscreen consumes Escape itself; a second Escape closes the large view.
       if (document.fullscreenElement) return
@@ -184,10 +202,10 @@ export function NowPlaying() {
         setVisualizerMenuOpen(false)
         return
       }
-      navigate(paths.library())
+      leavePlayer()
     }
-    window.addEventListener('keydown', leavePlayer)
-    return () => window.removeEventListener('keydown', leavePlayer)
+    window.addEventListener('keydown', onEscape)
+    return () => window.removeEventListener('keydown', onEscape)
   }, [optionsMenuOpen, visualizerMenuOpen, playlistDialogOpen, savePresetOpen])
 
   const toggleFullscreen = async () => {
@@ -347,14 +365,16 @@ export function NowPlaying() {
 
       {/* Top Header Bar (Clean & Minimal) */}
       <header className="relative z-20 flex h-14 shrink-0 items-center justify-between px-4 sm:px-8">
-        <Link
-          href={paths.library ? paths.library() : '/library'}
-          className="flex items-center gap-2 rounded-xl bg-muted hover:bg-secondary px-3 py-1.5 text-xs font-medium text-foreground/80 hover:text-foreground transition border border-border shadow-sm"
-          title="Zurück zur Bibliothek"
+        {/* Back to where the player was opened from; Escape does the same. */}
+        <button
+          type="button"
+          onClick={leavePlayer}
+          className="flex items-center gap-2 rounded-xl bg-muted hover:bg-secondary px-3 py-1.5 text-xs font-medium text-foreground/80 hover:text-foreground transition border border-border shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          title="Zurück (Esc)"
         >
           <ArrowLeft className="size-4" strokeWidth={1.8} />
-          <span>Bibliothek</span>
-        </Link>
+          <span>Zurück</span>
+        </button>
 
         <div className="flex items-center gap-2">
           <Button
@@ -486,21 +506,7 @@ export function NowPlaying() {
 
             {/* Primary Playback Controls (Centered, Tight 20-24px Gap) */}
             <div className="flex items-center justify-center lg:justify-start gap-4 sm:gap-5 w-full pt-0.5">
-              {/* Shuffle */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleShuffle}
-                className={`size-9 rounded-full transition-colors ${
-                  shuffle
-                    ? 'text-primary hover:text-primary/80'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title={shuffle ? 'Zufallswiedergabe: Ein' : 'Zufallswiedergabe: Aus'}
-                aria-label="Zufallswiedergabe"
-              >
-                <Shuffle className="size-4.5" strokeWidth={1.8} />
-              </Button>
+              <ShuffleButton shuffle={shuffle} onToggle={toggleShuffle} className="size-9" iconClassName="size-4.5" />
 
               {/* Previous */}
               <Button
@@ -515,15 +521,18 @@ export function NowPlaying() {
               </Button>
 
               {/* Play / Pause Main Action (Only Filled Accent Button, 54px) */}
+              {/* While buffering it stays a pause button: a click stops the pending start. */}
               <Button
                 size="icon"
                 onClick={togglePlayPause}
-                disabled={isBuffering}
+                aria-busy={isBuffering || undefined}
                 className="size-13 sm:size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/90 transition-colors duration-150"
-                title={isPlaying ? 'Pause' : 'Wiedergabe'}
-                aria-label={isPlaying ? 'Pause' : 'Wiedergabe'}
+                title={isBuffering ? 'Wird geladen – anhalten' : isPlaying ? 'Pause' : 'Wiedergabe'}
+                aria-label={isPlaying || isBuffering ? 'Pause' : 'Wiedergabe'}
               >
-                {isPlaying ? (
+                {isBuffering ? (
+                  <Loader2 className="size-6 animate-spin" strokeWidth={2} />
+                ) : isPlaying ? (
                   <Pause className="size-6 fill-current" strokeWidth={1.8} />
                 ) : (
                   <Play className="size-6 fill-current ml-0.5" strokeWidth={1.8} />
@@ -542,27 +551,7 @@ export function NowPlaying() {
                 <SkipForward className="size-5.5" strokeWidth={1.8} />
               </Button>
 
-              {/* Repeat */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={cycleRepeatMode}
-                className={`size-9 rounded-full transition-colors ${
-                  repeatMode !== 'off'
-                    ? 'text-primary hover:text-primary/80'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title={`Wiederholen: ${
-                  repeatMode === 'off' ? 'Aus' : repeatMode === 'queue' ? 'Queue' : 'Titel'
-                }`}
-                aria-label="Wiederholen"
-              >
-                {repeatMode === 'track' ? (
-                  <Repeat1 className="size-4.5" strokeWidth={1.8} />
-                ) : (
-                  <Repeat className="size-4.5" strokeWidth={1.8} />
-                )}
-              </Button>
+              <RepeatButton mode={repeatMode} onCycle={cycleRepeatMode} className="size-9" iconClassName="size-4.5" />
             </div>
 
             {/* Secondary Controls Bar: Volume & Options Menu */}
@@ -749,32 +738,26 @@ export function NowPlaying() {
           {/* ======================================================== */}
           {/* RIGHT COLUMN (58%): Soft Glass Panel (Top-Aligned)       */}
           {/* ======================================================== */}
-          <div className="player-panel lg:col-span-7 min-w-0 min-h-0 flex flex-col rounded-[22px] bg-muted border border-border shadow-2xl overflow-hidden">
-            
-            {/* Panel Tabs Navigation (Subtle Underline Active) */}
-            <div className="player-tabs grid grid-cols-4 shrink-0 items-center border-b border-border px-2 sm:px-4 pt-2 bg-muted">
-              <button
-                type="button"
-                onClick={() => setActiveTab('lyrics')}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition border-b-2 ${
-                  activeTab === 'lyrics'
-                    ? 'border-primary text-foreground bg-muted'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
+          <Tabs.Root
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as PrimaryTab)}
+            className="player-panel lg:col-span-7 min-w-0 min-h-0 flex flex-col rounded-[22px] bg-muted border border-border shadow-2xl overflow-hidden"
+          >
+
+            {/* Panel Tabs Navigation (Subtle Underline Active). Base UI gives
+                the tab roles, aria-selected and the arrow keys (activateOnFocus
+                selects the tab the arrows land on). */}
+            <Tabs.List
+              aria-label="Player-Bereiche"
+              activateOnFocus
+              className="player-tabs grid grid-cols-4 shrink-0 items-center border-b border-border px-2 sm:px-4 pt-2 bg-muted"
+            >
+              <Tabs.Tab value="lyrics" className={playerTabClass}>
                 <Mic2 className="size-4" strokeWidth={1.8} />
                 <span>Lyrics</span>
-              </button>
+              </Tabs.Tab>
 
-              <button
-                type="button"
-                onClick={() => setActiveTab('queue')}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition border-b-2 ${
-                  activeTab === 'queue'
-                    ? 'border-primary text-foreground bg-muted'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
+              <Tabs.Tab value="queue" className={playerTabClass}>
                 <ListMusic className="size-4" strokeWidth={1.8} />
                 <span>Queue</span>
                 {queue.length > 0 && (
@@ -782,37 +765,24 @@ export function NowPlaying() {
                     {queue.length}
                   </Badge>
                 )}
-              </button>
+              </Tabs.Tab>
 
-              <button
-                type="button"
-                onClick={() => setActiveTab('equalizer')}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition border-b-2 ${
-                  activeTab === 'equalizer'
-                    ? 'border-primary text-foreground bg-muted'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
+              <Tabs.Tab value="equalizer" className={playerTabClass}>
                 <Sliders className="size-4" strokeWidth={1.8} />
                 <span>Equalizer</span>
                 {eqEnabled && (
-                  <span className="size-1.5 rounded-full bg-primary" />
+                  <>
+                    <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
+                    <span className="sr-only">(an)</span>
+                  </>
                 )}
-              </button>
+              </Tabs.Tab>
 
-              <button
-                type="button"
-                onClick={() => setActiveTab('audio')}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold transition border-b-2 ${
-                  activeTab === 'audio'
-                    ? 'border-primary text-foreground bg-muted'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
+              <Tabs.Tab value="audio" className={playerTabClass}>
                 <Shield className="size-4" strokeWidth={1.8} />
                 <span>Audio</span>
-              </button>
-            </div>
+              </Tabs.Tab>
+            </Tabs.List>
 
             {/* Panel Tab Content (Internally Scrollable) */}
             {activeTab === 'lyrics' && parsedLrcLines && (
@@ -821,7 +791,9 @@ export function NowPlaying() {
                 {followLyrics ? 'Lyrics folgen · Ein' : 'Lyrics folgen · Aus'}
               </button>
             )}
-            <div ref={lyricsContainerRef} className="p-5 sm:p-6 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            {/* One panel whose value follows the selected tab: the content
+                below switches inside it, and it stays labelled by that tab. */}
+            <Tabs.Panel value={activeTab} ref={lyricsContainerRef} className="p-5 sm:p-6 min-h-0 flex-1 overflow-y-auto overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               onWheel={() => { if (activeTab === 'lyrics') setFollowLyrics(false) }}
               onTouchMove={() => { if (activeTab === 'lyrics') setFollowLyrics(false) }}>
               
@@ -1481,8 +1453,8 @@ export function NowPlaying() {
                 </div>
               )}
 
-            </div>
-          </div>
+            </Tabs.Panel>
+          </Tabs.Root>
 
         </div>
       </div>
