@@ -18,3 +18,11 @@ CREATE TABLE track_skips (
 CREATE INDEX track_skips_track ON track_skips(track_id);
 -- "Neu in der Mediathek" looks for files added recently.
 CREATE INDEX idx_files_created_at ON files(created_at DESC);
+-- One row per artist whose genres were looked up at a metadata provider by
+-- the background genre backfill, so it asks once per artist and not again
+-- after every restart. found=false rows are asked again after a while.
+CREATE TABLE artist_genre_lookups (
+ artist_id text PRIMARY KEY REFERENCES artists(id) ON DELETE CASCADE,
+ checked_at timestamptz NOT NULL DEFAULT now(),
+ found boolean NOT NULL DEFAULT false
+);

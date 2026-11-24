@@ -222,3 +222,40 @@ func TestPersonalMixesFollowHistoryAndSkips(t *testing.T) {
 		t.Fatal("skips survived clearing the history", skips, err)
 	}
 }
+
+// Without any artist genres there are no genre mixes; a user with listening
+// history still gets the mixes built from it.
+func TestPersonalMixesWithoutGenresFallBackToHistory(t *testing.T) {
+	db, user, _, byGenre := setupMixLibrary(t)
+	c := repository.NewCatalog(db)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `UPDATE artists SET genres_json='[]'::jsonb`); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	if mixes, err := c.PersonalMixesOn(ctx, user, day); err != nil || len(mixes) != 0 {
+		t.Fatalf("no history, no genres: %+v %v", mixes, err)
+	}
+	// Played twice this month: one track of each Rock and each Jazz artist,
+	// twelve tracks; the other tracks of those artists stay unheard.
+	for i, id := range append(byGenre["Rock"][:36:36], byGenre["Jazz"]...) {
+		if i%6 != 0 && i < 36 || i >= 36 && (i-36)%4 != 0 {
+			continue
+		}
+		for e := range 2 {
+			if _, err := db.ExecContext(ctx, `INSERT INTO playback_events(user_id,event_id,track_id,played_at) VALUES($1,$2,$3,now()-interval '1 day')`, user, fmt.Sprintf("nogenre-%s-%d", id, e), id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO listening_history(user_id,track_id,play_count,last_played_at) VALUES($1,$2,2,now()-interval '1 day')`, user, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mixes, err := c.PersonalMixesOn(ctx, user, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mixByKind(mixes, repository.MixKindGenre)) != 0 || len(mixByKind(mixes, repository.MixKindOnRepeat)) != 1 || len(mixByKind(mixes, repository.MixKindUnheard)) != 1 {
+		t.Fatalf("history mixes without genres: %+v", mixes)
+	}
+}

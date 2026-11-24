@@ -116,7 +116,7 @@ loudness measurements, per-user duplicate review, seven-day trash, fingerprints
 and playback handoff; migration 0019 records the identity scheme of each track; migration 0020 adds the
 appearance setting of a subscription; migration 0021 adds the table of further
 releases a recording is placed on; migration 0022 adds per-user skip signals
-for personal mixes and the radio.
+for personal mixes and the radio, and the record of provider genre lookups.
 The schema is additive: upgrading preserves existing
 identities, audio and playlists and never removes candidates automatically.
 Upgrades from supported older schemas require a verified database backup;
@@ -202,6 +202,19 @@ erscheint erst ab zehn Titeln. Ohne Hörverlauf entstehen Genre-Mixe aus den
 größten Genres der Bibliothek. Die Auswahl bleibt einen Kalendertag gleich und
 wechselt am nächsten Tag. Übersprungene Titel rücken nach hinten oder fallen
 heraus.
+
+Genres kommen von Deezer: Deezer kennt für Künstler kein Genre, aber für jedes
+Album. Ein Künstler erhält die ein bis drei häufigsten Album-Genres (jedes
+mindestens ein Viertel so häufig wie das häufigste), mit deutschen Namen wie
+„Klassik“ oder „Rap/Hip Hop“. Ein Hintergrundlauf ergänzt zwei Minuten nach dem
+Start, danach alle sechs Stunden, Künstler ohne Genres, die einen Deezer-Bezug
+haben (Künstler-ID, Abonnement oder ein Album aus Deezer): ein Künstler etwa
+alle zwei Sekunden, also rund 25 Minuten für 700 Künstler. Ohne Treffer wird
+ein Künstler erst nach 30 Tagen erneut gefragt. Ein abonnierter Künstler
+erhält seine Genres zusätzlich bei der nächsten Synchronisierung. Von Hand
+gesetzte Genres – auch eine leere Liste – werden nie überschrieben. Ohne
+Genres gibt es keine Genre-Mixe; die Mixe aus dem Hörverlauf erscheinen
+trotzdem.
 
 ## Geräteübergabe
 

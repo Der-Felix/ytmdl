@@ -72,6 +72,11 @@ type Options struct {
 	// there. It is asked when a sync runs. Nil means true.
 	CompleteReleases func() bool
 
+	// ArtistGenres is optional. It is called after the catalogue of a
+	// subscription was read, so the subscribed artist gets its provider
+	// genres if it has none yet. Best effort; it reports nothing back.
+	ArtistGenres func(ctx context.Context, provider, sourceID, name string)
+
 	Logger *slog.Logger
 }
 
@@ -89,6 +94,7 @@ type Service struct {
 
 	globalAppearances func() bool
 	completeReleases  func() bool
+	artistGenres      func(ctx context.Context, provider, sourceID, name string)
 
 	syncInterval  time.Duration
 	retryInterval time.Duration
@@ -179,6 +185,7 @@ func New(opts Options) (*Service, error) {
 		logger:            logger,
 		globalAppearances: globalAppearances,
 		completeReleases:  completeReleases,
+		artistGenres:      opts.ArtistGenres,
 		syncInterval:      syncInterval,
 		retryInterval:     retryInterval,
 		syncTimeout:       syncTimeout,
@@ -794,6 +801,13 @@ func (s *Service) run(ctx context.Context, sub *Subscription) (*SyncResult, erro
 	result.AppearancesSkipped = catalogue.AppearancesSkipped
 	result.TracksSeen = len(catalogue.Groups)
 	result.Warnings = append(result.Warnings, catalogue.Warnings...)
+	if s.artistGenres != nil {
+		name := sub.ArtistName
+		if catalogue.Artist.Name != "" {
+			name = catalogue.Artist.DisplayName()
+		}
+		s.artistGenres(ctx, sub.Provider, sub.ArtistSourceID, name)
+	}
 
 	// A release the provider could not deliver this time is worth coming back
 	// for; one that is simply gone is not. The distinction decides when the

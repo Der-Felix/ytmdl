@@ -18,6 +18,7 @@ import (
 	"ytdm/backend/internal/api"
 	"ytdm/backend/internal/api/handlers"
 	"ytdm/backend/internal/api/middleware"
+	"ytdm/backend/internal/artistgenres"
 	"ytdm/backend/internal/auth"
 	"ytdm/backend/internal/config"
 	"ytdm/backend/internal/database"
@@ -110,6 +111,7 @@ type application struct {
 	scheduler      *subscriptions.Scheduler
 	libraryService *libsvc.Service
 	identity       *identitymigration.Migrator
+	genres         *artistgenres.Backfill
 	sessionPool    *mediasession.SessionPool
 
 	// shutdownDeadline is the single absolute budget for one controlled
@@ -205,6 +207,9 @@ func (a *application) stopWorkers() <-chan struct{} {
 			}
 			if a.identity != nil {
 				a.identity.Stop()
+			}
+			if a.genres != nil {
+				a.genres.Stop()
 			}
 		}()
 	})
@@ -495,6 +500,18 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		return nil, err
 	}
 
+	// Library artists get the genres of the metadata provider that supports
+	// them (Deezer derives them from album genres). The backfill starts with
+	// the other background work and never delays the start.
+	var genreBackfill *artistgenres.Backfill
+	var artistGenres func(context.Context, string, string, string)
+	if metadataProvider, err := registry.Metadata(deezer.ProviderName); err == nil {
+		if source, ok := metadataProvider.(artistgenres.Source); ok {
+			genreBackfill = artistgenres.New(artistgenres.Options{Store: catalogRepo, Source: source, Logger: logger})
+			artistGenres = genreBackfill.EnrichSubscribed
+		}
+	}
+
 	subscriptionService, err := subscriptions.New(subscriptions.Options{
 		Store:               subscriptionsRepo,
 		Catalog:             catalogRepo,
@@ -511,6 +528,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		DurationToleranceMS: cfg.Matching.DurationToleranceMS,
 		IncludeAppearances:  settingsService.SubscriptionIncludeAppearances,
 		CompleteReleases:    settingsService.CompleteReleases,
+		ArtistGenres:        artistGenres,
 	})
 	if err != nil {
 		manager.Stop()
@@ -685,6 +703,9 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	}
 
 	identityMigration.Start(ctx)
+	if genreBackfill != nil {
+		genreBackfill.Start(ctx)
+	}
 
 	return &application{
 		cfg:            cfg,
@@ -698,6 +719,7 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 		scheduler:      scheduler,
 		libraryService: libraryService,
 		identity:       identityMigration,
+		genres:         genreBackfill,
 		sessionPool:    sessionPool,
 	}, nil
 }
