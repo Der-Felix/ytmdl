@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.9.0 — 2026-11-24
+
+The web player suggests what to listen to: a new page with automatic mixes, built for each user from their own listening.
+
+### Changes
+
+- **Für dich:**
+  - New page **Für dich** in the web app with automatic mixes of tracks the library holds: up to four genre mixes (**Dein Mix 1–4**, mostly tracks the user likes with rarely heard ones of the same genre in between), **In Dauerschleife** (most played in the last 30 days), **Wiederentdecken** (played at least three times, not in the last 60 days), **Noch nicht gehört** (unplayed tracks by artists the user plays or has favorited) and **Neu in der Mediathek** (added in the last 30 days).
+  - A mix holds at most 50 tracks, at most three per artist and one version of a recording; a mix that would hold fewer than ten tracks is left out. Mixes stay the same for a calendar day and change the next. Each user gets their own; one user's listening never shapes another's.
+  - A user without listening history gets genre mixes from the library's largest genres. The history-based mixes appear as the history grows.
+  - A mix can be played, shuffled or added to the queue. The same data is available under `GET /api/v1/library/mixes` and `GET /api/v1/library/mixes/{id}`.
+- **Skipped tracks:** The web player reports a skip when the user moves on to another track after at least two seconds but before the track counted as played (`POST /api/v1/history/skips`). A track that ends, fails, is paused or stopped is not a skip, and offline copies are not counted. Skipped tracks rank lower in the local radio and in the mixes; a skip stops counting after 90 days. Clearing the listening history clears the skips. The Apple app does not report skips yet.
+- **Artist genres from Deezer:**
+  - Until now only Spotify supplied genres, and a downloaded artist was stored without them, so an instance on Deezer had no genres unless they were set by hand. Genres are now derived from the artist's albums at Deezer: the most frequent ones, at most three.
+  - Artists already in the library get their genres in the background: the first pass starts two minutes after the backend, with a pause of two seconds between artists (about 25 minutes for 700 artists), and repeats every six hours for new artists. A subscription sync does the same for its artist. Genres set by hand are never replaced.
+  - Deezer is now asked for German names, so a genre is spelled the same wherever the server runs.
+- **Database Schema:** Schema 22 adds the tables `skip_events`, `track_skips` and `artist_genre_lookups` and an index on `files(created_at)`; no existing row is rewritten by the schema migration. Keep a verified backup before any update.
+- Qualify v1.8.0 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0, v1.6.0, v1.6.1, v1.7.0, v1.7.1 and v1.7.2.
+
+### Upgrade from v1.8.0
+
+Use the checksum-verified v1.9.0 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.9.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.9.0`. The update migrates the
+database to schema 22; verify a backup first. Protect the media separately;
+the database dump does not contain music files.
+
 ## 1.8.0 — 2026-11-22
 
 An album, single or compilation in the library now holds all of its tracks, also the ones the library already had on another release.
