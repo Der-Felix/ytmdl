@@ -46,14 +46,25 @@ function type(text: string) {
 
 beforeEach(() => {
   loadedTrack = null
-  window.history.replaceState(null, '', '/dashboard')
+  window.history.replaceState(null, '', '/listen')
 })
 
 describe('CommandMenu ranking', () => {
   it('offers no search entries while the field is empty', () => {
     renderMenu()
     expect(screen.queryByText(/In der Bibliothek suchen/)).toBeNull()
-    expect(screen.getByText('Ansichten')).toBeDefined()
+    expect(screen.getByText('Hören')).toBeDefined()
+  })
+
+  it('offers every destination of both areas, grouped by area', () => {
+    renderMenu()
+    const groupOf = (label: string) => screen.getByRole('option', { name: label }).closest('[cmdk-group]')?.querySelector('[cmdk-group-heading]')?.textContent
+    for (const label of ['Übersicht', 'Für dich', 'Player', 'Bibliothek', 'Playlists', 'Favoriten', 'Offline-Musik']) {
+      expect(groupOf(label)).toBe('Hören')
+    }
+    for (const label of ['Suche', 'Entdecken', 'Downloads', 'Abonnements']) {
+      expect(groupOf(label)).toBe('Laden')
+    }
   })
 
   it('opens the matching view on Enter instead of searching the library', async () => {
@@ -89,11 +100,12 @@ describe('CommandMenu ranking', () => {
     const input = type("dash")
     await waitFor(() => expect(screen.getByText(/In der Bibliothek suchen/)).toBeDefined())
     const options = screen.getAllByRole("option")
-    expect(options[0]?.textContent).toBe("Dashboard")
+    // "Suche" is the former dashboard and still found by that name.
+    expect(options[0]?.textContent).toBe("Suche")
     expect(options[0]?.getAttribute("aria-selected")).toBe("true")
     expect(screen.queryByText(/Zufallswiedergabe/)).toBeNull()
 
     fireEvent.keyDown(input, { key: "Enter" })
-    expect(window.location.pathname).toBe("/")
+    expect(window.location.pathname).toBe("/search")
   })
 })

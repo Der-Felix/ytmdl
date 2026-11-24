@@ -3,12 +3,14 @@ import type { ReactNode } from 'react'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { MenuIcon, SearchIcon, XIcon } from 'lucide-react'
 
+import { AreaSwitch } from '@/components/layout/AreaSwitch'
 import { CommandMenu } from '@/components/layout/CommandMenu'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { MiniPlayer } from '@/components/player/MiniPlayer'
 import { Button } from '@/components/ui/button'
 import { usePlayerState } from '@/hooks/usePlayer'
-import { Link, paths } from '@/lib/router'
+import { AREA_START, useArea } from '@/lib/areas'
+import { Link } from '@/lib/router'
 import type { Route } from '@/lib/router'
 import { cn } from '@/lib/utils'
 
@@ -29,6 +31,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [commandOpen, setCommandOpen] = useState(false)
   const { currentTrack } = usePlayerState()
+  const area = useArea(route)
   const isPlayerRoute = route.name === 'player'
   const showMiniPlayer = Boolean(currentTrack) && !isPlayerRoute
 
@@ -68,7 +71,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
       {/* Desktop sidebar (Hidden in player mode) */}
       {!isPlayerRoute && (
         <aside className="sticky top-0 hidden h-dvh border-r border-border md:block">
-          <Sidebar route={route} activeDownloads={activeDownloads} onOpenCommandMenu={() => setCommandOpen(true)} />
+          <Sidebar route={route} area={area} activeDownloads={activeDownloads} onOpenCommandMenu={() => setCommandOpen(true)} />
         </aside>
       )}
 
@@ -100,6 +103,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
               </DialogPrimitive.Close>
               <Sidebar
                 route={route}
+                area={area}
                 activeDownloads={activeDownloads}
                 onNavigate={() => setDrawerOpen(false)}
                 onOpenCommandMenu={() => {
@@ -117,40 +121,47 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
         {!isPlayerRoute && (
           <header
             className={cn(
-              'sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border px-4 sm:px-6',
+              // Three columns with equal outer tracks keep the switch centred.
+              'sticky top-0 z-40 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-border px-3 sm:px-6',
               'panel-blur rounded-none border-x-0 border-t-0 bg-background md:hidden',
             )}
           >
+            <div className="flex min-w-0 items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Navigation öffnen"
+                aria-expanded={drawerOpen}
+                onClick={() => setDrawerOpen(true)}
+              >
+                <MenuIcon />
+              </Button>
+
+              <Link
+                href={AREA_START[area]}
+                aria-label="YTMDL"
+                className="focus-ring flex shrink-0 items-center gap-2 rounded-lg"
+              >
+                <img
+                  src="/logo-mark.png"
+                  alt=""
+                  aria-hidden="true"
+                  data-testid="brand-logo-mobile"
+                  className="size-6 shrink-0 object-contain"
+                />
+                {/* The name only where it fits beside the switch. */}
+                <span aria-hidden="true" className="hidden font-heading text-sm font-semibold text-foreground sm:inline">
+                  YTMDL
+                </span>
+              </Link>
+            </div>
+
+            <AreaSwitch area={area} activeDownloads={activeDownloads} />
+
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Navigation öffnen"
-              aria-expanded={drawerOpen}
-              onClick={() => setDrawerOpen(true)}
-            >
-              <MenuIcon />
-            </Button>
-
-            <Link
-              href={paths.dashboard()}
-              className="focus-ring flex items-center gap-2 rounded-lg"
-            >
-              <img
-                src="/logo-mark.png"
-                alt=""
-                aria-hidden="true"
-                data-testid="brand-logo-mobile"
-                className="size-6 shrink-0 object-contain"
-              />
-              <span className="font-heading text-sm font-semibold text-foreground">
-                YTMDL
-              </span>
-            </Link>
-
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="ml-auto"
+              className="justify-self-end"
               aria-label="Suchen und Befehle"
               onClick={() => setCommandOpen(true)}
             >
@@ -171,6 +182,13 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
           )}
         >
           <div className={isPlayerRoute ? 'w-full flex-1 flex flex-col' : 'mx-auto w-full max-w-[80rem]'}>
+            {/* Desktop: the switch in its own row above every page, so it
+                never overlaps a heading and every page moves down alike. */}
+            {!isPlayerRoute && (
+              <div className="mb-6 hidden justify-center md:flex lg:mb-8">
+                <AreaSwitch area={area} activeDownloads={activeDownloads} />
+              </div>
+            )}
             {children}
           </div>
         </main>

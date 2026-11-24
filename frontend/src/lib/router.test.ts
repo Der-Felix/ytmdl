@@ -2,14 +2,21 @@ import { describe, expect, it } from 'bun:test'
 import { matchRoute, paths } from './router'
 
 describe('matchRoute', () => {
-  it('matches root dashboard', () => {
+  it('matches the root and the start page of each area', () => {
     expect(matchRoute({ pathname: '/', params: new URLSearchParams(), href: '/' })).toEqual({
-      name: 'dashboard',
+      name: 'home',
     })
+    expect(matchRoute({ pathname: '/listen', params: new URLSearchParams(), href: '/listen' })).toEqual({
+      name: 'listenHome',
+    })
+    expect(matchRoute({ pathname: '/search', params: new URLSearchParams(), href: '/search' })).toEqual({
+      name: 'downloadHome',
+    })
+    // The old dashboard address keeps opening what it showed.
     expect(
       matchRoute({ pathname: '/dashboard', params: new URLSearchParams(), href: '/dashboard' }),
     ).toEqual({
-      name: 'dashboard',
+      name: 'downloadHome',
     })
   })
 
@@ -138,7 +145,9 @@ describe('matchRoute', () => {
 
 describe('paths', () => {
   it('generates proper URLs', () => {
-    expect(paths.dashboard()).toBe('/')
+    expect(paths.home()).toBe('/')
+    expect(paths.listenHome()).toBe('/listen')
+    expect(paths.downloadHome()).toBe('/search')
     expect(paths.discover()).toBe('/discover')
     expect(paths.discover('rock')).toBe('/discover?q=rock')
     expect(paths.artist('UC123', 'ytmusic')).toBe('/artists/UC123?provider=ytmusic')

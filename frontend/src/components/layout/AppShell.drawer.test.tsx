@@ -32,10 +32,10 @@ const auth = {
 }
 
 function renderShell() {
-  window.history.replaceState(null, '', '/dashboard')
+  window.history.replaceState(null, '', '/listen')
   return render(
     <AuthContext.Provider value={auth}>
-      <AppShell route={{ name: 'dashboard' }} activeDownloads={0}>
+      <AppShell route={{ name: 'listenHome' }} activeDownloads={0}>
         <button type="button">Seiteninhalt</button>
       </AppShell>
     </AuthContext.Provider>,
