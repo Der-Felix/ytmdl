@@ -56,8 +56,9 @@ subscription without its own choice from its next sync on. See
 | `MUSICDL_LISTEN_ADDR` | `0.0.0.0:8080` | Address and port for the Go HTTP API. |
 | `MUSICDL_DATABASE_URL` | *(required)* | PostgreSQL connection string, e.g. `postgres://ytmdl:pass@db:5432/ytmdl?sslmode=disable`. |
 | `MUSICDL_LIBRARY` | `/music` *(container)* | Target directory for the organised music library. |
-| `MUSICDL_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | Comma-separated CIDRs/IPs trusted for `X-Forwarded-For`. The bundled compose files pass `127.0.0.1/32,::1/128,172.31.250.0/28` so the frontend proxy is trusted out of the box. |
+| `MUSICDL_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` | Comma-separated CIDRs/IPs trusted for `X-Forwarded-For` and `X-Forwarded-Proto`. The header is read from the right: the first address that is not a trusted proxy is the client. `compose.ghcr.yaml` passes `127.0.0.1/32,::1/128,172.31.250.0/28` so the frontend proxy is trusted out of the box; `compose.all-in-one.yaml` trusts loopback only, and behind a reverse proxy this must name that proxy. See [Single image](/single-image#behind-a-reverse-proxy). |
 | `MUSICDL_COOKIE_SECURE` | `false` | Force the `Secure` flag on session cookies (enable when serving over HTTPS). |
+| `MUSICDL_WEB_DIR` | *(empty)* · `/app/web` *(single image)* | Directory holding the built web application (`index.html`, `assets/`). When set, the backend serves it on its own listener next to the API, with the cache, security and compression rules of the frontend image's nginx; the backend refuses to start if the directory is not a frontend build. Empty serves the API only, as in the two-image layout. Set by the `ghcr.io/der-felix/ytmdl` image; see [Single image](/single-image). |
 
 ### Outbound proxy
 

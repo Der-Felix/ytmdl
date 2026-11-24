@@ -107,12 +107,20 @@ python3 scripts/smoke-release-containers.py \
   --backend ytmdl-backend:release-smoke \
   --frontend ytmdl-frontend:release-smoke \
   --version 1.9.0
+
+# The single image (Containerfile.all-in-one, built from the repository root)
+docker build -f Containerfile.all-in-one -t ytmdl:release-smoke .
+python3 scripts/smoke-release-containers.py --all-in-one ytmdl:release-smoke --version 1.9.0
 ```
 
 The test creates uniquely named networks, disposable PostgreSQL 18,
 volumes and containers. Backend and database use an internal network without
-internet access; the frontend also joins an ingress network to publish its test
-port on host loopback under both Docker and Podman. It checks first-run setup, the default-disabled combined
+internet access; the frontend (or the single image) also joins an ingress network to publish its test
+port on host loopback under both Docker and Podman. It checks the web contract
+shared by nginx and the backend's own web serving (application shell and client
+routes with `no-cache`, immutable and gzip-encoded assets, a missing asset as
+404, the security headers on static and API responses, unknown API paths
+answered by the API), first-run setup, the default-disabled combined
 fallback, exact 25 MiB multipart uploads through both route aliases, oversized
 file/request rejection, and cookie content, permissions and authentication after
 backend restart and recreation. It uses synthetic cookies, sends no provider
@@ -148,13 +156,19 @@ also qualify explicit offline copies, failed/canceled renewal, byte bounds, real
 local playback and offline restart. Only then does it create the draft release,
 give the qualified index digests the version tag (`docker buildx imagetools
 create`, which keeps the digests the manifest pins), publish the checked draft
-and promote the same digests to `latest`. Release assets include
+and promote the same digests to `latest`, `X.Y` and `X` (each only when the
+release is the newest stable one it covers; release candidates move none of
+them). The single image `ghcr.io/der-felix/ytmdl` goes through the same path:
+candidate push, scans of both architectures, a smoke test of the native build,
+of the pushed amd64 manifest and of arm64 under QEMU, promotion and cleanup. It
+is not in `release-manifest.json`, which describes the two-image layout
+`ytmdlctl` manages. Release assets include
 `qualification.json`, full scan reports and SPDX inventories; every asset is
 covered by `SHA256SUMS`.
 
 Published version tags are immutable: the workflow refuses to start, and refuses
-to promote, if `ytmdl-backend:<version>` or `ytmdl-frontend:<version>` already
-exists. A run that fails before the promotion step leaves only `candidate-*`
+to promote, if `ytmdl-backend:<version>`, `ytmdl-frontend:<version>` or
+`ytmdl:<version>` already exists. A run that fails before the promotion step leaves only `candidate-*`
 tags (and possibly a draft release), so the version is not used up: delete a
 leftover draft, then push the tag again or re-run the workflow. A run that fails
 after the promotion has published the version tag; that version is then used up
