@@ -3,6 +3,7 @@ package artistgenres
 import (
 	"context"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -17,16 +18,17 @@ type fakeStore struct {
 	mu      sync.Mutex
 	pending []repository.GenreCandidate
 	stored  map[string][]string
+	failed  []string
 	queries int
 }
 
-func (s *fakeStore) ArtistsMissingGenres(_ context.Context, provider string, _ time.Duration, limit int) ([]repository.GenreCandidate, error) {
+func (s *fakeStore) ArtistsMissingGenres(_ context.Context, provider string, _ repository.GenreRecheck, limit int) ([]repository.GenreCandidate, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.queries++
 	out := []repository.GenreCandidate{}
 	for _, c := range s.pending {
-		if _, done := s.stored[c.ArtistID]; !done && len(out) < limit {
+		if _, done := s.stored[c.ArtistID]; !done && !slices.Contains(s.failed, c.ArtistID) && len(out) < limit {
 			out = append(out, c)
 		}
 	}
@@ -40,7 +42,14 @@ func (s *fakeStore) StoreArtistGenreLookup(_ context.Context, artistID string, g
 	return nil
 }
 
-func (s *fakeStore) ArtistMissingGenresBySource(_ context.Context, _, sourceID, _ string) (string, error) {
+func (s *fakeStore) RecordArtistGenreFailure(_ context.Context, artistID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failed = append(s.failed, artistID)
+	return nil
+}
+
+func (s *fakeStore) ArtistMissingGenresBySource(_ context.Context, _, sourceID, _ string, _ repository.GenreRecheck) (string, error) {
 	if sourceID == "27" {
 		return "lib-daft", nil
 	}
@@ -113,7 +122,7 @@ func TestProviderOutageStopsThePassWithoutRecording(t *testing.T) {
 	store := &fakeStore{pending: candidates(3), stored: map[string][]string{}}
 	source := &fakeSource{fail: map[string]error{"2": apperr.New(apperr.CodeProviderRateLimited, "slow down")}}
 	n, err := newTest(store, source, 10).RunPass(t.Context())
-	if apperr.CodeOf(err) != apperr.CodeProviderRateLimited || n != 1 {
+	if apperr.CodeOf(err) != apperr.CodeProviderRateLimited || n != 2 || len(store.failed) != 0 {
 		t.Fatalf("pass went on after a rate limit: %d %v", n, err)
 	}
 	if _, recorded := store.stored["b"]; recorded {
@@ -183,5 +192,43 @@ func TestStartWaitsAndStopsCleanly(t *testing.T) {
 	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
 	if n, _ := paced.RunPass(ctx); n != 1 {
 		t.Fatalf("paced pass handled %d artists before cancellation, want 1", n)
+	}
+}
+
+// One artist the provider keeps failing on must not block the artists after
+// it, and must not be asked again by every pass.
+func TestOneBrokenArtistDoesNotBlockThePass(t *testing.T) {
+	store := &fakeStore{pending: candidates(4), stored: map[string][]string{}}
+	broken := apperr.New(apperr.CodeProviderUnavailable, "Deezer returned invalid JSON payload")
+	source := &fakeSource{fail: map[string]error{"1": broken}}
+	n, err := newTest(store, source, 10).RunPass(t.Context())
+	if err != nil || n != 4 {
+		t.Fatalf("pass stopped at the broken artist: %d %v", n, err)
+	}
+	if !reflect.DeepEqual(store.failed, []string{"a"}) || len(store.stored) != 3 {
+		t.Fatalf("failed %v stored %v", store.failed, store.stored)
+	}
+	source.requests = nil
+	if n, _ = newTest(store, source, 10).RunPass(t.Context()); n != 0 || len(source.requests) != 0 {
+		t.Fatalf("broken artist asked again at once: %v", source.requests)
+	}
+}
+
+// Failures in a row mean the provider is down: the pass stops and marks
+// none of them, so they are first in line next time.
+func TestConsecutiveFailuresStopThePassUnmarked(t *testing.T) {
+	store := &fakeStore{pending: candidates(6), stored: map[string][]string{}}
+	down := apperr.New(apperr.CodeProviderUnavailable, "Deezer API is unreachable")
+	source := &fakeSource{fail: map[string]error{"2": down, "3": down, "4": down, "5": down}}
+	n, err := newTest(store, source, 10).RunPass(t.Context())
+	if apperr.CodeOf(err) != apperr.CodeProviderUnavailable || n != 1+maxConsecutiveFailures {
+		t.Fatalf("pass did not stop after %d failures: %d %v", maxConsecutiveFailures, n, err)
+	}
+	if len(store.failed) != 0 || len(store.stored) != 1 {
+		t.Fatalf("outage marked artists: failed %v stored %v", store.failed, store.stored)
+	}
+	source.fail = nil
+	if n, err = newTest(store, source, 10).RunPass(t.Context()); err != nil || n != 5 {
+		t.Fatalf("next pass: %d %v", n, err)
 	}
 }

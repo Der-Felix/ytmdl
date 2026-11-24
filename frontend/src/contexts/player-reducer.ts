@@ -20,7 +20,11 @@ export type PlayerAction =
       payload: { track: LibraryTrack; queue?: LibraryTrack[]; queueIndex?: number }
     }
   | { type: 'PLAY_ALBUM'; payload: { tracks: LibraryTrack[]; startIndex?: number } }
-  | { type: 'PLAY_ARTIST'; payload: { tracks: LibraryTrack[]; shuffle?: boolean } }
+  | {
+      type: 'PLAY_ARTIST'
+      // order is the queue with the shuffle already drawn (see playArtistAction).
+      payload: { tracks: LibraryTrack[]; shuffle?: boolean; order?: LibraryTrack[] }
+    }
   | { type: 'PLAY_NEXT'; payload: { track: LibraryTrack } }
   | { type: 'PLAY_QUEUE_INDEX'; payload: { index: number } }
   | { type: 'ADD_TO_QUEUE'; payload: { tracks: LibraryTrack[] | LibraryTrack } }
@@ -103,6 +107,15 @@ export const INITIAL_PLAYER_STATE: PlayerState = {
   peakWarning: false,
   history: [],
   error: null,
+}
+
+/**
+ * PLAY_ARTIST with its shuffle drawn up front. The reducer is then pure for
+ * the action, so checking it in advance (whether it moves on to another
+ * track, a skip) and dispatching it see the same first track.
+ */
+export function playArtistAction(tracks: LibraryTrack[], shuffle = false): PlayerAction {
+  return { type: 'PLAY_ARTIST', payload: { tracks, shuffle, order: shuffle ? shuffleArray(tracks) : undefined } }
 }
 
 function shuffleArray<T>(array: T[]): T[] {
@@ -223,13 +236,10 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     }
 
     case 'PLAY_ARTIST': {
-      const { tracks, shuffle = false } = action.payload
+      const { tracks, shuffle = false, order } = action.payload
       if (!tracks.length) return state
       const originalQueue = [...tracks]
-      let finalQueue = [...tracks]
-      if (shuffle) {
-        finalQueue = shuffleArray(finalQueue)
-      }
+      const finalQueue = order?.length === tracks.length ? [...order] : shuffle ? shuffleArray(tracks) : [...tracks]
       const track = finalQueue[0]!
       return {
         ...state,

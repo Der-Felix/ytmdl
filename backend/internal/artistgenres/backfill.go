@@ -8,7 +8,9 @@ package artistgenres
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,9 +33,10 @@ type Source interface {
 
 // Store is the catalogue side.
 type Store interface {
-	ArtistsMissingGenres(ctx context.Context, provider string, recheck time.Duration, limit int) ([]repository.GenreCandidate, error)
+	ArtistsMissingGenres(ctx context.Context, provider string, recheck repository.GenreRecheck, limit int) ([]repository.GenreCandidate, error)
 	StoreArtistGenreLookup(ctx context.Context, artistID string, genres []string) error
-	ArtistMissingGenresBySource(ctx context.Context, provider, sourceID, name string) (string, error)
+	RecordArtistGenreFailure(ctx context.Context, artistID string) error
+	ArtistMissingGenresBySource(ctx context.Context, provider, sourceID, name string, recheck repository.GenreRecheck) (string, error)
 }
 
 // Options configures the backfill. Zero durations and counts take the
@@ -54,6 +57,8 @@ type Options struct {
 	Retry time.Duration
 	// Recheck is how long an artist without provider genres is left alone.
 	Recheck time.Duration
+	// FailedRecheck is how long an artist the provider failed on is left alone.
+	FailedRecheck time.Duration
 	// MaxPerPass bounds the artists one pass looks up.
 	MaxPerPass int
 }
@@ -64,8 +69,12 @@ const (
 	defaultIdle       = 6 * time.Hour
 	defaultRetry      = 15 * time.Minute
 	defaultRecheck    = 30 * 24 * time.Hour
+	defaultFailed     = 24 * time.Hour
 	defaultMaxPerPass = 1000
 	batchSize         = 100
+	// maxConsecutiveFailures failed artists in a row mean the provider is
+	// down rather than one artist being broken.
+	maxConsecutiveFailures = 3
 )
 
 // Backfill looks up genres for library artists in the background.
@@ -94,6 +103,9 @@ func New(opts Options) *Backfill {
 	}
 	if opts.Recheck <= 0 {
 		opts.Recheck = defaultRecheck
+	}
+	if opts.FailedRecheck <= 0 {
+		opts.FailedRecheck = defaultFailed
 	}
 	if opts.MaxPerPass <= 0 {
 		opts.MaxPerPass = defaultMaxPerPass
@@ -143,26 +155,69 @@ func (b *Backfill) Stop() {
 }
 
 // RunPass looks up at most MaxPerPass artists and reports how many it
-// handled. It stops at the first provider failure that is not about one
-// artist (rate limit, outage), so the next pass resumes where it stopped.
+// handled. One artist the provider fails on (a broken answer, an error
+// Deezer gives for that artist only) does not hold up the rest: it is
+// recorded as a failed lookup, asked again after FailedRecheck, and the pass
+// goes on. The pass stops on a rate limit, on a database error, or after
+// maxConsecutiveFailures failures in a row - then the provider itself is
+// down, and those artists are not marked, so the next pass asks them first.
 func (b *Backfill) RunPass(ctx context.Context) (int, error) {
 	done := 0
+	var failed []string
+	flush := func() error {
+		for _, id := range failed {
+			if err := b.opts.Store.RecordArtistGenreFailure(ctx, id); err != nil {
+				return err
+			}
+		}
+		failed = failed[:0]
+		return nil
+	}
 	for done < b.opts.MaxPerPass {
-		batch, err := b.opts.Store.ArtistsMissingGenres(ctx, b.opts.Source.Name(), b.opts.Recheck, min(batchSize, b.opts.MaxPerPass-done))
-		if err != nil || len(batch) == 0 {
+		batch, err := b.opts.Store.ArtistsMissingGenres(ctx, b.opts.Source.Name(), b.recheck(), min(batchSize, b.opts.MaxPerPass-done))
+		if err != nil {
 			return done, err
 		}
+		if len(batch) == 0 {
+			break
+		}
+		progressed := false
 		for _, cand := range batch {
+			if slices.Contains(failed, cand.ArtistID) {
+				continue // not recorded yet; asked again by the next pass
+			}
 			if done > 0 && !sleep(ctx, b.opts.Pace) {
 				return done, ctx.Err()
 			}
-			if err := b.lookup(ctx, cand); err != nil {
+			done++
+			err := b.lookup(ctx, cand)
+			switch {
+			case err == nil:
+				progressed = true
+				if err := flush(); err != nil {
+					return done, err
+				}
+			case stopsPass(err):
+				return done, err
+			default:
+				failed = append(failed, cand.ArtistID)
+				if len(failed) >= maxConsecutiveFailures {
+					return done, err
+				}
+			}
+			if done >= b.opts.MaxPerPass {
+				break
+			}
+		}
+		if !progressed && len(failed) > 0 {
+			// Only failures left in this batch: record them so the next
+			// batch query moves past them.
+			if err := flush(); err != nil {
 				return done, err
 			}
-			done++
 		}
 	}
-	return done, nil
+	return done, flush()
 }
 
 // EnrichSubscribed looks up genres for the library artist a subscription
@@ -172,19 +227,22 @@ func (b *Backfill) EnrichSubscribed(ctx context.Context, provider, sourceID, nam
 	if provider != b.opts.Source.Name() || strings.TrimSpace(sourceID) == "" {
 		return
 	}
-	artistID, err := b.opts.Store.ArtistMissingGenresBySource(ctx, provider, sourceID, name)
+	artistID, err := b.opts.Store.ArtistMissingGenresBySource(ctx, provider, sourceID, name, b.recheck())
 	if err != nil || artistID == "" {
 		return
 	}
 	if err := b.lookup(ctx, repository.GenreCandidate{ArtistID: artistID, Name: name, SourceArtistID: sourceID}); err != nil {
+		if !stopsPass(err) {
+			_ = b.opts.Store.RecordArtistGenreFailure(ctx, artistID)
+		}
 		b.opts.Logger.Debug("artist genres after subscription sync failed",
 			logging.KeyProvider, provider, logging.KeyError, err.Error())
 	}
 }
 
-// lookup asks the provider for one artist and records the answer. An error
-// is returned only when the provider failed as a whole; an artist the
-// provider does not know is recorded as having no genres.
+// lookup asks the provider for one artist and records the answer. An artist
+// the provider does not know is recorded as having no genres; any other
+// error leaves the artist unrecorded for the caller to classify.
 func (b *Backfill) lookup(ctx context.Context, cand repository.GenreCandidate) error {
 	artistID := cand.SourceArtistID
 	if artistID == "" && cand.SourceAlbumID != "" {
@@ -207,6 +265,20 @@ func (b *Backfill) lookup(ctx context.Context, cand repository.GenreCandidate) e
 		genres = found
 	}
 	return b.opts.Store.StoreArtistGenreLookup(ctx, cand.ArtistID, genres)
+}
+
+func (b *Backfill) recheck() repository.GenreRecheck {
+	return repository.GenreRecheck{NoGenres: b.opts.Recheck, Failed: b.opts.FailedRecheck}
+}
+
+// stopsPass reports an error that is not about one artist: the provider
+// rate limits, the run was cancelled, or the database failed.
+func stopsPass(err error) bool {
+	switch apperr.CodeOf(err) {
+	case apperr.CodeProviderRateLimited, apperr.CodeJobCancelled, apperr.CodeInternal:
+		return true
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // perArtist reports an error about one artist or album rather than the

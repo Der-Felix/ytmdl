@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Recorded from https://api.deezer.com/artist/27/albums?limit=100 (Daft Punk,
@@ -121,4 +122,35 @@ func TestAlbumArtist(t *testing.T) {
 	if _, err := provider.ArtistGenres(t.Context(), "x"); err == nil {
 		t.Fatal("invalid id accepted")
 	}
+}
+
+// A slow genre request must not block lookups the cache can answer.
+func TestGenreCacheIsNotLockedDuringRequests(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/genre/522" {
+			entered <- struct{}{}
+			<-release
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":522,"name":"Singer & Songwriter"}`))
+	})
+	provider.genres.fill([]apiGenre{{ID: 132, Name: "Pop"}})
+	go func() { _, _ = provider.genreName(t.Context(), 522) }()
+	<-entered
+	done := make(chan string, 1)
+	go func() {
+		name, _ := provider.genreName(t.Context(), 132)
+		done <- name
+	}()
+	select {
+	case name := <-done:
+		if name != "Pop" {
+			t.Fatalf("name %q", name)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cached genre waited for another genre's request")
+	}
+	close(release)
 }

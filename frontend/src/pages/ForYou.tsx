@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { ArrowLeft, ListPlus, Loader2, Play, Shuffle, Sparkles } from 'lucide-react'
 
@@ -128,19 +128,32 @@ export function ForYou() {
   const mixes = useMemo(() => (state.status === 'success' ? state.data : []), [state])
   const today = useMemo(() => new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' }), [])
 
+  // The mix being loaded for playback. Leaving the page or starting another
+  // mix aborts it, so a late answer never starts playback on its own.
+  const playRequest = useRef<AbortController | null>(null)
+  useEffect(() => () => playRequest.current?.abort(), [])
+
   const handlePlay = useCallback(
     async (event: MouseEvent, mix: PersonalMix) => {
       event.preventDefault()
       event.stopPropagation()
+      playRequest.current?.abort()
+      const request = new AbortController()
+      playRequest.current = request
       setPlayError('')
       setPlaying(mix.id)
       try {
-        const detail = await personalMix(mix.id)
+        const detail = await personalMix(mix.id, request.signal)
+        if (request.signal.aborted) return
         if (detail.tracks.length > 0) playAlbum(detail.tracks)
       } catch (error) {
+        if (request.signal.aborted) return
         setPlayError(error instanceof Error ? error.message : 'Mix konnte nicht geladen werden.')
       } finally {
-        setPlaying(null)
+        if (playRequest.current === request) {
+          playRequest.current = null
+          setPlaying(null)
+        }
       }
     },
     [playAlbum],

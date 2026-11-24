@@ -259,3 +259,55 @@ func TestPersonalMixesWithoutGenresFallBackToHistory(t *testing.T) {
 		t.Fatalf("history mixes without genres: %+v", mixes)
 	}
 }
+
+// A genre the user mostly skips is not offered from the library fallback; a
+// cold-start mix does not promise favorites; and a single genre mix equals
+// its entry in the list, with the same number.
+func TestPersonalMixesSkipDislikedGenresAndMatchTheList(t *testing.T) {
+	db, user, _, byGenre := setupMixLibrary(t)
+	c := repository.NewCatalog(db)
+	ctx := context.Background()
+	day := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	mixes, err := c.PersonalMixesOn(ctx, user, day)
+	if err != nil || len(mixes) != 2 {
+		t.Fatalf("cold start: %+v %v", mixes, err)
+	}
+	for _, m := range mixes {
+		if want := "Eine Auswahl aus " + m.Genre + " in deiner Mediathek"; m.Description != want {
+			t.Fatalf("cold-start description %q", m.Description)
+		}
+	}
+	rockID := mixes[0].ID
+
+	// Two Rock tracks skipped: Rock's affinity is negative.
+	for i, id := range byGenre["Rock"][:2] {
+		if err := c.RecordSkip(ctx, user, fmt.Sprintf("dislike-rock-%06d", i), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mixes, err = c.PersonalMixesOn(ctx, user, day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genre := mixByKind(mixes, repository.MixKindGenre)
+	if len(genre) != 1 || genre[0].Genre != "Jazz" || genre[0].Title != "Dein Mix 1" {
+		t.Fatalf("disliked genre offered: %+v", genre)
+	}
+	if _, err := c.PersonalMixOn(ctx, user, rockID, day); err == nil {
+		t.Fatal("disliked genre mix served")
+	}
+	for _, m := range mixes {
+		d, err := c.PersonalMixOn(ctx, user, m.ID, day)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := []string{}
+		for _, tr := range d.Tracks {
+			ids = append(ids, tr.ID)
+		}
+		if d.Title != m.Title || d.Description != m.Description || d.Genre != m.Genre || d.TrackCount != m.TrackCount ||
+			!reflect.DeepEqual(d.CoverTrackIDs, m.CoverTrackIDs) || len(ids) != m.TrackCount {
+			t.Fatalf("detail %+v differs from list entry %+v", d.PersonalMix, m)
+		}
+	}
+}

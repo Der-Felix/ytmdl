@@ -42,7 +42,8 @@ func TestArtistGenreBackfillCandidatesAndNeverOverwriteManual(t *testing.T) {
 	exec(`INSERT INTO releases(id,artist_id,title,provider,source_id,created_at,updated_at) VALUES('g-rel','g-album','Discovery','deezer','302127',now(),now()),('g-rel2','g-manual','X','deezer','1',now(),now())`)
 	exec(`INSERT INTO artist_subscriptions(id,provider,artist_source_id,artist_name,next_sync_at,created_at,updated_at) VALUES('g-subscription','deezer','4050205','subscribed',now(),now(),now())`)
 
-	got, err := c.ArtistsMissingGenres(ctx, "deezer", time.Hour, 10)
+	recheck := repository.GenreRecheck{NoGenres: time.Hour, Failed: 10 * time.Minute}
+	got, err := c.ArtistsMissingGenres(ctx, "deezer", recheck, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestArtistGenreBackfillCandidatesAndNeverOverwriteManual(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidates %+v", got)
 	}
-	if got, _ = c.ArtistsMissingGenres(ctx, "deezer", time.Hour, 1); len(got) != 1 || got[0].ArtistID != "g-album" {
+	if got, _ = c.ArtistsMissingGenres(ctx, "deezer", recheck, 1); len(got) != 1 || got[0].ArtistID != "g-album" {
 		t.Fatalf("limit ignored: %+v", got)
 	}
 
@@ -86,22 +87,41 @@ func TestArtistGenreBackfillCandidatesAndNeverOverwriteManual(t *testing.T) {
 
 	// A recorded lookup is not repeated within the recheck window; an
 	// artist without provider genres is asked again after it.
-	if got, _ = c.ArtistsMissingGenres(ctx, "deezer", time.Hour, 10); len(got) != 1 || got[0].ArtistID != "g-direct" {
+	if got, _ = c.ArtistsMissingGenres(ctx, "deezer", recheck, 10); len(got) != 1 || got[0].ArtistID != "g-direct" {
 		t.Fatalf("after lookups: %+v", got)
 	}
 	exec(`UPDATE artist_genre_lookups SET checked_at=now()-interval '2 hours' WHERE artist_id='g-sub'`)
-	if got, _ = c.ArtistsMissingGenres(ctx, "deezer", time.Hour, 10); len(got) != 2 || got[1].ArtistID != "g-sub" {
+	if got, _ = c.ArtistsMissingGenres(ctx, "deezer", recheck, 10); len(got) != 2 || got[1].ArtistID != "g-sub" {
 		t.Fatalf("recheck: %+v", got)
 	}
 
 	// A subscription sync finds its library artist by source or by name.
-	if id, err := c.ArtistMissingGenresBySource(ctx, "deezer", "1424821", ""); err != nil || id != "g-direct" {
+	if id, err := c.ArtistMissingGenresBySource(ctx, "deezer", "1424821", "", recheck); err != nil || id != "g-direct" {
 		t.Fatalf("by source: %q %v", id, err)
 	}
-	if id, err := c.ArtistMissingGenresBySource(ctx, "deezer", "4050205", "SUBSCRIBED"); err != nil || id != "g-sub" {
+	if id, err := c.ArtistMissingGenresBySource(ctx, "deezer", "4050205", "SUBSCRIBED", recheck); err != nil || id != "g-sub" {
 		t.Fatalf("by name: %q %v", id, err)
 	}
-	if id, err := c.ArtistMissingGenresBySource(ctx, "deezer", "302127", "Daft Punk"); err != nil || id != "" {
+	if id, err := c.ArtistMissingGenresBySource(ctx, "deezer", "302127", "Daft Punk", recheck); err != nil || id != "" {
 		t.Fatalf("artist with genres returned: %q %v", id, err)
+	}
+
+	// A failed lookup is due again after the shorter Failed recheck, for the
+	// backfill and for a subscription sync alike.
+	if err := c.RecordArtistGenreFailure(ctx, "g-direct"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = c.ArtistsMissingGenres(ctx, "deezer", recheck, 10); len(got) != 1 || got[0].ArtistID != "g-sub" {
+		t.Fatalf("failed artist asked again at once: %+v", got)
+	}
+	if id, _ := c.ArtistMissingGenresBySource(ctx, "deezer", "1424821", "", recheck); id != "" {
+		t.Fatal("subscription sync ignores the recorded lookup")
+	}
+	exec(`UPDATE artist_genre_lookups SET checked_at=now()-interval '20 minutes' WHERE artist_id='g-direct'`)
+	if got, _ = c.ArtistsMissingGenres(ctx, "deezer", recheck, 10); len(got) != 2 || got[0].ArtistID != "g-direct" {
+		t.Fatalf("failed artist not retried: %+v", got)
+	}
+	if id, _ := c.ArtistMissingGenresBySource(ctx, "deezer", "1424821", "", recheck); id != "g-direct" {
+		t.Fatal("subscription sync does not retry a failed lookup")
 	}
 }

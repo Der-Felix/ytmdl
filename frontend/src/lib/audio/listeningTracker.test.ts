@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { ListeningTracker, movesOnToAnotherTrack } from './listeningTracker'
+import { ListeningTracker, SKIP_MAX_PAUSE_SECONDS, movesOnToAnotherTrack } from './listeningTracker'
 test('history ignores pauses, seeks, hidden-tab gaps and duplicate callbacks', () => {
   const t = new ListeningTracker()
   expect(t.tick('one', true, 0, 120)).toBe(false)
@@ -19,29 +19,29 @@ test('a skip needs 2 s of listening, stays below the play threshold and is repor
   const t = new ListeningTracker()
   t.tick('one', true, 0, 200)
   t.tick('one', true, 1000, 200)
-  expect(t.takeSkip('one')).toBe(false) // one second is not a judgement
+  expect(t.takeSkip('one', 1000, true)).toBe(false) // one second is not a judgement
   t.tick('one', true, 2000, 200)
-  expect(t.takeSkip('other')).toBe(false) // only the track being tracked
-  expect(t.takeSkip('one')).toBe(true)
-  expect(t.takeSkip('one')).toBe(false) // at most once per track start
+  expect(t.takeSkip('other', 2000, true)).toBe(false) // only the track being tracked
+  expect(t.takeSkip('one', 2000, true)).toBe(true)
+  expect(t.takeSkip('one', 2000, true)).toBe(false) // at most once per track start
   // A new start of the track can be skipped again.
   t.tick('two', true, 3000, 200)
   t.tick('one', true, 4000, 200)
   for (let n = 1; n <= 3; n++) t.tick('one', true, 4000 + n * 1000, 200)
-  expect(t.takeSkip('one')).toBe(true)
+  expect(t.takeSkip('one', 7000, true)).toBe(true)
   // Once the track counted as a play, moving on is no skip.
   t.reset()
   for (let n = 0; n <= 30; n++) t.tick('one', true, n * 1000, 200)
-  expect(t.takeSkip('one')).toBe(false)
+  expect(t.takeSkip('one', 30000, true)).toBe(false)
   // Paused time does not count; a reset after a natural end leaves nothing to skip.
   t.reset()
   t.tick('one', true, 0, 200)
   t.tick('one', false, 1000, 200)
   t.tick('one', true, 60000, 200)
-  expect(t.takeSkip('one')).toBe(false)
+  expect(t.takeSkip('one', 60000, true)).toBe(false)
   t.tick('one', true, 61000, 200)
   t.reset()
-  expect(t.takeSkip('one')).toBe(false)
+  expect(t.takeSkip('one', 61000, true)).toBe(false)
 })
 
 test('only moving on to another playable track can be a skip', () => {
@@ -55,4 +55,21 @@ test('only moving on to another playable track can be a skip', () => {
   expect(movesOnToAnotherTrack({ ...playing, error: 'decode' }, { currentTrack: b })).toBe(false)
   expect(movesOnToAnotherTrack({ ...playing, currentTrack: { id: 'a', offline_blob_key: 'k' } }, { currentTrack: b })).toBe(false)
   expect(movesOnToAnotherTrack({ ...playing, currentTrack: null }, { currentTrack: b })).toBe(false)
+})
+
+test('moving on after a long pause is no skip', () => {
+  const t = new ListeningTracker()
+  for (let n = 0; n <= 5; n++) t.tick('one', true, n * 1000, 200)
+  t.tick('one', false, 5500, 200)
+  // A short pause still leaves the judgement to the user.
+  expect(t.takeSkip('one', 5000 + SKIP_MAX_PAUSE_SECONDS * 1000, false)).toBe(true)
+  t.reset()
+  for (let n = 0; n <= 5; n++) t.tick('one', true, n * 1000, 200)
+  t.tick('one', false, 5500, 200)
+  // Paused for longer: the user left and came back.
+  expect(t.takeSkip('one', 5001 + SKIP_MAX_PAUSE_SECONDS * 1000, false)).toBe(false)
+  // While it plays, the time since the last tick does not matter.
+  t.reset()
+  for (let n = 0; n <= 5; n++) t.tick('one', true, n * 1000, 200)
+  expect(t.takeSkip('one', 5000 + 2 * SKIP_MAX_PAUSE_SECONDS * 1000, true)).toBe(true)
 })

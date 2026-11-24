@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -87,15 +88,11 @@ func (c *Catalog) PersonalMixOn(ctx context.Context, userID, id string, day time
 	b := mixBuilder{c: c, user: userID, day: day.Format(time.DateOnly), now: time.Now()}
 	var found *PersonalMix
 	if strings.HasPrefix(id, MixKindGenre+"-") {
-		mixes, err := b.genreMixes(ctx)
+		m, err := b.genreMixByID(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		for i := range mixes {
-			if mixes[i].ID == id {
-				found = &mixes[i]
-			}
-		}
+		found = m
 	} else {
 		switch id {
 		case MixKindOnRepeat, MixKindRediscover, MixKindUnheard, MixKindNew:
@@ -149,42 +146,148 @@ func newMix(id, kind, title, description string, picked []MixCandidate) *Persona
 	return m
 }
 
-// genreMixes builds up to four genre mixes: the user's genres by affinity
-// first, then, for a new user or too few such genres, the library's largest.
+// genreMixes builds up to four genre mixes, trying the genres in genreOrder.
+// A genre too small for a mix is passed over and does not take a number.
 func (b mixBuilder) genreMixes(ctx context.Context) ([]PersonalMix, error) {
-	genres, err := b.userGenres(ctx)
+	order, err := b.genreOrder(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(genres) < maxGenreMixes {
-		more, err := b.libraryGenres(ctx)
-		if err != nil {
-			return nil, err
-		}
-		genres = append(genres, more...)
-	}
 	mixes := []PersonalMix{}
-	seen := map[string]bool{}
-	for _, g := range genres {
+	for _, g := range order {
 		if len(mixes) == maxGenreMixes {
 			break
 		}
-		id := genreMixID(g)
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		cands, err := b.candidates(ctx, id, genreCandidatesSQL, g)
+		m, err := b.genreMix(ctx, g, len(mixes)+1)
 		if err != nil {
 			return nil, err
 		}
-		title := fmt.Sprintf("Dein Mix %d", len(mixes)+1)
-		if m := newMix(id, MixKindGenre, title, "Deine Favoriten aus "+g+" und Titel, die du kaum kennst", composeGenreMix(cands, b.now)); m != nil {
-			m.Genre = g
+		if m != nil {
 			mixes = append(mixes, *m)
 		}
 	}
 	return mixes, nil
+}
+
+// genreMixByID builds the genre mix with this id exactly as genreMixes offers
+// it today, or nil when it is not offered. Its number, and whether it is
+// offered at all, depend on which genres before it reach MixMinTracks, so
+// those are composed (without loading their tracks); genres after it are not
+// touched, and an id outside today's genres costs no candidate query.
+func (b mixBuilder) genreMixByID(ctx context.Context, id string) (*PersonalMix, error) {
+	order, err := b.genreOrder(ctx)
+	if err != nil {
+		return nil, err
+	}
+	target := slices.IndexFunc(order, func(g string) bool { return genreMixID(g) == id })
+	if target < 0 {
+		return nil, nil
+	}
+	offered := 0
+	for _, g := range order[:target] {
+		if offered == maxGenreMixes {
+			return nil, nil
+		}
+		m, err := b.genreMix(ctx, g, offered+1)
+		if err != nil {
+			return nil, err
+		}
+		if m != nil {
+			offered++
+		}
+	}
+	if offered == maxGenreMixes {
+		return nil, nil
+	}
+	return b.genreMix(ctx, order[target], offered+1)
+}
+
+// genreMix builds the mix of one genre as "Dein Mix n", or nil when the
+// genre has too few tracks for a mix.
+func (b mixBuilder) genreMix(ctx context.Context, genre string, n int) (*PersonalMix, error) {
+	id := genreMixID(genre)
+	cands, err := b.candidates(ctx, id, genreCandidatesSQL, genre)
+	if err != nil {
+		return nil, err
+	}
+	picked := composeGenreMix(cands, b.now)
+	m := newMix(id, MixKindGenre, fmt.Sprintf("Dein Mix %d", n), genreMixDescription(genre, picked), picked)
+	if m != nil {
+		m.Genre = genre
+	}
+	return m, nil
+}
+
+// genreMixDescription names the user's favorites only when the mix has some;
+// a cold-start mix is a plain selection from the library.
+func genreMixDescription(genre string, picked []MixCandidate) string {
+	if slices.ContainsFunc(picked, MixCandidate.Liked) {
+		return "Deine Favoriten aus " + genre + " und Titel, die du kaum kennst"
+	}
+	return "Eine Auswahl aus " + genre + " in deiner Mediathek"
+}
+
+// genreOrder lists the genres genre mixes are tried in.
+func (b mixBuilder) genreOrder(ctx context.Context) ([]string, error) {
+	user, err := b.userGenres(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var library []weightedGenre
+	if countAffine(user) < maxGenreMixes {
+		if library, err = b.libraryGenres(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return mixGenreOrder(user, library), nil
+}
+
+// weightedGenre is a genre with a weight: the user's affinity, or the
+// library's track count.
+type weightedGenre struct {
+	Name   string
+	Weight float64
+}
+
+// maxUserGenres bounds the user's own genres tried for mixes.
+const maxUserGenres = 8
+
+func countAffine(user []weightedGenre) int {
+	n := 0
+	for _, g := range user {
+		if g.Weight > 0 {
+			n++
+		}
+	}
+	return min(n, maxUserGenres)
+}
+
+// mixGenreOrder orders genres for mixes: the user's genres with a positive
+// affinity, strongest first (at most maxUserGenres), then the library's
+// largest genres, which only fill in for a new user or too few such genres.
+// A genre the user's affinity is negative for (mostly skipped) is never
+// filled in from the library. Duplicates by mix id are dropped.
+func mixGenreOrder(user, library []weightedGenre) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, g := range user {
+		if g.Weight < 0 {
+			seen[genreMixID(g.Name)] = true
+		}
+	}
+	for _, g := range user {
+		if g.Weight > 0 && len(out) < maxUserGenres && !seen[genreMixID(g.Name)] {
+			seen[genreMixID(g.Name)] = true
+			out = append(out, g.Name)
+		}
+	}
+	for _, g := range library {
+		if !seen[genreMixID(g.Name)] {
+			seen[genreMixID(g.Name)] = true
+			out = append(out, g.Name)
+		}
+	}
+	return out
 }
 
 func (b mixBuilder) kindMix(ctx context.Context, kind string) (*PersonalMix, error) {
@@ -217,36 +320,36 @@ func (b mixBuilder) kindMix(ctx context.Context, kind string) (*PersonalMix, err
 }
 
 // userGenres ranks genres by this user's affinity: plays (capped per track)
-// and favorites count for a genre, recent skips against it.
-func (b mixBuilder) userGenres(ctx context.Context) ([]string, error) {
+// and favorites count for a genre, recent skips against it. Genres with a
+// negative affinity are listed too, so the library fallback can leave them out.
+func (b mixBuilder) userGenres(ctx context.Context) ([]weightedGenre, error) {
 	return b.genreList(ctx, `WITH sig AS (
  SELECT track_id,LEAST(play_count,20)::float8 AS w FROM listening_history WHERE user_id=$1
  UNION ALL SELECT track_id,5 FROM favorite_tracks WHERE user_id=$1
  UNION ALL SELECT track_id,-(3*LEAST(skip_count,4))::float8 FROM track_skips WHERE user_id=$1 AND last_skipped_at>now()-interval '90 days')
  SELECT min(btrim(g.name)),sum(sig.w)::float8 FROM sig JOIN tracks t ON t.id=sig.track_id JOIN artists a ON a.id=t.artist_id
  CROSS JOIN LATERAL jsonb_array_elements_text(a.genres_json) AS g(name)
- WHERE btrim(g.name)<>'' GROUP BY lower(btrim(g.name) COLLATE "pg_c_utf8") HAVING sum(sig.w)>0 ORDER BY 2 DESC,1 LIMIT 8`, b.user)
+ WHERE btrim(g.name)<>'' GROUP BY lower(btrim(g.name) COLLATE "pg_c_utf8") HAVING sum(sig.w)<>0 ORDER BY 2 DESC,1`, b.user)
 }
 
 // libraryGenres ranks genres by the number of local tracks.
-func (b mixBuilder) libraryGenres(ctx context.Context) ([]string, error) {
+func (b mixBuilder) libraryGenres(ctx context.Context) ([]weightedGenre, error) {
 	return b.genreList(ctx, `WITH artist_tracks AS (SELECT t.artist_id,count(*) AS n FROM tracks t WHERE t.artist_id IS NOT NULL AND EXISTS(SELECT 1 FROM files f WHERE f.track_id=t.id) GROUP BY t.artist_id)
  SELECT min(btrim(g.name)),sum(art.n)::float8 FROM artist_tracks art JOIN artists a ON a.id=art.artist_id
  CROSS JOIN LATERAL jsonb_array_elements_text(a.genres_json) AS g(name)
  WHERE btrim(g.name)<>'' GROUP BY lower(btrim(g.name) COLLATE "pg_c_utf8") ORDER BY 2 DESC,1 LIMIT 8`)
 }
 
-func (b mixBuilder) genreList(ctx context.Context, query string, args ...any) ([]string, error) {
+func (b mixBuilder) genreList(ctx context.Context, query string, args ...any) ([]weightedGenre, error) {
 	rows, err := b.c.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, wrapDB("mix genres", err)
 	}
 	defer rows.Close()
-	out := []string{}
+	out := []weightedGenre{}
 	for rows.Next() {
-		var g string
-		var weight float64
-		if err := rows.Scan(&g, &weight); err != nil {
+		var g weightedGenre
+		if err := rows.Scan(&g.Name, &g.Weight); err != nil {
 			return nil, err
 		}
 		out = append(out, g)

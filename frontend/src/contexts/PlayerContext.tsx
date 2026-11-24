@@ -36,7 +36,7 @@ import type {
 import { notifySuccess } from '@/lib/notify'
 import { joinArtists } from '@/lib/utils/format'
 import type { LibraryTrack } from '@/types/api'
-import { INITIAL_PLAYER_STATE, playerReducer } from './player-reducer'
+import { INITIAL_PLAYER_STATE, playArtistAction, playerReducer } from './player-reducer'
 import type { PlayerAction } from './player-reducer'
 import { createProgressStore, PlayerProgressStoreContext } from './player-progress-store'
 
@@ -144,7 +144,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       u = userRef.current
     if (!u || !before.currentTrack) return
     if (!movesOnToAnotherTrack(before, playerReducer(before, action))) return
-    if (!listeningTracker.current.takeSkip(u.id + ':' + before.currentTrack.id)) return
+    if (!listeningTracker.current.takeSkip(u.id + ':' + before.currentTrack.id, performance.now(), before.status === 'playing')) return
     const id = newEventID(),
       trackID = before.currentTrack.id
     void recordSkip(trackID, id)
@@ -752,12 +752,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [reportSkipBefore])
 
   const playArtist = useCallback((tracks: LibraryTrack[], shuffle = false) => {
+    // The shuffle is drawn once, so the skip check sees the track that plays.
+    const action = playArtistAction(tracks, shuffle)
     if (tracks.length > 0) {
-      reportSkipBefore({ type: 'PLAY_ARTIST', payload: { tracks, shuffle } })
+      reportSkipBefore(action)
       currentEngineTrackIdRef.current = null
       requestLoad()
     }
-    dispatch({ type: 'PLAY_ARTIST', payload: { tracks, shuffle } })
+    dispatch(action)
   }, [reportSkipBefore])
 
   const playNextAction = useCallback((track: LibraryTrack) => {

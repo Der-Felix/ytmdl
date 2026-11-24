@@ -16,13 +16,18 @@ mock.module('@/hooks/usePlayer', () => ({
 
 let mixes: PersonalMix[] = []
 let detail: PersonalMixDetail | Error
+// When set, personalMix waits for it before answering.
+let gate: Promise<void> | null = null
+let lastSignal: AbortSignal | undefined
 const listCalls: string[] = []
 mock.module('@/lib/api/mixes', () => ({
   personalMixes: async () => {
     listCalls.push('list')
     return mixes
   },
-  personalMix: async () => {
+  personalMix: async (_id: string, signal?: AbortSignal) => {
+    lastSignal = signal
+    if (gate) await gate
     if (detail instanceof Error) throw detail
     return detail
   },
@@ -96,6 +101,26 @@ describe('Für dich', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Wiederentdecken abspielen' }))
     expect((await screen.findByRole('alert')).textContent).toContain('Mix nicht gefunden.')
     expect(playAlbum).not.toHaveBeenCalled()
+  })
+
+  it('does not start a mix that finishes loading after leaving the page', async () => {
+    mixes = [mix('genre-1', 'genre', 'Dein Mix 1', { genre: 'Rock' })]
+    detail = { ...mixes[0]!, tracks }
+    let open = () => {}
+    gate = new Promise<void>((resolve) => (open = resolve))
+    try {
+      const view = render(<ForYou />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Dein Mix 1 abspielen' }))
+      await waitFor(() => expect(lastSignal).toBeDefined())
+      view.unmount()
+      expect(lastSignal!.aborted).toBe(true)
+      open()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(playAlbum).not.toHaveBeenCalled()
+    } finally {
+      gate = null
+      lastSignal = undefined
+    }
   })
 
   it('opens a mix with play, shuffle and queue actions', async () => {
