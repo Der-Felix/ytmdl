@@ -7,8 +7,11 @@ import { Toaster } from '@/components/ui/toast'
 import { FavoritesProvider } from '@/contexts/FavoritesContext'
 import { PlayerProvider } from '@/contexts/PlayerContext'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
+import { usePlayerState } from '@/hooks/usePlayer'
 import { useQueueSummary } from '@/hooks/useQueueSummary'
 import { AREA_START, loadArea } from '@/lib/areas'
+import { ROUTE_TITLES } from '@/lib/route-titles'
 import { matchRoute, navigate, useLocation } from '@/lib/router'
 import { Artist } from '@/pages/Artist'
 import { Discover } from '@/pages/Discover'
@@ -77,6 +80,13 @@ export function AppContent() {
   const location = useLocation()
   const route = useMemo(() => matchRoute(location), [location])
   const { user, loading, setupRequired, isAdmin } = useAuth()
+  const { currentTrack, status } = usePlayerState()
+  // Signed out, every address shows the sign-in screen, and the tab says so.
+  const signedOut = !loading && (!user || setupRequired) && route.name !== 'offline'
+  useDocumentTitle(
+    signedOut ? ROUTE_TITLES.login : ROUTE_TITLES[route.name],
+    currentTrack && (status === 'playing' || status === 'buffering') ? currentTrack : null,
+  )
   // This route reads only explicitly saved browser data, without pretending
   // an offline browser is authenticated to the server.
   if(route.name==='offline')return <OfflinePage/>

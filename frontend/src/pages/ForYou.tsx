@@ -9,6 +9,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState, ErrorState, GridSkeleton, ListSkeleton, LoadingRegion } from '@/components/ui/state-view'
 import { useAsync } from '@/hooks/useAsync'
+import { usePageTitle } from '@/hooks/useDocumentTitle'
 import { useMixPlayback } from '@/hooks/useMixPlayback'
 import { usePlayerActions } from '@/hooks/usePlayer'
 import { ApiError } from '@/lib/api/client'
@@ -117,6 +118,7 @@ function sortValue(track: LibraryTrack, field: SortField): string | number {
 export function MixDetail({ id }: { id: string }) {
   const { playAlbum, addToQueue } = usePlayerActions()
   const { state, reload } = useAsync((signal) => personalMix(id, signal), [id])
+  usePageTitle(state.status === 'success' ? state.data.title : null)
   const [sort, setSort] = useState<SortField>('')
   const [order, setOrder] = useState<'asc' | 'desc'>('asc')
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)

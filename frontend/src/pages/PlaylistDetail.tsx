@@ -28,6 +28,7 @@ import { Input } from '@/components/ui/input'
 import { EmptyState, ErrorState, LoadingRegion } from '@/components/ui/state-view'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAsync } from '@/hooks/useAsync'
+import { usePageTitle } from '@/hooks/useDocumentTitle'
 import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import {
@@ -78,6 +79,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
   const [removing, setRemoving] = useState<PlaylistTrack | null>(null)
 
   const playlist = state.status === 'success' ? state.data : null
+  usePageTitle(playlist?.name)
 
   // Calculate total duration
   const totalDurationMs = useMemo(() => {
