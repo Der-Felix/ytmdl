@@ -40,6 +40,7 @@ func TestMigrationsCreateEveryTable(t *testing.T) {
 		"artists", "releases", "tracks", "track_sources",
 		"jobs", "job_items", "files", "settings", "artist_subscriptions",
 		"users", "sessions", "media_sessions", "track_placements",
+		"skip_events", "track_skips",
 		"schema_migrations",
 	} {
 		var count int

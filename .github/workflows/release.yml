@@ -641,7 +641,7 @@ jobs:
             --version "${{ steps.version.outputs.version }}" \
             --tag "${{ steps.version.outputs.tag }}" \
             "${channel_args[@]}" \
-            --schema 21 \
+            --schema 22 \
             --min-upgrade 0.15.0 \
             --backend-digest "${backend_digest}" \
             --backend-platform "linux/amd64=${backend_amd64}" \

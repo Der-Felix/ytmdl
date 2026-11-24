@@ -62,6 +62,26 @@ func TestLibraryToolsAuthOwnershipAndAtomicWrites(t *testing.T) {
 	if json.Unmarshal(raw, &history) != nil || len(history.Data) != 0 {
 		t.Fatal("private history exposed")
 	}
+	skip := map[string]any{"track_id": ids[1], "event_id": "skip-e2e-0000000001"}
+	if res, _, _ = user.do(http.MethodPost, "/api/v1/history/skips", skip, false); res.StatusCode != 403 {
+		t.Fatal("skip CSRF missing accepted")
+	}
+	for i := 0; i < 2; i++ {
+		if res, _, err = user.do(http.MethodPost, "/api/v1/history/skips", skip, true); err != nil || res.StatusCode != 204 {
+			t.Fatal("skip write failed", err)
+		}
+	}
+	if res, _, _ = user.do(http.MethodPost, "/api/v1/history/skips", map[string]any{"track_id": ids[1], "event_id": "x"}, true); res.StatusCode != 400 {
+		t.Fatal("invalid skip accepted")
+	}
+	res, raw, err = user.do(http.MethodGet, "/api/v1/library/mixes", nil, false)
+	var mixes struct{ Data []map[string]any }
+	if err != nil || res.StatusCode != 200 || json.Unmarshal(raw, &mixes) != nil || mixes.Data == nil {
+		t.Fatal("mixes not listed as an array", err, string(raw))
+	}
+	if res, _, _ = user.do(http.MethodGet, "/api/v1/library/mixes/unknown", nil, false); res.StatusCode != 404 {
+		t.Fatal("unknown mix not 404")
+	}
 	rules := map[string]any{"name": "Dynamic", "smart_rules": map[string]any{"sort": "title", "limit": 50, "favorites": true}}
 	res, raw, err = user.do(http.MethodPost, "/api/v1/playlists", rules, true)
 	var pl struct{ Data struct{ ID string } }

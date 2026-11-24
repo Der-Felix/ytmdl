@@ -125,6 +125,12 @@ Playlists and favorites are strictly scoped to the authenticated user.
 | `GET` | `/api/v1/favorites/{track_id}` | User | Check whether a track is favorited. |
 | `PUT` | `/api/v1/favorites/{track_id}` | User | Mark a track as favorite. |
 | `DELETE` | `/api/v1/favorites/{track_id}` | User | Remove a favorite. |
+| `GET` | `/api/v1/history` | User | The current user's listening history (`sort=recent` or `frequent`). |
+| `POST` | `/api/v1/history` | User | Record a play: `{track_id, event_id}`; idempotent per `event_id` (16–100 characters). |
+| `POST` | `/api/v1/history/skips` | User | Record a skip (moved on before the track counted as a play): `{track_id, event_id}`; idempotent per `event_id`. |
+| `DELETE` | `/api/v1/history` | User | Clear the current user's plays and skips. |
+| `GET` | `/api/v1/library/mixes` | User | The current user's personal mixes (`id`, `kind`, `title`, `description`, `genre`, `track_count`, `cover_track_ids`, `cover_release_ids`); stable for a calendar day. |
+| `GET` | `/api/v1/library/mixes/{id}` | User | One mix with up to 50 `tracks`; `404 PLAYLIST_NOT_FOUND` when the mix is not offered today. |
 
 ---
 

@@ -81,7 +81,14 @@ half the duration of short tracks adjusted for playback speed. Repeated network
 submissions use the same event identifier. The server stores per-user counts and
 last played times; up to 100 recent/frequent tracks are displayed. Existing
 browser-only history is retained, but is not imported as verified plays. Users
-can clear their own server history explicitly.
+can clear their own server history explicitly; that clears skips too.
+
+The web player also records a skip when the user moves on to another track
+(next, previous, choosing another track or a queue entry) after at least 2
+seconds and before the track counted as a play. Natural ends, playback errors,
+pausing, stopping, clearing the queue and offline copies never count, and a
+track start yields at most one skip. Skips lower a track in the radio and in
+personal mixes; they decay and are ignored once the last one is 90 days old.
 
 ## Loudness adjustment
 
@@ -108,7 +115,8 @@ Migrations 0014–0018 add rules, metadata overrides, artwork, listening data,
 loudness measurements, per-user duplicate review, seven-day trash, fingerprints
 and playback handoff; migration 0019 records the identity scheme of each track; migration 0020 adds the
 appearance setting of a subscription; migration 0021 adds the table of further
-releases a recording is placed on.
+releases a recording is placed on; migration 0022 adds per-user skip signals
+for personal mixes and the radio.
 The schema is additive: upgrading preserves existing
 identities, audio and playlists and never removes candidates automatically.
 Upgrades from supported older schemas require a verified database backup;
@@ -180,6 +188,20 @@ aktuelle Wiedergabe weiterlaufen. Es werden keine Provider abgefragt und keine
 neuen Songs heruntergeladen. Für Genres braucht die Bibliothek gepflegte
 Genre-Zuordnungen; ohne Hörverlauf oder Favoriten entsteht ein abwechslungsreicher
 lokaler Startmix.
+
+## Für dich
+
+**Für dich** zeigt automatische Mixe aus lokal vorhandenen Titeln, nur aus
+deinem eigenen Hörverhalten: bis zu vier Genre-Mixe („Dein Mix 1–4“, etwa
+60 % Titel, die du magst, 40 % kaum gehörte Titel des Genres), **In
+Dauerschleife** (meistgespielt der letzten 30 Tage), **Wiederentdecken**
+(mindestens dreimal gehört, seit 60 Tagen nicht mehr), **Noch nicht gehört**
+(neue Titel deiner Künstler) und **Neu in der Mediathek** (Dateien der letzten
+30 Tage). Jeder Mix hat höchstens 50 Titel, höchstens drei pro Künstler, und
+erscheint erst ab zehn Titeln. Ohne Hörverlauf entstehen Genre-Mixe aus den
+größten Genres der Bibliothek. Die Auswahl bleibt einen Kalendertag gleich und
+wechselt am nächsten Tag. Übersprungene Titel rücken nach hinten oder fallen
+heraus.
 
 ## Geräteübergabe
 
