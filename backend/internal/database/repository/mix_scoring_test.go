@@ -138,3 +138,34 @@ func TestMixCoversPreferDifferentReleases(t *testing.T) {
 		t.Fatalf("covers %v %v", ids, releases)
 	}
 }
+
+func TestMixGenreOrderLeavesOutDislikedGenres(t *testing.T) {
+	library := []weightedGenre{{"Rock", 36}, {"Jazz", 24}, {"Folk", 9}}
+	// A new user tries the library's genres; a genre the user mostly skips
+	// (negative affinity) is not filled in from the library.
+	if got := mixGenreOrder(nil, library); fmt.Sprint(got) != "[Rock Jazz Folk]" {
+		t.Fatalf("cold start order %v", got)
+	}
+	user := []weightedGenre{{"Jazz", 12}, {" rock ", -6}}
+	if got := mixGenreOrder(user, library); fmt.Sprint(got) != "[Jazz Folk]" {
+		t.Fatalf("order with a disliked genre %v", got)
+	}
+	many := []weightedGenre{}
+	for i := range 10 {
+		many = append(many, weightedGenre{fmt.Sprintf("G%d", i), float64(20 - i)})
+	}
+	if got := mixGenreOrder(many, nil); len(got) != maxUserGenres || got[0] != "G0" {
+		t.Fatalf("user genres not capped: %v", got)
+	}
+}
+
+func TestGenreMixDescriptionWithoutFavorites(t *testing.T) {
+	fresh := []MixCandidate{candidate("a", "x", "t"), candidate("b", "y", "u")}
+	if d := genreMixDescription("Jazz", fresh); d != "Eine Auswahl aus Jazz in deiner Mediathek" {
+		t.Fatalf("cold-start description %q", d)
+	}
+	fresh[1].Favorite = true
+	if d := genreMixDescription("Jazz", fresh); d != "Deine Favoriten aus Jazz und Titel, die du kaum kennst" {
+		t.Fatalf("description with favorites %q", d)
+	}
+}
