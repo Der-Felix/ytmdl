@@ -54,7 +54,7 @@ function ListenHome() {
   const mixes = useAsync((signal) => personalMixes(signal), [])
   const history = useAsync((signal) => listeningHistory('recent', signal), [])
   const releases = useAsync(
-    async (signal) => (await libraryReleases({ limit: NEW_RELEASES_LIMIT, sort: 'recent', order: 'desc', signal })).items,
+    async (signal) => (await libraryReleases({ limit: NEW_RELEASES_LIMIT, sort: 'recent', order: 'desc', inLibrary: true, signal })).items,
     [],
   )
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
   Disc3Icon,
+  DownloadIcon,
   HardDriveIcon,
   ListPlus,
   Music2Icon,
@@ -15,9 +16,12 @@ import { Cover } from '@/components/music/Cover'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
 import { TracksTable } from '@/components/music/TracksTable'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Panel } from '@/components/ui/panel'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/state-view'
 import { useOptionalAuth } from '@/hooks/useAuth'
+import { usePageTitle } from '@/hooks/useDocumentTitle'
 import { usePlayerActions } from '@/hooks/usePlayer'
 import {
   deleteLibraryRelease,
@@ -37,6 +41,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
   const isAdmin = auth ? auth.isAdmin : true
   const { playAlbum, addToQueue } = usePlayerActions()
   const [detail, setDetail] = useState<LibraryReleaseDetail | null>(null)
+  usePageTitle(detail?.release.title)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedTrack, setSelectedTrack] = useState<LibraryTrack | null>(null)
@@ -161,6 +166,9 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
   const release = detail.release
   const artist = detail.artist
   const hasMultipleDiscs = discGroups.length > 1
+  // Known from a download attempt or a subscription, but no track arrived yet.
+  const notLoaded = detail.tracks.length === 0
+  const downloadHref = release.source_id && release.provider ? paths.release(release.source_id, release.provider) : paths.downloadHome()
 
   return (
     <div className="space-y-8">
@@ -239,24 +247,28 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
           </div>
 
           <div className="flex flex-wrap sm:flex-col items-center sm:items-end gap-2 shrink-0">
-            <Button
-              size="sm"
-              onClick={() => canonicalTracks.length > 0 && playAlbum(canonicalTracks)}
-              className="gap-2 bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/25 hover:bg-primary/90"
-            >
-              <Play className="size-4 fill-current" />
-              <span>Album abspielen</span>
-            </Button>
+            {!notLoaded && (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => canonicalTracks.length > 0 && playAlbum(canonicalTracks)}
+                  className="gap-2 bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/25 hover:bg-primary/90"
+                >
+                  <Play className="size-4 fill-current" />
+                  <span>Album abspielen</span>
+                </Button>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => canonicalTracks.length > 0 && addToQueue(canonicalTracks)}
-              className="gap-1.5 text-xs border-input hover:bg-muted"
-            >
-              <ListPlus className="size-3.5" />
-              <span>Zur Queue</span>
-            </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => canonicalTracks.length > 0 && addToQueue(canonicalTracks)}
+                  className="gap-1.5 text-xs border-input hover:bg-muted"
+                >
+                  <ListPlus className="size-3.5" />
+                  <span>Zur Queue</span>
+                </Button>
+              </>
+            )}
 
             {isAdmin && (
               <Button
@@ -276,7 +288,20 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
 
       {/* Tracklist Section */}
       <div className="space-y-6">
-        {hasMultipleDiscs ? (
+        {notLoaded ? (
+          <Panel>
+            <EmptyState
+              icon={<DownloadIcon />}
+              title="Noch nicht geladen"
+              description="Von diesem Release liegt noch kein Titel in der Mediathek. Unter Laden kannst du es herunterladen."
+              action={
+                <Link href={downloadHref} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                  {downloadHref === paths.downloadHome() ? 'Zu Laden' : 'Release unter Laden öffnen'}
+                </Link>
+              }
+            />
+          </Panel>
+        ) : hasMultipleDiscs ? (
           discGroups.map(([discNum, discTracks]) => (
             <div key={discNum} className="space-y-3">
               <h2 className="text-sm font-semibold text-muted-foreground font-heading uppercase tracking-wider flex items-center gap-2 border-b border-border pb-2">

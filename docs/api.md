@@ -141,8 +141,8 @@ Playlists and favorites are strictly scoped to the authenticated user.
 | `GET` | `/api/v1/library/stats` | User | Library storage, codec, and lyrics statistics. |
 | `GET` | `/api/v1/library/search` | User | Search local catalog across artists, releases, and tracks. |
 | `GET` | `/api/v1/library/artists` | User | Paginated local artists list. |
-| `GET` | `/api/v1/library/artists/{id}` | User | Local artist detail with releases and size. |
-| `GET` | `/api/v1/library/releases` | User | Paginated local releases list. |
+| `GET` | `/api/v1/library/artists/{id}` | User | Local artist detail with size and the releases that have at least one track in the library. |
+| `GET` | `/api/v1/library/releases` | User | Paginated local releases list. Filters: `q`, `artist_id`, `release_type`, `year`, `genre`, `genre_missing=true`, and `in_library=true` for only releases with at least one track in the library (`track_count_in_library > 0`); without it, releases known only from a download attempt or a subscription are listed too. |
 | `GET` | `/api/v1/library/releases/{id}` | User | Local release detail with track listing and multi-disc grouping. |
 | `GET` | `/api/v1/library/tracks` | User | Paginated local tracks list. |
 | `GET` | `/api/v1/library/tracks/{id}` | User | Technical audio inspector (bitrate, sample rate, channels, codec). |
