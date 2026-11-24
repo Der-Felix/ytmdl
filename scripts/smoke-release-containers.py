@@ -145,7 +145,7 @@ def smoke(args):
         status, headers, body = fetch("/assets/smoke-missing-0000.js")
         check(status == 404 and b'id="root"' not in body, "A missing asset must be a 404, not the shell.")
 
-        status, headers, body = fetch("/api/v1/health")
+        status, headers, body = fetch("/api/v1/health?scope=essential")
         check(status == 200 and json.loads(body)["data"]["version"] == args.version, "The API health is not served.")
         check_security_headers(headers, "The API")
 
