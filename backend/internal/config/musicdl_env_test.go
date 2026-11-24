@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -401,4 +402,34 @@ func TestCookieDirConfiguration(t *testing.T) {
 			t.Errorf("CookieDir = %q, want /data/cookies", cfg.MediaSessions.CookieDir)
 		}
 	})
+}
+
+// TestWebDirSetting pins the single-image switch: unset keeps the API-only
+// listener, a set value is made absolute so that the startup check and the
+// log line name the directory that is actually served.
+func TestWebDirSetting(t *testing.T) {
+	clearConfigEnv(t)
+
+	cfg := Default()
+	if err := cfg.applyEnv(); err != nil {
+		t.Fatalf("apply environment: %v", err)
+	}
+	if err := cfg.normalise(); err != nil {
+		t.Fatalf("normalise: %v", err)
+	}
+	if cfg.Server.WebDir != "" {
+		t.Fatalf("default web dir = %q, want empty (API only)", cfg.Server.WebDir)
+	}
+
+	t.Setenv("MUSICDL_WEB_DIR", "relative/web")
+	cfg = Default()
+	if err := cfg.applyEnv(); err != nil {
+		t.Fatalf("apply environment: %v", err)
+	}
+	if err := cfg.normalise(); err != nil {
+		t.Fatalf("normalise: %v", err)
+	}
+	if !filepath.IsAbs(cfg.Server.WebDir) || filepath.Base(cfg.Server.WebDir) != "web" {
+		t.Fatalf("web dir = %q, want an absolute path ending in web", cfg.Server.WebDir)
+	}
 }

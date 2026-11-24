@@ -85,7 +85,11 @@ func (pc *ProxyChecker) IsTrusted(remoteAddr string) bool {
 	if err != nil {
 		host = remoteAddr
 	}
-	ip := net.ParseIP(host)
+	return pc.isTrustedIP(net.ParseIP(host))
+}
+
+// isTrustedIP reports whether ip is loopback or one of the configured proxies.
+func (pc *ProxyChecker) isTrustedIP(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
@@ -117,29 +121,62 @@ func SetTrustedProxies(trusted []string) {
 	globalProxyChecker = NewProxyChecker(trusted)
 }
 
-// isTrustedPeer checks if the direct connection originates from a trusted peer.
-func isTrustedPeer(remoteAddr string) bool {
+// currentProxyChecker returns the configured checker.
+func currentProxyChecker() *ProxyChecker {
 	trustedProxyMu.RLock()
-	checker := globalProxyChecker
-	trustedProxyMu.RUnlock()
-	return checker.IsTrusted(remoteAddr)
+	defer trustedProxyMu.RUnlock()
+	return globalProxyChecker
 }
 
-// ClientIP resolves the client IP. It only trusts X-Forwarded-For if the peer
-// is an explicitly trusted proxy (loopback or ytmdl-frontend container).
+// isTrustedPeer checks if the direct connection originates from a trusted peer.
+func isTrustedPeer(remoteAddr string) bool {
+	return currentProxyChecker().IsTrusted(remoteAddr)
+}
+
+// ClientIP resolves the client IP. X-Forwarded-For is only consulted when the
+// direct peer is a trusted proxy (loopback, the ytmdl-frontend container of
+// the two-image deployment, or a reverse proxy named in
+// MUSICDL_TRUSTED_PROXIES).
+//
+// The header is read from the right: every proxy appends the address it
+// received the request from, so only the entries added by trusted proxies are
+// trustworthy, and the first untrusted entry from the right is the client.
+// Everything to its left was supplied by the client and may be forged. The
+// bundled nginx overwrites the header with a single entry, for which this is
+// the same as taking the first one; a reverse proxy that appends instead
+// (nginx's $proxy_add_x_forwarded_for, Traefik, Caddy) no longer lets a
+// client choose the address its rate limits are counted against.
+//
+// An entry that is not an IP address ends the walk at the last address that
+// was established, so a malformed header can only make the client look like
+// its proxy, never like an address of its choosing.
 func ClientIP(r *http.Request) string {
-	if isTrustedPeer(r.RemoteAddr) {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			parts := strings.Split(xff, ",")
-			if len(parts) > 0 {
-				client := strings.TrimSpace(parts[0])
-				if client != "" {
-					return client
-				}
-			}
+	peer := clientIP(r)
+	checker := currentProxyChecker()
+	if !checker.IsTrusted(r.RemoteAddr) {
+		return peer
+	}
+	values := r.Header.Values("X-Forwarded-For")
+	var entries []string
+	for _, value := range values {
+		entries = append(entries, strings.Split(value, ",")...)
+	}
+	client := peer
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := strings.TrimSpace(entries[i])
+		if entry == "" {
+			continue
+		}
+		ip := net.ParseIP(entry)
+		if ip == nil {
+			return client
+		}
+		client = entry
+		if !checker.isTrustedIP(ip) {
+			return client
 		}
 	}
-	return clientIP(r)
+	return client
 }
 
 // IsSecure reports whether the connection is secure (TLS/HTTPS), evaluating
