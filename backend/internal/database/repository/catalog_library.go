@@ -54,10 +54,13 @@ type ReleaseListFilter struct {
 	ArtistID     string
 	ReleaseType  string
 	Year         int
-	Sort         string
-	Order        string
-	Limit        int
-	Offset       int
+	// InLibrary keeps only releases with at least one track in the library;
+	// releases known only from a download attempt or a subscription stay out.
+	InLibrary bool
+	Sort      string
+	Order     string
+	Limit     int
+	Offset    int
 }
 
 // ArtistListFilter parameters for filtering library artists.
@@ -405,6 +408,10 @@ func (c *Catalog) ListReleasesFiltered(ctx context.Context, filter ReleaseListFi
 		args = append(args, filter.Year)
 		argIdx++
 	}
+	if filter.InLibrary {
+		// The same tracks that track_count_in_library counts.
+		whereClauses = append(whereClauses, "EXISTS (SELECT 1 FROM tracks lt WHERE lt.release_id = r.id)")
+	}
 	if q := strings.TrimSpace(filter.Query); q != "" {
 		if len(q) > 200 {
 			return nil, 0, apperr.New(apperr.CodeInvalidRequest, "Suchbegriff darf maximal 200 Zeichen lang sein.")
@@ -578,11 +585,14 @@ func (c *Catalog) GetLibraryArtistDetail(ctx context.Context, id string) (*music
 		return nil, err
 	}
 
+	// Only releases with tracks in the library: the page lists what can be
+	// played, and release_count below counts the same set.
 	releases, _, err := c.ListReleasesFiltered(ctx, ReleaseListFilter{
-		ArtistID: id,
-		Limit:    120,
-		Sort:     "year",
-		Order:    "desc",
+		ArtistID:  id,
+		InLibrary: true,
+		Limit:     120,
+		Sort:      "year",
+		Order:     "desc",
 	})
 	if err != nil {
 		return nil, err

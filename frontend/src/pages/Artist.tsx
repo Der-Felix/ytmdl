@@ -13,6 +13,7 @@ import {
   LoadingRegion,
 } from '@/components/ui/state-view'
 import { useAsync } from '@/hooks/useAsync'
+import { usePageTitle } from '@/hooks/useDocumentTitle'
 import {
   ALL_RELEASE_TYPES,
   RELEASE_TYPE_LABELS,
@@ -42,6 +43,7 @@ function Artist({ id, provider }: ArtistPageProps) {
     (signal) => getArtist(id, { provider, signal }),
     [id, provider],
   )
+  usePageTitle(artist.state.status === 'success' ? artist.state.data.name : null)
   const discography = useAsync(
     (signal) =>
       getDiscography(id, { provider, filter: ALL_RELEASE_TYPES, signal }),

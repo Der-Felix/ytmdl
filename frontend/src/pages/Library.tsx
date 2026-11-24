@@ -213,6 +213,8 @@ export function Library() {
         artistId: currentArtistId,
         releaseType: currentType,
         year: currentYear,
+        // Releases without a local track have nothing to play; they are left out.
+        inLibrary: true,
         sort: currentSort || 'recent',
         order: currentOrder || (currentSort === 'year' || !currentSort ? 'desc' : 'asc'),
         limit: pageSize,

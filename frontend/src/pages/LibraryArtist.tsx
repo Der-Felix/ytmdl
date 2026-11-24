@@ -19,6 +19,7 @@ import { SubscribeControl } from '@/components/subscriptions/SubscribeControl'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useOptionalAuth } from '@/hooks/useAuth'
+import { usePageTitle } from '@/hooks/useDocumentTitle'
 import { usePlayerActions } from '@/hooks/usePlayer'
 import { libraryArtistDetail, updateArtistGenres } from '@/lib/api/library'
 import { Link, paths } from '@/lib/router'
@@ -43,6 +44,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
   const [genreSaving, setGenreSaving] = useState(false)
   const [genreMessage, setGenreMessage] = useState<string | null>(null)
   const [detail, setDetail] = useState<LibraryArtistDetail | null>(null)
+  usePageTitle(detail?.artist.name)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [releaseTypeFilter, setReleaseTypeFilter] = useState<string>('all')

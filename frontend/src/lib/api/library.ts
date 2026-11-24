@@ -71,6 +71,8 @@ export async function libraryReleases(
     artistId?: string
     releaseType?: string
     year?: number
+    /** Only releases with at least one track in the library. */
+    inLibrary?: boolean
     sort?: string
     order?: string
     limit?: number
@@ -86,6 +88,7 @@ export async function libraryReleases(
       artist_id: options.artistId,
       release_type: options.releaseType,
       year: options.year,
+      in_library: options.inLibrary || undefined,
       sort: options.sort,
       order: options.order,
       limit: options.limit,

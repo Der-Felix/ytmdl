@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ComponentType } from 'react'
 import {
   CompassIcon,
+  KeyboardIcon,
   LibraryIcon,
   ListMusicIcon,
   LogOutIcon,
@@ -29,6 +30,7 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { navigate, paths } from '@/lib/router'
+import { openShortcutHelp } from '@/lib/shortcut-help'
 
 /** Value prefix of the two search entries; they always rank behind real matches. */
 const SEARCH_VALUE = 'search-'
@@ -164,6 +166,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
 
           <CommandGroup heading="Konto">
             <MenuItem icon={UserIcon} label="Profil & Sicherheit" keywords={['passwort', 'konto', 'geräte']} onSelect={run(() => navigate(paths.profile()))} />
+            <MenuItem icon={KeyboardIcon} label="Tastenkürzel" keywords={['shortcuts', 'tastatur', 'hilfe']} onSelect={run(openShortcutHelp)} />
             <MenuItem icon={LogOutIcon} label="Abmelden" keywords={['logout', 'sign out']} onSelect={run(() => void logout())} />
           </CommandGroup>
 

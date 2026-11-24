@@ -15,6 +15,7 @@ import {
   LoadingRegion,
 } from '@/components/ui/state-view'
 import { useAsync } from '@/hooks/useAsync'
+import { usePageTitle } from '@/hooks/useDocumentTitle'
 import { RELEASE_TYPE_LABELS, getRelease } from '@/lib/api/artists'
 import { downloadRelease, downloadTrack } from '@/lib/api/jobs'
 import { paths, useNavigate } from '@/lib/router'
@@ -41,6 +42,7 @@ function Release({ id, provider }: ReleasePageProps) {
     (signal) => getRelease(id, { provider, signal }),
     [id, provider],
   )
+  usePageTitle(state.status === 'success' ? state.data.release.title : null)
 
   if (state.status === 'loading') {
     return (
