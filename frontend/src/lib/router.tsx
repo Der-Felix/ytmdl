@@ -103,6 +103,8 @@ export type Route =
   | { name: 'profile' }
   | { name: 'users' }
   | { name: 'player' }
+  | { name: 'mixes' }
+  | { name: 'mix'; id: string }
   | { name: 'offline' }
   | { name: 'discover'; query: string }
   | { name: 'artist'; id: string; provider?: string }
@@ -134,6 +136,13 @@ export function matchRoute(location: Location): Route {
       break
     case 'player':
       if (segments.length === 1) return { name: 'player' }
+      break
+
+    case 'mixes':
+      if (segments.length === 1) return { name: 'mixes' }
+      if (second && segments.length === 2) {
+        return { name: 'mix', id: decodeURIComponent(second) }
+      }
       break
 
     case 'login':
@@ -227,6 +236,8 @@ export function matchRoute(location: Location): Route {
 export const paths = {
   dashboard: () => '/',
   player: () => '/player',
+  mixes: () => '/mixes',
+  mix: (id: string) => `/mixes/${encodeURIComponent(id)}`,
   login: () => '/login',
   profile: () => '/profile',
   users: () => '/users',

@@ -36,6 +36,9 @@ export const listeningHistory = (sort = 'recent', signal?: AbortSignal) =>
   request<HistoryTrack[]>('/history', { query: { sort }, signal })
 export const recordPlayback = (track_id: string, event_id: string) =>
   requestVoid('/history', { method: 'POST', body: { track_id, event_id } })
+/** Reports that the user moved on from a track before it counted as a play. */
+export const recordSkip = (track_id: string, event_id: string) =>
+  requestVoid('/history/skips', { method: 'POST', body: { track_id, event_id } })
 export const clearListeningHistory = () =>
   requestVoid('/history', { method: 'DELETE' })
 export const duplicateGroups = (

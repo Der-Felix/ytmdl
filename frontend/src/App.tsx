@@ -14,6 +14,7 @@ import { Dashboard } from '@/pages/Dashboard'
 import { Discover } from '@/pages/Discover'
 import { Downloads } from '@/pages/Downloads'
 import { Favorites } from '@/pages/Favorites'
+import { ForYou, MixDetail } from '@/pages/ForYou'
 import { Library } from '@/pages/Library'
 import { LibraryArtist } from '@/pages/LibraryArtist'
 import { LibraryRelease } from '@/pages/LibraryRelease'
@@ -90,6 +91,8 @@ export function AppContent() {
       {route.name === 'dashboard' && <Dashboard />}
       {route.name === 'login' && <Dashboard />}
       {route.name === 'player' && <NowPlaying />}
+      {route.name === 'mixes' && <ForYou />}
+      {route.name === 'mix' && <MixDetail id={route.id} />}
       {route.name === 'profile' && <Profile />}
       {route.name === 'users' && (isAdmin ? <Users /> : <NotFound pathname="/users" />)}
       {route.name === 'discover' && <Discover query={route.query} />}

@@ -286,6 +286,18 @@
     }
 }
 
+/* The scrim on a personal mix cover: the page colour rises from the bottom
+   and turns into the violet partner colour, so the title set on the collage
+   stays readable on any artwork. */
+@utility mix-scrim {
+    background: linear-gradient(
+        to top,
+        color-mix(in oklab, var(--background) 92%, transparent) 0%,
+        color-mix(in oklab, var(--background) 70%, transparent) 30%,
+        color-mix(in oklab, var(--primary-2) 28%, transparent) 62%,
+        transparent 85%
+    );
+}
 /* The application's single focus ring. */
 @utility focus-ring {
     &:focus-visible {
