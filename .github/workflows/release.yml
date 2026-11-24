@@ -110,6 +110,11 @@ jobs:
             echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
             echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
             echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+            # A manual run never moves a floating tag.
+            release_core="${clean_version%%-*}"
+            echo "minor_tag=${release_core%.*}" >> "$GITHUB_OUTPUT"
+            echo "major_tag=${release_core%%.*}" >> "$GITHUB_OUTPUT"
+            echo "floating_tags=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -148,7 +153,27 @@ jobs:
           echo "version=${clean_version}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
           echo "channel=${channel}" >> "$GITHUB_OUTPUT"
-          echo "Validated release tag ${tag} (version ${clean_version}, channel ${channel})"
+
+          # Floating tags a stable release moves: latest, X.Y and X. Each only
+          # when this version is the newest stable release it covers, so a
+          # patch for an older line never takes them back. A release
+          # candidate moves none of them.
+          release_core="${clean_version%%-*}"
+          minor_tag="${release_core%.*}"
+          major_tag="${release_core%%.*}"
+          floating_tags=""
+          if [ "${prerelease}" != "true" ]; then
+            stable="$( { git tag -l 'v*' | sed -n -E 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p'; echo "${clean_version}"; } | sort -u -V)"
+            newest_of() { printf '%s\n' "${stable}" | grep -E "$1" | tail -n 1; }
+            if [ "$(newest_of '.')" = "${clean_version}" ]; then floating_tags="latest"; fi
+            if [ "$(newest_of "^${minor_tag//./\\.}\\.[0-9]+$")" = "${clean_version}" ]; then floating_tags="${floating_tags} ${minor_tag}"; fi
+            if [ "$(newest_of "^${major_tag}\\.[0-9]+\\.[0-9]+$")" = "${clean_version}" ]; then floating_tags="${floating_tags} ${major_tag}"; fi
+            floating_tags="$(echo ${floating_tags})"
+          fi
+          echo "minor_tag=${minor_tag}" >> "$GITHUB_OUTPUT"
+          echo "major_tag=${major_tag}" >> "$GITHUB_OUTPUT"
+          echo "floating_tags=${floating_tags}" >> "$GITHUB_OUTPUT"
+          echo "Validated release tag ${tag} (version ${clean_version}, channel ${channel}, floating tags: ${floating_tags:-none})"
 
       - name: Verify Release Source Branch
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -344,24 +369,30 @@ jobs:
           # published version tag is never replaced. The candidate tag is
           # unique to this run attempt and is checked so nothing is reused.
           refs=()
-          for component in backend frontend; do
-            refs+=("ghcr.io/der-felix/ytmdl-${component}:${{ steps.version.outputs.promote_tag }}")
-            refs+=("ghcr.io/der-felix/ytmdl-${component}:${{ steps.version.outputs.candidate_tag }}")
+          for repository in ytmdl-backend ytmdl-frontend ytmdl; do
+            refs+=("ghcr.io/der-felix/${repository}:${{ steps.version.outputs.promote_tag }}")
+            refs+=("ghcr.io/der-felix/${repository}:${{ steps.version.outputs.candidate_tag }}")
           done
           bash scripts/require-absent-image-tags.sh "${refs[@]}"
           echo "Confirmed: no GHCR tag of this run exists yet. Safe to build candidates."
 
-      - name: Record Stable latest Digests
+      - name: Record Stable Floating Tag Digests
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: latest-before
         shell: bash
         run: |
-          # A release candidate must leave :latest untouched; the digests are
-          # compared again after publishing.
-          for component in backend frontend; do
-            digest="$(docker buildx imagetools inspect "ghcr.io/der-felix/ytmdl-${component}:latest" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest' || true)"
-            echo "${component}=${digest}" >> "$GITHUB_OUTPUT"
-            echo "ghcr.io/der-felix/ytmdl-${component}:latest -> ${digest:-<none>}"
+          # A release candidate must leave latest, X.Y and X untouched; the
+          # digests are compared again after publishing. A tag that does not
+          # exist yet is recorded as empty and must stay absent.
+          before="${RUNNER_TEMP}/floating-tags-before.txt"
+          : > "${before}"
+          for repository in ytmdl-backend ytmdl-frontend ytmdl; do
+            for tag in latest "${{ steps.version.outputs.minor_tag }}" "${{ steps.version.outputs.major_tag }}"; do
+              ref="ghcr.io/der-felix/${repository}:${tag}"
+              digest="$(docker buildx imagetools inspect "${ref}" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest' || true)"
+              echo "${ref} ${digest:--}" >> "${before}"
+              echo "${ref} -> ${digest:-<none>}"
+            done
           done
 
       - name: Extract Backend Metadata
@@ -406,6 +437,20 @@ jobs:
           provenance: mode=max
           push: false
 
+      - name: Verify Multi-Arch Single-Image Container Build (Verify-Only Mode)
+        if: steps.version.outputs.candidates != 'true'
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: Containerfile.all-in-one
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            BUILDKIT_SBOM_SCAN_CONTEXT=true
+          platforms: linux/amd64,linux/arm64
+          sbom: true
+          provenance: mode=max
+          push: false
+
       - name: Load Native Backend Image for Isolated Smoke Test
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
@@ -430,11 +475,30 @@ jobs:
           load: true
           push: false
 
+      - name: Load Native Single Image for Isolated Smoke Test
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: Containerfile.all-in-one
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            BUILDKIT_SBOM_SCAN_CONTEXT=true
+          platforms: linux/amd64
+          tags: ytmdl:release-smoke
+          load: true
+          push: false
+
       - name: Test Container Startup, Upload Limits and Cookie Persistence
         run: |
           python3 scripts/smoke-release-containers.py \
             --backend ytmdl-backend:release-smoke \
             --frontend ytmdl-frontend:release-smoke \
+            --version "${{ steps.version.outputs.version }}"
+
+      - name: Test Single-Image Startup, Web Serving, Upload Limits and Cookie Persistence
+        run: |
+          python3 scripts/smoke-release-containers.py \
+            --all-in-one ytmdl:release-smoke \
             --version "${{ steps.version.outputs.version }}"
 
       - name: Qualify Official Docker Compose Package
@@ -478,6 +542,7 @@ jobs:
           python3 scripts/scan-release-images.py \
             --backend ytmdl-backend:release-smoke \
             --frontend ytmdl-frontend:release-smoke \
+            --all-in-one ytmdl:release-smoke \
             --platform linux/amd64
 
       - name: Build and Push Backend Candidate Image
@@ -528,6 +593,39 @@ jobs:
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
 
+      - name: Extract Single-Image Metadata
+        if: steps.version.outputs.candidates == 'true'
+        id: meta-aio
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: ghcr.io/der-felix/ytmdl
+          tags: |
+            type=raw,value=${{ steps.version.outputs.candidate_tag }}
+          labels: |
+            org.opencontainers.image.title=YTMDL
+            org.opencontainers.image.description=YTMDL in one image: Go backend serving the web UI and the API, worker queue and media verification engine
+            org.opencontainers.image.source=https://github.com/Der-Felix/ytmdl
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and Push Single-Image Candidate
+        if: steps.version.outputs.candidates == 'true'
+        id: build-aio
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: Containerfile.all-in-one
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            BUILDKIT_SBOM_SCAN_CONTEXT=true
+          platforms: linux/amd64,linux/arm64
+          sbom: true
+          provenance: mode=max
+          push: true
+          tags: ${{ steps.meta-aio.outputs.tags }}
+          labels: ${{ steps.meta-aio.outputs.labels }}
+
       - name: Capture and Validate Image Digests
         if: steps.version.outputs.candidates == 'true'
         id: digests
@@ -573,12 +671,36 @@ jobs:
             fi
           done
 
+          # The single image is not part of the release manifest (ytmdlctl
+          # manages the two-image layout); its digests are captured and
+          # validated the same way for scanning, qualification and promotion.
+          aio_digest="${{ steps.build-aio.outputs.digest }}"
+          echo "Captured single-image index digest: ${aio_digest}"
+          if [[ ! "$aio_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid single-image digest format: '$aio_digest'" >&2
+            exit 1
+          fi
+          aio_raw="$(docker buildx imagetools inspect --raw "ghcr.io/der-felix/ytmdl@${aio_digest}")"
+          aio_amd64="$(echo "$aio_raw" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest')"
+          aio_arm64="$(echo "$aio_raw" | jq -r '.manifests[] | select(.platform.architecture == "arm64" and .platform.os == "linux") | .digest')"
+          echo "Single image linux/amd64: ${aio_amd64}"
+          echo "Single image linux/arm64: ${aio_arm64}"
+          for d in "$aio_amd64" "$aio_arm64"; do
+            if [[ ! "$d" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Invalid single-image platform manifest digest format: '$d'" >&2
+              exit 1
+            fi
+          done
+
           echo "backend=${backend_digest}" >> "$GITHUB_OUTPUT"
           echo "backend_amd64=${backend_amd64}" >> "$GITHUB_OUTPUT"
           echo "backend_arm64=${backend_arm64}" >> "$GITHUB_OUTPUT"
           echo "frontend=${frontend_digest}" >> "$GITHUB_OUTPUT"
           echo "frontend_amd64=${frontend_amd64}" >> "$GITHUB_OUTPUT"
           echo "frontend_arm64=${frontend_arm64}" >> "$GITHUB_OUTPUT"
+          echo "aio=${aio_digest}" >> "$GITHUB_OUTPUT"
+          echo "aio_amd64=${aio_amd64}" >> "$GITHUB_OUTPUT"
+          echo "aio_arm64=${aio_arm64}" >> "$GITHUB_OUTPUT"
 
       - name: Scan and Inventory Candidate Images by Digest
         if: steps.version.outputs.candidates == 'true'
@@ -587,6 +709,7 @@ jobs:
             python3 scripts/scan-release-images.py \
               --backend "ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend }}" \
               --frontend "ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend }}" \
+              --all-in-one "ghcr.io/der-felix/ytmdl@${{ steps.digests.outputs.aio }}" \
               --platform "${platform}"
           done
 
@@ -595,10 +718,26 @@ jobs:
         run: |
           backend="ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend_arm64 }}"
           frontend="ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend_arm64 }}"
+          aio="ghcr.io/der-felix/ytmdl@${{ steps.digests.outputs.aio_arm64 }}"
           docker pull --platform linux/arm64 "${backend}"
           docker pull --platform linux/arm64 "${frontend}"
+          docker pull --platform linux/arm64 "${aio}"
           python3 scripts/smoke-release-containers.py \
             --backend "${backend}" --frontend "${frontend}" \
+            --version "${{ steps.version.outputs.version }}"
+          python3 scripts/smoke-release-containers.py \
+            --all-in-one "${aio}" \
+            --version "${{ steps.version.outputs.version }}"
+
+      - name: Smoke-Test the Pushed Single-Image Candidate
+        # The native smoke test above ran a locally loaded build. This one runs
+        # the exact amd64 manifest that will be promoted, pulled by digest.
+        if: steps.version.outputs.candidates == 'true'
+        run: |
+          aio="ghcr.io/der-felix/ytmdl@${{ steps.digests.outputs.aio_amd64 }}"
+          docker pull --platform linux/amd64 "${aio}"
+          python3 scripts/smoke-release-containers.py \
+            --all-in-one "${aio}" \
             --version "${{ steps.version.outputs.version }}"
 
       - name: Compile Release Binaries & Compute SHA256SUMS
@@ -710,6 +849,7 @@ jobs:
                   "chromium_and_firefox_browser_flow": True,
                   "chromium_and_firefox_offline_copy_and_restart": True,
                   "upload_limits_and_cookie_persistence": True,
+                  "single_image_web_serving_upload_limits_and_cookie_persistence": True,
                   "critical_image_vulnerability_gate": True,
                   "arm64_runtime_under_qemu": os.environ["ARM64_RUNTIME_QUALIFIED"] == "true",
                   "managed_upgrade_both_engines_and_guard_modes": os.environ["MANAGED_UPGRADE_QUALIFIED"] == "true",
@@ -792,29 +932,33 @@ jobs:
       - name: Promote Qualified Candidates to the Version Tag
         # Everything above qualified the candidate index digests. Only now do
         # they get the version tag (a rehearsal's throwaway tag); the tag
-        # names the same digests, so the manifest stays valid. Both tags are
-        # checked before either is created, and an existing one is never
-        # replaced.
+        # names the same digests, so the manifest stays valid. All three tags
+        # (backend, frontend, single image) are checked before any is
+        # created, and an existing one is never replaced.
         if: steps.version.outputs.candidates == 'true'
         shell: bash
         run: |
           promote_tag="${{ steps.version.outputs.promote_tag }}"
           declare -A digest=(
-            [backend]="${{ steps.digests.outputs.backend }}"
-            [frontend]="${{ steps.digests.outputs.frontend }}"
+            [ytmdl-backend]="${{ steps.digests.outputs.backend }}"
+            [ytmdl-frontend]="${{ steps.digests.outputs.frontend }}"
+            [ytmdl]="${{ steps.digests.outputs.aio }}"
           )
-          bash scripts/require-absent-image-tags.sh \
-            "ghcr.io/der-felix/ytmdl-backend:${promote_tag}" \
-            "ghcr.io/der-felix/ytmdl-frontend:${promote_tag}"
-          for component in backend frontend; do
-            repository="ghcr.io/der-felix/ytmdl-${component}"
-            docker buildx imagetools create -t "${repository}:${promote_tag}" "${repository}@${digest[${component}]}"
+          repositories=(ytmdl-backend ytmdl-frontend ytmdl)
+          refs=()
+          for name in "${repositories[@]}"; do
+            refs+=("ghcr.io/der-felix/${name}:${promote_tag}")
           done
-          for component in backend frontend; do
-            repository="ghcr.io/der-felix/ytmdl-${component}"
+          bash scripts/require-absent-image-tags.sh "${refs[@]}"
+          for name in "${repositories[@]}"; do
+            repository="ghcr.io/der-felix/${name}"
+            docker buildx imagetools create -t "${repository}:${promote_tag}" "${repository}@${digest[${name}]}"
+          done
+          for name in "${repositories[@]}"; do
+            repository="ghcr.io/der-felix/${name}"
             actual="$(docker buildx imagetools inspect "${repository}:${promote_tag}" --format '{{json .Manifest}}' | jq -r '.digest')"
-            if [ "${actual}" != "${digest[${component}]}" ]; then
-              echo "::error::${repository}:${promote_tag} names ${actual}, not the qualified ${digest[${component}]}" >&2
+            if [ "${actual}" != "${digest[${name}]}" ]; then
+              echo "::error::${repository}:${promote_tag} names ${actual}, not the qualified ${digest[${name}]}" >&2
               exit 1
             fi
             echo "Verified ${repository}:${promote_tag} -> ${actual} (qualified candidate)"
@@ -864,22 +1008,30 @@ jobs:
             fi
             echo "Verified ${component} ${version} -> ${actual}"
           done
+          # The single image is not in the manifest; it must carry the
+          # qualified candidate digest.
+          actual="$(docker buildx imagetools inspect "ghcr.io/der-felix/ytmdl:${version}" --format '{{json .Manifest}}' | jq -r '.digest')"
+          if [ "${actual}" != "${{ steps.digests.outputs.aio }}" ]; then
+            echo "::error::ytmdl digest mismatch: qualified ${{ steps.digests.outputs.aio }}, registry ${actual}" >&2
+            exit 1
+          fi
+          echo "Verified ytmdl ${version} -> ${actual}"
 
           # 4. The CLI reports the release version.
           chmod +x "${check_dir}/assets/ytmdlctl-linux-amd64"
           "${check_dir}/assets/ytmdlctl-linux-amd64" version | grep -q "ytmdlctl version: ${version}$"
 
-          # 5. A release candidate left :latest untouched.
+          # 5. A release candidate left latest, X.Y and X of every image
+          # untouched.
           if [ "${prerelease}" = "true" ]; then
-            for component in backend frontend; do
-              before="$( [ "${component}" = backend ] && echo "${{ steps.latest-before.outputs.backend }}" || echo "${{ steps.latest-before.outputs.frontend }}" )"
-              after="$(docker buildx imagetools inspect "ghcr.io/der-felix/ytmdl-${component}:latest" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest' || true)"
-              if [ "${before}" != "${after}" ]; then
-                echo "::error::${component}:latest changed during a prerelease (${before} -> ${after})" >&2
+            while read -r ref before; do
+              after="$(docker buildx imagetools inspect "${ref}" --format '{{json .Manifest}}' 2>/dev/null < /dev/null | jq -r '.digest' || true)"
+              if [ "${before}" != "${after:--}" ]; then
+                echo "::error::${ref} changed during a prerelease (${before} -> ${after:--})" >&2
                 exit 1
               fi
-              echo "Verified ${component}:latest unchanged (${after})"
-            done
+              echo "Verified ${ref} unchanged (${after:-absent})"
+            done < "${RUNNER_TEMP}/floating-tags-before.txt"
           fi
           echo "Published release ${tag} verified."
 
@@ -892,24 +1044,33 @@ jobs:
           if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then latest=false; fi
           gh release edit "${{ steps.version.outputs.tag }}" --draft=false --latest="${latest}"
 
-      - name: Promote Qualified Images to latest
-        # :latest is reserved for stable releases.
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && steps.version.outputs.prerelease != 'true'
+      - name: Promote Qualified Images to the Floating Tags
+        # latest, X.Y and X are reserved for stable releases, and each moves
+        # only when this release is the newest stable one it covers (see the
+        # version step). One tag at a time, every image before the next tag,
+        # so that an interruption leaves whole tags behind, not a mix.
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && steps.version.outputs.prerelease != 'true' && steps.version.outputs.floating_tags != ''
         shell: bash
         run: |
-          echo "Promoting qualified release images to :latest using immutable digests..."
-          docker buildx imagetools create \
-            -t ghcr.io/der-felix/ytmdl-backend:latest \
-            ghcr.io/der-felix/ytmdl-backend@${{ steps.digests.outputs.backend }}
-          docker buildx imagetools create \
-            -t ghcr.io/der-felix/ytmdl-frontend:latest \
-            ghcr.io/der-felix/ytmdl-frontend@${{ steps.digests.outputs.frontend }}
-          echo "Successfully promoted images to :latest."
+          declare -A digest=(
+            [ytmdl-backend]="${{ steps.digests.outputs.backend }}"
+            [ytmdl-frontend]="${{ steps.digests.outputs.frontend }}"
+            [ytmdl]="${{ steps.digests.outputs.aio }}"
+          )
+          for tag in ${{ steps.version.outputs.floating_tags }}; do
+            echo "Promoting qualified release images to :${tag} using immutable digests..."
+            for name in ytmdl-backend ytmdl-frontend ytmdl; do
+              repository="ghcr.io/der-felix/${name}"
+              docker buildx imagetools create -t "${repository}:${tag}" "${repository}@${digest[${name}]}"
+            done
+          done
+          echo "Successfully promoted images to: ${{ steps.version.outputs.floating_tags }}."
 
       - name: Verify Public Release and Stable Promotion
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           tag="${{ steps.version.outputs.tag }}"
           check_dir="$(mktemp -d)"
@@ -918,10 +1079,20 @@ jobs:
           gh release download "${tag}" --dir "${check_dir}"
           (cd "${check_dir}" && sha256sum -c SHA256SUMS)
           if [ "${{ steps.version.outputs.prerelease }}" != "true" ]; then
-            for component in backend frontend; do
-              pinned="$(jq -r ".images.${component}.digest" dist/release-manifest.json)"
-              actual="$(docker buildx imagetools inspect "ghcr.io/der-felix/ytmdl-${component}:latest" --format '{{json .Manifest}}' | jq -r '.digest')"
-              test "${actual}" = "${pinned}"
+            declare -A expected=(
+              [ytmdl-backend]="$(jq -r '.images.backend.digest' dist/release-manifest.json)"
+              [ytmdl-frontend]="$(jq -r '.images.frontend.digest' dist/release-manifest.json)"
+              [ytmdl]="${{ steps.digests.outputs.aio }}"
+            )
+            for floating in ${{ steps.version.outputs.floating_tags }}; do
+              for name in ytmdl-backend ytmdl-frontend ytmdl; do
+                actual="$(docker buildx imagetools inspect "ghcr.io/der-felix/${name}:${floating}" --format '{{json .Manifest}}' | jq -r '.digest')"
+                if [ "${actual}" != "${expected[${name}]}" ]; then
+                  echo "::error::ghcr.io/der-felix/${name}:${floating} names ${actual}, not ${expected[${name}]}" >&2
+                  exit 1
+                fi
+                echo "Verified ghcr.io/der-felix/${name}:${floating} -> ${actual}"
+              done
             done
           fi
 
@@ -930,11 +1101,11 @@ jobs:
         shell: bash
         run: |
           echo "REHEARSAL SUCCESS: candidates were qualified, upgrades included, and tagged."
-          for component in backend frontend; do
-            echo "ghcr.io/der-felix/ytmdl-${component}:${{ steps.version.outputs.candidate_tag }} and :${{ steps.version.outputs.promote_tag }}"
+          for name in ytmdl-backend ytmdl-frontend ytmdl; do
+            echo "ghcr.io/der-felix/${name}:${{ steps.version.outputs.candidate_tag }} and :${{ steps.version.outputs.promote_tag }}"
           done
-          echo "backend index ${{ steps.digests.outputs.backend }}, frontend index ${{ steps.digests.outputs.frontend }}"
-          echo "No version tag, no latest and no release were touched. The next step deletes these package versions again."
+          echo "backend index ${{ steps.digests.outputs.backend }}, frontend index ${{ steps.digests.outputs.frontend }}, single-image index ${{ steps.digests.outputs.aio }}"
+          echo "No version tag, no floating tag (latest, X.Y, X) and no release were touched. The next step deletes these package versions again."
 
       - name: Images Left by a Failed Run
         if: failure() && steps.version.outputs.candidates == 'true'
@@ -942,9 +1113,9 @@ jobs:
         run: |
           # What a failed run leaves behind decides whether the version can be
           # released by a new run: candidate tags never block one.
-          for component in backend frontend; do
+          for name in ytmdl-backend ytmdl-frontend ytmdl; do
             for tag in "${{ steps.version.outputs.candidate_tag }}" "${{ steps.version.outputs.promote_tag }}"; do
-              ref="ghcr.io/der-felix/ytmdl-${component}:${tag}"
+              ref="ghcr.io/der-felix/${name}:${tag}"
               if docker buildx imagetools inspect "${ref}" >/dev/null 2>&1; then echo "exists: ${ref}"; else echo "absent: ${ref}"; fi
             done
           done
@@ -961,7 +1132,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           bash scripts/delete-candidate-images.sh "${{ github.repository_owner }}" \
-            "${{ steps.version.outputs.candidate_tag }}" ytmdl-backend ytmdl-frontend
+            "${{ steps.version.outputs.candidate_tag }}" ytmdl-backend ytmdl-frontend ytmdl
 
       - name: Verify-Only Qualification Summary
         if: github.event_name == 'workflow_dispatch' && steps.version.outputs.candidates != 'true'
@@ -973,6 +1144,7 @@ jobs:
           echo "All runner hardening, PostgreSQL 18 tooling, readiness checks,"
           echo "backend tests, full race tests, frontend build, binary compilation,"
           echo "and manifest validation PASSED on ubuntu-26.04."
-          echo "Isolated container startup, upload limits and cookie persistence PASSED."
+          echo "Isolated container startup, upload limits and cookie persistence PASSED"
+          echo "for the two-image layout and the single image."
           echo "Zero release artifacts or container images were published."
           echo "========================================================================"

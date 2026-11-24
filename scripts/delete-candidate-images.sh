@@ -33,7 +33,22 @@ throwaway='^(candidate|rehearsal)-'
 
 for package in "$@"; do
   repository="ghcr.io/${owner_lc}/${package}"
-  versions="$(gh api --paginate "/users/${owner}/packages/container/${package}/versions?per_page=100" | jq -s 'add')"
+  # A package that does not exist yet (a run that failed before its first
+  # push to a new image) holds nothing of this run. Any other failure stops.
+  list_err="$(mktemp)"
+  if ! listing="$(gh api --paginate "/users/${owner}/packages/container/${package}/versions?per_page=100" 2>"${list_err}")"; then
+    if grep -q "(HTTP 404)" "${list_err}"; then
+      echo "${package}: package does not exist; nothing to delete."
+      rm -f "${list_err}"
+      continue
+    fi
+    cat "${list_err}" >&2
+    rm -f "${list_err}"
+    echo "::error::${package}: package versions could not be listed." >&2
+    exit 1
+  fi
+  rm -f "${list_err}"
+  versions="$(echo "${listing}" | jq -s 'add')"
 
   index="$(echo "${versions}" | jq -c --arg t "${candidate}" '[.[] | select(.metadata.container.tags | index($t))]')"
   count="$(echo "${index}" | jq 'length')"
