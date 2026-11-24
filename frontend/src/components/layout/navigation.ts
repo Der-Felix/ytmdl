@@ -9,6 +9,7 @@ import {
   ListMusicIcon,
   RadioIcon,
   ServerCogIcon,
+  SparklesIcon,
   UsersIcon,
   WifiOff,
 } from 'lucide-react'
@@ -38,6 +39,12 @@ export const PRIMARY: NavItem[] = [
     href: paths.player(),
     icon: RadioIcon,
     matches: ['player'],
+  },
+  {
+    label: 'Für dich',
+    href: paths.mixes(),
+    icon: SparklesIcon,
+    matches: ['mixes', 'mix'],
   },
   {
     label: 'Entdecken',

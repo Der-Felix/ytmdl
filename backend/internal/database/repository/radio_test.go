@@ -49,3 +49,37 @@ func TestLocalRadioUsesLocalFilesGenresAndPrivateAffinity(t *testing.T) {
 		t.Fatal("recording variants not deduplicated", err)
 	}
 }
+
+func TestLocalRadioRanksSkippedTracksLast(t *testing.T) {
+	db, _, user, other, ids := setupPlaylistTest(t)
+	ctx := context.Background()
+	c := repository.NewCatalog(db)
+	if err := c.RecordSkip(ctx, user, "radio-skip-event-01", ids[2]); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RecordSkip(ctx, user, "short", ids[2]); err == nil {
+		t.Fatal("short event id accepted")
+	}
+	for _, nonce := range []string{"a", "b", "c", "d"} {
+		radio, err := c.LocalRadio(ctx, user, "", "", nonce)
+		if err != nil || len(radio) != 4 || radio[3].ID != ids[2] {
+			t.Fatal("skipped track not ranked last", nonce, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE track_skips SET last_skipped_at=now()-interval '91 days'`); err != nil {
+		t.Fatal(err)
+	}
+	last := map[string]bool{}
+	for _, u := range []string{user, other} {
+		for _, nonce := range []string{"a", "b", "c", "d", "e", "f"} {
+			radio, err := c.LocalRadio(ctx, u, "", "", nonce)
+			if err != nil || len(radio) != 4 {
+				t.Fatal(err)
+			}
+			last[radio[3].ID] = true
+		}
+	}
+	if len(last) == 1 {
+		t.Fatal("an expired skip still ranks the track last")
+	}
+}

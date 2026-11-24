@@ -124,6 +124,19 @@ func (c *Catalog) RecordPlayback(ctx context.Context, userID, eventID, trackID s
 	}
 	return nil
 }
+
+// RecordSkip stores that the user moved on from a track before it counted as
+// a play. Like RecordPlayback it is idempotent per event id.
+func (c *Catalog) RecordSkip(ctx context.Context, userID, eventID, trackID string) error {
+	if len(eventID) < 16 || len(eventID) > 100 || len(trackID) > 200 {
+		return apperr.New(apperr.CodeInvalidRequest, "Ungültiger Überspringen-Eintrag.")
+	}
+	_, err := c.db.ExecContext(ctx, `WITH inserted AS (INSERT INTO skip_events(user_id,event_id,track_id) SELECT $1,$2,id FROM tracks WHERE id=$3 ON CONFLICT DO NOTHING RETURNING track_id) INSERT INTO track_skips(user_id,track_id) SELECT $1,track_id FROM inserted ON CONFLICT(user_id,track_id) DO UPDATE SET skip_count=track_skips.skip_count+1,last_skipped_at=now()`, userID, eventID, trackID)
+	if err != nil {
+		return wrapDB("record skip", err)
+	}
+	return nil
+}
 func (c *Catalog) ListeningHistory(ctx context.Context, userID, sort string) ([]HistoryTrack, error) {
 	order := "last_played_at DESC,track_id"
 	if sort == "frequent" {
@@ -174,6 +187,13 @@ func (c *Catalog) ClearListeningHistory(ctx context.Context, userID string) erro
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM listening_history WHERE user_id=$1", userID); err != nil {
+		return err
+	}
+	// Skips are listening behaviour too; clearing the history forgets them.
+	if _, err = tx.ExecContext(ctx, "DELETE FROM skip_events WHERE user_id=$1", userID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM track_skips WHERE user_id=$1", userID); err != nil {
 		return err
 	}
 	return tx.Commit()

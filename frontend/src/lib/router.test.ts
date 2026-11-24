@@ -13,6 +13,12 @@ describe('matchRoute', () => {
     })
   })
 
+  it('matches the personal mixes and one mix', () => {
+    expect(matchRoute({ pathname: '/mixes', params: new URLSearchParams(), href: '/mixes' })).toEqual({ name: 'mixes' })
+    expect(matchRoute({ pathname: paths.mix('genre-abc'), params: new URLSearchParams(), href: paths.mix('genre-abc') })).toEqual({ name: 'mix', id: 'genre-abc' })
+    expect(matchRoute({ pathname: '/mixes/a/b', params: new URLSearchParams(), href: '/mixes/a/b' }).name).toBe('notFound')
+  })
+
   it('matches discover with and without query', () => {
     expect(
       matchRoute({ pathname: '/discover', params: new URLSearchParams('q=daft'), href: '/discover?q=daft' }),

@@ -15,9 +15,13 @@ import (
 
 var idRegexp = regexp.MustCompile(`^[0-9]{1,32}$`)
 
+// ProviderName is the registry name of the Deezer metadata provider.
+const ProviderName = providerName
+
 // Provider implements provider.MetadataProvider for Deezer.
 type Provider struct {
 	client *client
+	genres genreNames
 }
 
 // New creates a new Deezer metadata provider.

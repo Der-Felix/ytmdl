@@ -200,6 +200,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 			authed.Group(func(m chi.Router) {
 				m.Use(middleware.CSRF)
 				m.Post("/history", h.RecordPlayback)
+				m.Post("/history/skips", h.RecordSkip)
 				m.Post("/playback/handoff", h.SavePlaybackHandoff)
 				m.Delete("/playback/handoff", h.DeletePlaybackHandoff)
 				m.Delete("/history", h.ClearListeningHistory)
@@ -221,6 +222,8 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				library.Get("/genres", h.LibraryGenres)
 				library.Get("/duplicates", h.DuplicateGroups)
 				library.Get("/radio", h.LocalRadio)
+				library.Get("/mixes", h.PersonalMixes)
+				library.Get("/mixes/{id}", h.PersonalMix)
 				library.With(middleware.RequireAdmin).Get("/audio-analysis", h.AudioAnalysisStatus)
 				library.With(middleware.RequireAdmin).Get("/trash", h.LibraryTrash)
 				for _, kind := range []string{"artists", "releases", "tracks"} {

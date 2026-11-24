@@ -50,6 +50,22 @@ func (h *Handlers) RecordPlayback(w http.ResponseWriter, r *http.Request) {
 	}
 	response.NoContent(w)
 }
+func (h *Handlers) RecordSkip(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFromContext(r.Context())
+	var req struct {
+		EventID string `json:"event_id"`
+		TrackID string `json:"track_id"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	if err := h.deps.Catalog.RecordSkip(r.Context(), u.ID, req.EventID, req.TrackID); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.NoContent(w)
+}
 func (h *Handlers) ClearListeningHistory(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFromContext(r.Context())
 	if err := h.deps.Catalog.ClearListeningHistory(r.Context(), u.ID); err != nil {

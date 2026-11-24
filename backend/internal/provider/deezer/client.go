@@ -212,6 +212,10 @@ func (c *client) attempt(ctx context.Context, pathOrURL string, dst any) *attemp
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "YTMDL/0.14.1")
+	// Deezer localises genre names by this header and, without it, by the
+	// location of the caller ("Alle", "Klassik" from Germany). The language
+	// is pinned so stored genre names never change with the server's network.
+	req.Header.Set("Accept-Language", genreLanguage)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

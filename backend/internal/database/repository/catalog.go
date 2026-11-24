@@ -31,17 +31,15 @@ func (c *Catalog) UpsertArtist(ctx context.Context, artist music.Artist) (music.
 }
 
 func upsertArtist(ctx context.Context, exec executor, artist music.Artist) (music.Artist, error) {
-	// Provider genre metadata is optional and must never prevent identity persistence.
-	// Manual writes use strict validation through SetArtistGenres instead.
-	genres, _ := NormalizeGenres(artist.Genres[:min(len(artist.Genres), 20)])
+	// Provider genre metadata is optional and must never prevent identity
+	// persistence; seedArtistGenres drops invalid entries and never replaces
+	// existing or manual genres.
 	stored, err := upsertArtistIdentity(ctx, exec, artist)
 	if err != nil {
 		return stored, err
 	}
-	if len(genres) > 0 {
-		if _, err = exec.ExecContext(ctx, `UPDATE artists SET genres_json = $1::jsonb WHERE id = $2 AND NOT genres_manual AND genres_json = '[]'::jsonb`, encodeStrings(genres), stored.ID); err != nil {
-			return stored, wrapDB("seed artist genres", err)
-		}
+	if _, err = seedArtistGenres(ctx, exec, stored.ID, artist.Genres); err != nil {
+		return stored, err
 	}
 	var raw string
 	if err = exec.QueryRowContext(ctx, `SELECT genres_json FROM artists WHERE id = $1`, stored.ID).Scan(&raw); err != nil {

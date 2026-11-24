@@ -12,8 +12,8 @@ import {
 import type { ReactNode } from 'react'
 
 import { useOptionalAuth } from '@/hooks/useAuth'
-import { ListeningTracker } from '@/lib/audio/listeningTracker'
-import { analyzeLoudness, recordPlayback } from '@/lib/api/libraryTools'
+import { ListeningTracker, movesOnToAnotherTrack } from '@/lib/audio/listeningTracker'
+import { analyzeLoudness, recordPlayback, recordSkip } from '@/lib/api/libraryTools'
 import { AudioEngine } from '@/lib/audio/engine'
 import { offlineAudioURL, releaseOfflineAudioURLs, trimOfflineAudioURLs } from '@/lib/offline-store'
 import {
@@ -37,6 +37,7 @@ import { notifySuccess } from '@/lib/notify'
 import { joinArtists } from '@/lib/utils/format'
 import type { LibraryTrack } from '@/types/api'
 import { INITIAL_PLAYER_STATE, playerReducer } from './player-reducer'
+import type { PlayerAction } from './player-reducer'
 import { createProgressStore, PlayerProgressStoreContext } from './player-progress-store'
 
 export interface PlayerProgressContextValue {
@@ -111,6 +112,8 @@ export const PlayerContext = createContext<PlayerContextValue | null>(null)
 
 function audioKey(track:LibraryTrack){return track.offline_blob_key?'offline:'+track.offline_blob_key:track.id}
 function serverStream(track:LibraryTrack){return `/api/v1/library/tracks/${encodeURIComponent(track.id)}/stream`}
+/** A random event id; a retried request reuses it, so the server counts once. */
+function newEventID(){return Array.from(crypto.getRandomValues(new Uint8Array(16)),(v)=>v.toString(16).padStart(2,'0')).join('')}
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const auth = useOptionalAuth()
@@ -133,7 +136,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(()=>()=>{releaseOfflineAudioURLs()},[])
 
 
+  // A skip: the user moves on to another track after at least
+  // SKIP_MIN_SECONDS but before the current one counted as a play. Called
+  // before the action is dispatched, with the action it is about to run.
+  const reportSkipBefore = useCallback((action: PlayerAction) => {
+    const before = stateRef.current,
+      u = userRef.current
+    if (!u || !before.currentTrack) return
+    if (!movesOnToAnotherTrack(before, playerReducer(before, action))) return
+    if (!listeningTracker.current.takeSkip(u.id + ':' + before.currentTrack.id)) return
+    const id = newEventID(),
+      trackID = before.currentTrack.id
+    void recordSkip(trackID, id)
+      .catch(() => recordSkip(trackID, id))
+      .catch(() => {})
+  }, [])
+
   const previousAction = useCallback(() => {
+    reportSkipBefore({ type: 'PREVIOUS' })
     if (stateRef.current.currentTime > 3 && stateRef.current.currentTrack && currentEngineTrackIdRef.current===audioKey(stateRef.current.currentTrack)) {
       dispatch({ type: 'PREVIOUS' })
       engine.seek(0)
@@ -143,10 +163,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       requestLoad()
       dispatch({ type: 'PREVIOUS' })
     }
-  }, [engine])
+  }, [engine, reportSkipBefore])
 
   const nextAction = useCallback(
     (manual = true) => {
+      if (manual) reportSkipBefore({ type: 'NEXT', payload: { manual } })
       const after = playerReducer(stateRef.current, { type: 'NEXT', payload: { manual } })
       if (after.status === 'paused') engine.pause()
       else {
@@ -155,7 +176,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       dispatch({ type: 'NEXT', payload: { manual } })
     },
-    [engine],
+    [engine, reportSkipBefore],
   )
 
   // 1. Initial State Restoration from LocalStorage
@@ -212,9 +233,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             s.playbackRate,
           )
         ) {
-          const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (v) =>
-              v.toString(16).padStart(2, '0'),
-            ).join(''),
+          const id = newEventID(),
             trackID = s.currentTrack.id
           void recordPlayback(trackID, id)
             .catch(() => recordPlayback(trackID, id))
@@ -689,11 +708,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Context Actions
   const playTrack = useCallback(
     (track: LibraryTrack, queue?: LibraryTrack[], queueIndex?: number) => {
+      reportSkipBefore({ type: 'PLAY_TRACK', payload: { track, queue, queueIndex } })
       currentEngineTrackIdRef.current = null
       requestLoad()
       dispatch({ type: 'PLAY_TRACK', payload: { track, queue, queueIndex } })
     },
-    [],
+    [reportSkipBefore],
   )
 
   const resumeSession = useCallback(
@@ -724,19 +744,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const playAlbum = useCallback((tracks: LibraryTrack[], startIndex = 0) => {
     if (tracks.length > 0) {
+      reportSkipBefore({ type: 'PLAY_ALBUM', payload: { tracks, startIndex } })
       currentEngineTrackIdRef.current = null
       requestLoad()
     }
     dispatch({ type: 'PLAY_ALBUM', payload: { tracks, startIndex } })
-  }, [])
+  }, [reportSkipBefore])
 
   const playArtist = useCallback((tracks: LibraryTrack[], shuffle = false) => {
     if (tracks.length > 0) {
+      reportSkipBefore({ type: 'PLAY_ARTIST', payload: { tracks, shuffle } })
       currentEngineTrackIdRef.current = null
       requestLoad()
     }
     dispatch({ type: 'PLAY_ARTIST', payload: { tracks, shuffle } })
-  }, [])
+  }, [reportSkipBefore])
 
   const playNextAction = useCallback((track: LibraryTrack) => {
     dispatch({ type: 'PLAY_NEXT', payload: { track } })
@@ -745,11 +767,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const playQueueIndexAction = useCallback((index: number) => {
     if (index >= 0 && index < stateRef.current.queue.length) {
+      reportSkipBefore({ type: 'PLAY_QUEUE_INDEX', payload: { index } })
       currentEngineTrackIdRef.current = null
       requestLoad()
     }
     dispatch({ type: 'PLAY_QUEUE_INDEX', payload: { index } })
-  }, [])
+  }, [reportSkipBefore])
 
   const addToQueueAction = useCallback((tracks: LibraryTrack[] | LibraryTrack) => {
     dispatch({ type: 'ADD_TO_QUEUE', payload: { tracks } })
