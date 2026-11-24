@@ -22,7 +22,7 @@ async function login(page, username) {
   await page.getByLabel('Benutzername', { exact: true }).fill(username)
   await page.getByLabel('Passwort', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
-  await page.getByRole('link', { name: 'Entdecken', exact: true }).first().waitFor()
+  await page.waitForURL((url) => ['/listen', '/search'].includes(url.pathname))
 }
 
 async function playback(page) {
@@ -76,6 +76,10 @@ for (const [name, type] of [['chromium', chromium], ['firefox', firefox]]) {
       } else {
         await page.getByRole('button', { name: 'Anmelden', exact: true }).click()
       }
+      // Signing in lands on the start page of the last area, Hören by default;
+      // the download flow starts in Laden.
+      await page.waitForURL((url) => ['/listen', '/search'].includes(url.pathname))
+      await page.locator('nav[aria-label="Bereich"] a:visible', { hasText: 'Laden' }).first().click()
       await page.getByRole('link', { name: 'Entdecken', exact: true }).first().click()
       await page.getByRole('searchbox', { name: 'Künstler, Album oder URL suchen' }).fill('Qualification')
       await page.getByRole('button', { name: 'Suchen', exact: true }).click()
