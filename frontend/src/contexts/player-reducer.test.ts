@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import type { LibraryTrack } from '@/types/api'
 import {
   INITIAL_PLAYER_STATE,
+  playArtistAction,
   playerReducer,
 } from './player-reducer'
 
@@ -94,6 +95,31 @@ describe('playerReducer', () => {
     expect(state.originalQueue).toEqual(tracks)
     expect(state.shuffle).toBe(true)
     expect(state.queueIndex).toBe(0)
+  })
+
+  it('decides the shuffle of PLAY_ARTIST before the reducer runs', () => {
+    // PlayerContext runs the reducer once to see whether the action is a skip
+    // and once more to dispatch it; both must land on the same track.
+    const tracks = [dummyTrack1, dummyTrack2, dummyTrack3]
+    const playing = playerReducer(INITIAL_PLAYER_STATE, { type: 'PLAY_ALBUM', payload: { tracks } })
+    const random = Math.random
+    const draws = [0.1, 0.1, 0.9, 0.9, 0.5]
+    let n = 0
+    Math.random = () => draws[n++ % draws.length]!
+    try {
+      for (let i = 0; i < 6; i++) {
+        const action = playArtistAction(tracks, true)
+        const checked = playerReducer(playing, action)
+        const dispatched = playerReducer(playing, action)
+        expect(dispatched.currentTrack?.id).toBe(checked.currentTrack!.id)
+        expect(dispatched.queue.map((t) => t.id)).toEqual(checked.queue.map((t) => t.id))
+        expect(dispatched.originalQueue).toEqual(tracks)
+        expect(dispatched.shuffle).toBe(true)
+      }
+    } finally {
+      Math.random = random
+    }
+    expect(playArtistAction(tracks).payload).toEqual({ tracks, shuffle: false, order: undefined })
   })
 
   it('handles PLAY_NEXT inserting track directly after current track', () => {
