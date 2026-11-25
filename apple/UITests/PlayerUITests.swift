@@ -577,8 +577,13 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "TV queue after long press")
         if !opened { print(app.debugDescription) }
         XCTAssertTrue(opened, "A long press opens the entry's menu.")
-        for _ in 0..<4 where !remove.hasFocus { XCUIRemote.shared.press(.down) }
-        XCTAssertTrue(remove.hasFocus)
+        // Directly after the playing title the menu offers "Nach unten" and then
+        // "Aus Warteschlange entfernen". Menu items do not report focus to XCTest;
+        // the check below proves the right item was chosen.
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Nach unten")).firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Nach oben")).firstMatch.exists,
+                       "Nothing moves above the playing title.")
+        XCUIRemote.shared.press(.down)
         attach(app, name: "TV queue entry menu")
         XCUIRemote.shared.press(.select)
         let next = app.buttons["tv-queue-track-1"]
