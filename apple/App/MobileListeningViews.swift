@@ -649,7 +649,7 @@ struct MobilePlayerView: View {
             TextField("Warteschlange filtern", text: $queueQuery).textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("mobile-queue-filter")
             let queue = model.player.queue
-            ForEach(queue.rows { queueQuery.isEmpty || [$0.title, $0.artistText, $0.album].joined(separator: " ").localizedCaseInsensitiveContains(queueQuery) }) { row in
+            ForEach(queue.rows(filter: queueQuery)) { row in
                 let index = row.position, track = row.track
                 if row.startsSection {
                     HStack(spacing: 6) {

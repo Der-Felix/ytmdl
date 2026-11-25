@@ -1409,7 +1409,14 @@ struct NowPlayingView: View {
                 } else { ContentUnavailableView("Musik auswählen", systemImage: "play.circle", description: Text("Öffne ein Album oder eine Playlist, um loszuhören.")).frame(width: geometry.size.width, height: geometry.size.height) }
             }
             #endif
-        }.navigationTitle("Player")
+        }
+        #if os(tvOS)
+        // The tab bar already says "Player". A large navigation title stayed on
+        // screen and overlapped the queue panel while it scrolled.
+        .toolbar(.hidden, for: .navigationBar)
+        #else
+        .navigationTitle("Player")
+        #endif
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -1461,10 +1468,26 @@ struct NowPlayingView: View {
                     Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.title).frame(width: playButtonSize, height: playButtonSize)
                 }.buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.pink).accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen")
                 Button { model.player.next() } label: { Image(systemName: "forward.end.fill").font(.title2).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Nächster Titel")
+                #if os(tvOS)
+                // Off, whole queue, this title: the same cycle as the iPhone player.
+                Button {
+                    if model.player.repeatOne { model.player.setRepeatOne(false); model.player.repeatAll = false }
+                    else if model.player.repeatAll { model.player.setRepeatOne(true) }
+                    else { model.player.repeatAll = true }
+                } label: {
+                    Image(systemName: model.player.repeatOne ? "repeat.1" : "repeat")
+                        .foregroundStyle(model.player.repeatAll || model.player.repeatOne ? .pink : .primary).frame(minWidth: 44, minHeight: 44)
+                }.accessibilityLabel(model.player.repeatOne ? "Einzeltitel wiederholen" : model.player.repeatAll ? "Warteschlange wiederholen" : "Wiederholung aus")
+                    .accessibilityIdentifier("tv-player-repeat")
+                #else
                 Button { model.player.repeatAll.toggle() } label: { Image(systemName: "repeat").foregroundStyle(model.player.repeatAll ? .pink : .primary).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel(model.player.repeatAll ? "Wiederholen ausschalten" : "Warteschlange wiederholen")
+                #endif
             }.frame(maxWidth: .infinity).tint(.primary)
             #if os(macOS)
             .buttonStyle(.borderless)
+            #endif
+            #if os(tvOS)
+            TVPlayerQuickActions(model: model, track: track)
             #endif
             if model.player.loading { ProgressView("Titel wird geladen …") }
             if let error = model.player.error { Text(error).font(.callout).foregroundStyle(.secondary); Button("Erneut versuchen") { model.player.resume() } }

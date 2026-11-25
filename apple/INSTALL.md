@@ -21,7 +21,7 @@ only connect over **HTTPS** (a plain `http://` address is refused).
 ## Check your download
 
 ```sh
-shasum -a 256 YTMDL-macOS-0.4.2-36.dmg
+shasum -a 256 YTMDL-macOS-0.4.3-37.dmg
 ```
 
 The hash must equal the matching line in `SHA256SUMS`. The files are built by the
@@ -78,7 +78,12 @@ Since build 36 (0.4.2) the TV app has **Für dich** (the last card of the first 
 **Start**) and lets you edit the queue in **Player** with the remote: hold the select
 button on an upcoming title for **Als Nächstes abspielen**, **Nach oben**, **Nach unten**
 and **Aus Warteschlange entfernen**; **Warteschlange leeren** offers **Rückgängig** for a
-few seconds. Updating over an earlier build keeps sign-in and settings.
+few seconds.
+
+Since build 37 (0.4.3) **Optionen → Klang & Wiedergabe** has the sound settings of the
+iPhone (sleep timer, tempo, crossfade, normalization, equalizer); values change with the
+list of its choices. The player has sleep timer and tempo menus, and **Warteschlange filtern**
+above the queue opens the keyboard. Updating over an earlier build keeps sign-in and settings.
 
 ## Build it yourself
 
@@ -95,7 +100,7 @@ apple/Scripts/package-dmg.sh ~/Downloads/ytmdl-packages
 1. Raise `CFBundleShortVersionString`/`CFBundleVersion` in **both**
    `Resources/Info.plist` and `Widgets/Info.plist` (the scripts refuse a mismatch).
 2. Merge to `dev` or `main`. The workflow only releases commits that are on one of them.
-3. Push the tag `apple-v<version>-<build>` (for example `apple-v0.4.2-36`). The tag must
+3. Push the tag `apple-v<version>-<build>` (for example `apple-v0.4.3-37`). The tag must
    match the plists. The workflow builds both packages, checks them, and creates a
    **draft pre-release** with the files and `SHA256SUMS`. Review it, then publish it.
 4. To test the packaging without a release, run the `Apple packages` workflow manually

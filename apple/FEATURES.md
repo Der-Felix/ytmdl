@@ -1,9 +1,9 @@
-# Native listening preview 0.4.2 — build 36
+# Native listening preview 0.4.3 — build 37
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
-Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)). The matrix below includes the listening parity with web 1.10 that build 34 adds and build 35 completes, and the Apple TV side that build 36 adds (see below).
+Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)). The matrix below includes the listening parity with web 1.10 that build 34 adds and build 35 completes, the Apple TV side that build 36 adds and the Apple TV sound settings of build 37 (see below).
 See [AUDIT.md](AUDIT.md) for the dated functional audit through build 32, test evidence,
 corrected defects and the remaining real-device release checks.
 The [release checklist](RELEASE-CHECKLIST.md) tracks qualification separately
@@ -25,15 +25,55 @@ from implemented features and simulator verification.
 | Home/Lock Screen widgets (iOS/iPadOS) | Small/medium Home widgets and circular/rectangular/inline Lock Screen widgets open the player; medium Home widgets also link to favorites and playlists. Navigation only, no live song state or playback controls |
 | Mobile transport | Seeking, previous/next, shuffle, repeat queue/track, native device volume and AirPlay |
 | System artwork | Now Playing artwork published after authenticated/local loading, retained across progress updates, cleared on title change or stop; actual lock-screen review remains required |
-| Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer |
+| Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer. Apple TV has the same settings under **Optionen → Klang & Wiedergabe** (each value opens a list of choices) plus sleep timer and tempo menus in the player |
 | Mobile visualization | Four mobile FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
 | Lyrics | Cached/plain text; LRC timing, optional following and tap-to-seek when time tags exist |
-| Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all with **Rückgängig** for a few seconds, save as playlist, local resume state and explicit restore that keeps each entry's section and the started context; whole albums, artists, playlists and mixes can be queued. Apple TV edits upcoming entries through a long-press menu |
+| Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all with **Rückgängig** for a few seconds, save as playlist, local resume state and explicit restore that keeps each entry's section and the started context; whole albums, artists, playlists and mixes can be queued. Apple TV edits upcoming entries through a long-press menu and has the same filter |
 | Song/genre radio | Existing local-library server recommendations; **Automatisch weiterspielen** (on by default) appends at most 12 similar titles when two or fewer remain, leaving out titles already queued or played earlier in the session (last 200, per account and server), and tops up again at the next lookahead; an explicitly started song radio keeps its full list. Not with repeat, sleep timer or offline-only playback |
 | Listening history | Local recent metadata and queue; plays and skips with the web's rules (`ListeningTracker`) as idempotent server events, also for local files, queued while offline and scoped to origin/account |
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## Apple TV sound and queue filter (build 37)
+
+Added on top of build 36; it uses the server API of v1.10.x unchanged. It ships as 0.4.3 (37).
+
+- **Klang & Wiedergabe on Apple TV**: **Optionen** has a **Klang** section that opens the
+  iPhone's sound settings for the remote. **Sleep-Timer** (all choices, with the time left
+  while a minute timer runs), **Tempo** (0.5× to 2×), **Überblendung** (0–12 s),
+  **Albentitel ohne Überblendung**, **Nächsten Titel vorladen**, **Schneller
+  Abspielstart**, **Automatisch weiterspielen**, **Lautstärke-Normalisierung** with its
+  status and **Lautheit erneut prüfen**, and the equalizer: **Equalizer aktivieren**,
+  **Klangprofil**, the ten bands and **Vorverstärkung** (in 1 dB steps), **Automatischer
+  EQ-Pegelschutz** and **Klang zurücksetzen**. tvOS has no slider, so each value opens a list
+  of its choices (−/+ buttons inside a settings row cannot take the remote's focus). The bands appear only while
+  the equalizer is on. The settings use the same player and the same stored values as the
+  other platforms; the audio processing tap and time-pitch algorithms run on tvOS too.
+- **Player on Apple TV**: under the transport, **Sleep-Timer** (shows the time left),
+  **Tempo** and **Titel-Aktionen** (**Song-Radio starten**, **Zur Playlist hinzufügen**)
+  menus. Repeat cycles off, queue and this title like on the iPhone. The large "Player"
+  title is gone; it overlapped the queue panel when that scrolled (the tab bar names the tab).
+- **Queue filter on Apple TV**: **Warteschlange filtern** above the titles, the same filter
+  as on the iPhone (title, artists, album). Selecting it opens the keyboard; **Filter
+  leeren** shows everything again. Rows keep their place in the queue, so the long-press
+  menu edits the title that is shown; after removing one, focus moves to the next shown
+  title. **Warteschlange leeren** still removes all upcoming titles, as **Nächste leeren**
+  does on the iPhone, and **Rückgängig** brings them back.
+- **More in the queue menu on Apple TV**: every title also offers **Zur Playlist
+  hinzufügen** and **Zu Favoriten hinzufügen**/**Aus Favoriten entfernen** while online.
+- **History and handoff on Apple TV**: **Optionen** also has the iPhone's **Hörverlauf &
+  Übergabe** settings (local history, server sync, clearing, **Wiedergabe von anderem Gerät
+  prüfen** and **Wiedergabe hier fortsetzen**); **Wiedergabe übergeben** is in the player's
+  **Titel-Aktionen**.
+- **Not on Apple TV**: the visualizer (there is no cover-overlay player on TV) and offline
+  music (see WEB-PARITY.md for why tvOS has no offline catalogue).
+
+Review on Apple TV with the remote: **Optionen → Klang & Wiedergabe**, set a 15-minute
+sleep timer and watch the time left; set tempo 1.25× and listen; raise **Überblendung** to
+6 s and let a title run out; turn on the equalizer, choose **Mehr Bass**, then
+change one band and see **Eigener Klang**. In **Player**, open the sleep and tempo menus,
+filter the queue for an artist and long-press a shown title to play it next.
 
 ## Apple TV and undo (build 36)
 

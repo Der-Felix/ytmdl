@@ -1,6 +1,6 @@
 # Web/App-Abgleich: Musik hören und Sammlungen verwalten
 
-Stand: 25. November 2026, native Vorschau 0.4.2 (36). Die Abschnitte zu den Builds 34 bis 36
+Stand: 25. November 2026, native Vorschau 0.4.3 (37). Die Abschnitte zu den Builds 34 bis 37
 beschreiben, was seit Build 32 dazukam; installiert ist auf dem iPhone weiterhin Build 32.
 Dies ist eine Funktionsprüfung, keine Freigabe als vollständiges oder fehlerfreies
 Stable-Release. Downloads vom Provider, Serververwaltung und Bibliothekswartung
@@ -27,10 +27,10 @@ verglichen, nicht nach identischen Menünamen.
 | Player und Mini-Player | Start/Pause, Vor/Zurück, Seek, Lautstärke/AirPlay, Wiederholung | Nutzt lokale Datei; fehlt sie, kein versteckter Streaming-Fallback im Offline-Modus |
 | Warteschlange | Abschnitte wie im Web: „Als Nächstes“, „Weiter aus: …“, „Ähnliche Titel“; hinzufügen, als Nächstes, freie Verschiebung, Entfernen, kommende Titel leeren, vollständig leeren, danach „Rückgängig“ wie im Web; ganze Alben, Künstler, Playlists und Mixe einreihen; auf Apple TV über ein Menü per Gedrückthalten | Lokale Änderungen und Wiedergabe funktionieren auch offline |
 | Warteschlange als Playlist | Jetzt auch im mobilen Player erreichbar; „Mix als Playlist speichern“ auf der Mix-Seite | Speichern auf dem Server braucht Verbindung; ohne Verbindung ist die Aktion mit Hinweis gesperrt |
-| Queue-Filter | Mobil und Mac | Filtert die vorhandene lokale Warteschlange |
+| Queue-Filter | Mobil, Mac und Apple TV (Titel, Künstler, Album) | Filtert die vorhandene lokale Warteschlange |
 | Überblendung/Vorladen | 0–12 Sekunden, Schutz benachbarter Albentitel, schneller Start | Auch mit lokalen Dateien; keine Garantie für samplegenaues Gapless |
-| Tempo/Sleep-Timer | 0,5–2× einschließlich 1,75×; 15/30/45/60 Minuten, Titel-/Albumende | Lokal; kein Server erforderlich |
-| Zehnband-EQ/Vorverstärkung | Vorhanden, Presets und EQ-Pegelschutz | Lokal auf unterstütztem PCM-Ausgabeformat |
+| Tempo/Sleep-Timer | 0,5–2× einschließlich 1,75×; 15/30/45/60 Minuten, Titel-/Albumende; auf Apple TV in „Optionen“ und im Player | Lokal; kein Server erforderlich |
+| Zehnband-EQ/Vorverstärkung | Vorhanden, Presets und EQ-Pegelschutz; auf Apple TV als Auswahl in 1-dB-Schritten | Lokal auf unterstütztem PCM-Ausgabeformat |
 | Lautstärke-Normalisierung | Neu: derselbe Mess-Endpunkt wie im Web; getrennte Werte pro überblendetem Titel | Bereits gespeicherte Werte verwenden; fehlt der Wert, unverändert abspielen und anzeigen |
 | Lyrics | Plain/LRC, Folgen und Antippen zum Seek; jetzt auch im Mac-Player | Bereits heruntergeladene Lyrics lokal verwenden |
 | Visualizer | Echte FFT, verschiedene Darstellungen, Farben, ohne Cover, Reduce Motion | Lokal; Stile unterscheiden sich vom Web |
@@ -41,6 +41,55 @@ verglichen, nicht nach identischen Menünamen.
 | Künstlerseite | „Am meisten gehört“ (bis zu zehn Titel), Abspielen/Zufall, ganze Künstler einreihen | Braucht Verbindung; Offline-Künstlersammlungen bleiben abspielbar |
 | Geräteübergabe | Ausdrückliches Senden/Annehmen mit Schutz vor verspäteten Antworten | Braucht Verbindung; startet nicht eigenständig Musik |
 | Sperrbildschirm/Medientasten | Now Playing mit Cover, Seek und Transport | Verwendet lokale Cover; Hardwareprüfung bleibt erforderlich |
+
+## Build 37 (0.4.3): Klang und Queue-Filter auf Apple TV
+
+Auf Build 36 aufbauend, gegen die unveränderte Server-API von v1.10.x. Ausgeliefert als 0.4.3 (37).
+
+- „Optionen → Klang & Wiedergabe“ auf Apple TV: Sleep-Timer (alle Stufen, mit Restzeit),
+  Tempo, Überblendung, Albentitel ohne Überblendung, Vorladen, schneller Start,
+  Automatisch weiterspielen, Lautstärke-Normalisierung mit Status und der Zehnband-EQ mit
+  Klangprofilen, Bändern, Vorverstärkung und Pegelschutz. Dieselben gespeicherten Werte
+  und derselbe Player wie auf den anderen Plattformen. tvOS hat keinen Schieberegler:
+  Jeder Wert ist eine Zeile mit dem aktuellen Wert, die eine Liste der Möglichkeiten öffnet (EQ und Vorverstärkung in 1-dB-Schritten); −/+-Tasten in einer Formularzeile bekamen auf tvOS keinen Fokus, und die Picker-Varianten zeigten in der CI eine leere Liste oder keinen Titel. Geprüft im Code: die
+  Klangverarbeitung (`MTAudioProcessingTap` über `AVAudioMix`) und das Tempo
+  (`audioTimePitchAlgorithm`) sind auf tvOS verfügbar und laufen dort ohne
+  Sonderweg; nichts wurde weggelassen, weil es auf tvOS nicht ginge.
+- Im Player: Menüs für Sleep-Timer und Tempo, „Titel-Aktionen“ mit „Song-Radio starten“ und
+  „Zur Playlist hinzufügen“; Wiederholen wechselt wie auf dem iPhone zwischen aus,
+  Warteschlange und Titel. Der große Titel „Player“ überdeckte beim Scrollen die
+  Warteschlange und entfällt (die Tab-Leiste nennt den Bereich).
+- Warteschlange filtern auf Apple TV wie auf dem iPhone (Titel, Künstler, Album), über die
+  Tastatur von tvOS, mit „Filter leeren“. Zeilen behalten ihre Position in der
+  Warteschlange, Bearbeiten trifft also den angezeigten Titel. „Warteschlange leeren“
+  entfernt wie „Nächste leeren“ auf dem iPhone alle kommenden Titel, auch ausgefilterte;
+  „Rückgängig“ bringt sie zurück.
+- Gedrückthalten in der TV-Warteschlange bietet zusätzlich „Zur Playlist hinzufügen“ und
+  „Zu Favoriten hinzufügen“/„Aus Favoriten entfernen“ (online).
+- „Optionen“ auf Apple TV hat jetzt wie das iPhone „Hörverlauf & Übergabe“: lokalen
+  Hörverlauf merken oder leeren, mit dem Server synchronisieren, „Wiedergabe von anderem
+  Gerät prüfen“ und „Wiedergabe hier fortsetzen“; „Wiedergabe übergeben“ steht in den
+  Titel-Aktionen des Players.
+- Bewusst nicht auf Apple TV: der Visualizer (der TV-Player hat keine Cover-Überlagerung;
+  eine Bewegung im Raum ohne Bedienung bringt am Fernseher wenig) und Offline-Musik, siehe
+  unten.
+
+Warum Apple TV keinen Offline-Katalog hat: tvOS garantiert Apps keinen dauerhaften Speicher.
+Größere Dateien dürfen nur in den Caches liegen, die das System jederzeit leeren kann; der
+iPhone-Katalog legt Musik, Cover und `manifest.json` dagegen dauerhaft in Application
+Support ab und plant Downloads über Hintergrund-Transfers, Speicherbudget und WLAN-Regel.
+Eine ehrliche TV-Version bräuchte einen eigenen Speicherort in den Caches, Umgang mit
+verschwundenen Dateien mitten in einer gespeicherten Sammlung, „Offline speichern“ in den
+TV-Menüs, eine TV-Ansicht des Katalogs und einen Offline-Einstieg ohne Server. Das sind
+deutlich mehr als 300 Zeilen für einen Nutzen, der am Fernseher gering ist (das Gerät hängt
+fest am Netz, und gelöschte Caches würden Sammlungen unbemerkt ausdünnen). Apple TV streamt
+daher weiter vom Server.
+
+Nachweis: Swift-Tests für die Auswahlwerte (Raster, Grenzen, Zwischenwerte, ungültige Werte), den Filter
+(Titel, Künstler, Album, leerer Filter, Positionen) und den Fokus nach dem Entfernen
+gefilterter Zeilen; UI-Tests auf Apple TV, die die Überblendung in „Klang & Wiedergabe“
+ändern und eine gefilterte Zeile als Nächstes einreihen, nur in der CI. Nicht auf einem
+Gerät mit Fernbedienung und nicht hörbar geprüft.
 
 ## Build 36 (0.4.2): Apple TV und „Rückgängig“
 
@@ -146,10 +195,11 @@ Diese Punkte sind echte offene Unterschiede und dürfen nicht als erledigt gelte
    Web-Sortierungen nach Album/Dauer und absteigender Richtung fehlen.
 6. Der Web-Visualizer hat eine Zeitbereichs-Wellenform. Die mobilen nativen Stile
    sind Frequenzdarstellungen; diese sind kein identischer Ersatz für eine Wellenform.
-7. **tvOS ist noch nicht gleichwertig**: kein Offline-Katalog; keine Klang-Einstellungen
-   (EQ, Überblendung, Tempo, Sleep-Timer, Normalisierung) auf Apple TV; kein Filter der
-   Warteschlange; „Für dich“ und das Bearbeiten der Warteschlange (Build 36) brauchen noch
-   eine Prüfung mit der Fernbedienung auf einem Gerät.
+7. **tvOS ist noch nicht gleichwertig**: kein Offline-Katalog (mit Absicht, siehe Build 37)
+   und kein Visualizer. Klang-Einstellungen, Queue-Filter, Hörverlauf-Schalter und
+   Geräteübergabe gibt es seit Build 37. „Für dich“, das Bearbeiten der Warteschlange (Build 36) und die
+   Klang-Einstellungen (Build 37) brauchen noch eine Prüfung mit der Fernbedienung auf einem
+   Gerät.
 8. Automatische Tests ersetzen keine Prüfung von Sperrbildschirm, Bluetooth,
    AirPlay, Telefonunterbrechungen und Downloads nach erzwungenem Beenden auf Hardware.
 
@@ -194,6 +244,11 @@ Stable-Freigabe alle Hardware-Punkte aus `RELEASE-CHECKLIST.md` abnehmen.
   „Deine Mixe“ „Alle Mixe“ öffnen, im Raster bewegen, einen Mix gedrückt halten und abspielen.
   Im Player kommende Titel gedrückt halten: nach oben, nach unten, als Nächstes, entfernen;
   der Fokus bleibt beim Titel oder Nachbarn. „Warteschlange leeren“, dann „Rückgängig“.
+- Apple TV Klang: „Optionen → Klang & Wiedergabe“, Sleep-Timer 15 Minuten (Restzeit läuft
+  auch im Player), Tempo 1,25×, Überblendung 6 s, EQ „Mehr Bass“ und ein Band ändern
+  („Eigener Klang“), Normalisierung einschalten und den Status lesen. Die Werte gelten je
+  Gerät; das iPhone behält seine eigenen. Im Player die Warteschlange
+  nach einem Künstler filtern und einen angezeigten Titel als Nächstes einreihen.
 - Rückgängig: auf dem iPhone „Leeren und stoppen“, innerhalb von zehn Sekunden „Rückgängig“:
   dieselben Abschnitte, derselbe Titel an derselben Stelle. Nach Ablauf ist das Angebot weg.
 - Mix sortieren: nach Künstler absteigend sortieren, abspielen, als Playlist speichern; die
