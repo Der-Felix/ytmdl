@@ -252,8 +252,9 @@ describe('App Layout Consolidation and Route Permissions', () => {
       </AuthContext.Provider>,
     )
 
-    expect(screen.getByRole('navigation', { name: 'Hauptnavigation' })).toBeDefined()
-    expect(screen.getByRole('link', { name: /Playlists/i }).getAttribute('aria-current')).toBe('page')
+    // The sidebar's entry; the bottom bar on phones names Playlists as well.
+    const sidebar = screen.getByRole('navigation', { name: 'Hauptnavigation' })
+    expect(within(sidebar).getByRole('link', { name: /Playlists/i }).getAttribute('aria-current')).toBe('page')
     expect(await screen.findByRole('heading', { level: 1, name: 'Playlists' })).toBeDefined()
   })
 
