@@ -102,7 +102,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
   })
 
   const currentTracks = useCurrentTracks()
-  const { state: summaryState, reload: reloadSummary } = useQueueSummary()
+  const { state: summaryState, refreshing: summaryRefreshing, reload: reloadSummary } = useQueueSummary()
 
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [cleanupDays, setCleanupDays] = useState(30)
@@ -214,12 +214,12 @@ function Downloads({ jobId }: DownloadsPageProps) {
               reload()
               reloadSummary()
             }}
-            disabled={state.status === 'loading' || summaryState.status === 'loading'}
+            disabled={state.status === 'loading' || summaryRefreshing}
           >
             <RefreshCwIcon
               className={cn(
                 'size-3.5',
-                (state.status === 'loading' || summaryState.status === 'loading') && 'animate-spin',
+                (state.status === 'loading' || summaryRefreshing) && 'animate-spin',
               )}
             />
             Aktualisieren
