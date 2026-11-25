@@ -4,6 +4,7 @@ import { loadPlayerState } from '@/lib/audio/player-storage'
 import type { PlayerState, QueueTrack } from '@/lib/audio/types'
 import type { LibraryTrack } from '@/types/api'
 import {
+  AUTOPLAY_BATCH,
   INITIAL_PLAYER_STATE,
   autoplaySeed,
   moveQueueEntry,
@@ -205,6 +206,34 @@ describe('autoplay and radio', () => {
     expect(run(INITIAL_PLAYER_STATE, { type: 'APPEND_AUTOPLAY', payload: { tracks: [t('r1')] } })).toBe(
       INITIAL_PLAYER_STATE,
     )
+  })
+
+  it('appends one small batch and leaves out tracks played earlier in the session', () => {
+    const similar = Array.from({ length: 50 }, (_, i) => t(`r${i}`))
+    const first = run(playing(), { type: 'APPEND_AUTOPLAY', payload: { tracks: similar } })
+    expect(first.queue).toHaveLength(5 + AUTOPLAY_BATCH)
+    expect(ids(first.queue).slice(5)).toEqual(similar.slice(0, AUTOPLAY_BATCH).map((x) => x.id))
+
+    // The next top-up from the same answer skips what is queued already.
+    const second = run(first, { type: 'APPEND_AUTOPLAY', payload: { tracks: similar } })
+    expect(second.queue).toHaveLength(5 + 2 * AUTOPLAY_BATCH)
+    expect(new Set(ids(second.queue)).size).toBe(second.queue.length)
+
+    // Tracks played before the queue was replaced stay out as well.
+    const excluded = run(playing(), {
+      type: 'APPEND_AUTOPLAY',
+      payload: { tracks: [t('r0'), t('r1'), t('r2')], exclude: ['r0', 'r2'] },
+    })
+    expect(ids(excluded.queue).slice(5)).toEqual(['r1'])
+  })
+
+  it('lets an explicit radio keep its full list', () => {
+    const similar = Array.from({ length: 40 }, (_, i) => t(`r${i}`))
+    const s = run(playing(), {
+      type: 'START_RADIO',
+      payload: { tracks: similar, context: radioContext({ genre: 'Jazz' }) },
+    })
+    expect(s.queue.length).toBeGreaterThan(AUTOPLAY_BATCH)
   })
 
   it('continues into autoplay tracks at the end and replaces them when something new starts', () => {

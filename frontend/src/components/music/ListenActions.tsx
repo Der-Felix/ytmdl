@@ -20,6 +20,10 @@ interface ListenActionsProps {
  * The action row of a release or artist page: one primary "Abspielen", which
  * pauses and resumes while this page is what plays, then "Zufällig" and the
  * queue actions. One primary per view; the others are outline buttons.
+ *
+ * Inside a narrow container (an ancestor with the @container class) the
+ * secondary buttons drop their labels and keep icon and tooltip, so the row
+ * stays one line instead of wrapping one button per line.
  */
 export function ListenActions({ tracks, context, playLabel, mode = 'album', queueActions = true }: ListenActionsProps) {
   const { queueContext, status, currentTrack } = usePlayerState()
@@ -48,19 +52,19 @@ export function ListenActions({ tracks, context, playLabel, mode = 'album', queu
         {playing ? <Pause className="size-4 fill-current" aria-hidden /> : <Play className="size-4 fill-current" aria-hidden />}
         {playing ? 'Pause' : active ? 'Fortsetzen' : 'Abspielen'}
       </Button>
-      <Button disabled={empty} onClick={() => playShuffled(tracks, context)}>
+      <Button disabled={empty} onClick={() => playShuffled(tracks, context)} title="Zufällig" className="@max-sm:w-10 @max-sm:px-0">
         <Shuffle className="size-4" aria-hidden />
-        Zufällig
+        <span className="@max-sm:sr-only">Zufällig</span>
       </Button>
       {queueActions && (
         <>
-          <Button variant="ghost" disabled={empty} onClick={() => playNext(tracks)}>
+          <Button variant="ghost" disabled={empty} onClick={() => playNext(tracks)} title="Als Nächstes" className="@max-xl:w-10 @max-xl:px-0">
             <ListStart className="size-4" aria-hidden />
-            Als Nächstes
+            <span className="@max-xl:sr-only">Als Nächstes</span>
           </Button>
-          <Button variant="ghost" disabled={empty} onClick={() => addToQueue(tracks)}>
+          <Button variant="ghost" disabled={empty} onClick={() => addToQueue(tracks)} title="Zur Warteschlange" className="@max-xl:w-10 @max-xl:px-0">
             <ListPlus className="size-4" aria-hidden />
-            Zur Warteschlange
+            <span className="@max-xl:sr-only">Zur Warteschlange</span>
           </Button>
         </>
       )}

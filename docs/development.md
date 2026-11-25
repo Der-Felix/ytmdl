@@ -106,11 +106,11 @@ Python 3 and Docker (or add `--engine podman`):
 python3 scripts/smoke-release-containers.py \
   --backend ytmdl-backend:release-smoke \
   --frontend ytmdl-frontend:release-smoke \
-  --version 1.10.0
+  --version 1.10.1
 
 # The single image (Containerfile.all-in-one, built from the repository root)
 docker build -f Containerfile.all-in-one -t ytmdl:release-smoke .
-python3 scripts/smoke-release-containers.py --all-in-one ytmdl:release-smoke --version 1.10.0
+python3 scripts/smoke-release-containers.py --all-in-one ytmdl:release-smoke --version 1.10.1
 ```
 
 The test creates uniquely named networks, disposable PostgreSQL 18,

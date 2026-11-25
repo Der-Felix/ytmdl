@@ -135,6 +135,9 @@ export const PlayerProgressContext = createContext<PlayerProgressContextValue | 
 export const PlayerActionsContext = createContext<PlayerActionsContextValue | null>(null)
 export const PlayerContext = createContext<PlayerContextValue | null>(null)
 
+/** How many recently played tracks autoplay keeps out of its top-ups. */
+const SESSION_PLAYED_LIMIT = 200
+
 function audioKey(track:LibraryTrack){return track.offline_blob_key?'offline:'+track.offline_blob_key:track.id}
 function serverStream(track:LibraryTrack){return `/api/v1/library/tracks/${encodeURIComponent(track.id)}/stream`}
 /** A random event id; a retried request reuses it, so the server counts once. */
@@ -651,13 +654,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // 6b. Autoplay: when the queue is about to run out, similar tracks from the
   // library are appended (origin autoplay), so playback simply carries on.
   // One request per queue end; a failure or an empty answer leaves the
-  // queue to end as before. The nonce makes every batch a fresh draw.
+  // queue to end as before. The nonce makes every batch a fresh draw. Each
+  // request appends one small batch (AUTOPLAY_BATCH); the next request follows
+  // when the lookahead is reached again. Tracks played earlier in this session
+  // are left out, so top-ups from the same seed do not bring them back after a
+  // new queue replaced the old one.
   const autoplayRef = useRef<{ key: string; controller: AbortController | null }>({ key: '', controller: null })
+  const sessionPlayedRef = useRef<string[]>([])
   const autoplayUserId = user?.id
   useEffect(() => {
     const pending = autoplayRef.current
+    sessionPlayedRef.current = []
     return () => pending.controller?.abort()
   }, [autoplayUserId])
+  const currentTrackId = state.currentTrack?.id
+  useEffect(() => {
+    if (!currentTrackId) return
+    const played = sessionPlayedRef.current.filter((id) => id !== currentTrackId)
+    played.push(currentTrackId)
+    sessionPlayedRef.current = played.slice(-SESSION_PLAYED_LIMIT)
+  }, [currentTrackId])
   useEffect(() => {
     const s = stateRef.current
     const online = typeof navigator === 'undefined' || navigator.onLine !== false
@@ -678,7 +694,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const now = stateRef.current
         // Something else was started, or the end moved, in the meantime.
         if (now.queue.length !== length || now.queue[length - 1]?.id !== last.id || !now.autoplay) return
-        dispatch({ type: 'APPEND_AUTOPLAY', payload: { tracks: Array.isArray(tracks) ? tracks : [] } })
+        dispatch({
+          type: 'APPEND_AUTOPLAY',
+          payload: { tracks: Array.isArray(tracks) ? tracks : [], exclude: sessionPlayedRef.current },
+        })
       },
       () => {},
     )

@@ -48,9 +48,9 @@ function ReleaseCard({ release, provider, href, isLocal }: ReleaseCardProps) {
 
         <p className="truncate text-xs text-muted-foreground">
           {isLibRelease ? (
-            `${year ? `${year} · ` : ''}${pluralize(release.track_count_in_library, 'Track')}`
+            `${year ? `${year} · ` : ''}${pluralize(release.track_count_in_library, 'Titel', 'Titel')}`
           ) : (
-            [year, release.track_count > 0 ? pluralize(release.track_count, 'Track') : '']
+            [year, release.track_count > 0 ? pluralize(release.track_count, 'Titel', 'Titel') : '']
               .filter(Boolean)
               .join(' · ') || 'Kein Erscheinungsjahr'
           )}

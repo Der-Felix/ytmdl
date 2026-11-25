@@ -58,7 +58,9 @@ export function QueueSummaryCard({ summary, className }: QueueSummaryCardProps) 
       )}
 
       {/* Primary KPI Grid */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {/* Five columns only from xl: beside the sidebar at lg the labels
+          ("In Bearbeitung", "Wiederholung geplant") would wrap. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
         {/* Open Tracks */}
         <div className="rounded-lg border border-border/50 bg-muted p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

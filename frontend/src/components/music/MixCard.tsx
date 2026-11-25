@@ -57,7 +57,8 @@ export function MixCard({ mix, busy, disabled, onPlay }: { mix: PersonalMix; bus
         <Button
           variant="secondary"
           size="sm"
-          className="relative z-10 gap-2"
+          // Icon only on phones: a square at touch height (see Button size sm).
+          className="relative z-10 gap-2 max-sm:w-10 max-sm:px-0"
           disabled={disabled}
           aria-label={`${mix.title} abspielen`}
           onClick={(event) => onPlay(event, mix)}

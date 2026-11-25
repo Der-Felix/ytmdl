@@ -102,7 +102,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
   })
 
   const currentTracks = useCurrentTracks()
-  const { state: summaryState, reload: reloadSummary } = useQueueSummary()
+  const { state: summaryState, refreshing: summaryRefreshing, reload: reloadSummary } = useQueueSummary()
 
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [cleanupDays, setCleanupDays] = useState(30)
@@ -194,7 +194,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           {isAdmin && (
             <Button
               variant="outline"
@@ -214,12 +214,12 @@ function Downloads({ jobId }: DownloadsPageProps) {
               reload()
               reloadSummary()
             }}
-            disabled={state.status === 'loading' || summaryState.status === 'loading'}
+            disabled={state.status === 'loading' || summaryRefreshing}
           >
             <RefreshCwIcon
               className={cn(
                 'size-3.5',
-                (state.status === 'loading' || summaryState.status === 'loading') && 'animate-spin',
+                (state.status === 'loading' || summaryRefreshing) && 'animate-spin',
               )}
             />
             Aktualisieren
@@ -248,7 +248,8 @@ function Downloads({ jobId }: DownloadsPageProps) {
           )}
           <QueueSummaryCard summary={summary} />
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {/* Side by side from xl; narrower, the card titles would wrap unevenly. */}
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <ActiveWorkersCard workers={summary.current} />
             <NextUpCard jobs={summary.next} />
           </div>
@@ -259,7 +260,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
         <LoadingRegion label="Warteschlangen-Status wird geladen">
           <div className="space-y-4" aria-hidden>
             <Skeleton className="h-44 w-full rounded-xl" />
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <Skeleton className="h-40 w-full rounded-xl" />
               <Skeleton className="h-40 w-full rounded-xl" />
             </div>
@@ -286,7 +287,8 @@ function Downloads({ jobId }: DownloadsPageProps) {
                 aria-pressed={isActive}
                 onClick={() => updateUrl({ view: tab.key, page: 1 })}
                 className={cn(
-                  'focus-ring flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                  // A fixed height: tabs with a count badge are no taller than those without.
+                  'focus-ring flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors',
                   isActive
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',

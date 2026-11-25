@@ -91,21 +91,31 @@ func Logger(logger *slog.Logger) func(http.Handler) http.Handler {
 				level = slog.LevelWarn
 			}
 
-			logger.Log(r.Context(), level, "http request",
+			// remote_ip is the client as resolved through trusted proxies, the
+			// address the sign-in rate limits count against. When it differs
+			// from the direct peer (a reverse proxy), the peer is logged too.
+			client := ClientIP(r)
+			peer := peerIP(r)
+			attrs := []any{
 				"request_id", response.RequestID(r),
 				"method", r.Method,
 				"path", r.URL.Path,
 				"status", status,
 				"bytes", recorder.bytes,
 				"duration_ms", time.Since(started).Milliseconds(),
-				"remote_ip", clientIP(r),
-			)
+				"remote_ip", client,
+			}
+			if peer != client {
+				attrs = append(attrs, "peer_ip", peer)
+			}
+			logger.Log(r.Context(), level, "http request", attrs...)
 		})
 	}
 }
 
-// clientIP returns the peer address without its port.
-func clientIP(r *http.Request) string {
+// peerIP returns the direct peer address without its port. Behind a reverse
+// proxy this is the proxy; ClientIP resolves the actual client.
+func peerIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

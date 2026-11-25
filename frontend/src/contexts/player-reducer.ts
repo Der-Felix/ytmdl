@@ -42,8 +42,12 @@ export type PlayerAction =
     }
   /** Radio tracks replace the queue; a seed that is the current track keeps playing. */
   | { type: 'START_RADIO'; payload: { tracks: LibraryTrack[]; seed?: LibraryTrack; context: QueueContext } }
-  /** Similar tracks appended at the end of the queue (autoplay). */
-  | { type: 'APPEND_AUTOPLAY'; payload: { tracks: LibraryTrack[] } }
+  /**
+   * Similar tracks appended at the end of the queue (autoplay): at most one
+   * batch, skipping tracks already queued and the ids in `exclude` (tracks
+   * played earlier in this session).
+   */
+  | { type: 'APPEND_AUTOPLAY'; payload: { tracks: LibraryTrack[]; exclude?: readonly string[] } }
   | { type: 'RESTORE_QUEUE'; payload: QueueSnapshot }
   | { type: 'SET_AUTOPLAY'; payload: boolean }
   | { type: 'PLAY_NEXT'; payload: { track: LibraryTrack } }
@@ -251,6 +255,13 @@ export function radioContext({ seed, genre }: RadioSource): QueueContext {
 
 /** How many tracks may be left before autoplay looks for similar ones. */
 export const AUTOPLAY_LOOKAHEAD = 2
+
+/**
+ * How many similar tracks autoplay appends at a time. A small batch keeps the
+ * queue readable; the next one follows when the lookahead is reached again.
+ * A radio the user starts explicitly keeps its full list.
+ */
+export const AUTOPLAY_BATCH = 12
 
 /** Autoplay seeds with the last track the user chose (context or queued). */
 export function autoplaySeed(queue: QueueTrack[]): QueueTrack | undefined {
@@ -500,9 +511,10 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     case 'APPEND_AUTOPLAY': {
       // Only onto a queue that would otherwise end; repeat never ends.
       if (!state.currentTrack || state.queue.length === 0 || state.repeatMode !== 'off') return state
-      const known = new Set(state.queue.map((t) => t.id))
+      const known = new Set([...state.queue.map((t) => t.id), ...(action.payload.exclude ?? [])])
       const added: QueueTrack[] = []
       for (const track of action.payload.tracks) {
+        if (added.length >= AUTOPLAY_BATCH) break
         if (known.has(track.id)) continue
         known.add(track.id)
         added.push(withOrigin(track, 'autoplay'))

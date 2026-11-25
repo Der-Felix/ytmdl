@@ -226,6 +226,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             onPlay={playResult}
             onQueue={addToQueue}
             onOpen={(href) => run(() => navigate(href))()}
+            onClose={() => onOpenChange(false)}
             hrefs={{ artist: paths.libraryArtist, release: paths.libraryRelease, playlist: paths.playlist }}
           />
 
