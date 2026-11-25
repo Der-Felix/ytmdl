@@ -47,6 +47,22 @@ TRACKS = [{'id': 't'+str(i), 'title': name, 'artists': ['Mira' if i%2 else 'Nord
 RELEASES = [{'id':'r'+str(i),'title':t['title'],'artists':t['artists'],'year':2026,'track_count_in_library':1} for i,t in enumerate(TRACKS)]
 ARTISTS = [{'id':'a0','name':'Nordlicht','genres':['Elektronisch'],'track_count':3},{'id':'a1','name':'Mira','genres':['Pop'],'track_count':3}]
 USER = {'id':'fixture','username':'fixture_user','display_name':'Design-Vorschau','role':'user'}
+# Personal mixes and history as GET /library/mixes and GET /history answer
+# them. History avoids the first titles: UI tests open albums by those names.
+MIXES = [
+    {'id':'genre-0a1b2c3d4e5f','kind':'genre','title':'Dein Mix 1','description':'Deine Favoriten aus Elektronisch und Titel, die du kaum kennst','genre':'Elektronisch','track_ids':['t0','t2','t4']},
+    {'id':'on_repeat','kind':'on_repeat','title':'In Dauerschleife','description':'Deine meistgespielten Titel der letzten 30 Tage','track_ids':['t1','t3','t5']},
+]
+HISTORY = [('t3', 7, '2026-11-24T18:03:04.123456789Z'), ('t4', 2, '2026-11-23T08:00:00Z')]
+
+
+def mix_summary(mix):
+    ids = mix['track_ids']
+    return {key:value for key,value in mix.items() if key != 'track_ids'} | {'track_count':len(ids), 'cover_track_ids':ids[:4], 'cover_release_ids':['r'+i[1:] for i in ids[:4]]}
+
+
+def history_entry(track_id, plays, when):
+    return next(t for t in TRACKS if t['id'] == track_id) | {'play_count':plays, 'last_played_at':when}
 STATE_LOCK = threading.RLock()
 PLAYLISTS = {}
 FAVORITES = set()
@@ -115,6 +131,15 @@ class Handler(BaseHTTPRequestHandler):
         if path.endswith('/genres'): return self.response(['Elektronisch','Pop'])
         if path.endswith('/favorites/ids'):
             with STATE_LOCK: return self.response(sorted(FAVORITES))
+        if path.endswith('/library/mixes'): return self.response([mix_summary(m) for m in MIXES])
+        if '/library/mixes/' in path:
+            mix = next((m for m in MIXES if m['id'] == path.rsplit('/',1)[1]), None)
+            if mix is None: return self.response({'error':{'code':'PLAYLIST_NOT_FOUND','message':'Mix not offered today'}},404)
+            return self.response(mix_summary(mix) | {'tracks':[t for i in mix['track_ids'] for t in TRACKS if t['id'] == i]})
+        if path.endswith('/history'): return self.response([history_entry(*entry) for entry in HISTORY])
+        if path.endswith('/top-tracks'):
+            artist = 'Nordlicht' if path.split('/')[-2] == 'a0' else 'Mira'
+            return self.response([t | {'play_count':9-i, 'last_played_at':'2026-11-20T10:00:00Z'} for i,t in enumerate(t for t in TRACKS if artist in t['artists'])])
         if path.endswith('/library/search'): return self.response({'artists':ARTISTS,'releases':RELEASES[:2],'tracks':TRACKS[:2]})
         if path.endswith('/library/releases'): return self.response(RELEASES if int(query.get('offset',['0'])[0])==0 else [])
         if path.endswith('/library/artists'): return self.response(ARTISTS if int(query.get('offset',['0'])[0])==0 else [])

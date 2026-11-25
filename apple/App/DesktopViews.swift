@@ -970,11 +970,26 @@ struct DesktopListeningView: View {
                     }
                 }.desktopScaledFont(17).padding(12)
                     .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+                Toggle("Automatisch weiterspielen", isOn: Binding(get: { model.player.autoplay }, set: { model.player.setAutoplay($0) }))
+                    .toggleStyle(.switch).desktopScaledFont(15)
+                    .help("Spielt am Ende der Warteschlange ähnliche Titel aus deiner Bibliothek")
             }
             ScrollView {
                 if tab == 0 {
+                    let queue = model.player.queue
                     LazyVStack(spacing: 2) {
-                        ForEach(Array(model.player.queue.tracks.enumerated()).filter { queueFilter.isEmpty || $0.element.title.localizedCaseInsensitiveContains(queueFilter) || $0.element.artistText.localizedCaseInsensitiveContains(queueFilter) }, id: \.offset) { index, track in
+                        ForEach(queue.rows { queueFilter.isEmpty || $0.title.localizedCaseInsensitiveContains(queueFilter) || $0.artistText.localizedCaseInsensitiveContains(queueFilter) }) { row in
+                            let index = row.position, track = row.track
+                            if row.startsSection {
+                                HStack(spacing: 6) {
+                                    if row.section == .autoplay { Image(systemName: "sparkles").accessibilityHidden(true) }
+                                    Text(row.section.heading(queue.context)).lineLimit(1)
+                                    Spacer(minLength: 8)
+                                    if row.section != .current { Text("\(queue.count(of: row.section))").monospacedDigit() }
+                                }.desktopScaledFont(13, weight: .semibold).foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8).padding(.top, 12).padding(.bottom, 4)
+                                    .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+                            }
                             HStack(spacing: 4) {
                                 Button { model.player.select(index) } label: {
                                     HStack(spacing: 12) {

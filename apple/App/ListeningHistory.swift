@@ -9,7 +9,14 @@ struct ListeningSnapshot: Codable, Sendable {
     let position: Double
     let repeatMode: String
 }
-struct ListeningEvent: Codable, Sendable { let eventID: String; let trackID: String }
+/// A play or skip waiting for `POST /history` or `POST /history/skips`.
+/// Events stored before skips existed have no kind and are plays.
+struct ListeningEvent: Codable, Sendable {
+    let eventID: String
+    let trackID: String
+    var kind: ListeningEventKind?
+    var resolvedKind: ListeningEventKind { kind ?? .play }
+}
 @MainActor @Observable final class ListeningHistory {
     private(set) var tracks: [Track] = []
     private(set) var enabled: Bool
@@ -66,9 +73,11 @@ struct ListeningEvent: Codable, Sendable { let eventID: String; let trackID: Str
         snapshot = ListeningSnapshot(tracks: queue.tracks, index: queue.index, position: max(0, position), repeatMode: repeatMode); lastSnapshot = Date()
         if persistent, let data = try? JSONEncoder().encode(snapshot), data.count <= 1024 * 1024 { preferences.set(data, forKey: key + ".queue") }
     }
-    func enqueueEvent(_ track: Track) {
+    /// Queues a play or skip for this account and server. Plays and skips from
+    /// local files are queued the same way and sent once the account is online.
+    func enqueueEvent(_ track: Track, kind: ListeningEventKind = .play) {
         guard enabled, persistent else { return }
-        pendingEvents.append(ListeningEvent(eventID: UUID().uuidString, trackID: track.id))
+        pendingEvents.append(ListeningEvent(eventID: UUID().uuidString, trackID: track.id, kind: kind))
         pendingEvents = Array(pendingEvents.suffix(500)); saveEvents()
     }
     func discardPendingEvents() { pendingEvents = []; saveEvents() }

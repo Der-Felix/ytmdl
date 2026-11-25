@@ -27,7 +27,31 @@ struct DesktopHomeView: View {
             VStack(alignment: .leading, spacing: 36) {
                 hero
                 quickActions
-                if showRecent && model.listeningHistory.enabled {
+                if model.feed.unreachable {
+                    Label("Der Server ist gerade nicht erreichbar. Mixe und Hörverlauf erscheinen wieder, sobald er antwortet; gespeicherte Musik findest du unter Offline-Musik.", systemImage: "wifi.slash")
+                        .desktopScaledFont(17).foregroundStyle(.secondary)
+                }
+                if model.feed.mixesPhase == .loaded && !model.feed.mixes.isEmpty {
+                    HStack(alignment: .firstTextBaseline) {
+                        sectionHeading("Deine Mixe", subtitle: "Täglich neu aus deiner Mediathek und deinem Hörverlauf")
+                        Spacer()
+                        NavigationLink(value: ForYouRoute()) { Label("Alle Mixe", systemImage: "chevron.right").desktopScaledFont(16, weight: .semibold) }
+                            .buttonStyle(DesktopHoverStyle(radius: 10))
+                    }
+                    if let message = model.feed.mixError { Text(message).desktopScaledFont(16).foregroundStyle(.red) }
+                    ScrollView(.horizontal) {
+                        HStack(alignment: .top, spacing: 24) {
+                            ForEach(model.feed.mixes) { mix in MixCard(model: model, mix: mix, width: 200) }
+                        }.padding(.bottom, 8)
+                    }
+                } else if case .failed(let message) = model.feed.mixesPhase, !model.feed.unreachable {
+                    sectionHeading("Deine Mixe", subtitle: "Täglich neu aus deiner Mediathek und deinem Hörverlauf")
+                    ListenSectionFailure(message: message) { Task { await model.loadListenFeed() } }
+                }
+                if showRecent && model.feed.historyPhase == .loaded && !model.feed.history.isEmpty {
+                    sectionHeading("Zuletzt gehört", subtitle: "Dein Hörverlauf auf allen Geräten")
+                    trackShelf(model.feed.history.prefix(10).map(\.track), compact: true, context: QueueContext(kind: "history", title: "Zuletzt gehört"))
+                } else if showRecent && model.listeningHistory.enabled {
                     if !model.listeningHistory.tracks.isEmpty {
                         sectionHeading("Zuletzt gehört", subtitle: "Dein Hörverlauf auf diesem Mac")
                         trackShelf(Array(model.listeningHistory.tracks.prefix(10)), compact: true)
@@ -100,7 +124,8 @@ struct DesktopHomeView: View {
         }.navigationTitle("Start")
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
             .task(id: FavoritesRequest(ids: model.favoriteIDs, visible: showFavorites, retry: retry)) { await loadFavorites() }
-            .toolbar { ToolbarItem { Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary(); retry += 1 } }.disabled(model.connecting) } }
+            .task(id: model.user?.id) { await model.loadListenFeed() }
+            .toolbar { ToolbarItem { Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary(); await model.loadListenFeed(); retry += 1 } }.disabled(model.connecting) } }
     }
     private var hero: some View {
         ViewThatFits(in: .horizontal) {
@@ -168,12 +193,12 @@ struct DesktopHomeView: View {
     private func sectionHeading(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 8) { Text(title).desktopScaledFont(27, weight: .bold); Text(subtitle).desktopScaledFont(17).foregroundStyle(.secondary) }
     }
-    private func trackShelf(_ tracks: [Track], compact: Bool = false) -> some View {
+    private func trackShelf(_ tracks: [Track], compact: Bool = false, context: QueueContext? = nil) -> some View {
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 24) {
                 ForEach(Array(tracks.prefix(10))) { track in
                     Button {
-                        if let client = model.client { model.player.play(tracks, start: tracks.firstIndex(of: track) ?? 0, client: client) }
+                        if let client = model.client { model.player.play(tracks, start: tracks.firstIndex(of: track) ?? 0, client: client, context: context) }
                     } label: {
                         if compact {
                             HStack(spacing: 16) {
