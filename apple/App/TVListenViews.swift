@@ -334,11 +334,15 @@ struct TVQueueView: View {
     var model: AppModel
     @State private var savingQueue = false
     @State private var playlistSelection: [Track] = []
+    /// The iPhone queue's filter: title, artists and album. Rows keep their
+    /// queue positions, so the long-press menu edits the entry that is shown.
+    @State private var query = ""
     @FocusState private var focus: Focus?
-    private enum Focus: Hashable { case row(Int), clear, undo }
+    private enum Focus: Hashable { case row(Int), clear, undo, filter }
     private var player: PlayerModel { model.player }
     var body: some View {
         let queue = player.queue
+        let rows = queue.rows(filter: query)
         LazyVStack(alignment: .leading, spacing: 6) {
             Toggle(isOn: Binding(get: { player.autoplay }, set: { player.setAutoplay($0) })) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -347,7 +351,8 @@ struct TVQueueView: View {
                 }
             }.accessibilityIdentifier("tv-queue-autoplay")
             actions(queue)
-            ForEach(queue.rows()) { row in
+            filterField(queue, visible: rows.count)
+            ForEach(rows) { row in
                 if row.startsSection {
                     HStack(spacing: 10) {
                         if row.section == .autoplay { Image(systemName: "sparkles").accessibilityHidden(true) }
@@ -370,7 +375,7 @@ struct TVQueueView: View {
                     }.padding(12)
                 }.buttonStyle(.plain)
                     .focused($focus, equals: .row(row.position))
-                    .contextMenu { rowMenu(row.position, queue) }
+                    .contextMenu { rowMenu(row, queue, visible: rows.map(\.position)) }
                     .accessibilityLabel(row.section == .current ? "Läuft: \(row.track.title), \(row.track.artistText)" : "\(row.track.title) abspielen, \(row.track.artistText)")
                     .accessibilityHint(queue.isUpcoming(row.position) ? "Gedrückt halten zum Verschieben oder Entfernen" : "")
                     .accessibilityIdentifier("tv-queue-track-\(row.position)")
@@ -406,11 +411,35 @@ struct TVQueueView: View {
         }.padding(.vertical, 16)
     }
 
-    /// Only upcoming entries have a menu; it offers only what applies.
-    @ViewBuilder private func rowMenu(_ position: Int, _ queue: PlaybackQueue) -> some View {
+    /// The filter field. Selecting it opens the tvOS keyboard; "Filter leeren"
+    /// shows the whole queue again without typing.
+    @ViewBuilder private func filterField(_ queue: PlaybackQueue, visible: Int) -> some View {
+        if queue.tracks.count > 1 || !query.isEmpty {
+            HStack(spacing: 24) {
+                TextField("Warteschlange filtern", text: $query)
+                    .focused($focus, equals: .filter)
+                    .accessibilityIdentifier("tv-queue-filter")
+                if !query.isEmpty {
+                    Button("Filter leeren", systemImage: "xmark.circle") { query = ""; setFocus(.filter) }
+                        .accessibilityIdentifier("tv-queue-filter-clear")
+                }
+            }
+            if !query.isEmpty {
+                Text(visible == 0 ? "Kein Titel passt zum Filter." : "\(visible) von \(queue.tracks.count) Titeln")
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary).padding(.horizontal, 8)
+                    .accessibilityIdentifier("tv-queue-filter-count")
+            }
+        }
+    }
+
+    /// Upcoming entries can be moved and removed; every entry can go to a
+    /// playlist or the favorites while online. Only what applies is offered.
+    /// `visible` are the rows the filter shows, so focus stays on one of them.
+    @ViewBuilder private func rowMenu(_ row: QueueRow, _ queue: PlaybackQueue, visible: [Int]) -> some View {
+        let position = row.position
         if queue.isUpcoming(position) {
             if queue.canPlayNext(position) {
-                Button("Als Nächstes abspielen", systemImage: "text.insert") { player.playNextInQueue(position); refocus(position) }
+                Button("Als Nächstes abspielen", systemImage: "text.insert") { player.playNextInQueue(position); refocus(queue.index + 1) }
             }
             if queue.canMoveUp(position) {
                 Button("Nach oben", systemImage: "arrow.up") { player.moveInQueue(from: position, to: position - 1); refocus(position - 1) }
@@ -420,8 +449,14 @@ struct TVQueueView: View {
             }
             Button("Aus Warteschlange entfernen", systemImage: "minus.circle", role: .destructive) {
                 player.removeFromQueue(position)
-                refocus(player.queue.focusAfterRemoving(position))
+                refocus(PlaybackQueue.focusAfterRemoving(position, visible: visible))
             }
+        }
+        if !model.offlineMode {
+            Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [row.track]; savingQueue = true }
+            Button(model.favoriteIDs.contains(row.track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", systemImage: "heart") {
+                Task { await model.toggleFavorite(row.track) }
+            }.disabled(model.pendingFavorites.contains(row.track.id))
         }
     }
 

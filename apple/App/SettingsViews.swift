@@ -32,6 +32,13 @@ struct SettingsView: View {
                 Section("Darstellung") {
                     Picker("Erscheinungsbild", selection: $appearance) { Text("System").tag("system"); Text("Dunkel").tag("dark"); Text("Hell").tag("light") }
                 }
+                #if os(tvOS)
+                Section("Klang") {
+                    NavigationLink { TVSoundSettings(model: model) } label: {
+                        LabeledContent("Klang & Wiedergabe", value: TVSoundSettings.summary(model.player))
+                    }.accessibilityIdentifier("tv-settings-sound")
+                }
+                #endif
                 #if os(iOS)
                 Section("Musik & Wiedergabe") {
                     NavigationLink("Equalizer, Überblendung & Visualizer", destination: MobileAudioSettings(model: model))

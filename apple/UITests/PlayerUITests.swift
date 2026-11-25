@@ -597,6 +597,86 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "TV queue after removing an entry")
         XCTAssertFalse(app.buttons["Pause"].exists, "Editing the queue never starts playback.")
     }
+    /// Moves focus into the tab bar, onto `tab`, and opens it.
+    @MainActor private func openTVTab(_ app: XCUIApplication, _ tab: String) {
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
+        let item = app.buttons[tab].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 20))
+        XCUIRemote.shared.press(.up)
+        for _ in 0..<8 where !app.buttons["Bibliothek"].firstMatch.hasFocus { XCUIRemote.shared.press(.left) }
+        for _ in 0..<10 where !item.hasFocus { XCUIRemote.shared.press(.right) }
+        XCTAssertTrue(item.hasFocus, "\(tab) takes the remote's focus in the tab bar.")
+        XCUIRemote.shared.press(.select)
+    }
+    @MainActor func testTVSoundSettingsShowAChangedCrossfade() throws {
+        let app = try app()
+        openTVTab(app, "Optionen")
+        let link = app.descendants(matching: .any).matching(identifier: "tv-settings-sound").firstMatch
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "Optionen has a Klang section.")
+        for _ in 0..<8 where !link.hasFocus { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(link.hasFocus)
+        XCUIRemote.shared.press(.select)
+        let plus = app.buttons["tv-sound-crossfade-plus"], minus = app.buttons["tv-sound-crossfade-minus"]
+        let value = app.descendants(matching: .any).matching(identifier: "tv-sound-crossfade-value").firstMatch
+        XCTAssertTrue(plus.waitForExistence(timeout: 10), "Klang & Wiedergabe opens.")
+        XCTAssertEqual(value.label, "Aus", "Crossfade starts off.")
+        XCTAssertFalse(minus.isEnabled, "Nothing goes below off.")
+        // Past the sleep timer and tempo pickers to the + of the crossfade row.
+        for _ in 0..<10 where !plus.hasFocus { XCUIRemote.shared.press(minus.hasFocus ? .right : .down) }
+        XCTAssertTrue(plus.hasFocus, "The + button takes the remote's focus.")
+        XCUIRemote.shared.press(.select)
+        expectation(for: NSPredicate(format: "label == %@", "1 s"), evaluatedWith: value)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(minus.isEnabled)
+        attach(app, name: "TV sound settings with crossfade")
+        // Put it back, so other tests start with the default.
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(minus.hasFocus)
+        XCUIRemote.shared.press(.select)
+        expectation(for: NSPredicate(format: "label == %@", "Aus"), evaluatedWith: value)
+        waitForExpectations(timeout: 5)
+    }
+    @MainActor func testTVQueueFilterEditsTheShownEntry() throws {
+        let app = try app(pausedPlayer: true)
+        openTVTab(app, "Player")
+        let field = app.descendants(matching: .any).matching(identifier: "tv-queue-filter").firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "The queue panel has a filter.")
+        let tabs: Set<String> = ["Start", "Bibliothek", "Suche", "Favoriten", "Playlists", "Player", "Optionen", "Warteschlange", "Lyrics"]
+        for _ in 0..<30 where !field.hasFocus {
+            let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+            let id = focused.exists ? focused.identifier : ""
+            if id.hasPrefix("tv-queue-track-") { XCUIRemote.shared.press(.up) }
+            else if id.hasPrefix("tv-queue-") || (focused.exists && (tabs.contains(focused.label) || focused.elementType == .segmentedControl)) { XCUIRemote.shared.press(.down) }
+            else { XCUIRemote.shared.press(.right) }
+        }
+        XCTAssertTrue(field.hasFocus, "The filter field takes the remote's focus.")
+        XCUIRemote.shared.press(.select)
+        _ = app.keyboards.firstMatch.waitForExistence(timeout: 10)
+        attach(app, name: "TV queue filter keyboard")
+        app.typeText("Blaue")
+        XCUIRemote.shared.press(.menu)
+        let count = app.descendants(matching: .any).matching(identifier: "tv-queue-filter-count").firstMatch
+        XCTAssertTrue(count.waitForExistence(timeout: 10))
+        attach(app, name: "TV queue filtered")
+        XCTAssertEqual(count.label, "1 von 6 Titeln")
+        let shown = app.buttons["tv-queue-track-3"]
+        XCTAssertTrue(shown.exists && shown.label.hasPrefix("Blaue Stunde"), "The row keeps its queue position.")
+        XCTAssertFalse(app.buttons["tv-queue-track-1"].exists, "Zeitlos is filtered out.")
+        for _ in 0..<6 where !shown.hasFocus { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(shown.hasFocus)
+        XCUIRemote.shared.press(.select, forDuration: 1.5)
+        let playNext = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Als Nächstes abspielen")).firstMatch
+        XCTAssertTrue(playNext.waitForExistence(timeout: 5), "A long press opens the entry's menu.")
+        attach(app, name: "TV filtered queue entry menu")
+        // The first item is focused when the menu opens; the new order proves it was chosen.
+        XCUIRemote.shared.press(.select)
+        let moved = app.buttons["tv-queue-track-1"]
+        expectation(for: NSPredicate(format: "exists == true AND label BEGINSWITH %@", "Blaue Stunde"), evaluatedWith: moved)
+        waitForExpectations(timeout: 5)
+        XCTAssertFalse(app.buttons["tv-queue-track-3"].exists, "The filtered list shows the moved entry once.")
+        attach(app, name: "TV filtered queue after Als Nächstes")
+        XCTAssertFalse(app.buttons["Pause"].exists, "Filtering and editing the queue never start playback.")
+    }
     #endif
     @MainActor func testAuthenticatedPlayerAndQueue() throws {
         #if os(iOS)
