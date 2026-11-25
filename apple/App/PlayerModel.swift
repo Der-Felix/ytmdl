@@ -96,6 +96,12 @@ enum SleepMode: String, CaseIterable, Identifiable {
     @ObservationIgnored var onAutoplayNeeded: ((Track, Int, String) -> Void)?
     @ObservationIgnored private var listening = ListeningTracker()
     @ObservationIgnored private var autoplayKey = ""
+    /// Tracks played in this session; autoplay top-ups leave them out.
+    @ObservationIgnored private var sessionPlayed = SessionPlayHistory()
+    var sessionPlayedIDs: [String] { sessionPlayed.ids }
+    /// The account and server playback belongs to. Another scope starts a new
+    /// session, so autoplay does not remember another account's tracks.
+    func setSessionScope(_ scope: String?) { sessionPlayed.setScope(scope) }
     private static var clock: Double { ProcessInfo.processInfo.systemUptime }
     @ObservationIgnored private var recordedGeneration: UUID?
     @ObservationIgnored private var audio: AVPlayer
@@ -201,12 +207,13 @@ enum SleepMode: String, CaseIterable, Identifiable {
             }
         }
     }
-    /// Replaces the queue. `context` is what was started ("Weiter aus: …").
-    func play(_ tracks: [Track], start: Int = 0, client: APIClient, context: QueueContext? = nil) {
+    /// Replaces the queue. `context` is what was started ("Weiter aus: …");
+    /// `origins` restores the sections of a saved queue.
+    func play(_ tracks: [Track], start: Int = 0, client: APIClient, context: QueueContext? = nil, origins: [QueueOrigin]? = nil) {
         guard !tracks.isEmpty else { stop(); return }
         reportSkip(movingTo: tracks.indices.contains(start) ? tracks[start] : tracks[0])
         if self.client !== client { loudnessValues.removeAll(); loudnessParameters.removeAll() }
-        self.client = client; queue.replace(tracks, start: start, context: context); loadCurrent()
+        self.client = client; queue.replace(tracks, start: start, context: context, origins: origins); loadCurrent()
     }
     /// A user action is about to replace the current track with `next`. Reports
     /// a skip when the web player's rules say so (see `ListeningTracker`).
@@ -214,11 +221,12 @@ enum SleepMode: String, CaseIterable, Identifiable {
         guard let current, ListeningTracker.movesOn(from: current.id, to: next?.id, failed: error != nil) else { return }
         if listening.takeSkip(key: generation.uuidString, now: Self.clock, playing: isPlaying) { onListeningEvent?(current, .skip) }
     }
-    /// Similar tracks for a queue that is about to run out. Ignored when the
-    /// queue changed in the meantime or autoplay was turned off.
+    /// Similar tracks for a queue that is about to run out: one small batch,
+    /// without tracks played earlier in this session. Ignored when the queue
+    /// changed in the meantime or autoplay was turned off.
     func appendAutoplay(_ tracks: [Track], expectedCount: Int, lastID: String) {
         guard autoplay, !repeatAll, !repeatOne, queue.tracks.count == expectedCount, queue.tracks.last?.id == lastID else { return }
-        guard queue.appendAutoplay(tracks) > 0 else { return }
+        guard queue.appendAutoplay(tracks, excluding: sessionPlayed.ids) > 0 else { return }
         prepareNext(); updateNowPlaying()
     }
     #if DEBUG
@@ -475,6 +483,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         prefetchAfter = .now
         audio.pause(); audio.replaceCurrentItem(with: nil); isPlaying = false; position = 0; levelHistory = []; meteredFrames = equalizer.parameters.frames.load(ordering: .acquiring); error = nil; soundError = nil
         guard let current, let client else { loading = false; return }
+        sessionPlayed.record(current.id)
         loading = play; wantsPlayback = play; startedAt = .now; startupMilliseconds = nil
         let token = generation
         do {
@@ -637,6 +646,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         removeItemObservers(); audio.pause(); audio.replaceCurrentItem(with: nil)
         let previous = audio; audio = standby; standby = previous
         _ = queue.next(repeatAll: repeatAll); generation = UUID(); activityRevision = UUID(); pendingSeek = nil; seekRevision = UUID(); pendingID = nil; fadeStart = nil; fadeFraction = 0; isCrossfading = false
+        if let current { sessionPlayed.record(current.id) }
         position = max(0, audio.currentTime().seconds.isFinite ? audio.currentTime().seconds : 0)
         error = nil; loading = true; startedAt = .now; startupMilliseconds = nil
         applyVolume(); observeCurrent()

@@ -366,6 +366,37 @@ private func syntheticWave(in folder: URL, seconds: Double = 6, tone: Bool = fal
     #expect(radioCalls == 0 && !player.isPlaybackRequested)
 }
 
+@MainActor @Test func autoplayTopUpsLeaveOutTheSessionsTracksAndANewAccountStartsANewSession() async throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let suite = "org.ytmdl.tests.autoplay-session." + UUID().uuidString, defaults = try #require(UserDefaults(suiteName: suite))
+    defer { try? FileManager.default.removeItem(at: folder); defaults.removePersistentDomain(forName: suite) }
+    let url = try syntheticWave(in: folder, seconds: 30), client = try fixtureClient()
+    let player = PlayerModel(volumePreferences: defaults, audio: AVPlayer(), standby: AVPlayer(), itemFactory: { _, _ in AVPlayerItem(url: url) })
+    defer { player.stop(); client.invalidate() }
+    player.setPreload(false)
+    player.setSessionScope("https://fixture.example\nfirst")
+    let song = { (id: String) in Track(id: id, title: id, artists: [], album: "", durationMs: 30_000) }
+    player.play(["a", "b"].map(song), client: client)
+    player.select(1)
+    // A new queue replaces the old one; "a" and "b" were played before it.
+    player.play([song("c")], client: client, context: QueueContext(kind: "album", id: "r", title: "Album"))
+    #expect(player.sessionPlayedIDs == ["a", "b", "c"])
+    let similar = ["a", "b", "c"] + (0..<20).map { "s\($0)" }
+    player.appendAutoplay(similar.map(song), expectedCount: 1, lastID: "c")
+    #expect(player.queue.tracks.map(\.id) == ["c"] + (0..<12).map { "s\($0)" })
+    // A stale answer for a queue that has changed since is ignored.
+    player.appendAutoplay(similar.map(song), expectedCount: 1, lastID: "c")
+    #expect(player.queue.tracks.count == 13)
+    player.appendAutoplay(similar.map(song), expectedCount: 13, lastID: "s11")
+    #expect(player.queue.tracks.count == 21 && player.queue.tracks.last?.id == "s19" && player.queue.count(of: .autoplay) == 20)
+    // Another account (or server) starts over; the same scope keeps the session.
+    player.setSessionScope("https://fixture.example\nfirst")
+    #expect(player.sessionPlayedIDs == ["a", "b", "c"])
+    player.setSessionScope("https://fixture.example\nsecond")
+    #expect(player.sessionPlayedIDs.isEmpty)
+}
+
 @Test func loudnessGainWorksWithoutEqualizerAndIsIndependentForEachCrossfadeItem() {
     let parameters = EqualizerParameters(), quiet = EqualizerKernel(), loud = EqualizerKernel()
     quiet.prepare(rate: 48000, channels: 1); loud.prepare(rate: 48000, channels: 1)

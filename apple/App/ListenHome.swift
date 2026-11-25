@@ -195,6 +195,7 @@ struct MixCard: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(mix.title), \(mix.label), \(mix.trackCount) Titel")
                 .accessibilityHint("Öffnet den Mix")
+                .accessibilityIdentifier("mix-card-" + mix.id)
             HStack {
                 Text("\(mix.trackCount) Titel").font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 Spacer(minLength: 4)
@@ -261,9 +262,13 @@ struct MixDetailView: View {
     @State private var detail: PersonalMixDetail?
     @State private var failure: String?
     @State private var gone = false
+    @State private var savingPlaylist = false
+    @State private var savedPlaylist: Playlist?
     @Environment(\.dynamicTypeSize) private var textSize
     private var tracks: [Track] { detail?.tracks ?? [] }
     private var shown: PersonalMix { detail?.mix ?? mix }
+    /// Saving creates a playlist on the server: not without a connection.
+    private var saveUnavailable: Bool { model.offlineMode || model.feed.unreachable || model.client == nil }
     var body: some View {
         List {
             Section {
@@ -271,6 +276,13 @@ struct MixDetailView: View {
                     #if !os(tvOS)
                     .listRowSeparator(.hidden)
                     #endif
+            }
+            if let savedPlaylist {
+                Section {
+                    NavigationLink(value: CollectionKind.playlist(savedPlaylist)) {
+                        Label("Als Playlist „\(savedPlaylist.name)“ gespeichert", systemImage: "checkmark.circle.fill")
+                    }.accessibilityHint("Öffnet die Playlist").accessibilityIdentifier("mix-saved-playlist")
+                }
             }
             Section {
                 if gone {
@@ -295,7 +307,51 @@ struct MixDetailView: View {
         .refreshable { await load() }
         #endif
         .task { if detail == nil { await load() } }
+        .sheet(isPresented: $savingPlaylist) {
+            AddToPlaylistSheet(model: model, tracks: tracks, title: "Mix als Playlist speichern",
+                               suggestedName: PersonalMix.playlistName(shown.title, date: .now),
+                               createLabel: "Als neue Playlist speichern") { savedPlaylist = $0 }
+        }
     }
+    private func savePlaylistButton() -> some View {
+        Button { savedPlaylist = nil; savingPlaylist = true } label: { Label("Als Playlist speichern", systemImage: "music.note.list") }
+            .disabled(tracks.isEmpty || saveUnavailable)
+            .accessibilityHint(saveUnavailable ? "Braucht eine Verbindung zum Server" : "Legt eine Playlist mit den Titeln dieses Mixes an")
+            .accessibilityIdentifier("mix-save-playlist")
+    }
+    @ViewBuilder private var offlineSaveNote: some View {
+        if saveUnavailable && !tracks.isEmpty {
+            Label("Zum Speichern als Playlist wird eine Verbindung zum Server benötigt.", systemImage: "wifi.slash")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+    #if os(tvOS)
+    /// Apple TV: a large cover beside the title and one row of focusable actions.
+    private var header: some View {
+        HStack(alignment: .top, spacing: 48) {
+            MixArtwork(model: model, mix: shown, size: 340)
+            VStack(alignment: .leading, spacing: 14) {
+                Text(shown.label.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                Text(shown.title).font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                if !shown.description.isEmpty { Text(shown.description).font(.callout).foregroundStyle(.secondary).lineLimit(3) }
+                Text("\(detail.map { $0.tracks.count } ?? shown.trackCount) Titel · \(listenDuration(tracks.reduce(0) { $0 + $1.durationMs }))")
+                    .font(.callout).monospacedDigit().foregroundStyle(.secondary)
+                HStack(spacing: 24) {
+                    Button { play(start: 0) } label: { Label("Abspielen", systemImage: "play.fill") }
+                        .buttonStyle(.borderedProminent).accessibilityIdentifier("mix-play")
+                    Button { play(start: 0, shuffle: true) } label: { Label("Zufällig", systemImage: "shuffle") }
+                        .buttonStyle(.bordered).accessibilityIdentifier("mix-shuffle")
+                    Menu {
+                        Button("Als Nächstes abspielen", systemImage: "text.insert") { model.enqueue(tracks, next: true) }
+                        Button("Zur Warteschlange hinzufügen", systemImage: "text.badge.plus") { model.enqueue(tracks, next: false) }
+                    } label: { Label("Warteschlange", systemImage: "text.badge.plus") }
+                    savePlaylistButton().buttonStyle(.bordered)
+                }.disabled(tracks.isEmpty).padding(.top, 12)
+                offlineSaveNote
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(.vertical, 24)
+    }
+    #else
     private var header: some View {
         let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16)) : AnyLayout(HStackLayout(alignment: .center, spacing: 20))
         return VStack(alignment: .leading, spacing: 18) {
@@ -312,9 +368,9 @@ struct MixDetailView: View {
             let actions = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
             actions {
                 Button { play(start: 0) } label: { Label("Abspielen", systemImage: "play.fill") }
-                    .buttonStyle(MobileActionStyle(prominent: true))
+                    .buttonStyle(MobileActionStyle(prominent: true)).accessibilityIdentifier("mix-play")
                 Button { play(start: 0, shuffle: true) } label: { Label("Zufällig", systemImage: "shuffle") }
-                    .buttonStyle(MobileActionStyle())
+                    .buttonStyle(MobileActionStyle()).accessibilityIdentifier("mix-shuffle")
             }.disabled(tracks.isEmpty)
             HStack(spacing: 12) {
                 Button { model.enqueue(tracks, next: true) } label: { Label("Als Nächstes", systemImage: "text.insert") }
@@ -322,8 +378,11 @@ struct MixDetailView: View {
                 Button { model.enqueue(tracks, next: false) } label: { Label("Zur Warteschlange", systemImage: "text.badge.plus") }
                     .buttonStyle(MobileActionStyle())
             }.disabled(tracks.isEmpty)
+            savePlaylistButton().buttonStyle(MobileActionStyle())
+            offlineSaveNote
         }.padding(.vertical, 8)
     }
+    #endif
     private func play(start: Int, shuffle: Bool = false) {
         guard let client = model.client, !tracks.isEmpty else { return }
         model.player.play(shuffle ? tracks.shuffled() : tracks, start: shuffle ? 0 : start, client: client, context: shown.queueContext)

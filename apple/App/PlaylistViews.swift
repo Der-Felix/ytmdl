@@ -238,6 +238,13 @@ struct PlaylistTrackPicker: View {
 struct AddToPlaylistSheet: View {
     var model: AppModel
     var tracks: [Track]
+    /// "Mix als Playlist speichern" reuses this sheet with its own heading and
+    /// a suggested name for the new playlist.
+    var title = "Zur Playlist hinzufügen"
+    var suggestedName = ""
+    var createLabel = "Erstellen und Titel hinzufügen"
+    /// Called with the playlist the titles were confirmed in.
+    var saved: (Playlist) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var working = false
@@ -255,8 +262,9 @@ struct AddToPlaylistSheet: View {
                 }
                 if let failure { Section { Text(failure).foregroundStyle(.red) } }
                 Section("Neue Playlist") {
-                    TextField("Name", text: $name)
-                    Button("Erstellen und Titel hinzufügen", systemImage: "plus") { Task { await createAndAdd() } }
+                    TextField("Name", text: $name).accessibilityIdentifier("add-to-playlist-name")
+                    if name.utf8.count > 128 { Text("Bitte einen kürzeren Namen wählen.").foregroundStyle(.secondary) }
+                    Button(working ? "Wird gespeichert …" : createLabel, systemImage: "plus") { Task { await createAndAdd() } }
                         .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.utf8.count > 128 || working || model.playlistBusy || uniqueTracks.isEmpty || uniqueTracks.count > 500)
                 }
                 Section("Deine Playlists") {
@@ -266,16 +274,17 @@ struct AddToPlaylistSheet: View {
                         }.disabled(working || model.playlistBusy || playlist.smartRules != nil || uniqueTracks.isEmpty || uniqueTracks.count > 500)
                     }
                 }
-            }.navigationTitle("Zur Playlist hinzufügen")
+            }.navigationTitle(title)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Schließen") { dismiss() }.disabled(working) } }
+                .onAppear { if name.isEmpty { name = suggestedName } }
         }.playlistSheetFrame().interactiveDismissDisabled(working)
     }
     private func add(_ playlist: Playlist) async {
         guard let client = model.client, !working else { return }
         working = true; failure = nil; defer { working = false }
         do {
-            _ = try await model.changePlaylistTracks(playlist, ids: uniqueTracks.map(\.id))
-            guard model.client === client else { return }; dismiss()
+            let detail = try await model.changePlaylistTracks(playlist, ids: uniqueTracks.map(\.id))
+            guard model.client === client else { return }; saved(detail.playlist(fallback: playlist)); dismiss()
         } catch is CancellationError { }
         catch { if model.client === client { failure = playlistFailure(error) } }
     }
@@ -286,8 +295,8 @@ struct AddToPlaylistSheet: View {
         do {
             let playlist = try await model.createPlaylist(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: "", rules: nil)
             created = true
-            _ = try await model.changePlaylistTracks(playlist, ids: uniqueTracks.map(\.id))
-            guard model.client === client else { return }; dismiss()
+            let detail = try await model.changePlaylistTracks(playlist, ids: uniqueTracks.map(\.id))
+            guard model.client === client else { return }; saved(detail.playlist(fallback: playlist)); dismiss()
         } catch is CancellationError { }
         catch { if model.client === client { failure = (created ? "Die Playlist wurde erstellt. Die Titel wurden nicht hinzugefügt; wähle die Playlist unten zum erneuten Versuch. " : "") + playlistFailure(error) } }
     }

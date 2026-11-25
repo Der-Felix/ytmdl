@@ -5,6 +5,7 @@
 ### Apple app (native preview, independent version)
 
 - **Listening like the web's Hören:** Start shows Weiterhören, the personal mixes (with a **Für dich** overview and mix pages), the server's **Zuletzt gehört** and **Neu in der Mediathek**; the artist page shows **Am meisten gehört**. Plays and skips follow the web player's rules and reach `POST /history` and `POST /history/skips`, including those of local files, which are queued until the account is online. The queue shows **Als Nächstes**, **Weiter aus: …** and **Ähnliche Titel**, with **Automatisch weiterspielen** on by default; albums, artists, playlists and mixes can be queued as a whole. No server change.
+- **Rest of the listening parity (0.4.1, build 35):** autoplay works like web 1.10.1: at most 12 similar titles per top-up, without titles already in the queue or played earlier in the session (the last 200, per account and server), topped up again at the lookahead; a song radio started by hand keeps its full list. **Letzte Wiedergabe fortsetzen** brings back each entry's section and the started context (older saved queues still restore as before). The mix page can **Als Playlist speichern** with the same calls as the queue (disabled, with a note, without a connection). Apple TV gets a **Start** tab with Weiterhören, mixes, Zuletzt gehört and Neu in der Mediathek as focusable shelves, a mix page with play and shuffle, and queue sections with the autoplay switch in the player. No server change.
 
 ## 1.10.1 — 2026-11-25
 
