@@ -66,6 +66,10 @@ checks the new data/music directory permissions and enables Storage Identity
 Guard. It refuses to overwrite existing installations. See [installation and
 upgrade instructions](INSTALL.md) for existing data, NAS mounts and the host CLI.
 
+Running YTMDL as a NAS app (TrueNAS, Unraid, Portainer)? The single image
+`ghcr.io/der-felix/ytmdl` serves the web interface and the API from one
+container next to PostgreSQL; see [Single image](https://der-felix.github.io/ytmdl/single-image).
+
 ### 4. Access the Web Interface
 
 Open your browser and navigate to:

@@ -33,7 +33,22 @@ throwaway='^(candidate|rehearsal)-'
 
 for package in "$@"; do
   repository="ghcr.io/${owner_lc}/${package}"
-  versions="$(gh api --paginate "/users/${owner}/packages/container/${package}/versions?per_page=100" | jq -s 'add')"
+  # A package that does not exist yet (a run that failed before its first
+  # push to a new image) holds nothing of this run. Any other failure stops.
+  list_err="$(mktemp)"
+  if ! listing="$(gh api --paginate "/users/${owner}/packages/container/${package}/versions?per_page=100" 2>"${list_err}")"; then
+    if grep -q "(HTTP 404)" "${list_err}"; then
+      echo "${package}: package does not exist; nothing to delete."
+      rm -f "${list_err}"
+      continue
+    fi
+    cat "${list_err}" >&2
+    rm -f "${list_err}"
+    echo "::error::${package}: package versions could not be listed." >&2
+    exit 1
+  fi
+  rm -f "${list_err}"
+  versions="$(echo "${listing}" | jq -s 'add')"
 
   index="$(echo "${versions}" | jq -c --arg t "${candidate}" '[.[] | select(.metadata.container.tags | index($t))]')"
   count="$(echo "${index}" | jq 'length')"
@@ -53,6 +68,18 @@ for package in "$@"; do
     continue
   fi
   [[ "${index_digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::${package}: unexpected version name '${index_digest}'." >&2; exit 1; }
+
+  # GitHub refuses to delete the last tagged version of a package (HTTP 400,
+  # "You must delete the package instead"). That is the case for a package
+  # whose first image is this candidate: a rehearsal or a failed run before
+  # its first release. The candidate is then left whole rather than deleted
+  # in part; it carries throwaway tags only and blocks no later run. It stays
+  # until it is removed by hand once the package holds a published version.
+  other_tagged="$(echo "${versions}" | jq --argjson id "${index_id}" '[.[] | select(.id != $id and (.metadata.container.tags | length > 0))] | length')"
+  if [ "${other_tagged}" -eq 0 ]; then
+    echo "::warning::${package}: ${candidate} is the only tagged version of this package; GitHub does not allow deleting it. Left in place."
+    continue
+  fi
 
   children="$(docker buildx imagetools inspect --raw "${repository}@${index_digest}" | jq -r '.manifests[].digest')"
   [ -n "${children}" ] || { echo "::error::${package}: ${index_digest} lists no manifests." >&2; exit 1; }

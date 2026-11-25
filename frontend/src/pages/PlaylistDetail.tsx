@@ -238,7 +238,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       <div className="space-y-6">
         <Link
           href={paths.playlists()}
-          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground"
+          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground pointer-coarse:min-h-10 hover:text-foreground"
         >
           <ArrowLeft aria-hidden className="size-4" />
           Zurück zu Playlists
@@ -266,7 +266,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       <div className="space-y-6">
         <Link
           href={paths.playlists()}
-          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground"
+          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground pointer-coarse:min-h-10 hover:text-foreground"
         >
           <ArrowLeft aria-hidden className="size-4" />
           Zurück zu Playlists
@@ -289,7 +289,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       <div className="flex items-center justify-between">
         <Link
           href={paths.playlists()}
-          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground pointer-coarse:min-h-10 transition-colors hover:text-foreground"
         >
           <ArrowLeft aria-hidden className="size-4" />
           Zurück zu Playlists

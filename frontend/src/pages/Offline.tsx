@@ -253,7 +253,8 @@ export function OfflinePage() {
             >
               <SkipForward className="size-5" />
             </Button>
-            <label className="flex gap-2 items-center text-xs text-muted-foreground">
+            {/* Not on touch screens: the device buttons set the volume there. */}
+            <label className="flex pointer-coarse:hidden gap-2 items-center text-xs text-muted-foreground">
               Lautstärke
               <input
                 aria-label="Offline-Lautstärke"

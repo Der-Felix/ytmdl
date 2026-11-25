@@ -33,9 +33,14 @@ if __name__ == "__main__":
     parser.add_argument("--trivy", default="trivy")
     parser.add_argument("--backend", required=True)
     parser.add_argument("--frontend", required=True)
+    # The single image (ghcr.io/der-felix/ytmdl); its reports are named ytmdl.
+    parser.add_argument("--all-in-one")
     parser.add_argument("--platform", required=True, choices=("linux/amd64", "linux/arm64"))
     parser.add_argument("--output", type=Path, default=Path("dist"))
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    for component, image in (("backend", args.backend), ("frontend", args.frontend)):
+    images = [("backend", args.backend), ("frontend", args.frontend)]
+    if args.all_in_one:
+        images.append(("ytmdl", args.all_in_one))
+    for component, image in images:
         scan(args.trivy, image, component, args.platform, args.output)

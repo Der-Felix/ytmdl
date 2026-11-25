@@ -1,0 +1,92 @@
+# Single-image deployment: one application container plus PostgreSQL.
+#
+#   ytmdl      Go backend serving the web app and the API on one port,
+#   │          job queue, workers, yt-dlp, ffmpeg, ffprobe
+#   ▼
+#   ytmdl-db   PostgreSQL 18
+#
+# The simple variant for NAS apps and hosts that want one image to reference.
+# It reads the same .env and uses the same database volume, network and paths
+# as compose.ghcr.yaml, so an installation can move between the two layouts.
+# ytmdlctl update manages compose.ghcr.yaml only; this layout is updated by
+# pulling and recreating:
+#
+#   docker compose -f compose.all-in-one.yaml pull
+#   docker compose -f compose.all-in-one.yaml up -d
+#
+# See docs/single-image.md.
+name: ${YTMDL_PROJECT_NAME:-ytmdl}
+
+services:
+  db:
+    image: docker.io/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    container_name: ${YTMDL_PROJECT_NAME:-ytmdl}-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ytmdl}
+      POSTGRES_USER: ${POSTGRES_USER:-ytmdl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - ytmdl-net
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  ytmdl:
+    # latest follows stable releases. Pin a release line (1.10), a major
+    # version (1) or an exact version (1.10.0) with YTMDL_IMAGE_TAG.
+    image: ghcr.io/der-felix/ytmdl:${YTMDL_IMAGE_TAG:-latest}
+    pull_policy: always
+    container_name: ${YTMDL_PROJECT_NAME:-ytmdl}-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MUSICDL_DATABASE_URL: ${MUSICDL_DATABASE_URL:?MUSICDL_DATABASE_URL must be set in .env}
+      MUSICDL_LISTEN_ADDR: ${MUSICDL_LISTEN_ADDR:-0.0.0.0:8080}
+      MUSICDL_LIBRARY: ${MUSICDL_LIBRARY:-/music}
+      # Browsers connect to this container directly. Only a reverse proxy in
+      # front of it may set X-Forwarded-For; name it here (IP or CIDR), and
+      # never the whole container network.
+      MUSICDL_TRUSTED_PROXIES: ${MUSICDL_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}
+    env_file:
+      - ${YTMDL_ENV_FILE:-.env}
+    volumes:
+      - ${YTMDL_DATA_PATH:-./data}:/data:Z
+      - ${YTMDL_MUSIC_PATH:-./music}:/music:Z
+    ports:
+      - "${YTMDL_HOST_PORT:-8080}:8080"
+    networks:
+      - ytmdl-net
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null 'http://127.0.0.1:8080/api/v1/health?scope=essential' && wget -q -O /dev/null http://127.0.0.1:8080/
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+    stop_grace_period: 40s
+
+volumes:
+  postgres-data:
+    name: ${YTMDL_PROJECT_NAME:-ytmdl}-postgres-data
+
+# The same network as compose.ghcr.yaml, so that switching layouts reuses it.
+networks:
+  ytmdl-net:
+    name: ${YTMDL_PROJECT_NAME:-ytmdl}-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${YTMDL_NETWORK_SUBNET:-172.31.250.0/28}

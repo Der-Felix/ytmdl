@@ -118,6 +118,36 @@ export const LISTEN_HOME: NavItem = {
   keywords: ['start', 'startseite', 'hören', 'weiterhören'],
 }
 
+/**
+ * An entry of the bottom bar on phones: a page, or the search action that
+ * opens the command menu.
+ */
+export type BottomNavEntry = (NavItem & { kind: 'link' }) | { kind: 'search'; label: string; icon: NavItem['icon'] }
+
+function find(items: NavItem[], label: string): NavItem {
+  const item = items.find((entry) => entry.label === label)
+  if (!item) throw new Error(`navigation entry ${label} missing`)
+  return item
+}
+
+/**
+ * The destinations within thumb reach on phones, per area. Listening keeps
+ * Playlists rather than Favoriten: the playlists page is where a listener's
+ * own collections live, and favourites are one tap away from the player.
+ * Search opens the command menu, which searches the library live. Loading
+ * has four pages and lists them all. Everything else stays in the drawer.
+ */
+export const BOTTOM_NAV: Record<Area, BottomNavEntry[]> = {
+  listen: [
+    { ...LISTEN_HOME, label: 'Start', kind: 'link' },
+    { ...find(LISTEN_NAV, 'Für dich'), kind: 'link' },
+    { ...find(LISTEN_NAV, 'Bibliothek'), kind: 'link' },
+    { ...find(LISTEN_NAV, 'Playlists'), kind: 'link' },
+    { kind: 'search', label: 'Suche', icon: SearchIcon },
+  ],
+  download: DOWNLOAD_NAV.map((item) => ({ ...item, kind: 'link' as const })),
+}
+
 /** Views only administrators can open; the routes enforce the same split. */
 export const ADMIN: NavItem[] = [
   {

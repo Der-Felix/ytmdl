@@ -1,0 +1,39 @@
+# Build context of Containerfile.all-in-one: the repository root, like the
+# backend image, but with the frontend sources, which the root .dockerignore
+# leaves out. BuildKit reads this file instead of .dockerignore for that
+# Containerfile only; the backend image keeps its own context.
+.git
+.gitignore
+.github
+.claude
+.codex
+**/.env
+**/.env.*
+**/.DS_Store
+data
+music
+docs
+apple
+scripts
+graphify-out
+*.md
+*.log
+
+# Local tooling, environment overrides and generated output
+compose.ghcr.override.yaml
+.ytmdl
+backups
+tmp
+bin
+out
+dist
+**/node_modules
+**/*.tsbuildinfo
+backend/server
+backend/musicdl
+*.test
+
+# Frontend build output; the image builds its own.
+frontend/dist
+frontend/dist-ssr
+frontend/coverage

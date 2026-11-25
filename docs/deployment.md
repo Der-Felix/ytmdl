@@ -24,6 +24,13 @@ veröffentlicht.
 Der Worker ist Teil desselben Go-Prozesses wie die API; es gibt bewusst keinen
 eigenen Worker-Container und keine zusätzliche Queue-Infrastruktur.
 
+> [!NOTE]
+> Für NAS-Apps und Hosts, die nur ein Image referenzieren wollen, gibt es
+> zusätzlich das Einzel-Image `ghcr.io/der-felix/ytmdl` mit
+> `compose.all-in-one.yaml`: Das Backend liefert das Webfrontend selbst aus,
+> neben PostgreSQL läuft nur ein Container. `ytmdlctl update` verwaltet nur das
+> hier beschriebene Zwei-Image-Layout. Siehe [Single image](/single-image).
+
 Das Backend-Image besteht aus einem Go-Builder auf `golang:alpine` und einem
 separaten Alpine-Runtime-Image. Die Runtime enthält nur die statische
 Backend-Binary sowie `yt-dlp`, `ffmpeg`, `ffprobe` und CA-Zertifikate — keinen
@@ -253,6 +260,8 @@ Workflows unter `.github/workflows/`:
 | --- | --- | --- |
 | `ci.yml` | PR gegen `dev`/`main`, Push auf `dev` | Tests und Builds; veröffentlicht nichts |
 | `release.yml` | Tag `v*`, manueller Qualifikationslauf | Release-Qualifikation; Veröffentlichung nur bei Release-Tag |
+| `upgrade-qualification.yml` | Manueller Lauf | Upgrade-Qualifikation gegen veröffentlichte Images; veröffentlicht nichts |
+| `qualify-upgrades.yml` | Aufruf durch `release.yml` und `upgrade-qualification.yml` | Ein paralleler Upgrade-Lauf je Quellversion aus `scripts/upgrade-sources.json` |
 | `pages.yml` | Push auf `main`, manueller Lauf | Dokumentations-Deployment |
 
 CI und Release-Qualifikation starten PostgreSQL 18 als isolierten Test-Service
@@ -263,9 +272,12 @@ für den kurzlebigen Dienst. Sie werden nicht für Deployments verwendet.
 
 Der Release-Workflow prüft den Versions-Tag gegen `.release-version`, qualifiziert
 die Artefakte und veröffentlicht freigegebene Images unter
-`ghcr.io/der-felix/ytmdl-backend:<version>` und
-`ghcr.io/der-felix/ytmdl-frontend:<version>`. Erst nach erfolgreicher Qualifikation
-wird `latest` auf die geprüften Digests gesetzt. Die Registry-Anmeldung im
+`ghcr.io/der-felix/ytmdl-backend:<version>`,
+`ghcr.io/der-felix/ytmdl-frontend:<version>` und dem Einzel-Image
+`ghcr.io/der-felix/ytmdl:<version>`. Erst nach erfolgreicher Qualifikation
+werden bei stabilen Releases `latest`, `X.Y` und `X` auf die geprüften Digests
+gesetzt, jeweils nur, wenn das Release das neueste stabile seiner Linie ist;
+Release Candidates verschieben keinen dieser Tags. Die Registry-Anmeldung im
 GitHub-Workflow verwendet den kurzlebigen `GITHUB_TOKEN`.
 
 Entwicklungs-PRs ändern weder Release-Tags noch Production. `compose.yaml`

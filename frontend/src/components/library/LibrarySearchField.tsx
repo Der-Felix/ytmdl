@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type { QueueContext } from '@/lib/audio/types'
 import {
@@ -16,16 +16,15 @@ import {
 
 import { useContext } from 'react'
 import { Cover } from '@/components/music/Cover'
+import { useLibrarySearch } from '@/hooks/useLibrarySearch'
 import { PlayerActionsContext, PlayerStateContext } from '@/hooks/usePlayer'
 import { libraryArtwork } from '@/lib/artwork'
-import { librarySearch } from '@/lib/api/library'
 import { paths, useNavigate } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import { formatDuration, joinArtists, pluralize } from '@/lib/utils/format'
 import type {
   LibraryArtist,
   LibraryRelease,
-  LibrarySearchResults,
   LibraryTrack,
 } from '@/types/api'
 
@@ -48,8 +47,11 @@ export function LibrarySearchField({
 }: LibrarySearchFieldProps) {
   const [value, setValue] = useState(defaultValue)
   const [isOpen, setIsOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [results, setResults] = useState<LibrarySearchResults | null>(null)
+  const { results, isLoading, search, clear } = useLibrarySearch({
+    debounceMs: 250,
+    limit: 5,
+    onResults: () => setIsOpen(true),
+  })
 
   const navigate = useNavigate()
   const playerState = useContext(PlayerStateContext)
@@ -59,84 +61,21 @@ export function LibrarySearchField({
 
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
-  const requestSeqRef = useRef<number>(0)
 
   // Synchronize when defaultValue changes from URL
   useEffect(() => {
     setValue(defaultValue)
   }, [defaultValue])
 
-  const performSearch = useCallback(async (searchQuery: string) => {
-    const q = searchQuery.trim()
-    if (!q) {
-      requestSeqRef.current++
-      setResults(null)
-      setIsLoading(false)
-      return
-    }
-
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-    const controller = new AbortController()
-    abortControllerRef.current = controller
-    const seq = ++requestSeqRef.current
-
-    setIsLoading(true)
-    try {
-      const data = await librarySearch(q, { limit: 5, signal: controller.signal })
-      if (!controller.signal.aborted && seq === requestSeqRef.current) {
-        setResults(data)
-        setIsOpen(true)
-      }
-    } catch (err) {
-      if (!controller.signal.aborted && seq === requestSeqRef.current) {
-        // Drop on error or aborted
-        setResults(null)
-      }
-    } finally {
-      if (!controller.signal.aborted && seq === requestSeqRef.current) {
-        setIsLoading(false)
-      }
-    }
-  }, [])
-
   const handleInputChange = (newVal: string) => {
     setValue(newVal)
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current)
-    }
-
-    const trimmed = newVal.trim()
-    if (!trimmed) {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
-      requestSeqRef.current++
-      setResults(null)
-      setIsLoading(false)
-      setIsOpen(false)
-      return
-    }
-
-    debounceTimerRef.current = setTimeout(() => {
-      void performSearch(trimmed)
-    }, 250)
+    search(newVal)
+    if (!newVal.trim()) setIsOpen(false)
   }
 
   const handleClear = () => {
     setValue('')
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current)
-    }
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-    requestSeqRef.current++
-    setResults(null)
-    setIsLoading(false)
+    clear()
     setIsOpen(false)
     onClear?.()
   }
@@ -169,15 +108,7 @@ export function LibrarySearchField({
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
-      }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
-    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
   const searchContext: QueueContext = { kind: 'search', title: value.trim() ? `Suche „${value.trim()}“` : 'Suchergebnisse' }

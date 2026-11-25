@@ -4,6 +4,7 @@ import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { MenuIcon, SearchIcon, XIcon } from 'lucide-react'
 
 import { AreaSwitch } from '@/components/layout/AreaSwitch'
+import { BottomNav } from '@/components/layout/BottomNav'
 import { CommandMenu } from '@/components/layout/CommandMenu'
 import { ShortcutHelpDialog } from '@/components/layout/ShortcutHelpDialog'
 import { Sidebar } from '@/components/layout/Sidebar'
@@ -88,7 +89,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
             <DialogPrimitive.Popup
               data-slot="mobile-nav-drawer"
               aria-label="Navigation"
-              className="panel-blur fixed inset-y-0 left-0 z-50 w-[17rem] rounded-r-2xl border-y-0 border-l-0 bg-popover outline-none transition-transform duration-(--duration-slow) ease-(--ease-drawer) data-[starting-style]:-translate-x-full data-[ending-style]:-translate-x-full md:hidden"
+              className="panel-blur fixed inset-y-0 left-0 z-50 w-[calc(17rem+env(safe-area-inset-left))] rounded-r-2xl border-y-0 border-l-0 bg-popover pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] outline-none transition-transform duration-(--duration-slow) ease-(--ease-drawer) data-[starting-style]:-translate-x-full data-[ending-style]:-translate-x-full md:hidden"
             >
               <DialogPrimitive.Close
                 render={
@@ -96,7 +97,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
                     variant="ghost"
                     size="icon-sm"
                     aria-label="Navigation schließen"
-                    className="absolute top-4 right-3"
+                    className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-3 pointer-coarse:top-[calc(0.75rem+env(safe-area-inset-top))] pointer-coarse:size-10"
                   />
                 }
               >
@@ -123,7 +124,9 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
           <header
             className={cn(
               // Three columns with equal outer tracks keep the switch centred.
-              'sticky top-0 z-40 grid h-14 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-border px-3 sm:px-6',
+              // The top safe area (a status bar drawn over the page in an
+              // installed app) is added above the bar, the side ones beside it.
+              'sticky top-0 z-40 grid h-[calc(3.5rem+env(safe-area-inset-top))] grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-border pt-[env(safe-area-inset-top)] pr-[max(0.75rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))]',
               'panel-blur rounded-none border-x-0 border-t-0 bg-background md:hidden',
             )}
           >
@@ -131,6 +134,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="pointer-coarse:size-10"
                 aria-label="Navigation öffnen"
                 aria-expanded={drawerOpen}
                 onClick={() => setDrawerOpen(true)}
@@ -162,7 +166,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
             <Button
               variant="ghost"
               size="icon-sm"
-              className="justify-self-end"
+              className="justify-self-end pointer-coarse:size-10"
               aria-label="Suchen und Befehle"
               onClick={() => setCommandOpen(true)}
             >
@@ -177,9 +181,14 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
             'min-w-0 flex-1 transition-[padding]',
             isPlayerRoute
               ? 'p-0 flex flex-col'
-              : showMiniPlayer
-                ? 'px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-8 pb-32 sm:pb-32'
-                : 'px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-8 pb-8',
+              : cn(
+                  'px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-8',
+                  // Phones: clear the bottom bar and the player bar docked on
+                  // it (--bottom-chrome, see index.css). Wider screens keep
+                  // their fixed padding.
+                  'pb-[calc(var(--bottom-chrome)+2rem)]',
+                  showMiniPlayer ? 'md:pb-32' : 'md:pb-8',
+                ),
           )}
         >
           <div className={isPlayerRoute ? 'w-full flex-1 flex flex-col' : 'mx-auto w-full max-w-[80rem]'}>
@@ -196,6 +205,15 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
       </div>
 
       {showMiniPlayer && <MiniPlayer />}
+
+      {!isPlayerRoute && (
+        <BottomNav
+          route={route}
+          area={area}
+          activeDownloads={activeDownloads}
+          onOpenCommandMenu={() => setCommandOpen(true)}
+        />
+      )}
 
       <CommandMenu open={commandOpen} onOpenChange={setCommandOpen} />
       <ShortcutHelpDialog />

@@ -5,10 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="/favicon.png" />
-    <link rel="apple-touch-icon" href="/favicon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- viewport-fit=cover lets the page reach under notch and home bar; the
+         shell pads by env(safe-area-inset-*) where it touches the edges. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#0b0d14" />
+    <!-- The page background (--background in src/index.css) as a literal. -->
+    <meta name="theme-color" content="#0e0917" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="YTMDL" />
+    <!-- Opaque status bar: the page starts below it, so no content hides there. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="description" content="YTMDL — Musikbibliothek und Downloads" />
     <title>YTMDL</title>
   </head>
