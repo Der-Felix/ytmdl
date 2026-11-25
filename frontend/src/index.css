@@ -119,6 +119,14 @@
     /* Height of the mini player while it is on screen; toasts and other
        bottom-anchored overlays sit above it. */
     --player-height: 0px;
+    /* Height of the bottom navigation on phones, safe area included. */
+    --bottom-nav-height: 0px;
+    /* The safe area under the player bar. Zero while the bottom navigation
+       sits below the bar and carries it. */
+    --player-inset: env(safe-area-inset-bottom);
+    /* Everything fixed to the bottom edge; the page pads by this much so
+       nothing ends up behind the bars. */
+    --bottom-chrome: calc(var(--bottom-nav-height) + var(--player-height));
 
     --sidebar: transparent;
     --sidebar-foreground: var(--foreground);
@@ -133,10 +141,30 @@
 /* Outside @layer base on purpose: the default above is unlayered, and an
    unlayered declaration beats a layered one whatever its specificity. */
 :root:has([data-slot="mini-player"]) {
-    --player-height: calc(5rem + env(safe-area-inset-bottom));
+    --player-height: calc(4rem + var(--player-inset));
 
     @media (width >= 40rem) {
-        --player-height: calc(5.375rem + env(safe-area-inset-bottom));
+        --player-height: calc(5.375rem + var(--player-inset));
+    }
+}
+
+/* Phones: the bottom navigation takes the bottom edge and its safe area; the
+   player bar docks directly above it. */
+@media (width < 48rem) {
+    :root:has([data-slot="bottom-nav"]) {
+        /* 3.5rem of entries plus the 1px top border. */
+        --bottom-nav-height: calc(3.5rem + 1px + env(safe-area-inset-bottom));
+        --player-inset: 0px;
+    }
+}
+
+/* While a text field has focus on a touch screen, the on-screen keyboard owns
+   the bottom of the screen. Both bars step aside so they are never pushed up
+   over the field being typed into. Only their drawing goes: the page keeps
+   its padding, so nothing reflows under the caret. */
+@media (width < 48rem) and (pointer: coarse) {
+    :root:has(:is(input:not([type="range"], [type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"], [type="file"], [type="color"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"])):focus) :is([data-slot="bottom-nav"], [data-slot="mini-player"]) {
+        display: none;
     }
 }
 
