@@ -153,6 +153,42 @@ layout does that for its nginx container; here, the network's gateway is a
 client address, and trusting it would let any client set its own address. If
 your `.env` sets `MUSICDL_TRUSTED_PROXIES` to that subnet, remove it.
 
+Each entry is an address or a CIDR, without a port: `192.168.1.20` or
+`192.168.1.0/24`, not `192.168.1.20:443`. An entry the app cannot read stops it
+at startup.
+
+### Proxy on the same Docker host
+
+When the reverse proxy runs on the same host as ytmdl, for example as another
+container that reaches the published port through the host, the app does not
+see the proxy's LAN address. It sees the gateway of its own Docker network:
+`172.31.250.1`, and with IPv6 enabled on that network also its IPv6 gateway (an
+address such as `fdd0:…::1`). Name exactly those gateway addresses, plus every
+proxy further out if requests pass through more than one:
+
+```sh
+MUSICDL_TRUSTED_PROXIES=127.0.0.1/32,::1/128,172.31.250.1,fdd0:…::1
+```
+
+`docker network inspect ytmdl-net` (`<project>-net` with a different
+`YTMDL_PROJECT_NAME`) shows the gateway addresses. Trust single addresses, never the subnet.
+
+Every connection that arrives through the published port then comes from a
+trusted address, so the published port must not be reachable by clients
+directly: bind it to an address only the proxy uses or block it in the host's
+firewall. Otherwise a client could send its own `X-Forwarded-For` and choose the
+address it appears under. That only affects the sign-in rate limits and the
+logged addresses, but it defeats the reason for trusting the proxy. Attaching the
+proxy container to ytmdl's network and dropping the published port avoids the
+question: the app then sees the proxy container's own address, which you name
+instead.
+
+To check the setting, sign in or load a page through the proxy and read the
+container log: the `http request` lines show the client's address as
+`remote_ip`, and the proxy or gateway as `peer_ip` when the two differ. A
+`remote_ip` that is still the gateway or the proxy means an address in the chain
+is missing from `MUSICDL_TRUSTED_PROXIES`.
+
 The proxy itself must pass the event stream (`/api/v1/events`) unbuffered and
 allow request bodies of 26 MiB for cookie uploads; the bundled nginx
 configuration in `frontend/nginx.conf` shows both settings.
@@ -224,7 +260,11 @@ services:
       # Optional: the content of /music/.ytmdl-storage-id without the
       # "ytmdl-storage:" prefix. Stops downloads when the share is missing.
       # MUSICDL_STORAGE_GUARD_ID: <storage-id>
-      # Behind a reverse proxy: its address.
+      # Behind a reverse proxy: its address or CIDR, without a port. A proxy
+      # on this host that reaches the published port arrives from the app
+      # network's gateway (IPv4 and, with IPv6 enabled, IPv6); name those
+      # gateway addresses and every proxy further out, and keep the port
+      # unreachable for clients. Check remote_ip in the access log.
       # MUSICDL_TRUSTED_PROXIES: 127.0.0.1/32,::1/128,<proxy-address>
     volumes:
       - /mnt/<pool>/apps/ytmdl/data:/data

@@ -151,7 +151,7 @@ func isTrustedPeer(remoteAddr string) bool {
 // was established, so a malformed header can only make the client look like
 // its proxy, never like an address of its choosing.
 func ClientIP(r *http.Request) string {
-	peer := clientIP(r)
+	peer := peerIP(r)
 	checker := currentProxyChecker()
 	if !checker.IsTrusted(r.RemoteAddr) {
 		return peer

@@ -17,6 +17,10 @@
   - Small buttons are 40 px tall on touch screens; the mix play button on phones is a 40 px square.
   - Track counts read **Titel** throughout the listening area, library tab counts use thousands separators, the **Werkzeuge** tab has an icon, artist cards break their counts at the dot and name the provider (**Deezer**), and all track table column names share one style.
   - The offline page uses the app background throughout and its link has button height.
+- **Radio stays near the seed:** Autoplay and song radio (`GET /api/v1/library/radio?seed=…`) only pick artists close to the seed: the seed's artist, artists with the same main genre and artists that share a release with it; artists that list the seed's main genre only further down follow once those are used up. Sharing a secondary genre alone (a schlager artist also listed as Pop) no longer qualifies, so a small library returns fewer titles instead of unrelated ones. Titles from the seed's era rank higher, at most three titles per artist come before any artist's fourth, and the seed's own other versions are left out. The query expands at most 100 candidate artists instead of scoring every track. The response is unchanged.
+- **Access log behind a reverse proxy:** The `http request` log line reports the client resolved through trusted proxies as `remote_ip`, the same address the sign-in rate limits use, and the direct peer as `peer_ip` when it differs.
+- **Docs:** `docs/single-image.md` covers a reverse proxy on the same Docker host, which reaches the app from the Docker network's gateway addresses, and how to check the setting in the access log.
+- Fix a flaky naming migration test that started a second run before the background run had released its lock.
 
 ## 1.10.0 — 2026-11-25
 
