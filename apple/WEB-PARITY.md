@@ -51,7 +51,7 @@ Auf Build 36 aufbauend, gegen die unveränderte Server-API von v1.10.x. Ausgelie
   Automatisch weiterspielen, Lautstärke-Normalisierung mit Status und der Zehnband-EQ mit
   Klangprofilen, Bändern, Vorverstärkung und Pegelschutz. Dieselben gespeicherten Werte
   und derselbe Player wie auf den anderen Plattformen. tvOS hat keinen Schieberegler:
-  Werte werden aus Menüs gewählt (EQ und Vorverstärkung in 1-dB-Schritten); −/+-Tasten in einer Formularzeile bekommen auf tvOS keinen Fokus. Geprüft im Code: die
+  Jeder Wert ist eine Zeile mit dem aktuellen Wert, die eine Liste der Möglichkeiten öffnet (EQ und Vorverstärkung in 1-dB-Schritten); −/+-Tasten in einer Formularzeile bekamen auf tvOS keinen Fokus, und die Picker-Varianten zeigten in der CI eine leere Liste oder keinen Titel. Geprüft im Code: die
   Klangverarbeitung (`MTAudioProcessingTap` über `AVAudioMix`) und das Tempo
   (`audioTimePitchAlgorithm`) sind auf tvOS verfügbar und laufen dort ohne
   Sonderweg; nichts wurde weggelassen, weil es auf tvOS nicht ginge.

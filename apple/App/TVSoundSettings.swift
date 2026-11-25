@@ -4,8 +4,9 @@ import YTMDLCore
 
 /// "Klang & Wiedergabe" on Apple TV: the iPhone's sound settings, through the
 /// same `PlayerModel` and `EqualizerModel` and so the same stored preferences.
-/// tvOS has no slider, so values and choices both use standard pickers in the
-/// menu style; the pushed-list style showed an empty list in CI.
+/// tvOS has no slider. Every value is a `TVChoiceRow`: title and current value,
+/// opening a list of the choices. (In CI, −/+ buttons in a Form row never took
+/// focus, a pushed Picker showed an empty list, and a menu Picker hid its title.)
 /// The timer and tempo come first because a listener on the sofa changes
 /// them most.
 struct TVSoundSettings: View {
@@ -15,18 +16,16 @@ struct TVSoundSettings: View {
     var body: some View {
         Form {
             Section("Wiedergabe") {
-                Picker("Sleep-Timer", selection: Binding(get: { player.sleepMode }, set: { player.setSleepMode($0) })) {
-                    ForEach(SleepMode.allCases) { Text($0.name).tag($0) }
-                }.pickerStyle(.menu).accessibilityIdentifier("tv-sound-sleep")
+                TVChoiceRow(title: "Sleep-Timer", identifier: "tv-sound-sleep", selection: player.sleepMode,
+                            choices: SleepMode.allCases.map { ($0, $0.name) }) { player.setSleepMode($0) }
                 if let deadline = player.sleepDeadline {
                     LabeledContent("Verbleibend") { TVCountdown(deadline: deadline) }
                         .accessibilityIdentifier("tv-sound-sleep-remaining")
                 }
-                Picker("Tempo", selection: Binding(get: { player.playbackRate }, set: { player.setPlaybackRate($0) })) {
-                    ForEach(SoundStep.playbackRates, id: \.self) { Text(Self.rate($0)).tag($0) }
-                }.pickerStyle(.menu).accessibilityIdentifier("tv-sound-speed")
-                TVValuePicker(title: "Überblendung", identifier: "tv-sound-crossfade", current: player.crossfadeSeconds,
-                              step: 1, range: SoundStep.crossfade, text: Self.crossfade) { player.setCrossfade($0) }
+                TVChoiceRow(title: "Tempo", identifier: "tv-sound-speed", selection: player.playbackRate,
+                            choices: SoundStep.playbackRates.map { ($0, Self.rate($0)) }) { player.setPlaybackRate($0) }
+                TVChoiceRow(title: "Überblendung", identifier: "tv-sound-crossfade", selection: player.crossfadeSeconds,
+                            choices: Self.steps(player.crossfadeSeconds, SoundStep.crossfade, Self.crossfade)) { player.setCrossfade($0) }
                 Toggle("Albentitel ohne Überblendung", isOn: Binding(get: { player.smartAlbumTransition }, set: { player.setSmartAlbumTransition($0) }))
                 Toggle("Nächsten Titel vorladen", isOn: Binding(get: { player.preloadEnabled }, set: { player.setPreload($0) }))
                 Toggle("Schneller Abspielstart", isOn: Binding(get: { player.fastStart }, set: { player.setFastStart($0) }))
@@ -45,17 +44,17 @@ struct TVSoundSettings: View {
             Section {
                 Toggle("Equalizer aktivieren", isOn: Binding(get: { equalizer.enabled }, set: { equalizer.setEnabled($0) }))
                     .accessibilityIdentifier("tv-sound-eq")
-                Picker("Klangprofil", selection: Binding(get: { equalizer.preset }, set: { if let preset = EqualizerPreset(rawValue: $0) { equalizer.select(preset) } })) {
-                    ForEach(EqualizerPreset.allCases) { Text($0.name).tag($0.rawValue) }
-                    if equalizer.preset == "custom" { Text("Eigener Klang").tag("custom") }
-                }.pickerStyle(.menu)
+                TVChoiceRow(title: "Klangprofil", identifier: "tv-sound-preset", selection: equalizer.preset,
+                            choices: Self.presets(equalizer.preset)) {
+                    if let preset = EqualizerPreset(rawValue: $0) { equalizer.select(preset) }
+                }
                 if equalizer.enabled {
                     ForEach(0..<10, id: \.self) { band in
-                        TVValuePicker(title: Self.frequency(band), identifier: "tv-sound-band-\(band)", current: equalizer.gains[band],
-                                      step: 1, range: SoundStep.equalizerGain, text: Self.decibels) { equalizer.setGain($0, band: band) }
+                        TVChoiceRow(title: Self.frequency(band), identifier: "tv-sound-band-\(band)", selection: equalizer.gains[band],
+                                    choices: Self.steps(equalizer.gains[band], SoundStep.equalizerGain, Self.decibels)) { equalizer.setGain($0, band: band) }
                     }
-                    TVValuePicker(title: "Vorverstärkung", identifier: "tv-sound-preamp", current: equalizer.preamp,
-                                  step: 1, range: SoundStep.preamp, text: Self.decibels) { equalizer.setPreamp($0) }
+                    TVChoiceRow(title: "Vorverstärkung", identifier: "tv-sound-preamp", selection: equalizer.preamp,
+                                choices: Self.steps(equalizer.preamp, SoundStep.preamp, Self.decibels)) { equalizer.setPreamp($0) }
                     Toggle("Automatischer EQ-Pegelschutz", isOn: Binding(get: { equalizer.headroom }, set: { equalizer.setHeadroom($0) }))
                     Button("Klang zurücksetzen") { equalizer.select(.flat); equalizer.setPreamp(0) }
                 }
@@ -70,6 +69,16 @@ struct TVSoundSettings: View {
         .navigationTitle("Klang & Wiedergabe")
     }
 
+    /// The 1-unit steps of `range` with their labels; an off-grid current value stays a choice.
+    static func steps(_ current: Double, _ range: ClosedRange<Double>, _ text: (Double) -> String) -> [(Double, String)] {
+        SoundStep.options(around: current, step: 1, in: range).map { ($0, text($0)) }
+    }
+    /// The presets; "Eigener Klang" only while the bands were changed by hand.
+    static func presets(_ current: String) -> [(String, String)] {
+        var list = EqualizerPreset.allCases.map { ($0.rawValue, $0.name) }
+        if current == "custom" { list.append(("custom", "Eigener Klang")) }
+        return list
+    }
     nonisolated static func rate(_ value: Double) -> String { String(format: "%g×", value) }
     nonisolated static func crossfade(_ seconds: Double) -> String { seconds == 0 ? "Aus" : "\(Int(seconds)) s" }
     nonisolated static func decibels(_ value: Double) -> String { String(format: "%+.1f dB", value) }
@@ -86,21 +95,55 @@ struct TVSoundSettings: View {
     }
 }
 
-/// A value chosen from its steps with a standard tvOS menu picker, since tvOS has
-/// no slider. (−/+ buttons inside a Form row cannot take the remote's focus.)
-/// A value off the grid, such as an older finer setting, stays selectable.
-struct TVValuePicker: View {
+/// One setting as a row: its title on the left, the current value on the
+/// right. Selecting it opens `TVChoiceList`; the identifier sits on the link
+/// and its accessibility value is the current choice.
+struct TVChoiceRow<Value: Hashable>: View {
     let title: String
     let identifier: String
-    let current: Double
-    let step: Double
-    let range: ClosedRange<Double>
-    let text: (Double) -> String
-    let set: (Double) -> Void
+    let selection: Value
+    let choices: [(Value, String)]
+    let choose: (Value) -> Void
+    private var current: String { choices.first { $0.0 == selection }?.1 ?? "" }
     var body: some View {
-        Picker(title, selection: Binding(get: { current }, set: { set($0) })) {
-            ForEach(SoundStep.options(around: current, step: step, in: range), id: \.self) { Text(text($0)).tag($0) }
-        }.pickerStyle(.menu).accessibilityIdentifier(identifier)
+        NavigationLink {
+            TVChoiceList(title: title, identifier: identifier, selection: selection, choices: choices, choose: choose)
+        } label: {
+            LabeledContent(title, value: current)
+        }
+        .accessibilityIdentifier(identifier)
+        .accessibilityValue(current)
+    }
+}
+
+/// The choices of a `TVChoiceRow`, one button each with a checkmark on the
+/// selected one. Choosing sets the value and goes back to the settings.
+struct TVChoiceList<Value: Hashable>: View {
+    let title: String
+    let identifier: String
+    let selection: Value
+    let choices: [(Value, String)]
+    let choose: (Value) -> Void
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        List {
+            ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
+                Button {
+                    choose(choice.0)
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(choice.1)
+                        Spacer(minLength: 24)
+                        if choice.0 == selection { Image(systemName: "checkmark").accessibilityHidden(true) }
+                    }
+                }
+                .accessibilityLabel(choice.1)
+                .accessibilityAddTraits(choice.0 == selection ? .isSelected : [])
+                .accessibilityIdentifier("\(identifier)-choice-\(index)")
+            }
+        }
+        .navigationTitle(title)
     }
 }
 

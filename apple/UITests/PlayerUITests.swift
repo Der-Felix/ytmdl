@@ -608,56 +608,68 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(item.hasFocus, "\(tab) takes the remote's focus in the tab bar.")
         XCUIRemote.shared.press(.select)
     }
-    /// Whether the remote's focus is on `element`, found by its identifier or by
-    /// the start of its label: on tvOS the identifier can sit on a row's label
-    /// rather than on its focusable cell.
+    /// Whether the remote's focus is on the element with `identifier`. On tvOS a
+    /// List or Form row takes focus as a cell: its label starts with `title`, or
+    /// the element with the identifier sits inside it.
     @MainActor private func focused(on identifier: String, title: String, in app: XCUIApplication) -> Bool {
         let element = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        if element.exists && element.hasFocus { return true }
         let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
-        return (element.exists && element.hasFocus) || (focused.exists && (focused.identifier == identifier || focused.label.hasPrefix(title)))
+        guard focused.exists else { return false }
+        return focused.identifier == identifier || focused.label.hasPrefix(title)
+            || focused.descendants(matching: .any).matching(identifier: identifier).count > 0
+    }
+    /// Moves focus with `direction` until it is on the element, at most `presses` times.
+    @MainActor private func moveFocus(to identifier: String, title: String, in app: XCUIApplication, _ direction: XCUIRemote.Button, presses: Int = 10) -> Bool {
+        for _ in 0..<presses where !focused(on: identifier, title: title, in: app) { XCUIRemote.shared.press(direction) }
+        return focused(on: identifier, title: title, in: app)
     }
     @MainActor func testTVSoundSettingsShowAChangedCrossfade() throws {
         let app = try app()
         openTVTab(app, "Optionen")
         let link = app.descendants(matching: .any).matching(identifier: "tv-settings-sound").firstMatch
         XCTAssertTrue(link.waitForExistence(timeout: 10), "Optionen has a Klang section.")
-        for _ in 0..<10 where !focused(on: "tv-settings-sound", title: "Klang & Wiedergabe", in: app) { XCUIRemote.shared.press(.down) }
+        let onLink = moveFocus(to: "tv-settings-sound", title: "Klang & Wiedergabe", in: app, .down)
         attach(app, name: "TV Optionen with Klang")
-        XCTAssertTrue(focused(on: "tv-settings-sound", title: "Klang & Wiedergabe", in: app), "Klang & Wiedergabe takes the remote's focus.")
+        XCTAssertTrue(onLink, "Klang & Wiedergabe takes the remote's focus.")
         XCUIRemote.shared.press(.select)
         let crossfade = app.descendants(matching: .any).matching(identifier: "tv-sound-crossfade").firstMatch
         XCTAssertTrue(crossfade.waitForExistence(timeout: 10), "Klang & Wiedergabe opens.")
+        // The row reads "Überblendung" with the current value; the link carries it as its value.
+        let row = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "Überblendung")).firstMatch
         let shows = { (text: String) in
-            NSPredicate { object, _ in
-                guard let element = object as? XCUIElement, element.exists else { return false }
-                return element.label.contains(text) || ((element.value as? String)?.contains(text) ?? false)
+            NSPredicate { _, _ in
+                (crossfade.exists && ((crossfade.value as? String) == text || crossfade.label.hasSuffix(text)))
+                    || (row.exists && row.label.hasSuffix(text))
             }
         }
-        // A choice of the open menu; the row itself reads "Überblendung", never just "1 s".
-        let choice = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "1 s")).firstMatch
-        XCTAssertTrue(shows("Aus").evaluate(with: crossfade), "Crossfade starts off.")
-        // Past the sleep timer and tempo pickers to the crossfade picker.
-        for _ in 0..<10 where !focused(on: "tv-sound-crossfade", title: "Überblendung", in: app) { XCUIRemote.shared.press(.down) }
-        XCTAssertTrue(focused(on: "tv-sound-crossfade", title: "Überblendung", in: app), "The crossfade picker takes the remote's focus.")
-        // The menu opens on "Aus", the first and selected choice; the next one is "1 s".
+        XCTAssertTrue(shows("Aus").evaluate(with: nil), "Crossfade starts off.")
+        // Past the sleep timer and tempo rows to the crossfade row.
+        let onRow = moveFocus(to: "tv-sound-crossfade", title: "Überblendung", in: app, .down)
+        if !onRow { print(app.debugDescription) }
+        XCTAssertTrue(onRow, "The crossfade row takes the remote's focus.")
         XCUIRemote.shared.press(.select)
-        let opened = choice.waitForExistence(timeout: 5)
+        let one = app.buttons["tv-sound-crossfade-choice-1"]
+        let opened = one.waitForExistence(timeout: 10)
         attach(app, name: "TV crossfade choices")
         if !opened { print(app.debugDescription) }
         XCTAssertTrue(opened, "The crossfade choices open.")
-        XCUIRemote.shared.press(.down)
+        XCTAssertEqual(one.label, "1 s")
+        let onOne = moveFocus(to: "tv-sound-crossfade-choice-1", title: "1 s", in: app, .down, presses: 4)
+        if !onOne { print(app.debugDescription) }
+        XCTAssertTrue(onOne, "The choice 1 s takes the remote's focus.")
         XCUIRemote.shared.press(.select)
-        expectation(for: shows("1 s"), evaluatedWith: crossfade)
+        expectation(for: shows("1 s"), evaluatedWith: nil)
         waitForExpectations(timeout: 10)
         attach(app, name: "TV sound settings with crossfade")
         // Put it back, so other tests start with the default.
-        if !focused(on: "tv-sound-crossfade", title: "Überblendung", in: app) { print(app.debugDescription) }
+        XCTAssertTrue(moveFocus(to: "tv-sound-crossfade", title: "Überblendung", in: app, .down, presses: 3))
         XCUIRemote.shared.press(.select)
-        XCTAssertTrue(choice.waitForExistence(timeout: 5))
-        // Up reaches "Aus" whether the menu opens on the first or the selected choice.
-        XCUIRemote.shared.press(.up)
+        let off = app.buttons["tv-sound-crossfade-choice-0"]
+        XCTAssertTrue(off.waitForExistence(timeout: 10))
+        XCTAssertTrue(moveFocus(to: "tv-sound-crossfade-choice-0", title: "Aus", in: app, .up, presses: 4))
         XCUIRemote.shared.press(.select)
-        expectation(for: shows("Aus"), evaluatedWith: crossfade)
+        expectation(for: shows("Aus"), evaluatedWith: nil)
         waitForExpectations(timeout: 10)
     }
     @MainActor func testTVQueueFilterEditsTheShownEntry() throws {
