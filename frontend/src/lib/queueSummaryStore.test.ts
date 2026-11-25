@@ -204,10 +204,21 @@ describe('queueSummaryStore', () => {
     off()
   })
 
+  it('does not reload when the stream opens for the first time', async () => {
+    const t = setup()
+    const off = t.store.subscribe(() => {})
+    t.connection('connecting')
+    t.connection('open')
+    expect(t.fetches).toHaveLength(1)
+    off()
+  })
+
   it('reloads at once when the event stream reconnects', async () => {
     const t = setup()
     const off = t.store.subscribe(() => {})
     await t.resolveLast()
+    t.connection('open')
+    expect(t.fetches).toHaveLength(1)
     t.connection('offline')
     t.connection('connecting')
     expect(t.fetches).toHaveLength(1)

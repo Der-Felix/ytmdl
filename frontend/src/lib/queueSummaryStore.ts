@@ -21,7 +21,7 @@
 
 import { isAbortError } from '@/lib/api/client'
 import { getQueueSummary } from '@/lib/api/jobs'
-import { subscribeToConnectionState, subscribeToJobEvents } from '@/lib/sse/jobEvents'
+import { connectionState, subscribeToConnectionState, subscribeToJobEvents } from '@/lib/sse/jobEvents'
 import type { ConnectionState } from '@/lib/sse/jobEvents'
 import type { AsyncState } from '@/hooks/useAsync'
 import type { JobEvent, QueueSummary } from '@/types/api'
@@ -52,6 +52,8 @@ export interface QueueSummaryStoreDeps {
   fetchSummary: (signal: AbortSignal) => Promise<QueueSummary>
   subscribeToEvents: (handler: (event: JobEvent) => void) => () => void
   subscribeToConnection: (handler: (state: ConnectionState) => void) => () => void
+  /** The connection state at the moment the store starts. */
+  connectionState?: () => ConnectionState
   /** Whether the page is hidden; absent outside the browser. */
   isHidden: () => boolean
   /** Registers a visibility change listener and returns its cleanup. */
@@ -79,6 +81,7 @@ export function createQueueSummaryStore(deps: QueueSummaryStoreDeps): QueueSumma
   let lastFetchAt = Number.NEGATIVE_INFINITY
   /** A refetch was requested while one was running or the page was hidden. */
   let dirty = false
+  let wasOpen = false
   let wasOffline = false
   let teardown: Array<() => void> = []
 
@@ -168,8 +171,15 @@ export function createQueueSummaryStore(deps: QueueSummaryStoreDeps): QueueSumma
   }
 
   function handleConnection(state: ConnectionState): void {
-    if (state === 'open' && wasOffline) fetchNow(false)
-    wasOffline = state !== 'open'
+    // Only a stream that was open and dropped can have lost events; the
+    // first open after the start is already covered by the first load.
+    if (state === 'open') {
+      if (wasOffline) fetchNow(false)
+      wasOpen = true
+      wasOffline = false
+    } else if (wasOpen) {
+      wasOffline = true
+    }
   }
 
   function handleVisibility(): void {
@@ -177,6 +187,7 @@ export function createQueueSummaryStore(deps: QueueSummaryStoreDeps): QueueSumma
   }
 
   function start(): void {
+    wasOpen = deps.connectionState?.() === 'open'
     wasOffline = false
     teardown = [
       deps.subscribeToEvents(handleEvent),
@@ -220,6 +231,7 @@ export const queueSummaryStore = createQueueSummaryStore({
   fetchSummary: (signal) => getQueueSummary(signal),
   subscribeToEvents: subscribeToJobEvents,
   subscribeToConnection: subscribeToConnectionState,
+  connectionState,
   isHidden: () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
   onVisibilityChange: (handler) => {
     if (typeof document === 'undefined') return () => {}
