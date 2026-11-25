@@ -8,7 +8,7 @@ type LibraryTrack struct {
 	// ArtistID is the library artist the track belongs to, so clients can
 	// link the name; empty when the track has none.
 	ArtistID      string    `json:"artist_id,omitempty"`
-	FilePath     string    `json:"file_path,omitempty"`
+	FilePath      string    `json:"file_path,omitempty"`
 	FileSizeBytes int64     `json:"file_size_bytes,omitempty"`
 	Codec         string    `json:"codec,omitempty"`
 	BitrateKbps   float64   `json:"bitrate_kbps,omitempty"`
