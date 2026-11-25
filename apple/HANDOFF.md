@@ -44,7 +44,7 @@ Builds on PR #112 (build 36); see FEATURES.md "Apple TV sound and queue filter (
   **Optionen → Klang** (`SettingsView`, `tv-settings-sound`); it calls the same
   `PlayerModel`/`EqualizerModel` setters as `MobileAudioSettings`, so the preference keys
   (`crossfadeSeconds`, `playbackRate`, `playerNormalization`, `eq*` …) are shared. Sleep
-  mode stays session state, as everywhere. `TVValuePicker` replaces sliders with a standard picker (−/+ buttons in a Form row never took the remote's focus in CI);
+  mode stays session state, as everywhere. `TVValuePicker` replaces sliders with a menu-style picker (−/+ buttons in a Form row never took the remote's focus in CI, and the pushed-list picker style showed an empty list there; all pickers on the page use `.menu`);
   its choices come from `SoundStep.options(around:step:in:)` in core (the step grid plus an
   off-grid current value). `TVCountdown` shows the time left of a minute timer. Checked for tvOS: the
   `MTAudioProcessingTap` in `Equalizer.swift`, `AVAudioMix` and `audioTimePitchAlgorithm`

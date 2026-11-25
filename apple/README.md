@@ -28,7 +28,7 @@ queue now offers **Rückgängig** for a few seconds, and a mix page sorts its ti
 the web's. Details are in [FEATURES.md](FEATURES.md) and [WEB-PARITY.md](WEB-PARITY.md).
 
 Build 37 (0.4.3) brings the sound settings to Apple TV: **Optionen → Klang & Wiedergabe**
-with sleep timer, tempo, crossfade, normalization and the ten-band equalizer (pickers
+with sleep timer, tempo, crossfade, normalization and the ten-band equalizer (menus
 instead of sliders), sleep timer and tempo menus in the TV player, the iPhone's queue
 filter in the TV queue, history and handoff settings, and no more large title over the
 TV queue. Apple TV still has no offline catalogue; WEB-PARITY.md explains why.

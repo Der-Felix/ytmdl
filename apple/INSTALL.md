@@ -82,7 +82,7 @@ few seconds.
 
 Since build 37 (0.4.3) **Optionen → Klang & Wiedergabe** has the sound settings of the
 iPhone (sleep timer, tempo, crossfade, normalization, equalizer); values change with the
-standard pickers. The player has sleep timer and tempo menus, and **Warteschlange filtern**
+standard menus. The player has sleep timer and tempo menus, and **Warteschlange filtern**
 above the queue opens the keyboard. Updating over an earlier build keeps sign-in and settings.
 
 ## Build it yourself

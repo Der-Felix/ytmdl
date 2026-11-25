@@ -633,15 +633,18 @@ final class PlayerUITests: XCTestCase {
                 return element.label.contains(text) || ((element.value as? String)?.contains(text) ?? false)
             }
         }
-        let choice12 = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "12 s")).firstMatch
+        // A choice of the open menu; the row itself reads "Überblendung", never just "1 s".
+        let choice = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "1 s")).firstMatch
         XCTAssertTrue(shows("Aus").evaluate(with: crossfade), "Crossfade starts off.")
         // Past the sleep timer and tempo pickers to the crossfade picker.
         for _ in 0..<10 where !focused(on: "tv-sound-crossfade", title: "Überblendung", in: app) { XCUIRemote.shared.press(.down) }
         XCTAssertTrue(focused(on: "tv-sound-crossfade", title: "Überblendung", in: app), "The crossfade picker takes the remote's focus.")
-        // The choices open on the selected "Aus"; the next one is "1 s".
+        // The menu opens on "Aus", the first and selected choice; the next one is "1 s".
         XCUIRemote.shared.press(.select)
-        XCTAssertTrue(choice12.waitForExistence(timeout: 5), "The crossfade choices open.")
+        let opened = choice.waitForExistence(timeout: 5)
         attach(app, name: "TV crossfade choices")
+        if !opened { print(app.debugDescription) }
+        XCTAssertTrue(opened, "The crossfade choices open.")
         XCUIRemote.shared.press(.down)
         XCUIRemote.shared.press(.select)
         expectation(for: shows("1 s"), evaluatedWith: crossfade)
@@ -650,7 +653,8 @@ final class PlayerUITests: XCTestCase {
         // Put it back, so other tests start with the default.
         if !focused(on: "tv-sound-crossfade", title: "Überblendung", in: app) { print(app.debugDescription) }
         XCUIRemote.shared.press(.select)
-        XCTAssertTrue(choice12.waitForExistence(timeout: 5))
+        XCTAssertTrue(choice.waitForExistence(timeout: 5))
+        // Up reaches "Aus" whether the menu opens on the first or the selected choice.
         XCUIRemote.shared.press(.up)
         XCUIRemote.shared.press(.select)
         expectation(for: shows("Aus"), evaluatedWith: crossfade)

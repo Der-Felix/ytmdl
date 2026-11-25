@@ -25,7 +25,7 @@ from implemented features and simulator verification.
 | Home/Lock Screen widgets (iOS/iPadOS) | Small/medium Home widgets and circular/rectangular/inline Lock Screen widgets open the player; medium Home widgets also link to favorites and playlists. Navigation only, no live song state or playback controls |
 | Mobile transport | Seeking, previous/next, shuffle, repeat queue/track, native device volume and AirPlay |
 | System artwork | Now Playing artwork published after authenticated/local loading, retained across progress updates, cleared on title change or stop; actual lock-screen review remains required |
-| Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer. Apple TV has the same settings under **Optionen → Klang & Wiedergabe** (values chosen with pickers) plus sleep timer and tempo menus in the player |
+| Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer. Apple TV has the same settings under **Optionen → Klang & Wiedergabe** (values chosen from menus) plus sleep timer and tempo menus in the player |
 | Mobile visualization | Four mobile FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
 | Lyrics | Cached/plain text; LRC timing, optional following and tap-to-seek when time tags exist |
 | Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all with **Rückgängig** for a few seconds, save as playlist, local resume state and explicit restore that keeps each entry's section and the started context; whole albums, artists, playlists and mixes can be queued. Apple TV edits upcoming entries through a long-press menu and has the same filter |
@@ -46,8 +46,8 @@ Added on top of build 36; it uses the server API of v1.10.x unchanged. It ships 
   Abspielstart**, **Automatisch weiterspielen**, **Lautstärke-Normalisierung** with its
   status and **Lautheit erneut prüfen**, and the equalizer: **Equalizer aktivieren**,
   **Klangprofil**, the ten bands and **Vorverstärkung** (in 1 dB steps), **Automatischer
-  EQ-Pegelschutz** and **Klang zurücksetzen**. tvOS has no slider, so values are chosen with
-  the standard picker (−/+ buttons inside a settings row cannot take the remote's focus). The bands appear only while
+  EQ-Pegelschutz** and **Klang zurücksetzen**. tvOS has no slider, so values are chosen from
+  a standard menu (−/+ buttons inside a settings row cannot take the remote's focus). The bands appear only while
   the equalizer is on. The settings use the same player and the same stored values as the
   other platforms; the audio processing tap and time-pitch algorithms run on tvOS too.
 - **Player on Apple TV**: under the transport, **Sleep-Timer** (shows the time left),
