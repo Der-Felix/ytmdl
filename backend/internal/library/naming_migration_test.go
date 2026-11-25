@@ -478,6 +478,16 @@ func TestNamingMigrationStartsInTheBackgroundAndRunsOnce(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	// The run publishes its final status before it logs, returns and releases
+	// namingMu, so seeing "completed" does not mean the background run is
+	// over: a second run started in that window is refused as already
+	// running. Wait for the lock; a successful run is not scheduled again.
+	f.svc.namingMu.Lock()
+	finished := f.svc.NamingMigrationStatus()
+	f.svc.namingMu.Unlock()
+	if finished.State != NamingStateCompleted {
+		t.Fatalf("status after the background run %+v", finished)
+	}
 	if f.pathOf(t, file.ID) != want {
 		t.Fatal("the background run did not move the file")
 	}
