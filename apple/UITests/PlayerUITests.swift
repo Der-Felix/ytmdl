@@ -613,8 +613,17 @@ final class PlayerUITests: XCTestCase {
         openTVTab(app, "Optionen")
         let link = app.descendants(matching: .any).matching(identifier: "tv-settings-sound").firstMatch
         XCTAssertTrue(link.waitForExistence(timeout: 10), "Optionen has a Klang section.")
-        for _ in 0..<8 where !link.hasFocus { XCUIRemote.shared.press(.down) }
-        XCTAssertTrue(link.hasFocus)
+        // The identifier can sit on the link's label rather than its focusable
+        // cell, so look for the focused element by its title as well.
+        func onLink() -> Bool {
+            let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+            return link.hasFocus || (focused.exists && (focused.identifier == "tv-settings-sound" || focused.label.contains("Klang & Wiedergabe")))
+        }
+        for _ in 0..<10 where !onLink() { XCUIRemote.shared.press(.down) }
+        let focusedLink = onLink()
+        attach(app, name: "TV Optionen with Klang")
+        if !focusedLink { print(app.debugDescription) }
+        XCTAssertTrue(focusedLink, "Klang & Wiedergabe takes the remote's focus.")
         XCUIRemote.shared.press(.select)
         let plus = app.buttons["tv-sound-crossfade-plus"], minus = app.buttons["tv-sound-crossfade-minus"]
         let value = app.descendants(matching: .any).matching(identifier: "tv-sound-crossfade-value").firstMatch
