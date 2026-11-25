@@ -52,6 +52,11 @@ type ServerConfig struct {
 	MaxRequestBytes int64         `yaml:"max_request_bytes"`
 	CookieSecure    bool          `yaml:"cookie_secure"`
 	TrustedProxies  []string      `yaml:"trusted_proxies"`
+	// WebDir, when set, is a directory holding the built web application
+	// (index.html and assets/). The backend then serves it on its own
+	// listener next to the API, which is what the single-image deployment
+	// does. Empty keeps the API-only behaviour of the two-image deployment.
+	WebDir string `yaml:"web_dir"`
 }
 
 // DatabaseConfig describes the PostgreSQL connection and its pool. The URL is
@@ -662,6 +667,7 @@ func (c *Config) applyEnv() error {
 	boolean("YTDM_COOKIE_SECURE", &c.Server.CookieSecure)
 	strSlice("YTDM_TRUSTED_PROXIES", &c.Server.TrustedProxies)
 	strSlice("MUSICDL_TRUSTED_PROXIES", &c.Server.TrustedProxies)
+	str("MUSICDL_WEB_DIR", &c.Server.WebDir)
 
 	boolean("MUSICDL_SUBSCRIPTIONS_ENABLED", &c.Subscriptions.Enabled)
 	dur("MUSICDL_SUBSCRIPTION_SYNC_INTERVAL", &c.Subscriptions.SyncInterval)
@@ -861,7 +867,8 @@ func (c *Config) normalise() error {
 		c.MediaSessions.CookieDir = filepath.Clean(c.MediaSessions.CookieDir)
 	}
 
-	for _, p := range []*string{&c.Library.Path, &c.Downloads.TempDir} {
+	c.Server.WebDir = strings.TrimSpace(c.Server.WebDir)
+	for _, p := range []*string{&c.Library.Path, &c.Downloads.TempDir, &c.Server.WebDir} {
 		if *p == "" {
 			continue
 		}

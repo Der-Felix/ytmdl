@@ -238,15 +238,17 @@ func TestTrustedProxyAndIPExtraction(t *testing.T) {
 		t.Fatal("unconfigured subnet must not spoof HTTPS")
 	}
 
-	// 3. Trusted loopback proxy (127.0.0.1): headers ARE accepted
+	// 3. Trusted loopback proxy (127.0.0.1): headers ARE accepted, read from
+	// the right. 10.0.0.1 is not a trusted proxy, so it is the client and
+	// 198.51.100.1, which only it vouches for, may be forged.
 	reqLoopback := httptest.NewRequest(http.MethodGet, "/", nil)
 	reqLoopback.RemoteAddr = "127.0.0.1:54321"
 	reqLoopback.Header.Set("X-Forwarded-For", "198.51.100.1, 10.0.0.1")
 	reqLoopback.Header.Set("X-Forwarded-Proto", "https")
 
 	trustedIP := ClientIP(reqLoopback)
-	if trustedIP != "198.51.100.1" {
-		t.Fatalf("loopback trusted client IP = %q, want %q", trustedIP, "198.51.100.1")
+	if trustedIP != "10.0.0.1" {
+		t.Fatalf("loopback trusted client IP = %q, want %q", trustedIP, "10.0.0.1")
 	}
 	if !IsSecure(reqLoopback, false) {
 		t.Fatal("loopback trusted request with X-Forwarded-Proto=https should be secure")
@@ -265,5 +267,44 @@ func TestTrustedProxyAndIPExtraction(t *testing.T) {
 	}
 	if !IsSecure(reqConfigured, false) {
 		t.Fatal("configured proxy with X-Forwarded-Proto=https should be secure")
+	}
+}
+
+// TestClientIPAppendingProxy pins the single-image deployment behind a
+// reverse proxy that appends to X-Forwarded-For instead of overwriting it: a
+// client must not be able to choose the address its rate limits count
+// against by sending its own header.
+func TestClientIPAppendingProxy(t *testing.T) {
+	SetTrustedProxies([]string{"192.0.2.10", "10.1.0.0/16"})
+	t.Cleanup(func() { SetTrustedProxies(nil) })
+
+	cases := []struct {
+		name   string
+		peer   string
+		header []string
+		want   string
+	}{
+		{"no header from the proxy", "192.0.2.10:443", nil, "192.0.2.10"},
+		{"single entry", "192.0.2.10:443", []string{"203.0.113.7"}, "203.0.113.7"},
+		{"forged entry left of the real client", "192.0.2.10:443", []string{"198.51.100.66, 203.0.113.7"}, "203.0.113.7"},
+		{"chain of trusted proxies", "192.0.2.10:443", []string{"203.0.113.7, 10.1.4.4"}, "203.0.113.7"},
+		{"header split over several lines", "192.0.2.10:443", []string{"198.51.100.66", "203.0.113.7"}, "203.0.113.7"},
+		{"only trusted entries", "192.0.2.10:443", []string{"10.1.0.5"}, "10.1.0.5"},
+		{"malformed rightmost entry", "192.0.2.10:443", []string{"203.0.113.7, not-an-ip"}, "192.0.2.10"},
+		{"malformed entry behind a valid one", "192.0.2.10:443", []string{"evil, 203.0.113.7"}, "203.0.113.7"},
+		{"IPv6 client", "192.0.2.10:443", []string{"2001:db8::7"}, "2001:db8::7"},
+		{"direct client is never trusted", "203.0.113.50:5000", []string{"198.51.100.66"}, "203.0.113.50"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tc.peer
+			for _, value := range tc.header {
+				req.Header.Add("X-Forwarded-For", value)
+			}
+			if got := ClientIP(req); got != tc.want {
+				t.Fatalf("ClientIP = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

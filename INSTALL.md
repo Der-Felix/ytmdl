@@ -39,6 +39,14 @@ The host CLI selects the Podman overlay automatically. Optional host settings go
 in `compose.ghcr.override.yaml`, which is always applied last. A pinned image in
 that override must be removed or updated before a managed update can proceed.
 
+## Single image
+
+For NAS apps and hosts that should reference one image, `ghcr.io/der-felix/ytmdl`
+runs the backend and the web application in one container next to PostgreSQL
+(`compose.all-in-one.yaml` in the repository). It is updated by pulling and
+recreating; `ytmdlctl update` manages only the layout above. See the
+[single-image guide](https://der-felix.github.io/ytmdl/single-image).
+
 ## Existing installations
 
 Do **not** run the fresh installer or replace `.env`. Preserve your music/data
