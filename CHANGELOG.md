@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.10.0 — 2026-11-25
+
+The web app is built around listening: two areas for listening and downloading, a queue that keeps playing, a phone layout, and one container image for the whole server.
+
+### Changes
+
+- **Hören and Laden:** A switch at the top centre separates the listening area from the download area. **Hören** has the start page `/listen` with continue listening, mixes, new in the library and recently played. **Laden** is the former dashboard, starting at `/search`. The app opens in the area used last; the first visit lands in Hören.
+- **Queue, autoplay and radio:**
+  - The queue keeps what the user queued (**Als Nächstes**) apart from the rest of the album, playlist or mix that was started (**Weiter aus: …**) and from similar titles added automatically (**Ähnliche Titel**). **Zur Warteschlange** appends behind earlier queued titles; **Als Nächstes abspielen** goes directly after the current one. Shuffle only shuffles the started context.
+  - With two or fewer titles left, similar titles from the library are appended. The switch **Automatisch weiterspielen** in the queue controls this and is on by default. It does nothing while repeat, stop-after or a sleep timer is set, for offline copies, or without a connection.
+  - Song radio starts in place from the player. The queue can be saved as a playlist; clearing it can be undone.
+- **One track menu, linked names:** Every track row has the same menu (play next, add to queue, song radio, add to playlist, favorite, go to artist, go to album, details), also on right-click. A click on the title plays it; a double-click on the row plays the list from there. Artist and album names are links in lists and in both players. Library tracks carry `artist_id` in the API.
+- **Play from cards and pages:** Release and artist cards have a play button. Release and artist pages have **Abspielen**, **Zufällig**, **Als Nächstes** and **Zur Warteschlange**. The artist page shows **Am meisten gehört** (`GET /api/v1/library/artists/{id}/top-tracks`). The library tab Titel has **Alle abspielen** and **Zufällig** for the current filter (the first 500 titles). A mix can be saved as a playlist.
+- **Search:** The command menu (Ctrl/Cmd+K) finds titles, artists, albums and playlists of the library from two characters. Enter plays, Shift+Enter adds to the queue.
+- **Phone layout and installable app:** Phones get a bottom navigation and a player bar with 44 px controls; the layout respects safe areas, and the bars hide while the on-screen keyboard is open. A web app manifest makes the app installable to the home screen.
+- **Player basics:** The arrow keys scroll the page again; the volume is Shift+↑/↓. `?` shows the keyboard shortcuts. The browser tab is named after the playing title or the page. Listening views list only releases that have local tracks. The back button of the player returns to where the user came from. The lock-screen artwork uses the local cover.
+- **One container image:**
+  - The new image `ghcr.io/der-felix/ytmdl` holds the backend and the web app in one container, which serves both on one port (`compose.all-in-one.yaml`, see `docs/single-image.md`). PostgreSQL stays a separate container, so a deployment is two containers instead of three.
+  - The two separate images `ytmdl-backend` and `ytmdl-frontend` stay available and supported. `ytmdlctl update` manages only the two-image layout; with the single image, update by pulling the image and recreating the stack, after a database backup. Both variants read the same `.env` and use the same database volume, network and paths, so an installation can move from one to the other.
+  - Images also get the floating tags `X.Y` and `X` next to `X.Y.Z` and `latest`.
+- **Release runs:** The upgrade sources are qualified in parallel, one runner per source; a release run takes about 18 minutes instead of about an hour.
+- **Reverse proxy:** The client address behind a reverse proxy is read from the right of `X-Forwarded-For`, skipping trusted proxies, so a client can no longer choose the address its rate limits count against by sending its own header through a proxy that appends to it.
+- Qualify v1.9.0 upgrades as well as v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0, v1.6.0, v1.6.1, v1.7.0, v1.7.1, v1.7.2 and v1.8.0.
+
+### Upgrade from v1.9.0
+
+Use the checksum-verified v1.10.0 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.10.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.10.0`. The database schema stays
+at 22 and no migration runs; still keep a verified backup. Protect the media
+separately; the database dump does not contain music files. The single image is
+optional and is not needed for this update.
+
 ## 1.9.0 — 2026-11-24
 
 The web player suggests what to listen to: a new page with automatic mixes, built for each user from their own listening.

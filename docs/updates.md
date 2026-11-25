@@ -34,6 +34,24 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.10.0
+
+Use the checksum-verified **v1.10.0** CLI from the
+[v1.10.0 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.10.0).
+Run `ytmdlctl update --channel stable --target 1.10.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.10.0`.
+
+The database schema stays at 22; no migration runs. Still keep a verified
+backup before any update. The release qualifies v0.28.1, v1.0.0, v1.1.1,
+v1.2.0, v1.3.0, v1.4.0, v1.4.1, v1.5.0, v1.6.0, v1.6.1, v1.7.0, v1.7.1, v1.7.2,
+v1.8.0 and v1.9.0 sources with Docker and rootless Podman. Preserve private
+configuration, proxy settings, mounts, cookies and the database volume.
+
+The release also publishes the single image `ghcr.io/der-felix/ytmdl`, which
+is optional: the two-image installation updated here keeps working and stays
+supported. See [Single-image deployment](/single-image) for how the variants
+differ and how to move between them.
+
 ## Upgrade to v1.9.0
 
 Use the checksum-verified **v1.9.0** CLI from the
