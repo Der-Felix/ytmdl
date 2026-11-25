@@ -1,9 +1,9 @@
-# Native listening preview 0.3.0 — build 33
+# Native listening preview 0.4.0 — build 34
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
-Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)). The matrix below includes the listening parity with web 1.10 that was added after build 33 (not yet a numbered build, see below).
+Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)). The matrix below includes the listening parity with web 1.10 that build 34 adds (see below).
 See [AUDIT.md](AUDIT.md) for the dated functional audit through build 32, test evidence,
 corrected defects and the remaining real-device release checks.
 The [release checklist](RELEASE-CHECKLIST.md) tracks qualification separately
@@ -35,10 +35,10 @@ from implemented features and simulator verification.
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
 
-## Listening parity with web 1.10 (after build 33)
+## Listening parity with web 1.10 (build 34)
 
 Added in [PR #108](https://github.com/Der-Felix/ytmdl/pull/108); it uses the server API of
-v1.10.0 unchanged. Version and build number stay 0.3.0 (33) until a release build is made.
+v1.10.0 unchanged. It ships as 0.4.0 (34).
 
 - **Plays and skips** follow `frontend/src/lib/audio/listeningTracker.ts`: a play counts
   after min(30 s, half the duration ÷ tempo) of actual playing time, once per start.

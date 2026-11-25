@@ -42,10 +42,10 @@ verglichen, nicht nach identischen Menünamen.
 | Geräteübergabe | Ausdrückliches Senden/Annehmen mit Schutz vor verspäteten Antworten | Braucht Verbindung; startet nicht eigenständig Musik |
 | Sperrbildschirm/Medientasten | Now Playing mit Cover, Seek und Transport | Verwendet lokale Cover; Hardwareprüfung bleibt erforderlich |
 
-## Nach Build 33: Hören wie im Web 1.10
+## Build 34 (0.4.0): Hören wie im Web 1.10
 
 Mit [PR #108](https://github.com/Der-Felix/ytmdl/pull/108), gegen die unveränderte Server-API
-von v1.10.0. Version und Build bleiben 0.3.0 (33), bis ein Release-Build entsteht.
+von v1.10.0. Ausgeliefert als 0.4.0 (34).
 
 - Start ist der Hören-Bereich: Weiterhören, „Deine Mixe“ mit „Alle Mixe“ („Für dich“),
   „Zuletzt gehört“ aus dem Serververlauf aller Geräte und „Neu in der Mediathek“. Jeder
