@@ -50,6 +50,7 @@ import (
 	"ytdm/backend/internal/subscriptions"
 	"ytdm/backend/internal/throughput"
 	"ytdm/backend/internal/update"
+	"ytdm/backend/internal/webapp"
 	"ytdm/backend/internal/ytdlp"
 )
 
@@ -83,6 +84,18 @@ func run() error {
 		With("service", "ytdm", "version", version)
 	slog.SetDefault(logger)
 
+	// The single-image deployment serves the web application itself. A wrong
+	// directory is refused before anything else starts, rather than answered
+	// with 404s once the server is up.
+	var site *webapp.Site
+	if cfg.Server.WebDir != "" {
+		site, err = webapp.Open(cfg.Server.WebDir)
+		if err != nil {
+			return err
+		}
+		defer site.Close()
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -91,6 +104,10 @@ func run() error {
 		return err
 	}
 	defer app.close()
+	if site != nil {
+		app.router = webapp.Handler(app.router, site, logger)
+		logger.Info("serving the web application", "directory", cfg.Server.WebDir)
+	}
 
 	return app.serve(ctx)
 }

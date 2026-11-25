@@ -54,11 +54,15 @@ export function MiniPlayer() {
       <aside
         aria-label="Audioplayer"
         data-slot="mini-player"
-        className="fixed bottom-0 left-0 right-0 z-40 h-[80px] sm:h-[86px] border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] box-content"
+        // On phones the bar docks on the bottom navigation, which then carries
+        // the bottom safe area (--bottom-nav-height and --player-inset are set
+        // in index.css); wider screens sit it on the bottom edge as before.
+        className="fixed right-0 bottom-(--bottom-nav-height) left-0 z-40 box-content h-16 border-t border-border bg-surface pr-[env(safe-area-inset-right)] pb-(--player-inset) pl-[env(safe-area-inset-left)] sm:h-[86px]"
     >
-      <MobileProgress />
+      {/* Phones: a thin strip, so it never takes taps meant for the buttons. */}
+      <MobileProgress className="h-2.5 sm:h-6" />
 
-      <div className="mx-auto flex h-full max-w-[94rem] items-center justify-between px-3 sm:px-6 gap-2 sm:gap-6 pt-6 sm:pt-0">
+      <div className="mx-auto flex h-full max-w-[94rem] items-center justify-between px-3 sm:px-6 gap-2 sm:gap-6 pt-1 sm:pt-0">
         
         {/* ======================================================== */}
         {/* LEFT ZONE (~25%): Cover + Track Metadata (Click -> /player) */}
@@ -75,15 +79,16 @@ export function MiniPlayer() {
               shape="square"
               className="size-11 sm:size-14 rounded-xl border border-input shadow-md transition-transform duration-200 group-hover:scale-105"
             />
-            <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-overlay/40 opacity-0-[1px] transition-opacity group-hover:opacity-100">
+            <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-overlay/40 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
               <Maximize2 className="size-4 text-foreground" />
             </div>
           </Link>
 
           <div className="min-w-0 flex-1">
+            {/* The title opens the player; the padding adds height to the tap target. */}
             <Link
               href={paths.player ? paths.player() : '/player'}
-              className="focus-ring block max-w-full truncate rounded-sm text-sm sm:text-[15px] font-semibold text-foreground hover:text-primary transition-colors leading-snug"
+              className="focus-ring block max-w-full truncate rounded-sm pt-1.5 text-sm sm:text-[15px] font-semibold text-foreground hover:text-primary transition-colors leading-snug"
               title={`${currentTrack.title} · ${artistText}`}
             >
               {currentTrack.title}
@@ -98,7 +103,7 @@ export function MiniPlayer() {
               variant="ghost"
               size="icon-sm"
               onClick={() => void favorites.toggleFavorite(currentTrack.id)}
-              className={`hidden sm:inline-flex size-8 shrink-0 rounded-full transition-colors ${
+              className={`hidden sm:inline-flex size-8 sm:pointer-coarse:size-10 shrink-0 rounded-full transition-colors ${
                 favorites.isFavorite(currentTrack.id)
                   ? 'text-primary hover:text-accent-foreground'
                   : 'text-muted-foreground hover:text-accent-foreground'
@@ -132,15 +137,16 @@ export function MiniPlayer() {
         <div className="flex flex-col items-center justify-center shrink-0 sm:flex-1 sm:max-w-2xl px-1 sm:px-4 gap-1">
           
           {/* Top Controls Row */}
-          <div className="flex items-center gap-2 sm:gap-4">
-            <ShuffleButton shuffle={shuffle} onToggle={toggleShuffle} className="hidden sm:inline-flex size-8" />
+          {/* Phones: previous, play and next at 44px, touching, so the title keeps its room. */}
+          <div className="flex items-center gap-0 sm:gap-4">
+            <ShuffleButton shuffle={shuffle} onToggle={toggleShuffle} className="hidden sm:inline-flex size-8 sm:pointer-coarse:size-10" />
 
             {/* Previous */}
             <Button
               variant="ghost"
               size="icon-sm"
               onClick={previous}
-              className="hidden sm:inline-flex size-8.5 sm:size-9 rounded-full text-foreground/80 hover:text-foreground hover:bg-secondary transition-colors"
+              className="size-11 sm:size-9 sm:pointer-coarse:size-10 rounded-full text-foreground/80 hover:text-foreground hover:bg-secondary transition-colors"
               title="Vorheriger Titel / Neustart"
               aria-label="Vorheriger Titel"
             >
@@ -153,7 +159,7 @@ export function MiniPlayer() {
               size="icon"
               onClick={togglePlayPause}
               aria-busy={isBuffering || undefined}
-              className="size-10 sm:size-11 rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition-colors duration-150"
+              className="size-11 rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition-colors duration-150"
               title={isBuffering ? 'Wird geladen – anhalten' : isPlaying ? 'Pause' : 'Wiedergabe'}
               aria-label={isPlaying || isBuffering ? 'Pause' : 'Wiedergabe'}
             >
@@ -171,14 +177,14 @@ export function MiniPlayer() {
               variant="ghost"
               size="icon-sm"
               onClick={() => next(true)}
-              className="size-8.5 sm:size-9 rounded-full text-foreground/80 hover:text-foreground hover:bg-secondary transition-colors"
+              className="size-11 sm:size-9 sm:pointer-coarse:size-10 rounded-full text-foreground/80 hover:text-foreground hover:bg-secondary transition-colors"
               title="Nächster Titel"
               aria-label="Nächster Titel"
             >
               <SkipForward className="size-4.5 sm:size-5" strokeWidth={1.8} />
             </Button>
 
-            <RepeatButton mode={repeatMode} onCycle={cycleRepeatMode} className="hidden sm:inline-flex size-8" />
+            <RepeatButton mode={repeatMode} onCycle={cycleRepeatMode} className="hidden sm:inline-flex size-8 sm:pointer-coarse:size-10" />
           </div>
 
           {/* Seek bar on tablets and wider; phones get the line on top. */}
@@ -190,10 +196,14 @@ export function MiniPlayer() {
         {/* ======================================================== */}
         {/* RIGHT ZONE (~25%): Volume, Queue & Clean Expand Icon     */}
         {/* ======================================================== */}
-        <div className="flex items-center justify-end shrink-0 gap-1.5 sm:gap-3 sm:w-64 lg:w-72">
+        {/* Below md the zone takes only what queue and expand need, so the
+            title keeps its room beside the full control row. */}
+        <div className="flex items-center justify-end shrink-0 gap-1.5 sm:gap-3 md:w-64 lg:w-72">
           
-          {/* Volume Control (Slider with quiet thumb) */}
-          <div className="hidden lg:flex items-center gap-2 pr-1">
+          {/* Volume Control (Slider with quiet thumb). Precise pointers only:
+              on touch screens the device buttons set the volume, and iOS
+              ignores a page's volume altogether. */}
+          <div data-slot="volume-control" className="hidden lg:pointer-fine:flex items-center gap-2 pr-1">
             <Button
               variant="ghost"
               size="icon-sm"
@@ -228,7 +238,7 @@ export function MiniPlayer() {
             variant="ghost"
             size="icon-sm"
             onClick={() => setQueueOpen((prev) => !prev)}
-            className={`relative flex items-center justify-center size-8 rounded-lg transition-colors ${
+            className={`relative flex items-center justify-center size-11 sm:size-8 sm:pointer-coarse:size-10 rounded-lg transition-colors ${
               queueOpen
                 ? 'text-primary bg-primary/15'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -247,7 +257,7 @@ export function MiniPlayer() {
           {/* Expand Button: Clean Icon Button */}
           <Link
             href="/player"
-            className="hidden sm:flex items-center justify-center size-8.5 rounded-xl bg-secondary hover:bg-input border border-border text-foreground/80 hover:text-foreground transition shadow-sm"
+            className="hidden sm:flex items-center justify-center size-8.5 sm:pointer-coarse:size-10 rounded-xl bg-secondary hover:bg-input border border-border text-foreground/80 hover:text-foreground transition shadow-sm"
             title="Player öffnen"
             aria-label="Player öffnen"
           >

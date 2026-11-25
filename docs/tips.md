@@ -7,6 +7,10 @@ each item prevents a class of problem.
 
 - **Pin `YTMDL_VERSION`.** Use an explicit version (e.g. `0.26.0`), not `latest`.
   Deterministic images make `ytmdlctl update` and rollback meaningful.
+- **With the [single image](/single-image), choose how far the tag floats.**
+  `latest` takes every stable release, including database migrations, on the
+  next pull. `YTMDL_IMAGE_TAG=1.10` takes only patch releases of that line;
+  back up the database before each update either way.
 - **Keep `.env` out of version control** and back it up somewhere safe — it holds
   your database password and, with it, your only path to the catalogue.
 - **Put host-specific tweaks in `compose.ghcr.override.yaml`**, not in the
@@ -16,9 +20,12 @@ each item prevents a class of problem.
   `MUSICDL_COOKIE_SECURE=true`. The bundled frontend overwrites `X-Forwarded-For`
   with the address it sees, so a client cannot forge its own address. Behind your
   own proxy, logs and per-address rate limits (login, device sign-in) therefore
-  see that proxy's address, not the browser's.
+  see that proxy's address, not the browser's. The single image has no frontend
+  container: name your proxy in `MUSICDL_TRUSTED_PROXIES` instead, and never the
+  container network.
 - **Don't publish the database or backend port.** Only the frontend needs a host
-  port. The bundled compose files already follow this.
+  port (with the single image, the application container). The bundled compose
+  files already follow this.
 
 ## Storage
 
