@@ -173,8 +173,8 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
           <span>Bibliothek · Künstler</span>
         </Link>
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-card/40 border border-border/80 rounded-2xl p-6">
-          <div className="flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 text-center sm:text-left">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 bg-card/40 border border-border/80 rounded-2xl p-6">
+          <div className="min-w-0 flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 text-center sm:text-left">
             <Cover
               src={artworkVersion>0 ? libraryArtwork('artists', artist.id)+`?v=${artworkVersion}` : artist.image_url}
               fallbackSrc={libraryArtwork('artists', artist.id)}
@@ -205,7 +205,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 shrink-0">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start xl:justify-end gap-2 xl:shrink-0">
             {detail.tracks.length > 0 && (
               <ListenActions
                 tracks={detail.tracks}
