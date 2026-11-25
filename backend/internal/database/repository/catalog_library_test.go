@@ -316,3 +316,86 @@ func TestCatalogLibraryFilteringAndSearch(t *testing.T) {
 		t.Fatalf("codecs mismatch: %+v", codecs)
 	}
 }
+
+func TestListReleasesFilteredInLibrary(t *testing.T) {
+	db := openTestDB(t)
+	catalog := NewCatalog(db)
+	ctx := context.Background()
+
+	artist, err := catalog.UpsertArtist(ctx, music.Artist{
+		Name:     "Air",
+		Provider: "deezer",
+		SourceID: "air-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	local, err := catalog.UpsertRelease(ctx, music.Release{
+		Title:       "Moon Safari",
+		AlbumArtist: "Air",
+		Artists:     []string{"Air"},
+		ReleaseType: music.ReleaseAlbum,
+		Year:        1998,
+		Provider:    "deezer",
+		SourceID:    "air-rel-1",
+	}, artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Known from a download attempt, but no track ever reached the library.
+	if _, err := catalog.UpsertRelease(ctx, music.Release{
+		Title:       "Talkie Walkie",
+		AlbumArtist: "Air",
+		Artists:     []string{"Air"},
+		ReleaseType: music.ReleaseAlbum,
+		Year:        2004,
+		Provider:    "deezer",
+		SourceID:    "air-rel-2",
+	}, artist.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := catalog.UpsertTrack(ctx, music.Track{
+		Title:       "La femme d'argent",
+		Album:       "Moon Safari",
+		AlbumArtist: "Air",
+		Artists:     []string{"Air"},
+		TrackNumber: 1,
+		TrackTotal:  10,
+		DiscNumber:  1,
+		DiscTotal:   1,
+		DurationMS:  431000,
+		Year:        1998,
+	}, local.ID, artist.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	all, total, err := catalog.ListReleasesFiltered(ctx, ReleaseListFilter{ArtistID: artist.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 || len(all) != 2 {
+		t.Fatalf("without in_library: expected 2 releases, got total=%d len=%d", total, len(all))
+	}
+
+	inLibrary, total, err := catalog.ListReleasesFiltered(ctx, ReleaseListFilter{ArtistID: artist.ID, InLibrary: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(inLibrary) != 1 {
+		t.Fatalf("with in_library: expected 1 release, got total=%d len=%d", total, len(inLibrary))
+	}
+	if inLibrary[0].ID != local.ID || inLibrary[0].TrackCountInLibrary != 1 {
+		t.Fatalf("with in_library: unexpected release %+v", inLibrary[0])
+	}
+
+	detail, err := catalog.GetLibraryArtistDetail(ctx, artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.ReleaseCount != 1 || len(detail.Releases) != 1 || detail.Releases[0].ID != local.ID {
+		t.Fatalf("artist detail should list only the release with tracks, got count=%d releases=%+v", detail.ReleaseCount, detail.Releases)
+	}
+}

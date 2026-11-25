@@ -7,9 +7,6 @@ import {
   Maximize2,
   Pause,
   Play,
-  Repeat,
-  Repeat1,
-  Shuffle,
   SkipBack,
   SkipForward,
   Volume2,
@@ -17,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import { Cover } from '@/components/music/Cover'
+import { RepeatButton, ShuffleButton } from '@/components/player/PlayerModeButtons'
 import { QueueDrawer } from '@/components/player/QueueDrawer'
 import { Button } from '@/components/ui/button'
 import { useOptionalFavorites } from '@/hooks/useFavorites'
@@ -136,21 +134,7 @@ export function MiniPlayer() {
           
           {/* Top Controls Row */}
           <div className="flex items-center gap-2 sm:gap-4">
-            {/* Shuffle */}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={toggleShuffle}
-              className={`hidden sm:inline-flex size-8 rounded-full transition-colors ${
-                shuffle
-                  ? 'text-primary hover:text-primary/80'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title={shuffle ? 'Zufallswiedergabe: Ein' : 'Zufallswiedergabe: Aus'}
-              aria-label="Zufallswiedergabe"
-            >
-              <Shuffle className="size-4" strokeWidth={1.8} />
-            </Button>
+            <ShuffleButton shuffle={shuffle} onToggle={toggleShuffle} className="hidden sm:inline-flex size-8" />
 
             {/* Previous */}
             <Button
@@ -165,13 +149,14 @@ export function MiniPlayer() {
             </Button>
 
             {/* Play / Pause Main Action Button (Only Filled Accent Button, 44px) */}
+            {/* While buffering it stays a pause button: a click stops the pending start. */}
             <Button
               size="icon"
               onClick={togglePlayPause}
-              disabled={isBuffering}
+              aria-busy={isBuffering || undefined}
               className="size-10 sm:size-11 rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/20 hover:bg-primary/90 transition-colors duration-150"
-              title={isBuffering ? 'Puffern...' : isPlaying ? 'Pause' : 'Wiedergabe'}
-              aria-label={isBuffering ? 'Puffern...' : isPlaying ? 'Pause' : 'Wiedergabe'}
+              title={isBuffering ? 'Wird geladen – anhalten' : isPlaying ? 'Pause' : 'Wiedergabe'}
+              aria-label={isPlaying || isBuffering ? 'Pause' : 'Wiedergabe'}
             >
               {isBuffering ? (
                 <Loader2 className="size-5 animate-spin" strokeWidth={2} />
@@ -194,27 +179,7 @@ export function MiniPlayer() {
               <SkipForward className="size-4.5 sm:size-5" strokeWidth={1.8} />
             </Button>
 
-            {/* Repeat */}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={cycleRepeatMode}
-              className={`hidden sm:inline-flex size-8 rounded-full transition-colors ${
-                repeatMode !== 'off'
-                  ? 'text-primary hover:text-primary/80'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title={`Wiederholen: ${
-                repeatMode === 'off' ? 'Aus' : repeatMode === 'queue' ? 'Queue' : 'Titel'
-              }`}
-              aria-label="Wiederholen"
-            >
-              {repeatMode === 'track' ? (
-                <Repeat1 className="size-4" strokeWidth={1.8} />
-              ) : (
-                <Repeat className="size-4" strokeWidth={1.8} />
-              )}
-            </Button>
+            <RepeatButton mode={repeatMode} onCycle={cycleRepeatMode} className="hidden sm:inline-flex size-8" />
           </div>
 
           {/* Seek bar on tablets and wider; phones get the line on top. */}

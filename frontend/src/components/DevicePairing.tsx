@@ -30,7 +30,8 @@ export function DevicePairing() {
       setPreview(null); setCode(''); setSuccess(true)
       const url = new URL(window.location.href)
       url.searchParams.delete('device_code')
-      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+      // Keep the entry's state: the router counts in-app history there.
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
     } catch (failure) { setError(errorMessage(failure)); setPreview(null) }
     finally { setBusy(false) }
   }

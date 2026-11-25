@@ -83,6 +83,7 @@ func (h *Handlers) LibraryReleases(w http.ResponseWriter, r *http.Request) {
 		ArtistID:     queryString(r, "artist_id"),
 		ReleaseType:  queryString(r, "release_type"),
 		Year:         year,
+		InLibrary:    queryString(r, "in_library") == "true",
 		Sort:         queryString(r, "sort"),
 		Order:        queryString(r, "order"),
 		Limit:        limit,

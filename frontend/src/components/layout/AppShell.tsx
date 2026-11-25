@@ -5,6 +5,7 @@ import { MenuIcon, SearchIcon, XIcon } from 'lucide-react'
 
 import { AreaSwitch } from '@/components/layout/AreaSwitch'
 import { CommandMenu } from '@/components/layout/CommandMenu'
+import { ShortcutHelpDialog } from '@/components/layout/ShortcutHelpDialog'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { MiniPlayer } from '@/components/player/MiniPlayer'
 import { Button } from '@/components/ui/button'
@@ -197,6 +198,7 @@ function AppShell({ route, activeDownloads, children }: AppShellProps) {
       {showMiniPlayer && <MiniPlayer />}
 
       <CommandMenu open={commandOpen} onOpenChange={setCommandOpen} />
+      <ShortcutHelpDialog />
     </div>
   )
 }

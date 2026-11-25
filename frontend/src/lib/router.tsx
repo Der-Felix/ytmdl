@@ -35,14 +35,51 @@ function serverHref(): string {
   return '/'
 }
 
+/**
+ * How many in-app entries lie behind the current one. It travels in the
+ * history entry's state, so Back, Forward and a reload all restore it; an
+ * entry the app did not create (the first page load, a bookmark) has none
+ * and counts as 0, which means Back would leave the application.
+ */
+const DEPTH_KEY = 'ytmdlDepth'
+
+function entryDepth(state: unknown): number {
+  if (state && typeof state === 'object' && DEPTH_KEY in state) {
+    const depth = (state as Record<string, unknown>)[DEPTH_KEY]
+    if (typeof depth === 'number' && Number.isFinite(depth) && depth >= 0) return depth
+  }
+  return 0
+}
+
+/** The history state for an entry at the given depth, keeping what else is stored there. */
+export function historyStateWithDepth(state: unknown, depth: number): Record<string, unknown> {
+  const base = state && typeof state === 'object' ? (state as Record<string, unknown>) : {}
+  return { ...base, [DEPTH_KEY]: depth }
+}
+
 /** Navigates to a new path and notifies every subscriber. */
 export function navigate(to: string, options: { replace?: boolean } = {}): void {
   if (to === currentHref()) return
 
-  if (options.replace) window.history.replaceState(null, '', to)
-  else window.history.pushState(null, '', to)
+  const depth = entryDepth(window.history.state)
+  if (options.replace) window.history.replaceState(historyStateWithDepth(null, depth), '', to)
+  else window.history.pushState(historyStateWithDepth(null, depth + 1), '', to)
 
   window.dispatchEvent(new Event(NAVIGATION_EVENT))
+}
+
+/** True when the previous history entry is a page of this application. */
+export function canGoBackInApp(): boolean {
+  return entryDepth(window.history.state) > 0
+}
+
+/**
+ * Back to the previous page when it belongs to the application, otherwise to
+ * the fallback (replacing the current entry, so Back does not return here).
+ */
+export function goBack(fallback: string): void {
+  if (canGoBackInApp()) window.history.back()
+  else navigate(fallback, { replace: true })
 }
 
 export interface Location {

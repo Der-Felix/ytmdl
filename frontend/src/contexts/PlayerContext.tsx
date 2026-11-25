@@ -16,6 +16,9 @@ import { ListeningTracker, movesOnToAnotherTrack } from '@/lib/audio/listeningTr
 import { analyzeLoudness, recordPlayback, recordSkip } from '@/lib/api/libraryTools'
 import { AudioEngine } from '@/lib/audio/engine'
 import { offlineAudioURL, releaseOfflineAudioURLs, trimOfflineAudioURLs } from '@/lib/offline-store'
+import { libraryArtwork } from '@/lib/artwork'
+import { playerShortcutFor } from '@/lib/player-shortcuts'
+import { openShortcutHelp } from '@/lib/shortcut-help'
 import {
   loadCustomPresets,
   loadHistory,
@@ -401,33 +404,54 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     user?.id,
   ])
 
-  // 5. Media Session API Integration
+  // 5a. Media Session metadata: title, artist and the cover for the system's
+  // now-playing display and lock screen. The cover comes from the server's
+  // own artwork endpoint, so the OS does not fetch from the provider's CDN.
+  // That endpoint answers with one image of whatever size and type the
+  // library holds (JPEG, PNG or WebP), so the entry names neither; the
+  // provider URL is used only when the server has no cover for the track.
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
 
     const track = state.currentTrack
-    if (track) {
-      const artist = track.artists?.length > 0 ? joinArtists(track.artists) : track.album_artist
-      const artwork = track.cover_url
-        ? [
-            { src: track.cover_url, sizes: '96x96', type: 'image/jpeg' },
-            { src: track.cover_url, sizes: '256x256', type: 'image/jpeg' },
-            { src: track.cover_url, sizes: '512x512', type: 'image/jpeg' },
-          ]
-        : []
+    if (!track) {
+      navigator.mediaSession.metadata = null
+      return
+    }
 
+    const artist = track.artists?.length > 0 ? joinArtists(track.artists) : track.album_artist
+    const setArtwork = (artwork: MediaImage[]) => {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.title,
         artist,
         album: track.album || '',
         artwork,
       })
-
-      navigator.mediaSession.playbackState = state.status === 'playing' ? 'playing' : 'paused'
-    } else {
-      navigator.mediaSession.metadata = null
-      navigator.mediaSession.playbackState = 'none'
     }
+
+    const local = libraryArtwork('tracks', track.id)
+    setArtwork([{ src: new URL(local, window.location.href).href }])
+
+    const controller = new AbortController()
+    fetch(local, { method: 'HEAD', credentials: 'same-origin', signal: controller.signal })
+      .then((response) => {
+        if (!response.ok && track.cover_url) setArtwork([{ src: track.cover_url }])
+      })
+      .catch(() => {
+        if (!controller.signal.aborted && track.cover_url) setArtwork([{ src: track.cover_url }])
+      })
+    return () => controller.abort()
+  }, [state.currentTrack])
+
+  // 5b. Media Session playback state and actions
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return
+
+    navigator.mediaSession.playbackState = state.currentTrack
+      ? state.status === 'playing'
+        ? 'playing'
+        : 'paused'
+      : 'none'
 
     const actionHandlers: [MediaSessionAction, MediaSessionActionHandler][] = [
       [
@@ -527,26 +551,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // 6. Global Keyboard Shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Do not intercept browser or system shortcuts (e.g. Cmd+R reload, Ctrl+R, Cmd+M, etc.)
-      if (e.metaKey || e.ctrlKey || e.altKey) {
-        return
-      }
+      // Which key is ours, and when it belongs to the page instead, is
+      // decided in one tested place; only a handled key loses its default.
+      const shortcut = playerShortcutFor(e)
+      if (!shortcut) return
+      e.preventDefault()
 
-      const target = e.target as HTMLElement | null
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
-      ) {
-        return
-      }
-
-      switch (e.key) {
-        case ' ':
-          e.preventDefault()
-          if (stateRef.current.status === 'playing') {
+      switch (shortcut) {
+        case 'togglePlay':
+          // Buffering counts as playing: the key then stops the pending start.
+          if (stateRef.current.status === 'playing' || stateRef.current.status === 'buffering') {
             engine.pause()
             dispatch({ type: 'SET_STATUS', payload: 'paused' })
           } else {
@@ -556,61 +570,54 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           }
           break
 
-        case 'ArrowLeft':
-          if (e.shiftKey) {
-            e.preventDefault()
-            previousAction()
-          } else {
-            e.preventDefault()
-            const newTime = Math.max(0, stateRef.current.currentTime - 5)
-            engine.seek(newTime)
-            dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: newTime } })
-          }
+        case 'previous':
+          previousAction()
           break
 
-        case 'ArrowRight':
-          if (e.shiftKey) {
-            e.preventDefault()
-            nextAction(true)
-          } else {
-            e.preventDefault()
-            const newTime = Math.min(stateRef.current.duration, stateRef.current.currentTime + 5)
-            engine.seek(newTime)
-            dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: newTime } })
-          }
+        case 'next':
+          nextAction(true)
           break
 
-        case 'ArrowUp':
-          e.preventDefault()
+        case 'seekBackward': {
+          const newTime = Math.max(0, stateRef.current.currentTime - 5)
+          engine.seek(newTime)
+          dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: newTime } })
+          break
+        }
+
+        case 'seekForward': {
+          const newTime = Math.min(stateRef.current.duration, stateRef.current.currentTime + 5)
+          engine.seek(newTime)
+          dispatch({ type: 'SET_CURRENT_TIME', payload: { currentTime: newTime } })
+          break
+        }
+
+        case 'volumeUp':
           dispatch({ type: 'SET_VOLUME', payload: stateRef.current.volume + 0.05 })
           break
 
-        case 'ArrowDown':
-          e.preventDefault()
+        case 'volumeDown':
           dispatch({ type: 'SET_VOLUME', payload: stateRef.current.volume - 0.05 })
           break
 
-        case 'm':
-        case 'M':
-          e.preventDefault()
+        case 'toggleMute':
           dispatch({ type: 'SET_MUTED', payload: !stateRef.current.muted })
           break
 
-        case 's':
-        case 'S':
-          e.preventDefault()
+        case 'toggleShuffle':
           dispatch({ type: 'SET_SHUFFLE', payload: !stateRef.current.shuffle })
           break
 
-        case 'r':
-        case 'R':
-          e.preventDefault()
-          {
-            const modes: RepeatMode[] = ['off', 'queue', 'track']
-            const nextIdx = (modes.indexOf(stateRef.current.repeatMode) + 1) % modes.length
-            const nextMode = modes[nextIdx] ?? 'off'
-            dispatch({ type: 'SET_REPEAT_MODE', payload: nextMode })
-          }
+        case 'cycleRepeat': {
+          const modes: RepeatMode[] = ['off', 'queue', 'track']
+          const nextIdx = (modes.indexOf(stateRef.current.repeatMode) + 1) % modes.length
+          const nextMode = modes[nextIdx] ?? 'off'
+          dispatch({ type: 'SET_REPEAT_MODE', payload: nextMode })
+          break
+        }
+
+        case 'showHelp':
+          openShortcutHelp()
           break
       }
     }
@@ -801,7 +808,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const togglePlayPause = useCallback(() => {
-    if (stateRef.current.status === 'playing') {
+    // While a track is still buffering, the button acts as pause: it cancels
+    // the pending start instead of asking for playback a second time.
+    if (stateRef.current.status === 'playing' || stateRef.current.status === 'buffering') {
       engine.pause()
       dispatch({ type: 'SET_STATUS', payload: 'paused' })
     } else {

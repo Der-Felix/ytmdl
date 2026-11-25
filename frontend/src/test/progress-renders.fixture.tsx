@@ -108,7 +108,7 @@ describe('rendering while a track plays', () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
     // The queue tab shows every queued track with its artwork.
-    act(() => fireEvent.click(screen.getAllByRole('button', { name: /^Queue/ })[0]!))
+    act(() => fireEvent.click(screen.getAllByRole('tab', { name: /^Queue/ })[0]!))
     expect(screen.getByText('Titel 3')).toBeTruthy()
 
     coverRenders = 0

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
-import type { ComponentType } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ComponentType, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   CompassIcon,
+  KeyboardIcon,
   LibraryIcon,
+  Loader2Icon,
   ListMusicIcon,
   LogOutIcon,
   PauseIcon,
@@ -14,6 +16,7 @@ import {
   UserIcon,
 } from 'lucide-react'
 
+import { ResultGroups } from '@/components/layout/CommandMenuResults'
 import { ADMIN, DOWNLOAD_NAV, LISTEN_HOME, LISTEN_NAV } from '@/components/layout/navigation'
 import type { NavItem } from '@/components/layout/navigation'
 import {
@@ -27,20 +30,34 @@ import {
   CommandShortcut,
 } from '@/components/ui/command'
 import { useAuth } from '@/hooks/useAuth'
+import { resultScore, useCommandSearch } from '@/hooks/useCommandSearch'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { navigate, paths } from '@/lib/router'
+import { openShortcutHelp } from '@/lib/shortcut-help'
+import type { LibraryTrack } from '@/types/api'
 
 /** Value prefix of the two search entries; they always rank behind real matches. */
 const SEARCH_VALUE = 'search-'
+
+/**
+ * Keys the player listens for on the window (see PlayerContext). Inside the
+ * menu they belong to the menu: arrows move the selection, letters are typed.
+ * They only reach the player when the focus sits on the list rather than the
+ * field (after a click into it), so the menu stops them there.
+ */
+const PLAYER_KEYS = new Set([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'm', 'M', 's', 'S', 'r', 'R'])
 
 /**
  * Ranks an entry for the typed text: prefix of the label, then a contiguous
  * match, then the letters in order (also over the keywords). The search entries
  * are force-mounted, so they only need to rank last: a view, player action or
  * account entry that matches comes first and is the selected one; when nothing
- * else matches, the search entries stand alone.
+ * else matches, the search entries stand alone. Library results are already
+ * matched by the server and keep its order.
  */
 function rankEntry(value: string, search: string, keywords?: string[]): number {
+  const result = resultScore(value)
+  if (result !== undefined) return result
   if (value.startsWith(SEARCH_VALUE)) return 0.0001
   const needle = search.trim().toLowerCase()
   if (!needle) return 1
@@ -64,14 +81,28 @@ interface CommandMenuProps {
  * and runs the player and account actions. Administrative views appear only
  * for administrators, as in the sidebar and the routes.
  *
- * It renders only inside the signed-in shell and makes no request of its own:
- * every entry navigates or calls a player action.
+ * From two typed characters it also shows the user's own library above
+ * those entries: titles, artists, albums and playlists. Enter on a title plays
+ * it, with the other title results queued behind it; Shift+Enter adds it to
+ * the queue and leaves the menu open. Enter on anything else opens its page.
+ * Nothing is requested before the menu is open and two characters are typed.
  */
 export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const { isAdmin, logout } = useAuth()
   const { currentTrack, status, shuffle, repeatMode } = usePlayerState()
-  const { togglePlayPause, next, previous, toggleShuffle, cycleRepeatMode } = usePlayerActions()
+  const { togglePlayPause, next, previous, toggleShuffle, cycleRepeatMode, playTrack, addToQueue } = usePlayerActions()
   const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState('')
+  const search = useCommandSearch(query)
+  // True until the user moves the selection: new results may then take it.
+  const pristine = useRef(true)
+
+  // Results come in after the typing that asked for them; while the user has
+  // not picked anything, the first result is the one Enter runs.
+  const { firstValue } = search
+  useEffect(() => {
+    if (pristine.current && firstValue) setSelected(firstValue)
+  }, [firstValue])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -96,26 +127,107 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   ]
   const trimmed = query.trim()
 
+  /** Plays a title result; the other title results follow it in the queue. */
+  const playResult = (track: LibraryTrack) => {
+    onOpenChange(false)
+    if (currentTrack?.id === track.id) {
+      if (status !== 'playing') togglePlayPause()
+      return
+    }
+    playTrack(track, [track, ...search.tracks.filter((other) => other.id !== track.id)], 0)
+  }
+
+  function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    if (PLAYER_KEYS.has(event.key)) event.stopPropagation()
+    if (event.key.startsWith('Arrow') || event.key === 'Home' || event.key === 'End') pristine.current = false
+    if (event.key === 'Enter' && event.shiftKey) {
+      const track = search.trackFor(selected)
+      if (!track) return
+      // cmdk leaves an event that is already handled alone.
+      event.preventDefault()
+      addToQueue(track)
+    }
+  }
+  const selectedTrack = search.trackFor(selected)
+
   return (
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
       // Every visit starts with an empty field; cleared once the exit is over.
       onOpenChangeComplete={(isOpen) => {
-        if (!isOpen) setQuery('')
+        if (isOpen) return
+        setQuery('')
+        setSelected('')
+        search.reset()
       }}
       title="Befehlsmenü"
       description="Ansicht öffnen, suchen oder eine Aktion ausführen"
     >
-      <Command loop filter={rankEntry}>
+      <Command loop filter={rankEntry} value={selected} onValueChange={setSelected} onKeyDown={onKeyDown}>
         <CommandInput
           value={query}
-          onValueChange={setQuery}
-          placeholder="Ansicht, Suche oder Aktion …"
+          onValueChange={(value) => {
+            pristine.current = true
+            setQuery(value)
+            search.update(value)
+          }}
+          placeholder="Titel, Künstler, Ansicht oder Aktion …"
           aria-label="Befehl oder Suchbegriff"
+          trailing={
+            // Mounted only while needed: the dialog waits for running
+            // animations before it unmounts, and a spinner never finishes.
+            // It fades in late, so a quick answer shows no spinner at all.
+            open &&
+            search.loading && (
+              <Loader2Icon
+                aria-hidden="true"
+                className="size-4 shrink-0 animate-spin text-muted-foreground transition-opacity delay-200 duration-(--duration-fast) starting:opacity-0 motion-reduce:animate-none"
+              />
+            )
+          }
         />
-        <CommandList>
-          <CommandEmpty>Kein Treffer. Mit Eingabe suchst du in Bibliothek oder Katalog.</CommandEmpty>
+        <p role="status" className="sr-only">
+          {search.empty
+            ? 'Nichts in deiner Bibliothek gefunden'
+            : search.failed
+              ? 'Die Bibliothek ist gerade nicht erreichbar'
+              : search.settled
+                ? `${search.hits} Treffer in deiner Bibliothek`
+                : ''}
+        </p>
+        <CommandList
+          onPointerMove={() => {
+            pristine.current = false
+          }}
+        >
+          {/* From two characters the library answer below says it instead. */}
+          {!search.active && (
+            <CommandEmpty>Kein Treffer. Mit Eingabe suchst du in Bibliothek oder Katalog.</CommandEmpty>
+          )}
+
+          {(search.empty || search.failed) && (
+            <div className="px-2.5 pt-2 pb-1 text-sm">
+              <p className="font-medium text-foreground">
+                {search.empty ? 'Nichts gefunden' : 'Bibliothek gerade nicht erreichbar'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {search.empty
+                  ? `Kein Titel, Künstler, Album und keine Playlist passt zu „${trimmed}“. Unten kannst du weitersuchen.`
+                  : 'Die Vorschläge fehlen gerade; die Suche unten funktioniert trotzdem.'}
+              </p>
+            </div>
+          )}
+
+          <ResultGroups
+            search={search}
+            currentTrackId={currentTrack?.id}
+            onPlay={playResult}
+            onQueue={addToQueue}
+            onOpen={(href) => run(() => navigate(href))()}
+            hrefs={{ artist: paths.libraryArtist, release: paths.libraryRelease, playlist: paths.playlist }}
+          />
 
           {currentTrack && (
             <CommandGroup heading="Wiedergabe">
@@ -164,6 +276,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
 
           <CommandGroup heading="Konto">
             <MenuItem icon={UserIcon} label="Profil & Sicherheit" keywords={['passwort', 'konto', 'geräte']} onSelect={run(() => navigate(paths.profile()))} />
+            <MenuItem icon={KeyboardIcon} label="Tastenkürzel" keywords={['shortcuts', 'tastatur', 'hilfe']} onSelect={run(openShortcutHelp)} />
             <MenuItem icon={LogOutIcon} label="Abmelden" keywords={['logout', 'sign out']} onSelect={run(() => void logout())} />
           </CommandGroup>
 
@@ -196,9 +309,20 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           <span>
             <CommandShortcut className="ml-0">↑↓</CommandShortcut> auswählen
           </span>
-          <span>
-            <CommandShortcut className="ml-0">↵</CommandShortcut> ausführen
-          </span>
+          {selectedTrack ? (
+            <>
+              <span>
+                <CommandShortcut className="ml-0">↵</CommandShortcut> abspielen
+              </span>
+              <span>
+                <CommandShortcut className="ml-0">⇧↵</CommandShortcut> zur Warteschlange
+              </span>
+            </>
+          ) : (
+            <span>
+              <CommandShortcut className="ml-0">↵</CommandShortcut> ausführen
+            </span>
+          )}
           <span>
             <CommandShortcut className="ml-0">Esc</CommandShortcut> schließen
           </span>
