@@ -26,7 +26,7 @@ verglichen, nicht nach identischen Menünamen.
 | Lokale Downloads verwalten | Fortschritt, Pause, Wiederholen, Speicherbudget, WLAN, lokale Entfernung | Fertige Dateien funktionieren ohne Sitzung; neue Downloads brauchen Anmeldung |
 | Player und Mini-Player | Start/Pause, Vor/Zurück, Seek, Lautstärke/AirPlay, Wiederholung | Nutzt lokale Datei; fehlt sie, kein versteckter Streaming-Fallback im Offline-Modus |
 | Warteschlange | Abschnitte wie im Web: „Als Nächstes“, „Weiter aus: …“, „Ähnliche Titel“; hinzufügen, als Nächstes, freie Verschiebung, Entfernen, kommende Titel leeren, vollständig leeren; ganze Alben, Künstler, Playlists und Mixe einreihen | Lokale Änderungen und Wiedergabe funktionieren auch offline |
-| Warteschlange als Playlist | Jetzt auch im mobilen Player erreichbar | Speichern auf dem Server braucht Verbindung |
+| Warteschlange als Playlist | Jetzt auch im mobilen Player erreichbar; „Mix als Playlist speichern“ auf der Mix-Seite | Speichern auf dem Server braucht Verbindung; ohne Verbindung ist die Aktion mit Hinweis gesperrt |
 | Queue-Filter | Mobil und Mac | Filtert die vorhandene lokale Warteschlange |
 | Überblendung/Vorladen | 0–12 Sekunden, Schutz benachbarter Albentitel, schneller Start | Auch mit lokalen Dateien; keine Garantie für samplegenaues Gapless |
 | Tempo/Sleep-Timer | 0,5–2× einschließlich 1,75×; 15/30/45/60 Minuten, Titel-/Albumende | Lokal; kein Server erforderlich |
@@ -34,13 +34,38 @@ verglichen, nicht nach identischen Menünamen.
 | Lautstärke-Normalisierung | Neu: derselbe Mess-Endpunkt wie im Web; getrennte Werte pro überblendetem Titel | Bereits gespeicherte Werte verwenden; fehlt der Wert, unverändert abspielen und anzeigen |
 | Lyrics | Plain/LRC, Folgen und Antippen zum Seek; jetzt auch im Mac-Player | Bereits heruntergeladene Lyrics lokal verwenden |
 | Visualizer | Echte FFT, verschiedene Darstellungen, Farben, ohne Cover, Reduce Motion | Lokal; Stile unterscheiden sich vom Web |
-| Hörverlauf/Queue wiederherstellen | Wiedergaben und Überspringen mit den Regeln des Web-Players an `/history` und `/history/skips`; lokal, konto- und servergebunden; Wiederherstellen ausdrücklich | Auch Wiedergaben und Überspringen lokaler Dateien werden gespeichert und später an dasselbe Konto gesendet, wenn aktiviert |
-| Song-/Genre-Radio | Server-Metadaten, ähnlich zum Web; „Automatisch weiterspielen“ (standardmäßig an) hängt bei höchstens zwei verbleibenden Titeln ähnliche Titel an | Neue Empfehlungen brauchen Verbindung |
-| Start („Hören“) | Weiterhören, persönliche Mixe, „Zuletzt gehört“ vom Server, „Neu in der Mediathek“; Mac-Start zeigt Mixe und Serververlauf | Offline-Hinweis mit Weg zur gespeicherten Musik; gespeicherte Musik bleibt abspielbar |
-| Persönliche Mixe („Für dich“) | „Dein Mix 1…n“ mit Genre, Mixe aus dem Hören, Collage, Titelzahl, Abspielen; Mix-Seite mit Abspielen, Zufällig, Als Nächstes, Zur Warteschlange | Mixe berechnet der Server; ohne Verbindung nicht verfügbar |
+| Hörverlauf/Queue wiederherstellen | Wiedergaben und Überspringen mit den Regeln des Web-Players an `/history` und `/history/skips`; lokal, konto- und servergebunden; Wiederherstellen ausdrücklich, mit Herkunft und Kontext jedes Eintrags | Auch Wiedergaben und Überspringen lokaler Dateien werden gespeichert und später an dasselbe Konto gesendet, wenn aktiviert |
+| Song-/Genre-Radio | Server-Metadaten, ähnlich zum Web; „Automatisch weiterspielen“ (standardmäßig an) hängt bei höchstens zwei verbleibenden Titeln bis zu 12 ähnliche Titel an, ohne bereits eingereihte oder in dieser Sitzung gespielte | Neue Empfehlungen brauchen Verbindung |
+| Start („Hören“) | Weiterhören, persönliche Mixe, „Zuletzt gehört“ vom Server, „Neu in der Mediathek“; Mac-Start zeigt Mixe und Serververlauf; Apple TV hat einen eigenen Start-Tab mit fokussierbaren Reihen | Offline-Hinweis mit Weg zur gespeicherten Musik; gespeicherte Musik bleibt abspielbar |
+| Persönliche Mixe („Für dich“) | „Dein Mix 1…n“ mit Genre, Mixe aus dem Hören, Collage, Titelzahl, Abspielen; Mix-Seite mit Abspielen, Zufällig, Als Nächstes, Zur Warteschlange, Als Playlist speichern | Mixe berechnet der Server; ohne Verbindung nicht verfügbar |
 | Künstlerseite | „Am meisten gehört“ (bis zu zehn Titel), Abspielen/Zufall, ganze Künstler einreihen | Braucht Verbindung; Offline-Künstlersammlungen bleiben abspielbar |
 | Geräteübergabe | Ausdrückliches Senden/Annehmen mit Schutz vor verspäteten Antworten | Braucht Verbindung; startet nicht eigenständig Musik |
 | Sperrbildschirm/Medientasten | Now Playing mit Cover, Seek und Transport | Verwendet lokale Cover; Hardwareprüfung bleibt erforderlich |
+
+## Build 35 (0.4.1): der Rest von „Hören“
+
+Auf Build 34 aufbauend, gegen die unveränderte Server-API von v1.10.x. Ausgeliefert als 0.4.1 (35).
+
+- Autoplay wie im Web 1.10.1: Jede Nachfüllung hängt höchstens 12 ähnliche Titel an
+  (`AUTOPLAY_BATCH`), ohne Titel, die schon in der Warteschlange stehen oder in dieser
+  Sitzung gespielt wurden (die letzten 200, an Konto und Server gebunden, beim Wechsel
+  zurückgesetzt). Ist der Vorlauf wieder erreicht, folgt die nächste Nachfüllung. Ein
+  ausdrücklich gestartetes Song-Radio behält seine volle Liste.
+- Herkunft (Als Nächstes, Kontext, Autoplay) und Kontext (Art, ID, Titel) jedes Eintrags
+  werden mit der Warteschlange gespeichert, gebunden an Konto und Server wie bisher.
+  „Letzte Wiedergabe fortsetzen“ zeigt dieselben Abschnitte, Autoplay setzt richtig fort.
+  Ältere gespeicherte Warteschlangen ohne diese Angaben werden wie bisher als einfacher
+  Kontext wiederhergestellt.
+- „Mix als Playlist speichern“ auf der Mix-Seite mit denselben Serveraufrufen wie
+  „Warteschlange als Playlist speichern“; vorgeschlagener Name „{Mix} · TT.MM.JJJJ“ wie im
+  Web. Ohne Verbindung gesperrt, mit Hinweis. Ein Mix-Menü gibt es nativ sonst nicht.
+- Apple TV: Start-Tab mit Weiterhören, Mixen, „Zuletzt gehört“ und „Neu in der Mediathek“
+  als fokussierbare Cover-Reihen; Mix-Seite mit Abspielen und Zufällig; Warteschlange im
+  Player mit Abschnitten und dem Schalter „Automatisch weiterspielen“.
+
+Nachweis: Swift-Tests für Nachfüllung, Sitzungsliste, Wiederherstellung (auch altes Format)
+und Playlist-Namen; UI-Tests für den Start auf iPhone und Apple TV, nur in der CI. Nicht auf
+einem Gerät geprüft.
 
 ## Build 34 (0.4.0): Hören wie im Web 1.10
 
@@ -98,10 +123,10 @@ Diese Punkte sind echte offene Unterschiede und dürfen nicht als erledigt gelte
    und Playlist-Bedienung benötigt eine separate Prüfung mit Fernbedienung.
 8. Automatische Tests ersetzen keine Prüfung von Sperrbildschirm, Bluetooth,
    AirPlay, Telefonunterbrechungen und Downloads nach erzwungenem Beenden auf Hardware.
-9. **Hören auf tvOS und offen gebliebene Web-Details**: tvOS hat keinen Start-Bereich und
-   keine Warteschlangen-Abschnitte. Einen Mix als Playlist speichern, Mixe sortieren und
-   „Rückgängig“ nach dem Leeren der Warteschlange fehlen nativ. Herkunft und Kontext der
-   Warteschlangen-Einträge werden nicht mit „Letzte Wiedergabe fortsetzen“ gespeichert.
+9. **Offen gebliebene Web-Details beim Hören**: Mixe sortieren und „Rückgängig“ nach dem
+   Leeren der Warteschlange fehlen nativ. Auf Apple TV fehlen „Für dich“ als eigene Seite
+   (die Mixe stehen direkt im Start-Tab) und das Bearbeiten der Warteschlange (Verschieben,
+   Entfernen); beides braucht eine eigene Bedienprüfung mit der Fernbedienung.
 
 Als nächste Arbeit zuerst Klangoptionen/benannte Presets und reversibles Shuffle,
 anschließend die verbleibenden Sortier- und Plattformunterschiede umsetzen. Vor
@@ -130,7 +155,14 @@ Stable-Freigabe alle Hardware-Punkte aus `RELEASE-CHECKLIST.md` abnehmen.
   gespeicherter Musik, danach online: die Ereignisse werden genau einmal gesendet.
 - Warteschlange: einen Titel „Als Nächstes“, ein Album „Zur Warteschlange“; Abschnitte und
   Reihenfolge prüfen. Mit „Automatisch weiterspielen“ erscheinen bei zwei verbleibenden
-  Titeln „Ähnliche Titel“; mit Wiederholung oder Sleep-Timer nicht.
+  Titeln „Ähnliche Titel“; mit Wiederholung oder Sleep-Timer nicht. Je Nachfüllung höchstens
+  12, nie ein in dieser Sitzung schon gehörter Titel.
+- Neustart: Warteschlange mit „Als Nächstes“ und Autoplay-Titeln aufbauen, App beenden,
+  neu öffnen, „Weiterhören“ wählen: dieselben Abschnitte, „Weiter aus: …“ mit dem Kontext.
+- Mix-Seite: „Als Playlist speichern“, Namen prüfen, speichern, die neue Playlist öffnen;
+  im Flugmodus ist die Aktion gesperrt und erklärt.
+- Apple TV: Start-Tab mit der Fernbedienung durchgehen, Mix öffnen, abspielen und zufällig
+  abspielen; im Player die Abschnitte und „Automatisch weiterspielen“ prüfen.
 
 - Online: Playlist erstellen → Titel hinzufügen → Reihenfolge ändern → einen Titel
   entfernen → umbenennen → neu öffnen. Intelligente Playlist-Regeln separat testen.

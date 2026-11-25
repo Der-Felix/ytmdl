@@ -1,9 +1,9 @@
-# Native listening preview 0.4.0 — build 34
+# Native listening preview 0.4.1 — build 35
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
-Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)). The matrix below includes the listening parity with web 1.10 that build 34 adds (see below).
+Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)). The matrix below includes the listening parity with web 1.10 that build 34 adds and build 35 completes (see below).
 See [AUDIT.md](AUDIT.md) for the dated functional audit through build 32, test evidence,
 corrected defects and the remaining real-device release checks.
 The [release checklist](RELEASE-CHECKLIST.md) tracks qualification separately
@@ -11,8 +11,8 @@ from implemented features and simulator verification.
 
 | Feature | Current implementation |
 | --- | --- |
-| iPhone/iPad Start | Listening home like the web's **Hören**: Weiterhören (current title or last queue), personal mixes, server history **Zuletzt gehört** (local list as fallback), **Neu in der Mediathek**, favorites/playlist shortcuts; offline hint when the server is unreachable. Mac Start shows the same mixes and server history |
-| Personal mixes | `GET /library/mixes`: "Dein Mix 1…n" with genre label plus the listening mixes, collage cover, track count, play button; **Für dich** overview and mix page with play, shuffle, play next and add to queue. Older servers keep the previous local genre shortcuts |
+| iPhone/iPad Start | Listening home like the web's **Hören**: Weiterhören (current title or last queue), personal mixes, server history **Zuletzt gehört** (local list as fallback), **Neu in der Mediathek**, favorites/playlist shortcuts; offline hint when the server is unreachable. Mac Start shows the same mixes and server history. Apple TV has its own **Start** tab with the same sections as focusable shelves |
+| Personal mixes | `GET /library/mixes`: "Dein Mix 1…n" with genre label plus the listening mixes, collage cover, track count, play button; **Für dich** overview and mix page with play, shuffle, play next, add to queue and **Als Playlist speichern** (needs a connection). Older servers keep the previous local genre shortcuts |
 | Artist page | **Am meisten gehört** from `GET /library/artists/{id}/top-tracks` (5, up to 10 on request); queue actions for the whole artist |
 | Library/search | Existing library artists, albums, tracks, genre filter and authenticated artwork |
 | Favorites/playlists | Native editing, ordering, membership, smart server rules and favorites |
@@ -28,13 +28,45 @@ from implemented features and simulator verification.
 | Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer |
 | Mobile visualization | Four mobile FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
 | Lyrics | Cached/plain text; LRC timing, optional following and tap-to-seek when time tags exist |
-| Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all, save as playlist, local resume state and explicit restore; whole albums, artists, playlists and mixes can be queued |
-| Song/genre radio | Existing local-library server recommendations; **Automatisch weiterspielen** (on by default) appends similar titles when two or fewer remain, not with repeat, sleep timer or offline-only playback |
+| Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all, save as playlist, local resume state and explicit restore that keeps each entry's section and the started context; whole albums, artists, playlists and mixes can be queued |
+| Song/genre radio | Existing local-library server recommendations; **Automatisch weiterspielen** (on by default) appends at most 12 similar titles when two or fewer remain, leaving out titles already queued or played earlier in the session (last 200, per account and server), and tops up again at the next lookahead; an explicitly started song radio keeps its full list. Not with repeat, sleep timer or offline-only playback |
 | Listening history | Local recent metadata and queue; plays and skips with the web's rules (`ListeningTracker`) as idempotent server events, also for local files, queued while offline and scoped to origin/account |
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
 
+## Rest of the listening parity (build 35)
+
+Added on top of build 34; it uses the server API of v1.10.x unchanged. It ships as 0.4.1 (35).
+
+- **Autoplay like web 1.10.1**: each top-up appends at most `PlaybackQueue.autoplayBatch`
+  (12) similar titles and leaves out titles already in the queue and the last 200 titles
+  played in this session (`SessionPlayHistory`). The session belongs to one account on one
+  server and starts over when either changes. When the lookahead (two titles left) is
+  reached again, the next batch is requested. A song radio the user starts keeps its full
+  list; the fallback radio after a queue that already ended is limited like a top-up.
+- **Queue origins survive a restart**: the saved queue (same account and server binding as
+  before) stores each entry's origin and the started context, so **Letzte Wiedergabe
+  fortsetzen** shows the same sections and autoplay seeds from the right title. Queues saved
+  by build 34 or earlier have no origins and restore as a plain context, as before. Offline,
+  only titles with a local file return, each with its own origin.
+- **Mix als Playlist speichern** on the mix page (iPhone, iPad, Mac, Apple TV): the existing
+  playlist sheet with the heading "Mix als Playlist speichern" and the suggested name
+  "{Mix} · dd.mm.yyyy", using the same create and bulk-add calls as saving the queue.
+  Success shows a row that opens the new playlist; errors stay in the sheet. Without a
+  connection the button is disabled and a note explains why. There is no mix menu
+  elsewhere in the app, so nothing else gained the action.
+- **Apple TV**: a **Start** tab (now the first tab) with Weiterhören, the day's mixes as
+  focusable cover cards (long press plays), **Zuletzt gehört** and **Neu in der Mediathek**;
+  the mix page has a large cover and a row of focusable actions. The player's queue panel
+  shows the sections and the **Automatisch weiterspielen** switch.
+
+Review on a phone: play a mix to its last two titles with autoplay on and check that
+**Ähnliche Titel** grows by at most 12 and never repeats what you already heard; quit the
+app, reopen, choose **Weiterhören** and check the sections are unchanged; save a mix as a
+playlist and open it. On Apple TV: open **Start**, move through the shelves with the remote,
+open a mix, play and shuffle it, and check the queue sections and the autoplay switch in
+**Player**.
 ## Listening parity with web 1.10 (build 34)
 
 Added in [PR #108](https://github.com/Der-Felix/ytmdl/pull/108); it uses the server API of
@@ -53,7 +85,7 @@ v1.10.0 unchanged. It ships as 0.4.0 (34).
   from a server without skips) drops it instead of blocking later events.
 - Each Start section loads on its own and never raises an alert. A server without mixes or
   history hides those sections; an unreachable server shows a hint to the saved music.
-- tvOS keeps its tab layout without a Start screen; its queue panel has no sections yet.
+- In build 34 tvOS kept its tab layout without a Start screen and its queue panel had no sections; build 35 adds both (see above).
 
 Review on a phone: open **Start** and check mixes, **Alle Mixe**, a mix page (play, shuffle,
 queue), **Zuletzt gehört** and the artist page's **Am meisten gehört**. Play a title for

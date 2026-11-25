@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.4.0, build 34
+# Apple app handoff — preview 0.4.1, build 35
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,27 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 35: rest of the listening parity (CI only, not installed)
+
+Builds on PR #108 (build 34); see FEATURES.md "Rest of the listening parity (build 35)".
+
+- **Autoplay batches:** `PlaybackQueue.appendAutoplay(_:excluding:batch:)` appends at most
+  `autoplayBatch` (12) titles and skips queued IDs plus `PlayerModel`'s `SessionPlayHistory`
+  (last 200 current titles, recorded in `loadCurrent`/`promotePrepared`). `AppModel`
+  scopes the session to server + account (`scopeListeningSession`) at every sign-in,
+  sign-out, server change and offline opening. `continueRadio` is limited the same way.
+- **Restored sections:** `ListeningSnapshot` gained optional `origins` and `context`; old
+  snapshots decode with both nil. `restorable(keeping:)` filters offline titles together
+  with their origins; `PlayerModel.play(..., origins:)` hands them to `PlaybackQueue.replace`.
+- **Mix als Playlist speichern:** `MixDetailView` opens `AddToPlaylistSheet` with a heading,
+  suggested name (`PersonalMix.playlistName`) and a `saved` callback; disabled offline.
+- **Apple TV:** `App/TVListenViews.swift` (`#if os(tvOS)`, registered for all three app
+  targets like the other App files) holds `TVHomeView` (new first **Start** tab, now the
+  default tab) and `TVQueueView` (sections + autoplay switch in the player's queue panel).
+  The mix page uses `MixDetailView` with a tvOS header.
+- UI tests: `testListeningHomeOpensMixAndStartsItsQueue` (iPhone) and
+  `testTVHomeShowsFocusableMixes` (Apple TV).
 
 ## Build 33: review fixes (committed, not installed)
 
@@ -113,7 +134,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.4.0 (34)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.4.1 (35)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness
@@ -249,6 +270,8 @@ Design reference: [Apple buttons](https://developer.apple.com/design/human-inter
 | Navigation, shared iOS/iPadOS/tvOS views, authenticated artwork | `App/Views.swift` |
 | Mac player, queue actions and compact playback options | `App/DesktopViews.swift` |
 | Mac Start feed and appearance | `App/DesktopHomeView.swift`, `App/Appearance.swift`, `App/ListeningHistory.swift` |
+| Listening home, mixes, mix page (shared) | `App/ListenHome.swift` |
+| Apple TV Start tab and queue sections | `App/TVListenViews.swift` |
 | Streaming, prefetch, timers, two-player crossfade, metering | `App/PlayerModel.swift` |
 | Audio processing and ten-band EQ | `App/Equalizer.swift`, `App/AudioSettingsViews.swift` |
 | Cover-derived colors | `App/ArtworkPalette.swift` |
