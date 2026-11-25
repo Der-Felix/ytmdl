@@ -32,6 +32,9 @@ import {
 
 import { AddToPlaylistDialog } from '@/components/music/AddToPlaylistDialog'
 import { Cover } from '@/components/music/Cover'
+import { TrackAlbumLink, TrackArtistLink } from '@/components/music/TrackLinks'
+import { isRowGesture } from '@/lib/track-row'
+import { TrackMenu } from '@/components/music/TrackMenu'
 import { VisualizerCanvas } from '@/components/player/VisualizerCanvas'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -493,12 +496,12 @@ export function NowPlaying() {
                 {currentTrack.title}
               </h1>
               <p className="text-sm sm:text-base text-foreground/80 font-medium line-clamp-1">
-                {artistText}
+                <TrackArtistLink track={currentTrack}>{artistText}</TrackArtistLink>
               </p>
               <div className="flex items-center justify-center lg:justify-start gap-2 pt-0.5 text-xs text-muted-foreground">
                 {currentTrack.album && (
                   <span className="truncate max-w-[220px]">
-                    {currentTrack.album} {currentTrack.year ? `(${currentTrack.year})` : ''}
+                    <TrackAlbumLink track={currentTrack} /> {currentTrack.year ? `(${currentTrack.year})` : ''}
                   </span>
                 )}
                 {currentTrack.codec && (
@@ -957,10 +960,11 @@ export function NowPlaying() {
                       {history.map((item, idx) => (
                         <div
                           key={`${item.track.id}-${idx}`}
-                          onClick={() => playTrack(item.track)}
-                          className="flex items-center justify-between p-2 rounded-xl hover:bg-muted cursor-pointer transition-colors"
+                          data-track-row
+                          onClick={(e) => { if (isRowGesture(e)) playTrack(item.track) }}
+                          className="flex items-center justify-between gap-1 p-2 rounded-xl hover:bg-muted cursor-pointer transition-colors"
                         >
-                          <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex flex-1 items-center gap-2.5 min-w-0">
                             <Cover
                               src={libraryArtwork('tracks', item.track.id)} fallbackSrc={item.track.cover_url}
                               alt={item.track.title}
@@ -968,17 +972,18 @@ export function NowPlaying() {
                               className="size-9 rounded-lg shrink-0 border border-input"
                             />
                             <div className="min-w-0">
-                              <p className="truncate text-xs font-medium text-foreground">
+                              <button type="button" onClick={() => playTrack(item.track)} aria-label={`${item.track.title} abspielen`} className="focus-ring block max-w-full cursor-pointer truncate rounded-sm text-left text-xs font-medium text-foreground">
                                 {item.track.title}
-                              </p>
+                              </button>
                               <p className="truncate text-[11px] text-muted-foreground">
-                                {item.track.artists?.length > 0 ? joinArtists(item.track.artists) : item.track.album_artist}
+                                <TrackArtistLink track={item.track} />
                               </p>
                             </div>
                           </div>
                           <span className="figures text-[11px] text-muted-foreground/80">
                             {formatDuration(item.track.duration_ms)}
                           </span>
+                          <TrackMenu track={item.track} size="compact" />
                         </div>
                       ))}
                     </div>

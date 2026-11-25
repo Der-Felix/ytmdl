@@ -12,6 +12,9 @@ import { libraryArtwork } from '@/lib/artwork'
 import type { QueueContext, QueueTrack } from '@/lib/audio/types'
 import { cn } from '@/lib/utils'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
+import { TrackArtistLink } from '@/components/music/TrackLinks'
+import { isRowGesture } from '@/lib/track-row'
+import { TrackMenu } from '@/components/music/TrackMenu'
 
 /*
  * The queue as a sortable list, shared by the queue drawer and the player
@@ -21,8 +24,8 @@ import { formatDuration, joinArtists } from '@/lib/utils/format'
  * press, so the list still scrolls when swiped elsewhere.
  *
  * Without a pointer: focus the grip, press Space to pick the title up, move
- * it with the arrow keys and press Space again (Escape cancels). The up and
- * down buttons on every row do the same in one step.
+ * it with the arrow keys and press Space again (Escape cancels). The track
+ * menu of every row moves a title one step up or down.
  *
  * The list is split into sections: what played, the current track, "Als
  * Nächstes" (what the user queued), the rest of what was started, and the
@@ -194,15 +197,23 @@ function QueueRow({ id, track, index, total, section, isPlaying }: QueueRowProps
   const quiet = section === 'played' || section === 'autoplay'
 
   // On pointer devices the row controls appear on hover or when a control in
-  // the row has focus. On touch screens the grip is dragged directly, so the
-  // step buttons give way to the title; removing stays visible.
-  const rowControl =
-    'inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-[opacity,color,background-color] duration-(--duration-fast) disabled:pointer-events-none disabled:opacity-25 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100'
-  const stepControl = cn(rowControl, 'pointer-coarse:hidden hover:bg-input hover:text-foreground')
+  // the row has focus. Removing stays as the one quick action; moving one
+  // step, the radio and the rest live in the track menu.
+  const reveal =
+    'transition-[opacity,color,background-color] duration-(--duration-fast) pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100'
+  const rowControl = cn(
+    'inline-flex size-8 items-center justify-center rounded-md text-muted-foreground disabled:pointer-events-none disabled:opacity-25',
+    reveal,
+  )
 
   return (
     <li
       ref={ref}
+      data-track-row
+      onDoubleClick={(event) => {
+        if (!isRowGesture(event)) return
+        playQueueIndex(index)
+      }}
       data-dragging={isDragSource ? '' : undefined}
       data-queue-origin={queueOrigin(track)}
       className={cn(
@@ -221,13 +232,11 @@ function QueueRow({ id, track, index, total, section, isPlaying }: QueueRowProps
         <GripVertical className="size-4" aria-hidden="true" />
       </button>
 
-      <button
-        type="button"
-        onClick={() => playQueueIndex(index)}
-        aria-current={isCurrent ? 'true' : undefined}
-        aria-label={`${track.title} abspielen`}
+      {/* The play button stretches over the whole block, so a click anywhere
+          on cover, title or duration plays; the artist link sits above it. */}
+      <div
         className={cn(
-          'flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-0.5 text-left transition-opacity duration-(--duration-fast)',
+          'relative flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-0.5 text-left transition-opacity duration-(--duration-fast)',
           quiet && !isDragSource && 'opacity-60 group-hover:opacity-100 group-focus-within:opacity-100',
         )}
       >
@@ -246,46 +255,30 @@ function QueueRow({ id, track, index, total, section, isPlaying }: QueueRowProps
           className={cn('shrink-0 rounded-md border border-input', section === 'autoplay' ? 'size-8' : 'size-9')}
         />
         <span className="min-w-0 flex-1">
-          <span
+          <button
+            type="button"
+            onClick={() => playQueueIndex(index)}
+            aria-current={isCurrent ? 'true' : undefined}
+            aria-label={`${track.title} abspielen`}
             className={cn(
-              'block truncate text-[13px] leading-tight',
+              'block w-full cursor-pointer truncate text-left text-[13px] leading-tight outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:outline-2 focus-visible:after:outline-offset-1 focus-visible:after:outline-ring',
               section === 'autoplay' ? 'font-medium' : 'font-semibold',
               isCurrent ? 'text-accent-foreground' : 'text-foreground',
             )}
             title={track.title}
           >
             {track.title}
-          </span>
-          <span className="mt-0.5 block truncate text-[11px] text-muted-foreground" title={artistText}>
-            {artistText}
+          </button>
+          <span className="relative mt-0.5 block truncate text-[11px] text-muted-foreground" title={artistText}>
+            <TrackArtistLink track={track}>{artistText}</TrackArtistLink>
           </span>
         </span>
         <span className="figures shrink-0 pr-1 text-[11px] text-muted-foreground">
           {formatDuration(track.duration_ms)}
         </span>
-      </button>
+      </div>
 
       <div className="flex shrink-0 items-center">
-        <button
-          type="button"
-          disabled={index === 0}
-          onClick={() => reorderQueue(index, index - 1)}
-          className={stepControl}
-          title="Nach oben verschieben"
-          aria-label={`Titel ${track.title} nach oben verschieben`}
-        >
-          <ArrowUp className="size-3.5" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          disabled={index === total - 1}
-          onClick={() => reorderQueue(index, index + 1)}
-          className={stepControl}
-          title="Nach unten verschieben"
-          aria-label={`Titel ${track.title} nach unten verschieben`}
-        >
-          <ArrowDown className="size-3.5" aria-hidden="true" />
-        </button>
         <button
           type="button"
           onClick={() => removeFromQueue(index)}
@@ -295,6 +288,37 @@ function QueueRow({ id, track, index, total, section, isPlaying }: QueueRowProps
         >
           <X className="size-3.5" aria-hidden="true" />
         </button>
+        <TrackMenu
+          track={track}
+          inQueue
+          className={cn(
+            'rounded-md pointer-fine:size-8 data-[popup-open]:opacity-100 [&_svg]:pointer-fine:size-4',
+            reveal,
+          )}
+          extras={[
+            {
+              id: 'move-up',
+              label: 'Nach oben verschieben',
+              icon: ArrowUp,
+              disabled: index === 0,
+              onSelect: () => reorderQueue(index, index - 1),
+            },
+            {
+              id: 'move-down',
+              label: 'Nach unten verschieben',
+              icon: ArrowDown,
+              disabled: index === total - 1,
+              onSelect: () => reorderQueue(index, index + 1),
+            },
+            {
+              id: 'remove',
+              label: 'Aus Warteschlange entfernen',
+              icon: X,
+              destructive: true,
+              onSelect: () => removeFromQueue(index),
+            },
+          ]}
+        />
       </div>
     </li>
   )

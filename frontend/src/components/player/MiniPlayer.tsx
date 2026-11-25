@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import { Cover } from '@/components/music/Cover'
+import { TrackArtistLink } from '@/components/music/TrackLinks'
 import { RepeatButton, ShuffleButton } from '@/components/player/PlayerModeButtons'
 import { QueueDrawer } from '@/components/player/QueueDrawer'
 import { Button } from '@/components/ui/button'
@@ -82,16 +83,14 @@ export function MiniPlayer() {
           <div className="min-w-0 flex-1">
             <Link
               href={paths.player ? paths.player() : '/player'}
-              className="group/meta block min-w-0 focus-visible:outline-none"
+              className="focus-ring block max-w-full truncate rounded-sm text-sm sm:text-[15px] font-semibold text-foreground hover:text-primary transition-colors leading-snug"
               title={`${currentTrack.title} · ${artistText}`}
             >
-              <span className="block truncate text-sm sm:text-[15px] font-semibold text-foreground group-hover/meta:text-primary transition-colors leading-snug">
-                {currentTrack.title}
-              </span>
-              <p className="truncate text-xs text-muted-foreground mt-0.5">
-                {artistText}
-              </p>
+              {currentTrack.title}
             </Link>
+            <p className="truncate text-xs text-muted-foreground mt-0.5">
+              <TrackArtistLink track={currentTrack}>{artistText}</TrackArtistLink>
+            </p>
           </div>
 
           {favorites && (

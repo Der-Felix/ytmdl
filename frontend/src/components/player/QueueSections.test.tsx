@@ -92,11 +92,15 @@ describe('queue sections', () => {
     expect(screen.queryByRole('heading', { name: 'Als Nächstes' })).toBeNull()
   })
 
-  it('moves a title with the step buttons through the player', () => {
+  it('moves a title one step from its track menu through the player', async () => {
     reorderQueue.mockClear()
     state = { ...state, queue: [t('c1'), t('u1', 'user'), t('c2')], queueIndex: 0 }
     render(<QueueList />)
-    fireEvent.click(screen.getByRole('button', { name: 'Titel Titel c2 nach oben verschieben' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktionen für Titel c2' }))
+    const menu = await screen.findByRole('menu')
+    expect(within(menu).queryByRole('menuitem', { name: 'Zur Warteschlange hinzufügen' })).toBeNull()
+    expect(within(menu).getByRole('menuitem', { name: 'Nach unten verschieben' }).hasAttribute('data-disabled')).toBe(true)
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Nach oben verschieben' }))
     expect(reorderQueue).toHaveBeenCalledWith(2, 1)
   })
 })
