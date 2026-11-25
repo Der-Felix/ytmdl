@@ -15,6 +15,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   ytmusic: 'YouTube Music',
   youtube: 'YouTube',
   spotify: 'Spotify',
+  deezer: 'Deezer',
+  musicbrainz: 'MusicBrainz',
 }
 
 interface ArtistCardProps {
@@ -60,7 +62,9 @@ function ArtistCard({ artist, href, isLocal }: ArtistCardProps) {
 
         {isLibArtist ? (
           <p className="text-xs text-muted-foreground">
-            {pluralize(artist.release_count, 'Release', 'Releases')} · {pluralize(artist.track_count, 'Track')}
+            {/* Each count stays whole, so a narrow card breaks at the dot. */}
+            <span className="whitespace-nowrap">{pluralize(artist.release_count, 'Release', 'Releases')} ·</span>{' '}
+            <span className="whitespace-nowrap">{pluralize(artist.track_count, 'Titel', 'Titel')}</span>
             {genres.length > 0 && <span className="mt-1 block line-clamp-1">{genres.join(' · ')}</span>}
           </p>
         ) : (

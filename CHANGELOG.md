@@ -4,6 +4,19 @@
 
 ### Changes
 
+- **Web app, queue summary:** the sidebar badge, the download home and the downloads page share one queue summary and one request. While downloads run it is refetched at most every three seconds, with a final refetch once the events stop, and not at all while the page is hidden; it is reloaded once the page is visible again and after the event stream reconnects. Until now every job event cost up to three requests of `GET /api/v1/jobs/summary`, several per second during downloads. Download progress still updates live without a request.
+- **Web app, autoplay:** when the queue runs out, autoplay appends 12 similar titles at a time and tops up again two titles before the end, instead of up to 50 at once. Titles already in the queue or played earlier in the session are left out. A song radio started by hand keeps its full list.
+- **Web app, design fixes:**
+  - Opening another page starts at its top instead of at the scroll position of the previous page; a changed tab or filter on the same page keeps the position.
+  - Track tables no longer push duration and the track menu out of view: titles, artists and albums truncate inside their columns, and the format column shows from 1280 px. On phones a hidden column name no longer widens the page sideways.
+  - Release and artist pages keep title, artist and listening actions together; the image and delete tools for admins sit below them in one row. In a narrow header **Als Nächstes**, **Zur Warteschlange** and, on phones, **Zufällig** show as icons with a tooltip instead of wrapping one button per line.
+  - The command menu offers the track menu on title results, also on right-click; choosing an entry there no longer plays the title.
+  - The mini player shows its progress line only on phones; wider screens have the seek bar alone.
+  - The player page no longer scrolls by a few pixels from its blurred background, and its tabs keep one height.
+  - Downloads: status tabs have one height, the header buttons stay on one line, and the queue figures and the two cards below go side by side only where their titles fit.
+  - Small buttons are 40 px tall on touch screens; the mix play button on phones is a 40 px square.
+  - Track counts read **Titel** throughout the listening area, library tab counts use thousands separators, the **Werkzeuge** tab has an icon, artist cards break their counts at the dot and name the provider (**Deezer**), and all track table column names share one style.
+  - The offline page uses the app background throughout and its link has button height.
 - **Radio stays near the seed:** Autoplay and song radio (`GET /api/v1/library/radio?seed=…`) only pick artists close to the seed: the seed's artist, artists with the same main genre and artists that share a release with it; artists that list the seed's main genre only further down follow once those are used up. Sharing a secondary genre alone (a schlager artist also listed as Pop) no longer qualifies, so a small library returns fewer titles instead of unrelated ones. Titles from the seed's era rank higher, at most three titles per artist come before any artist's fourth, and the seed's own other versions are left out. The query expands at most 100 candidate artists instead of scoring every track. The response is unchanged.
 - **Access log behind a reverse proxy:** The `http request` log line reports the client resolved through trusted proxies as `remote_ip`, the same address the sign-in rate limits use, and the direct peer as `peer_ip` when it differs.
 - **Docs:** `docs/single-image.md` covers a reverse proxy on the same Docker host, which reaches the app from the Docker network's gateway addresses, and how to check the setting in the access log.

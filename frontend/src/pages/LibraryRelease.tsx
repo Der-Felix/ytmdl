@@ -195,7 +195,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
             className="size-36 sm:size-44 rounded-xl shadow-2xl shrink-0"
           />
 
-          <div className="w-full flex-1 space-y-3 text-center sm:text-left min-w-0">
+          <div className="@container w-full flex-1 space-y-3 text-center sm:text-left min-w-0">
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
               <Badge variant="outline" className="text-xs uppercase font-mono tracking-wider">
                 {release.release_type || 'Album'}
@@ -210,8 +210,6 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
             <h1 className="text-2xl sm:text-3xl font-bold font-heading text-foreground line-clamp-2 text-balance break-words">
               {release.title}
             </h1>
- {isAdmin && <ArtworkEditor kind="releases" id={release.id}
-                onSaved={() => setArtworkVersion((value) => value + 1)} />}
 
             {artist ? (
               <p className="text-base text-foreground/80 font-medium">
@@ -229,7 +227,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 text-xs text-muted-foreground pt-1">
               <span className="flex items-center gap-1">
                 <Music2Icon className="size-3.5" />
-                {pluralize(detail.tracks.length, 'Track')}
+                {pluralize(detail.tracks.length, 'Titel', 'Titel')}
               </span>
               {hasMultipleDiscs && (
                 <>
@@ -255,20 +253,31 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
                 <ListenActions tracks={canonicalTracks} context={albumContext} playLabel="Album abspielen" />
               </div>
             )}
-          </div>
 
-          {isAdmin && (
-            <Button
-              variant="destructive"
-              size="sm"
-              className="shrink-0 gap-1.5 text-xs"
-              disabled={actionInProgress !== null}
-              onClick={handleDelete}
-            >
-              <Trash2Icon className="size-3.5" />
-              Release löschen
-            </Button>
-          )}
+            {/* Admin tools sit below the listening actions, so title, artist
+                and actions stay together and keep the full width. */}
+            {isAdmin && (
+              <div className="flex justify-center border-t border-border/60 pt-4 sm:justify-start">
+                <ArtworkEditor
+                  kind="releases"
+                  id={release.id}
+                  onSaved={() => setArtworkVersion((value) => value + 1)}
+                  actions={
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="shrink-0 gap-1.5 text-xs"
+                      disabled={actionInProgress !== null}
+                      onClick={handleDelete}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                      Release löschen
+                    </Button>
+                  }
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

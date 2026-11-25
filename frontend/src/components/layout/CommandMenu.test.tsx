@@ -365,6 +365,20 @@ describe('CommandMenu library results', () => {
     expect(openChanges).toEqual([])
   })
 
+  it('offers the track menu on a title; using it neither plays the title nor keeps the menu on a new page', async () => {
+    searchAnswer = async () => kraftwerk
+    renderMenu()
+    type('kra')
+    await firstResultSelected()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktionen für Taschenrechner' }))
+    expect(played).toHaveLength(0)
+    const queueItem = await screen.findByRole('menuitem', { name: 'Zur Warteschlange hinzufügen' })
+    fireEvent.click(queueItem)
+    expect(played).toHaveLength(0)
+    expect(openChanges).toEqual([])
+  })
+
   it('opens an artist on Enter and an album or playlist on click, then closes', async () => {
     searchAnswer = async () => kraftwerk
     playlists = [playlist('p1', 'Kraftwerk am Abend')]

@@ -8,7 +8,7 @@ import {
   Trash2,
   RefreshCw,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Cover } from '@/components/music/Cover'
 import {
   Dialog,
@@ -87,7 +87,7 @@ export function OfflinePage() {
       .toString()
       .padStart(2, '0')}`
   return (
-    <main className="mx-auto max-w-4xl space-y-6 p-4 py-8 sm:p-8 bg-background min-h-dvh text-foreground">
+    <main className="mx-auto max-w-4xl space-y-6 p-4 py-8 sm:p-8 min-h-dvh text-foreground">
       <header className="rounded-2xl border border-border bg-gradient-to-br from-primary/15 to-muted/20 p-5 space-y-3">
         <WifiOff className="size-8 text-primary" />
         <h1 className="text-2xl font-semibold">Deine Offline-Musik</h1>
@@ -99,7 +99,7 @@ export function OfflinePage() {
         <div className="flex flex-wrap gap-2">
           <Link
             href="/library"
-            className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring"
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
           >
             Zur Online-Bibliothek
           </Link>
@@ -179,13 +179,13 @@ export function OfflinePage() {
           </p>
         ))}
       {player.currentTrack && !local && (
-        <p className="text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
           Der aktuelle Titel läuft noch vom Server. Wähle oben eine gespeicherte
           Playlist für lokale Wiedergabe.{' '}
           <Button size="sm" variant="ghost" onClick={pause}>
             Server-Wiedergabe pausieren
           </Button>
-        </p>
+        </div>
       )}
       {local && player.currentTrack && (
         <section
