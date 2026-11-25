@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 
 import { Cover } from '@/components/music/Cover'
 import { MixCard } from '@/components/music/MixCard'
+import { ReleasePlayButton } from '@/components/music/ReleaseCard'
 import { TrackArtistLink } from '@/components/music/TrackLinks'
 import { TrackMenu } from '@/components/music/TrackMenu'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -322,10 +323,10 @@ function NewReleasesSection({ state, onRetry }: { state: AsyncState<LibraryRelea
       {state.status === 'success' && (
         <ul className={RELEASE_ROW}>
           {state.data.map((release) => (
-            <li key={release.id} className="min-w-0">
+            <li key={release.id} className="group relative min-w-0">
               <Link
                 href={paths.libraryRelease(release.id)}
-                className="focus-ring group block space-y-2 rounded-xl"
+                className="focus-ring block space-y-2 rounded-xl"
               >
                 <Cover
                   src={libraryArtwork('releases', release.id)}
@@ -340,6 +341,11 @@ function NewReleasesSection({ state, onRetry }: { state: AsyncState<LibraryRelea
                   <span className="block truncate text-xs text-muted-foreground">{release.album_artist}</span>
                 </span>
               </Link>
+              {/* Over the square cover, beside the link rather than inside it. */}
+              <div className="pointer-events-none absolute inset-x-0 top-0 aspect-square [&>button]:pointer-events-auto">
+                {/* Three covers share a phone's width here; the button stays in proportion. */}
+                <ReleasePlayButton id={release.id} title={release.title} className="max-sm:right-1.5 max-sm:bottom-1.5 max-sm:size-9" />
+              </div>
             </li>
           ))}
         </ul>

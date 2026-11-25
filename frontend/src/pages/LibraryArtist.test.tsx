@@ -17,7 +17,7 @@ describe('artist genres editor', () => {
         return new Response(JSON.stringify(fail ? { error: { code: 'INVALID_REQUEST', message: 'Zu viele Genres.' } } : { data: [] }), { status: fail ? 400 : 200 })
       }
       const url = String(_input)
-      const data = url.includes('/library/artists/') ? { artist: { id: 'art-genre', name: 'Genre Artist', provider: 'ytmusic', source_id: 'fixture', source_url: '', genres: ['Pop'] }, releases: [], tracks: [], release_count: 0, track_count: 0, total_size_bytes: 0 } : []
+      const data = url.includes('/top-tracks') ? [] : url.includes('/library/artists/') ? { artist: { id: 'art-genre', name: 'Genre Artist', provider: 'ytmusic', source_id: 'fixture', source_url: '', genres: ['Pop'] }, releases: [], tracks: [], release_count: 0, track_count: 0, total_size_bytes: 0 } : []
       return new Response(JSON.stringify({ data }))
     }) as typeof fetch
     render(<PlayerProvider><LibraryArtist id="art-genre" /></PlayerProvider>)

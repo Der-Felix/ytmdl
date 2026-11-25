@@ -62,6 +62,20 @@ func TestLibraryToolsAuthOwnershipAndAtomicWrites(t *testing.T) {
 	if json.Unmarshal(raw, &history) != nil || len(history.Data) != 0 {
 		t.Fatal("private history exposed")
 	}
+	var top struct {
+		Data []struct {
+			ID        string `json:"id"`
+			PlayCount int    `json:"play_count"`
+		}
+	}
+	res, raw, err = user.do(http.MethodGet, "/api/v1/library/artists/art_e2e/top-tracks?limit=5", nil, false)
+	if err != nil || res.StatusCode != 200 || json.Unmarshal(raw, &top) != nil || len(top.Data) != 1 || top.Data[0].ID != ids[0] || top.Data[0].PlayCount != 1 {
+		t.Fatal("artist top tracks wrong", err, string(raw))
+	}
+	_, raw, _ = admin.do(http.MethodGet, "/api/v1/library/artists/art_e2e/top-tracks", nil, false)
+	if json.Unmarshal(raw, &top) != nil || top.Data == nil || len(top.Data) != 0 {
+		t.Fatal("artist top tracks not per user or not an array", string(raw))
+	}
 	skip := map[string]any{"track_id": ids[1], "event_id": "skip-e2e-0000000001"}
 	if res, _, _ = user.do(http.MethodPost, "/api/v1/history/skips", skip, false); res.StatusCode != 403 {
 		t.Fatal("skip CSRF missing accepted")

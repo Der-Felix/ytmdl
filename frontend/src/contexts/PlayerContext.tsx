@@ -82,7 +82,8 @@ export interface PlayerActionsContextValue {
   /** Fetches a radio from the library and plays it; reports the result as a toast. */
   startRadio: (source: RadioSource) => Promise<boolean>
   setAutoplay: (enabled: boolean) => void
-  playNext: (track: LibraryTrack) => void
+  /** Puts the tracks right after the current one, in their order. */
+  playNext: (tracks: LibraryTrack | LibraryTrack[]) => void
   playQueueIndex: (index: number) => void
   addToQueue: (tracks: LibraryTrack[] | LibraryTrack) => void
   removeFromQueue: (index: number) => void
@@ -868,9 +869,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SET_AUTOPLAY', payload: enabled })
   }, [])
 
-  const playNextAction = useCallback((track: LibraryTrack) => {
-    dispatch({ type: 'PLAY_NEXT', payload: { track } })
-    notifySuccess('Wird als Nächstes gespielt', track.title)
+  const playNextAction = useCallback((tracks: LibraryTrack | LibraryTrack[]) => {
+    const list = Array.isArray(tracks) ? tracks : [tracks]
+    const first = list[0]
+    if (!first) return
+    if (list.length === 1) {
+      dispatch({ type: 'PLAY_NEXT', payload: { track: first } })
+      notifySuccess('Wird als Nächstes gespielt', first.title)
+      return
+    }
+    const s = stateRef.current
+    if (!s.currentTrack || s.queue.length === 0) {
+      // Nothing plays yet: the list starts, as a single "Als Nächstes" does.
+      dispatch({ type: 'ADD_TO_QUEUE', payload: { tracks: list } })
+    } else {
+      // Each one lands right after the current track, so the last goes first.
+      for (const track of [...list].reverse()) dispatch({ type: 'PLAY_NEXT', payload: { track } })
+    }
+    notifySuccess(`${list.length} Titel werden als Nächstes gespielt`)
   }, [])
 
   const playQueueIndexAction = useCallback((index: number) => {
