@@ -6,6 +6,9 @@ import type {
   PlaybackStatus,
   PlayerHistoryItem,
   PlayerState,
+  QueueContext,
+  QueueOrigin,
+  QueueTrack,
   RepeatMode,
   SleepTimerOption,
   StopAfterOption,
@@ -13,18 +16,36 @@ import type {
 } from '@/lib/audio/types'
 import type { LibraryTrack } from '@/types/api'
 
+/** What CLEAR_QUEUE took away, so RESTORE_QUEUE can put it back. */
+export interface QueueSnapshot {
+  queue: QueueTrack[]
+  originalQueue: QueueTrack[]
+  queueIndex: number
+  currentTrack: LibraryTrack | null
+  queueContext: QueueContext | null
+  shuffle: boolean
+  currentTime: number
+  status: PlaybackStatus
+}
+
 export type PlayerAction =
   | {type:'RESUME_SESSION';payload:{tracks:LibraryTrack[];index:number;position:number;repeatMode:RepeatMode}}
   | {
       type: 'PLAY_TRACK'
-      payload: { track: LibraryTrack; queue?: LibraryTrack[]; queueIndex?: number }
+      payload: { track: LibraryTrack; queue?: LibraryTrack[]; queueIndex?: number; context?: QueueContext | null }
     }
-  | { type: 'PLAY_ALBUM'; payload: { tracks: LibraryTrack[]; startIndex?: number } }
+  | { type: 'PLAY_ALBUM'; payload: { tracks: LibraryTrack[]; startIndex?: number; context?: QueueContext | null } }
   | {
       type: 'PLAY_ARTIST'
       // order is the queue with the shuffle already drawn (see playArtistAction).
-      payload: { tracks: LibraryTrack[]; shuffle?: boolean; order?: LibraryTrack[] }
+      payload: { tracks: LibraryTrack[]; shuffle?: boolean; order?: LibraryTrack[]; context?: QueueContext | null }
     }
+  /** Radio tracks replace the queue; a seed that is the current track keeps playing. */
+  | { type: 'START_RADIO'; payload: { tracks: LibraryTrack[]; seed?: LibraryTrack; context: QueueContext } }
+  /** Similar tracks appended at the end of the queue (autoplay). */
+  | { type: 'APPEND_AUTOPLAY'; payload: { tracks: LibraryTrack[] } }
+  | { type: 'RESTORE_QUEUE'; payload: QueueSnapshot }
+  | { type: 'SET_AUTOPLAY'; payload: boolean }
   | { type: 'PLAY_NEXT'; payload: { track: LibraryTrack } }
   | { type: 'PLAY_QUEUE_INDEX'; payload: { index: number } }
   | { type: 'ADD_TO_QUEUE'; payload: { tracks: LibraryTrack[] | LibraryTrack } }
@@ -72,6 +93,8 @@ export const INITIAL_PLAYER_STATE: PlayerState = {
   queue: [],
   originalQueue: [],
   queueIndex: -1,
+  queueContext: null,
+  autoplay: true,
   status: 'idle',
   currentTime: 0,
   duration: 0,
@@ -114,11 +137,142 @@ export const INITIAL_PLAYER_STATE: PlayerState = {
  * the action, so checking it in advance (whether it moves on to another
  * track, a skip) and dispatching it see the same first track.
  */
-export function playArtistAction(tracks: LibraryTrack[], shuffle = false): PlayerAction {
-  return { type: 'PLAY_ARTIST', payload: { tracks, shuffle, order: shuffle ? shuffleArray(tracks) : undefined } }
+export function playArtistAction(
+  tracks: LibraryTrack[],
+  shuffle = false,
+  context?: QueueContext | null,
+): PlayerAction {
+  return {
+    type: 'PLAY_ARTIST',
+    payload: {
+      tracks,
+      shuffle,
+      order: shuffle ? shuffleArray(tracks) : undefined,
+      ...(context !== undefined ? { context } : {}),
+    },
+  }
 }
 
-function shuffleArray<T>(array: T[]): T[] {
+/* ------------------------------------------------------------------------ *
+ * Queue origins
+ *
+ * The upcoming part of the queue (after the current track) is kept in three
+ * runs: first what the user queued ("Als Nächstes", origin user), then the
+ * rest of what was started (context), then similar tracks appended by
+ * autoplay. Every action below keeps that order.
+ * ------------------------------------------------------------------------ */
+
+export function queueOrigin(track: QueueTrack | null | undefined): QueueOrigin {
+  return track?.queueOrigin ?? 'context'
+}
+
+/** The entry with the given origin; context entries carry no mark at all. */
+export function withOrigin(track: LibraryTrack, origin: QueueOrigin): QueueTrack {
+  const marked = track as QueueTrack
+  if (origin === 'context') {
+    if (!marked.queueOrigin) return marked
+    const { queueOrigin: _origin, ...plain } = marked
+    return plain
+  }
+  return marked.queueOrigin === origin ? marked : { ...track, queueOrigin: origin }
+}
+
+const asContext = (track: LibraryTrack) => withOrigin(track, 'context')
+
+/**
+ * Where "Zur Warteschlange" inserts: after the last user entry that directly
+ * follows the current track, so queued tracks play before the rest of the
+ * album or playlist, in the order they were queued.
+ */
+export function userInsertIndex(queue: QueueTrack[], queueIndex: number): number {
+  let at = Math.max(0, queueIndex + 1)
+  while (at < queue.length && queueOrigin(queue[at]) === 'user') at++
+  return at
+}
+
+/**
+ * Moves one entry and gives it the origin of the place it lands in. An entry
+ * dropped into the upcoming part takes the origin of the entry it now follows;
+ * directly after the current track that is "Als Nächstes" (user). Moving the
+ * current track, or an entry into the already played part, keeps its origin.
+ * Pure, so the queue list can preview a drag with the same rule.
+ */
+export function moveQueueEntry(
+  queue: QueueTrack[],
+  queueIndex: number,
+  fromIndex: number,
+  toIndex: number,
+): { queue: QueueTrack[]; queueIndex: number } {
+  const item = queue[fromIndex]
+  if (!item || toIndex < 0 || toIndex >= queue.length || fromIndex === toIndex) return { queue, queueIndex }
+  const next = [...queue]
+  next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, item)
+
+  let index = queueIndex
+  if (fromIndex === queueIndex) index = toIndex
+  else if (fromIndex < queueIndex && toIndex >= queueIndex) index--
+  else if (fromIndex > queueIndex && toIndex <= queueIndex) index++
+
+  if (fromIndex !== queueIndex && toIndex > index) {
+    const origin = toIndex - 1 === index ? 'user' : queueOrigin(next[toIndex - 1])
+    next[toIndex] = withOrigin(item, origin)
+  }
+  return { queue: next, queueIndex: index }
+}
+
+/**
+ * The context entries of `queue` in the unshuffled order remembered in
+ * `original`. Entries that are no longer context are left out, context
+ * entries the order does not know (moved in while shuffled) follow at the end.
+ */
+function unshuffledContext(original: QueueTrack[], queue: QueueTrack[]): QueueTrack[] {
+  const pending = queue.filter((t) => queueOrigin(t) === 'context')
+  const ordered: QueueTrack[] = []
+  for (const track of original) {
+    const at = pending.findIndex((t) => t.id === track.id)
+    if (at !== -1) ordered.push(...pending.splice(at, 1))
+  }
+  return [...ordered, ...pending]
+}
+
+/** Where a radio starts from: a track (it plays first) or a genre. */
+export interface RadioSource {
+  seed?: LibraryTrack
+  genre?: string
+}
+
+/** The context a radio queue is shown under: "Radio: {Titel|Genre}". */
+export function radioContext({ seed, genre }: RadioSource): QueueContext {
+  const name = seed?.title ?? (genre?.trim() || 'Alle Genres')
+  const id = seed?.id ?? (genre?.trim() || undefined)
+  return { kind: 'radio', ...(id ? { id } : {}), title: `Radio: ${name}` }
+}
+
+/** How many tracks may be left before autoplay looks for similar ones. */
+export const AUTOPLAY_LOOKAHEAD = 2
+
+/** Autoplay seeds with the last track the user chose (context or queued). */
+export function autoplaySeed(queue: QueueTrack[]): QueueTrack | undefined {
+  for (let i = queue.length - 1; i >= 0; i--) if (queueOrigin(queue[i]) !== 'autoplay') return queue[i]
+  return queue.at(-1)
+}
+
+/**
+ * Whether the player should look for similar tracks now: the queue is about
+ * to run out and nothing the user set ends playback there on purpose (repeat,
+ * stop after, sleep timer), and the track is not an offline copy.
+ */
+export function wantsAutoplay(state: PlayerState, online = true): boolean {
+  if (!state.autoplay || !online) return false
+  if (state.repeatMode !== 'off' || state.stopAfter !== 'none' || state.sleepTimer !== 'off') return false
+  if (!state.currentTrack || state.currentTrack.offline_blob_key) return false
+  if (state.status !== 'playing' && state.status !== 'buffering') return false
+  if (state.queueIndex < 0 || state.queue.length === 0) return false
+  return state.queue.length - 1 - state.queueIndex <= AUTOPLAY_LOOKAHEAD
+}
+
+export function shuffleArray<T>(array: T[]): T[] {
   const arr = [...array]
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
@@ -162,14 +316,16 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         !Number.isFinite(position)
       )
         return state
-      const track = tracks[index]!,
+      const queue = tracks.map(asContext)
+      const track = queue[index]!,
         duration = trackDurationSeconds(track)
       return {
         ...state,
         currentTrack: track,
-        queue: [...tracks],
-        originalQueue: [...tracks],
+        queue,
+        originalQueue: [...queue],
         queueIndex: index,
+        queueContext: null,
         shuffle: false,
         repeatMode,
         status: 'buffering',
@@ -188,8 +344,10 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       }
     }
     case 'PLAY_TRACK': {
-      const { track, queue, queueIndex } = action.payload
-      const newQueue = queue && queue.length > 0 ? [...queue] : [track]
+      const { queue, queueIndex, context } = action.payload
+      const track = asContext(action.payload.track)
+      const passed = Boolean(queue && queue.length > 0)
+      const newQueue = passed ? queue!.map(asContext) : [track]
       let idx = queueIndex ?? newQueue.findIndex((t) => t.id === track.id)
       if (idx === -1) {
         newQueue.push(track)
@@ -201,11 +359,14 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         queue: newQueue,
         // A queue passed along is a new listening context. The unshuffled
         // order remembered for the previous one must not survive it, or
-        // turning shuffle off would bring the old queue back.
+        // turning shuffle off would bring the old queue back. The list
+        // plays in the order given, so shuffle is off for it.
         originalQueue:
-          state.shuffle && state.originalQueue.length > 0 && !(queue && queue.length > 0)
+          state.shuffle && state.originalQueue.length > 0 && !passed
             ? state.originalQueue
             : newQueue,
+        shuffle: passed ? false : state.shuffle,
+        queueContext: context ?? null,
         queueIndex: idx,
         status: 'buffering',
         currentTime: 0,
@@ -216,16 +377,18 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     }
 
     case 'PLAY_ALBUM': {
-      const { tracks, startIndex = 0 } = action.payload
-      if (!tracks.length) return state
+      const { startIndex = 0, context } = action.payload
+      if (!action.payload.tracks.length) return state
+      const tracks = action.payload.tracks.map(asContext)
       const startIdx = Math.max(0, Math.min(startIndex, tracks.length - 1))
       const track = tracks[startIdx]!
       return {
         ...state,
         currentTrack: track,
-        queue: [...tracks],
+        queue: tracks,
         originalQueue: [...tracks],
         queueIndex: startIdx,
+        queueContext: context ?? null,
         shuffle: false,
         status: 'buffering',
         currentTime: 0,
@@ -236,10 +399,12 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     }
 
     case 'PLAY_ARTIST': {
-      const { tracks, shuffle = false, order } = action.payload
-      if (!tracks.length) return state
+      const { shuffle = false, order, context } = action.payload
+      if (!action.payload.tracks.length) return state
+      const tracks = action.payload.tracks.map(asContext)
       const originalQueue = [...tracks]
-      const finalQueue = order?.length === tracks.length ? [...order] : shuffle ? shuffleArray(tracks) : [...tracks]
+      const finalQueue =
+        order?.length === tracks.length ? order.map(asContext) : shuffle ? shuffleArray(tracks) : [...tracks]
       const track = finalQueue[0]!
       return {
         ...state,
@@ -247,6 +412,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         queue: finalQueue,
         originalQueue,
         queueIndex: 0,
+        queueContext: context ?? null,
         shuffle,
         status: 'buffering',
         currentTime: 0,
@@ -257,13 +423,14 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
     }
 
     case 'PLAY_NEXT': {
-      const { track } = action.payload
       if (!state.currentTrack || state.queue.length === 0) {
-        return playerReducer(state, { type: 'PLAY_TRACK', payload: { track } })
+        return playerReducer(state, { type: 'PLAY_TRACK', payload: { track: action.payload.track } })
       }
-      if (state.currentTrack.id === track.id) {
+      if (state.currentTrack.id === action.payload.track.id) {
         return state
       }
+      // Directly after the current track, ahead of anything queued before.
+      const track = withOrigin(action.payload.track, 'user')
       let currentIdx = state.queueIndex
       const existingIdx = state.queue.findIndex((t) => t.id === track.id)
       const newQueue = [...state.queue]
@@ -278,13 +445,12 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       const insertAt = currentIdx + 1
       newQueue.splice(insertAt, 0, track)
 
-      const newOriginal = state.originalQueue.filter((t) => t.id !== track.id)
-      newOriginal.push(track)
-
+      // While shuffled, originalQueue is the unshuffled order of the context;
+      // a queued track is no part of it any more.
       return {
         ...state,
         queue: newQueue,
-        originalQueue: newOriginal,
+        originalQueue: state.shuffle ? state.originalQueue.filter((t) => t.id !== track.id) : newQueue,
         queueIndex: currentIdx,
       }
     }
@@ -321,12 +487,83 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         })
       }
 
+      const at = userInsertIndex(state.queue, state.queueIndex)
+      const newQueue = [...state.queue]
+      newQueue.splice(at, 0, ...tracksToAdd.map((t) => withOrigin(t, 'user')))
       return {
         ...state,
-        queue: [...state.queue, ...tracksToAdd],
-        originalQueue: [...state.originalQueue, ...tracksToAdd],
+        queue: newQueue,
+        originalQueue: state.shuffle ? state.originalQueue : newQueue,
       }
     }
+
+    case 'APPEND_AUTOPLAY': {
+      // Only onto a queue that would otherwise end; repeat never ends.
+      if (!state.currentTrack || state.queue.length === 0 || state.repeatMode !== 'off') return state
+      const known = new Set(state.queue.map((t) => t.id))
+      const added: QueueTrack[] = []
+      for (const track of action.payload.tracks) {
+        if (known.has(track.id)) continue
+        known.add(track.id)
+        added.push(withOrigin(track, 'autoplay'))
+      }
+      if (added.length === 0) return state
+      const newQueue = [...state.queue, ...added]
+      return {
+        ...state,
+        queue: newQueue,
+        originalQueue: state.shuffle ? state.originalQueue : newQueue,
+      }
+    }
+
+    case 'START_RADIO': {
+      const { seed, context } = action.payload
+      const rest = action.payload.tracks.filter((t) => t.id !== seed?.id).map(asContext)
+      const current = state.currentTrack
+      // Started from the track that plays: it carries on where it is.
+      if (seed && current && current.id === seed.id && current.offline_blob_key === seed.offline_blob_key) {
+        const head = asContext(current)
+        const queue = [head, ...rest]
+        return {
+          ...state,
+          currentTrack: head,
+          queue,
+          originalQueue: [...queue],
+          queueIndex: 0,
+          queueContext: context,
+          shuffle: false,
+          error: null,
+        }
+      }
+      const tracks = seed ? [asContext(seed), ...rest] : rest
+      if (tracks.length === 0) return state
+      return playerReducer(state, { type: 'PLAY_ALBUM', payload: { tracks, startIndex: 0, context } })
+    }
+
+    case 'RESTORE_QUEUE': {
+      // Undo of CLEAR_QUEUE: only while nothing else was started since.
+      const snapshot = action.payload
+      if (state.queue.length > 0 || snapshot.queue.length === 0) return state
+      const index = Math.max(0, Math.min(snapshot.queueIndex, snapshot.queue.length - 1))
+      const track = snapshot.currentTrack ?? snapshot.queue[index] ?? null
+      const wasPlaying = snapshot.status === 'playing' || snapshot.status === 'buffering'
+      return {
+        ...state,
+        queue: snapshot.queue,
+        originalQueue: snapshot.originalQueue,
+        queueIndex: index,
+        currentTrack: track,
+        queueContext: snapshot.queueContext,
+        shuffle: snapshot.shuffle,
+        currentTime: Math.max(0, snapshot.currentTime),
+        duration: trackDurationSeconds(track),
+        status: wasPlaying ? 'buffering' : 'paused',
+        error: null,
+      }
+    }
+
+    case 'SET_AUTOPLAY':
+      return { ...state, autoplay: action.payload }
 
     case 'REMOVE_FROM_QUEUE': {
       const { index } = action.payload
@@ -341,6 +578,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
           queue: [],
           originalQueue: [],
           queueIndex: -1,
+          queueContext: null,
           status: 'idle',
           currentTime: 0,
           duration: 0,
@@ -376,7 +614,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       return {
         ...state,
         queue: newQueue,
-        originalQueue: newOriginal,
+        originalQueue: state.shuffle ? newOriginal : newQueue,
         queueIndex: newIndex,
         currentTrack: newCurrentTrack,
         status: newStatus,
@@ -397,26 +635,12 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         return state
       }
 
-      const item = state.queue[fromIndex]
-      if (!item) return state
-      const newQueue = [...state.queue]
-      newQueue.splice(fromIndex, 1)
-      newQueue.splice(toIndex, 0, item)
-
-      let newIndex = state.queueIndex
-      if (fromIndex === state.queueIndex) {
-        newIndex = toIndex
-      } else if (fromIndex < state.queueIndex && toIndex >= state.queueIndex) {
-        newIndex--
-      } else if (fromIndex > state.queueIndex && toIndex <= state.queueIndex) {
-        newIndex++
-      }
-
+      const moved = moveQueueEntry(state.queue, state.queueIndex, fromIndex, toIndex)
       return {
         ...state,
-        queue: newQueue,
-        originalQueue: state.shuffle ? state.originalQueue : newQueue,
-        queueIndex: newIndex,
+        queue: moved.queue,
+        originalQueue: state.shuffle ? state.originalQueue : moved.queue,
+        queueIndex: moved.queueIndex,
       }
     }
 
@@ -427,6 +651,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
         queue: [],
         originalQueue: [],
         queueIndex: -1,
+        queueContext: null,
         status: 'idle',
         currentTime: 0,
         duration: 0,
@@ -454,7 +679,7 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       return {
         ...state,
         queue: newQueue,
-        originalQueue: newOriginal,
+        originalQueue: state.shuffle ? newOriginal : newQueue,
       }
     }
 
@@ -490,39 +715,55 @@ export function playerReducer(state: PlayerState, action: PlayerAction): PlayerS
       const shuffle = action.payload
       if (shuffle === state.shuffle) return state
 
+      // Shuffle reorders the context only: the current track leads, what the
+      // user queued stays next in its order, autoplay stays at the end.
+      // originalQueue remembers the unshuffled context for turning it off.
+      const index = state.queueIndex
+      const current = state.queue[index]
+      const upcoming = current ? state.queue.slice(index + 1) : []
+      const user = upcoming.filter((t) => queueOrigin(t) === 'user')
+      const auto = upcoming.filter((t) => queueOrigin(t) === 'autoplay')
+
       if (shuffle) {
-        // Turn ON: Preserve originalQueue, shuffle rest of queue around current track
-        const original = state.originalQueue.length > 0 ? state.originalQueue : [...state.queue]
-        if (!state.currentTrack || state.queue.length <= 1) {
+        const original = state.queue.filter((t) => queueOrigin(t) === 'context')
+        if (!state.currentTrack || !current || state.queue.length <= 1) {
           return { ...state, shuffle: true, originalQueue: original }
         }
-
-        const current = state.currentTrack
-        const rest = original.filter((t) => t.id !== current.id)
-        const shuffled = [current, ...shuffleArray(rest)]
-
+        const pool = state.queue.filter((t, i) => i !== index && queueOrigin(t) === 'context')
         return {
           ...state,
           shuffle: true,
           originalQueue: original,
-          queue: shuffled,
+          queue: [current, ...user, ...shuffleArray(pool), ...auto],
           queueIndex: 0,
         }
-      } else {
-        // Turn OFF: Restore originalQueue, reposition queueIndex to current track
-        const restored =
-          state.originalQueue.length > 0 ? [...state.originalQueue] : [...state.queue]
-        let newIndex = 0
-        if (state.currentTrack) {
-          const found = restored.findIndex((t) => t.id === state.currentTrack!.id)
-          if (found !== -1) newIndex = found
-        }
-        return {
-          ...state,
-          shuffle: false,
-          queue: restored,
-          queueIndex: newIndex,
-        }
+      }
+
+      const ordered = unshuffledContext(state.originalQueue, state.queue)
+      if (!state.currentTrack || !current) {
+        const queue = [...ordered, ...state.queue.filter((t) => queueOrigin(t) !== 'context')]
+        return { ...state, shuffle: false, queue, originalQueue: queue }
+      }
+      // The current track goes back to its place in the context; a queued
+      // one plays on after the context track that came before it.
+      let pivot = ordered.indexOf(current)
+      const isContext = pivot !== -1
+      if (!isContext) {
+        const before = state.queue
+          .slice(0, index)
+          .reverse()
+          .find((t) => queueOrigin(t) === 'context')
+        pivot = before ? ordered.indexOf(before) : -1
+      }
+      const head = isContext ? ordered.slice(0, pivot) : ordered.slice(0, pivot + 1)
+      const tail = ordered.slice(pivot + 1)
+      const queue = [...head, current, ...user, ...tail, ...auto]
+      return {
+        ...state,
+        shuffle: false,
+        queue,
+        originalQueue: queue,
+        queueIndex: head.length,
       }
     }
 

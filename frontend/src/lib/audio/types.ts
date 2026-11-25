@@ -35,11 +35,46 @@ export interface PlayerHistoryItem {
   playedAt: string
 }
 
+/**
+ * Where a queue entry came from. `context` is what was started (an album, a
+ * playlist, a radio …), `user` what the user queued on top of it ("Als
+ * Nächstes"), `autoplay` similar tracks appended when the queue ran out.
+ * Entries carry it as `queueOrigin`; an entry without one is `context`, so
+ * queues saved by older versions read as plain context.
+ */
+export type QueueOrigin = 'user' | 'context' | 'autoplay'
+
+/** A queue entry: a library track, optionally marked with its origin. */
+export type QueueTrack = LibraryTrack & { queueOrigin?: Exclude<QueueOrigin, 'context'> }
+
+export type QueueContextKind =
+  | 'album'
+  | 'playlist'
+  | 'mix'
+  | 'artist'
+  | 'favorites'
+  | 'radio'
+  | 'search'
+  | 'library'
+  | 'offline'
+  | 'history'
+
+/** What the queue was started from, shown as "Weiter aus: {title}". */
+export interface QueueContext {
+  kind: QueueContextKind
+  id?: string
+  title: string
+}
+
 export interface PlayerState {
   currentTrack: LibraryTrack | null
-  queue: LibraryTrack[]
-  originalQueue: LibraryTrack[]
+  queue: QueueTrack[]
+  originalQueue: QueueTrack[]
   queueIndex: number
+  /** What the context entries of the queue were started from; null when unknown. */
+  queueContext: QueueContext | null
+  /** Continue with similar tracks when the queue runs out. */
+  autoplay: boolean
   status: PlaybackStatus
   currentTime: number
   duration: number
