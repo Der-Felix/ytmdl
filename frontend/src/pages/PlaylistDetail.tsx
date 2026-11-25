@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Heart,
   Loader2,
   Pencil,
@@ -12,7 +14,9 @@ import {
 
 import { Cover } from '@/components/music/Cover'
 import { PlaylistArtwork } from '@/components/music/PlaylistArtwork'
-import { PlaylistTrackMenu } from '@/components/music/PlaylistTrackMenu'
+import { TrackAlbumLink, TrackArtistLink } from '@/components/music/TrackLinks'
+import { isRowGesture } from '@/lib/track-row'
+import { TrackMenu } from '@/components/music/TrackMenu'
 import { libraryArtwork } from '@/lib/artwork'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -59,7 +63,7 @@ interface PlaylistDetailProps {
 export function PlaylistDetail({ id }: PlaylistDetailProps) {
   const navigate = useNavigate()
   const { currentTrack, status } = usePlayerState()
-  const { playTrack, playAlbum, playShuffled, togglePlayPause, playNext, addToQueue } = usePlayerActions()
+  const { playTrack, playAlbum, playShuffled, togglePlayPause } = usePlayerActions()
   const favorites = useOptionalFavorites()
 
   const { state, reload, setData } = useAsync((signal) => getPlaylist(id, signal), [id])
@@ -238,7 +242,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       <div className="space-y-6">
         <Link
           href={paths.playlists()}
-          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground"
+          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground pointer-coarse:min-h-10 hover:text-foreground"
         >
           <ArrowLeft aria-hidden className="size-4" />
           Zurück zu Playlists
@@ -266,7 +270,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       <div className="space-y-6">
         <Link
           href={paths.playlists()}
-          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground"
+          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground pointer-coarse:min-h-10 hover:text-foreground"
         >
           <ArrowLeft aria-hidden className="size-4" />
           Zurück zu Playlists
@@ -289,7 +293,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       <div className="flex items-center justify-between">
         <Link
           href={paths.playlists()}
-          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="focus-ring inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground pointer-coarse:min-h-10 transition-colors hover:text-foreground"
         >
           <ArrowLeft aria-hidden className="size-4" />
           Zurück zu Playlists
@@ -385,22 +389,23 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
               const isCurrent = currentTrack?.id === pt.id
               const isPlaying = isCurrent && status === 'playing'
               const isFav = favorites?.isFavorite(pt.id)
-              return <li key={pt.id} className={`flex items-center gap-3 px-3 py-3 sm:gap-4 sm:px-5 ${isCurrent ? 'bg-primary/8' : 'hover:bg-muted'} transition-colors`}>
+              return <li key={pt.id} data-track-row onDoubleClick={(e) => { if (isRowGesture(e)) handlePlayTrack(pt, index) }} className={`flex items-center gap-3 px-3 py-3 sm:gap-4 sm:px-5 ${isCurrent ? 'bg-primary/8' : 'hover:bg-muted'} transition-colors`}>
                 <Button variant="ghost" size="icon" className={`size-11 shrink-0 rounded-full ${isCurrent ? 'bg-primary/15 text-primary' : ''}`} aria-label={`${pt.title} ${isPlaying ? 'pausieren' : 'abspielen'}`} onClick={() => handlePlayTrack(pt, index)}>
                   {isPlaying ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
                 </Button>
                 <Cover src={libraryArtwork('tracks', pt.id)} alt="" className="size-12 shrink-0 rounded-lg sm:size-14" />
-                <button type="button" onClick={() => handlePlayTrack(pt, index)} aria-label={`${pt.title} auswählen`} className="focus-ring min-w-0 flex-1 rounded-lg text-left">
-                  <span className={`block truncate text-base font-medium ${isCurrent ? 'text-primary' : ''}`}>{pt.title}</span>
-                  <span className="block truncate text-sm text-muted-foreground">{joinArtists(pt.artists || []) || pt.album_artist} <span className="hidden sm:inline">· {pt.album || 'Ohne Album'}</span></span>
-                </button>
+                <div className="min-w-0 flex-1">
+                  <button type="button" onClick={() => handlePlayTrack(pt, index)} className={`focus-ring block max-w-full cursor-pointer truncate rounded-lg text-left text-base font-medium ${isCurrent ? 'text-primary' : ''}`}>{pt.title}</button>
+                  <span className="block truncate text-sm text-muted-foreground"><TrackArtistLink track={pt} /> <span className="hidden sm:inline">· {pt.album ? <TrackAlbumLink track={pt} /> : 'Ohne Album'}</span></span>
+                </div>
                 {pt.codec && <Badge variant="outline" className="hidden uppercase text-xs lg:inline-flex">{pt.codec}</Badge>}
                 <span className="figures hidden shrink-0 text-sm text-muted-foreground sm:block">{formatDuration(pt.duration_ms)}</span>
                 {favorites && <Button variant="ghost" size="icon" className={`size-11 shrink-0 ${isFav ? 'text-primary' : 'text-muted-foreground'}`} aria-label={`${pt.title}: ${isFav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'}`} onClick={() => void favorites.toggleFavorite(pt.id)}><Heart className={`size-5 ${isFav ? 'fill-current' : ''}`} /></Button>}
-                <PlaylistTrackMenu title={pt.title} smart={!!playlist.smart_rules} busy={reordering || !!actionTrackId}
-                  moveUp={index > 0 ? () => void handleMoveTrack(index, 'up') : undefined}
-                  moveDown={index < tracks.length - 1 ? () => void handleMoveTrack(index, 'down') : undefined}
-                  next={() => playNext(pt)} enqueue={() => addToQueue(pt)} remove={() => setRemoving(pt)} />
+                <TrackMenu track={pt} extras={playlist.smart_rules ? [] : [
+                  { id: 'move-up', label: 'Nach oben verschieben', icon: ArrowUp, disabled: reordering || !!actionTrackId || index === 0, onSelect: () => void handleMoveTrack(index, 'up') },
+                  { id: 'move-down', label: 'Nach unten verschieben', icon: ArrowDown, disabled: reordering || !!actionTrackId || index === tracks.length - 1, onSelect: () => void handleMoveTrack(index, 'down') },
+                  { id: 'remove', label: 'Aus Playlist entfernen', icon: Trash2, destructive: true, disabled: reordering || !!actionTrackId, onSelect: () => setRemoving(pt) },
+                ]} />
               </li>
             })}
           </ol>}

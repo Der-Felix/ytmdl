@@ -54,6 +54,7 @@ export default defineConfig({
         items: [
           { text: 'Introduction', link: '/getting-started' },
           { text: 'Installation & Deployment', link: '/deployment' },
+          { text: 'Single Image', link: '/single-image' },
           { text: 'Configuration', link: '/configuration' },
         ],
       },

@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { QueueDrawer } from './QueueDrawer'
 import type { LibraryTrack } from '@/types/api'
@@ -112,19 +112,20 @@ describe('QueueDrawer', () => {
     expect(mockRemoveFromQueue).toHaveBeenCalledWith(1)
   })
 
-  it('handles accessible move up and down actions', () => {
+  it('handles accessible move up and down actions from the track menu', async () => {
     mockReorderQueue.mockClear()
     render(<QueueDrawer open={true} onOpenChange={() => {}} />)
 
     // Move Down on first track
-    const moveDownButtons = screen.getAllByTitle('Nach unten verschieben')
-    fireEvent.click(moveDownButtons[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktionen für Track One' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Nach unten verschieben' }))
     expect(mockReorderQueue).toHaveBeenCalledWith(0, 1)
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
 
     // Move Up on second track
     mockReorderQueue.mockClear()
-    const moveUpButtons = screen.getAllByTitle('Nach oben verschieben')
-    fireEvent.click(moveUpButtons[1])
+    fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktionen für Track Two' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Nach oben verschieben' }))
     expect(mockReorderQueue).toHaveBeenCalledWith(1, 0)
   })
 

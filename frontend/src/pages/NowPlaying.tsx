@@ -32,6 +32,9 @@ import {
 
 import { AddToPlaylistDialog } from '@/components/music/AddToPlaylistDialog'
 import { Cover } from '@/components/music/Cover'
+import { TrackAlbumLink, TrackArtistLink } from '@/components/music/TrackLinks'
+import { isRowGesture } from '@/lib/track-row'
+import { TrackMenu } from '@/components/music/TrackMenu'
 import { VisualizerCanvas } from '@/components/player/VisualizerCanvas'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -353,7 +356,7 @@ export function NowPlaying() {
   }
 
   return (
-    <div className="player-page player-enter relative min-h-dvh flex flex-col bg-background text-foreground select-none overflow-x-clip">
+    <div className="player-page player-enter relative min-h-dvh flex flex-col bg-background text-foreground select-none overflow-x-clip pb-[env(safe-area-inset-bottom)]">
       
       {/* Dynamic Immersive Background Atmosphere from Cover Art */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25 filter blur-3xl scale-125 transition duration-1000">
@@ -367,12 +370,13 @@ export function NowPlaying() {
       </div>
 
       {/* Top Header Bar (Clean & Minimal) */}
-      <header className="relative z-20 flex h-14 shrink-0 items-center justify-between px-4 sm:px-8">
+      {/* The safe areas of an installed app: status bar above, notch beside. */}
+      <header className="relative z-20 flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center justify-between pt-[env(safe-area-inset-top)] pr-[max(1rem,env(safe-area-inset-right))] pl-[max(1rem,env(safe-area-inset-left))] sm:pr-[max(2rem,env(safe-area-inset-right))] sm:pl-[max(2rem,env(safe-area-inset-left))]">
         {/* Back to where the player was opened from; Escape does the same. */}
         <button
           type="button"
           onClick={leavePlayer}
-          className="flex items-center gap-2 rounded-xl bg-muted hover:bg-secondary px-3 py-1.5 text-xs font-medium text-foreground/80 hover:text-foreground transition border border-border shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="flex items-center gap-2 rounded-xl bg-muted hover:bg-secondary px-3 py-1.5 pointer-coarse:min-h-10 text-xs font-medium text-foreground/80 hover:text-foreground transition border border-border shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           title="Zurück (Esc)"
         >
           <ArrowLeft className="size-4" strokeWidth={1.8} />
@@ -388,12 +392,12 @@ export function NowPlaying() {
               setRadioStarting(true)
               void startRadio({ seed: currentTrack }).finally(() => setRadioStarting(false))
             }}
-            className="size-8 rounded-xl bg-muted text-muted-foreground hover:bg-secondary hover:text-foreground border border-border"
+            className="size-8 pointer-coarse:size-10 rounded-xl bg-muted text-muted-foreground hover:bg-secondary hover:text-foreground border border-border"
           >{radioStarting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Radio className="size-4" aria-hidden="true" />}</Button>
           <Button
             variant="ghost" size="icon-sm" aria-label="Geräteübergabe" title="Geräteübergabe"
             onClick={() => navigate('/library?view=tools&tool=handoff')}
-            className="size-8 rounded-xl bg-muted text-muted-foreground hover:bg-secondary hover:text-foreground border border-border"
+            className="size-8 pointer-coarse:size-10 rounded-xl bg-muted text-muted-foreground hover:bg-secondary hover:text-foreground border border-border"
           ><MonitorSmartphone className="size-4" /></Button>
           {/* Visualizer Menu Button */}
           <div className="relative">
@@ -401,7 +405,7 @@ export function NowPlaying() {
               variant="ghost"
               size="icon-sm"
               onClick={() => setVisualizerMenuOpen(!visualizerMenuOpen)}
-              className={`size-8 rounded-xl transition-colors ${
+              className={`size-8 pointer-coarse:size-10 rounded-xl transition-colors ${
                 visualizerMode !== 'off'
                   ? 'bg-primary/20 text-primary border border-primary/30'
                   : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-secondary border border-border'
@@ -440,7 +444,7 @@ export function NowPlaying() {
             variant="ghost"
             size="icon-sm"
             onClick={toggleFullscreen}
-            className="size-8 rounded-xl text-muted-foreground hover:text-foreground bg-muted hover:bg-secondary border border-border"
+            className="size-8 pointer-coarse:size-10 rounded-xl text-muted-foreground hover:text-foreground bg-muted hover:bg-secondary border border-border"
             title={isFullscreen ? 'Vollbildmodus beenden' : 'Vollbildmodus aktivieren'}
             aria-label="Vollbild"
           >
@@ -493,12 +497,12 @@ export function NowPlaying() {
                 {currentTrack.title}
               </h1>
               <p className="text-sm sm:text-base text-foreground/80 font-medium line-clamp-1">
-                {artistText}
+                <TrackArtistLink track={currentTrack}>{artistText}</TrackArtistLink>
               </p>
               <div className="flex items-center justify-center lg:justify-start gap-2 pt-0.5 text-xs text-muted-foreground">
                 {currentTrack.album && (
                   <span className="truncate max-w-[220px]">
-                    {currentTrack.album} {currentTrack.year ? `(${currentTrack.year})` : ''}
+                    <TrackAlbumLink track={currentTrack} /> {currentTrack.year ? `(${currentTrack.year})` : ''}
                   </span>
                 )}
                 {currentTrack.codec && (
@@ -563,9 +567,10 @@ export function NowPlaying() {
             </div>
 
             {/* Secondary Controls Bar: Volume & Options Menu */}
-            <div className="w-full flex items-center justify-between gap-4 pt-3 border-t border-border">
-              {/* Volume Slider (Quiet) */}
-              <div className="flex items-center gap-2">
+            <div className="w-full flex items-center justify-between pointer-coarse:justify-center gap-4 pt-3 border-t border-border">
+              {/* Volume Slider (Quiet). Not on touch screens: the device
+                  buttons set the volume there, and iOS ignores it. */}
+              <div data-slot="volume-control" className="flex pointer-coarse:hidden items-center gap-2">
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -602,7 +607,7 @@ export function NowPlaying() {
                     variant="ghost"
                     size="sm"
                     onClick={() => void favorites.toggleFavorite(currentTrack.id)}
-                    className={`h-7 w-7 p-0 rounded-lg transition-colors ${
+                    className={`h-7 w-7 pointer-coarse:size-10 p-0 rounded-lg transition-colors ${
                       favorites.isFavorite(currentTrack.id)
                         ? 'text-rose-500 hover:text-rose-400 bg-rose-500/10'
                         : 'text-muted-foreground hover:text-rose-400 hover:bg-muted'
@@ -632,7 +637,7 @@ export function NowPlaying() {
                   variant="ghost"
                   size="sm"
                   onClick={() => setPlaylistDialogOpen(true)}
-                  className="h-7 w-7 p-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
+                  className="h-7 w-7 pointer-coarse:size-10 p-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
                   title="Zur Playlist hinzufügen"
                   aria-label="Zur Playlist hinzufügen"
                 >
@@ -645,7 +650,7 @@ export function NowPlaying() {
                     variant="ghost"
                     size="sm"
                     onClick={() => setOptionsMenuOpen(!optionsMenuOpen)}
-                    className="h-7 px-2 rounded-lg bg-muted hover:bg-secondary text-xs text-foreground/80 hover:text-foreground border border-border gap-1.5"
+                    className="h-7 px-2 pointer-coarse:h-10 pointer-coarse:px-3 rounded-lg bg-muted hover:bg-secondary text-xs text-foreground/80 hover:text-foreground border border-border gap-1.5"
                     title="Wiedergabeoptionen"
                   >
                     <MoreHorizontal className="size-3.5" />
@@ -656,7 +661,7 @@ export function NowPlaying() {
                   </Button>
 
                   {optionsMenuOpen && (
-                    <div className="absolute right-0 bottom-9 z-50 w-52 rounded-2xl bg-popover border border-input p-3 shadow-2xl space-y-3">
+                    <div className="absolute right-0 bottom-9 pointer-coarse:bottom-12 z-50 w-52 rounded-2xl bg-popover border border-input p-3 shadow-2xl space-y-3">
                       {/* Speed Selection */}
                       <div>
                         <label className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider block mb-1.5">
@@ -957,10 +962,11 @@ export function NowPlaying() {
                       {history.map((item, idx) => (
                         <div
                           key={`${item.track.id}-${idx}`}
-                          onClick={() => playTrack(item.track)}
-                          className="flex items-center justify-between p-2 rounded-xl hover:bg-muted cursor-pointer transition-colors"
+                          data-track-row
+                          onClick={(e) => { if (isRowGesture(e)) playTrack(item.track) }}
+                          className="flex items-center justify-between gap-1 p-2 rounded-xl hover:bg-muted cursor-pointer transition-colors"
                         >
-                          <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex flex-1 items-center gap-2.5 min-w-0">
                             <Cover
                               src={libraryArtwork('tracks', item.track.id)} fallbackSrc={item.track.cover_url}
                               alt={item.track.title}
@@ -968,17 +974,18 @@ export function NowPlaying() {
                               className="size-9 rounded-lg shrink-0 border border-input"
                             />
                             <div className="min-w-0">
-                              <p className="truncate text-xs font-medium text-foreground">
+                              <button type="button" onClick={() => playTrack(item.track)} aria-label={`${item.track.title} abspielen`} className="focus-ring block max-w-full cursor-pointer truncate rounded-sm text-left text-xs font-medium text-foreground">
                                 {item.track.title}
-                              </p>
+                              </button>
                               <p className="truncate text-[11px] text-muted-foreground">
-                                {item.track.artists?.length > 0 ? joinArtists(item.track.artists) : item.track.album_artist}
+                                <TrackArtistLink track={item.track} />
                               </p>
                             </div>
                           </div>
                           <span className="figures text-[11px] text-muted-foreground/80">
                             {formatDuration(item.track.duration_ms)}
                           </span>
+                          <TrackMenu track={item.track} size="compact" />
                         </div>
                       ))}
                     </div>

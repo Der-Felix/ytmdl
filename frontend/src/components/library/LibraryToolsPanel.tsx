@@ -4,6 +4,9 @@ import { Input } from '@/components/ui/input'
 import { ErrorState, ListSkeleton } from '@/components/ui/state-view'
 import { Cover } from '@/components/music/Cover'
 import { ArtworkEditor } from '@/components/music/ArtworkEditor'
+import { TrackArtistLink } from '@/components/music/TrackLinks'
+import { isRowGesture } from '@/lib/track-row'
+import { TrackMenu } from '@/components/music/TrackMenu'
 import { DuplicateReviewPanel } from './DuplicateReviewPanel'
 import { TrashPanel } from './TrashPanel'
 import { HandoffPanel } from './HandoffPanel'
@@ -162,34 +165,37 @@ function HistoryPanel() {
           <>
             <div className="divide-y divide-border">
               {state.data.map((track, index) => (
-                <div key={track.id} className="flex items-center gap-3 py-3">
+                <div
+                  key={track.id}
+                  data-track-row
+                  onDoubleClick={(e) => {
+                    if (isRowGesture(e))
+                      playTrack(track, state.data, index, { kind: 'history', title: 'Hörverlauf' })
+                  }}
+                  className="flex items-center gap-3 py-3"
+                >
                   <Cover
                     src={libraryArtwork('tracks', track.id)}
                     fallbackSrc={track.cover_url}
                     alt=""
                     className="size-10 shrink-0"
                   />
-                  <button
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => detail(track)}
-                  >
-                    <span className="block truncate text-sm font-medium">
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="focus-ring block max-w-full cursor-pointer truncate rounded-sm text-left text-sm font-medium"
+                      aria-label={`${track.title} abspielen`}
+                      onClick={() => playTrack(track, state.data, index, { kind: 'history', title: 'Hörverlauf' })}
+                    >
                       {track.title}
-                    </span>
+                    </button>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {track.artists?.join(' · ')} · {track.play_count}{' '}
+                      <TrackArtistLink track={track} /> · {track.play_count}{' '}
                       Wiedergaben ·{' '}
                       {new Date(track.last_played_at).toLocaleString()}
                     </span>
-                  </button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={`${track.title} abspielen`}
-                    onClick={() => playTrack(track, state.data, index, { kind: 'history', title: 'Hörverlauf' })}
-                  >
-                    Abspielen
-                  </Button>
+                  </div>
+                  <TrackMenu track={track} onShowDetails={() => detail(track)} />
                 </div>
               ))}
             </div>

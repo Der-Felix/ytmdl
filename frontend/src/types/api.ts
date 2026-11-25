@@ -793,6 +793,8 @@ export interface MusicFile {
 export interface LibraryTrack extends Track {
   /** Browser-local immutable audio key; never supplied by the server. */
   offline_blob_key?: string
+  /** The library artist, for linking the name; missing on older servers. */
+  artist_id?: string
   file_path?: string
   file_size_bytes?: number
   codec?: string

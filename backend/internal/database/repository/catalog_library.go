@@ -359,6 +359,7 @@ func (c *Catalog) ListTracksFiltered(ctx context.Context, filter TrackListFilter
 			return nil, 0, wrapDB("scan track filtered", err)
 		}
 		lt.ReleaseID = stringOf(releaseID)
+		lt.ArtistID = stringOf(artistID)
 		lt.Artists = decodeStrings(artistsJSON)
 		lt.LyricsState = music.LyricsState(lyricsState)
 		if checkedAt.Valid {
@@ -1004,6 +1005,7 @@ func (c *Catalog) SearchTracks(ctx context.Context, query string, limit int) ([]
 			return nil, wrapDB("scan searched track", err)
 		}
 		lt.ReleaseID = stringOf(releaseID)
+		lt.ArtistID = stringOf(artistID)
 		lt.Artists = decodeStrings(artistsJSON)
 		lt.LyricsState = music.LyricsState(lyricsState)
 		if checkedAt.Valid {

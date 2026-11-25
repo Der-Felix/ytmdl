@@ -21,15 +21,15 @@ function ToastPortal({ ...props }: ToastPrimitive.Portal.Props) {
   return <ToastPrimitive.Portal data-slot="toast-portal" {...props} />
 }
 
-/* The stack sits bottom right and above the mini player; --player-height is
-   set in index.css while the player bar is on screen. */
+/* The stack sits bottom right and above the mini player and, on phones, the
+   bottom navigation; --bottom-chrome is set in index.css from both bars. */
 function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
   return (
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       aria-label="Meldungen"
       className={cn(
-        "pointer-events-none fixed inset-x-4 bottom-[calc(var(--player-height)+1rem)] z-[60] mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full",
+        "pointer-events-none fixed inset-x-4 bottom-[calc(var(--bottom-chrome)+1rem)] z-[60] mx-auto w-auto max-w-sm outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full",
         className
       )}
       {...props}

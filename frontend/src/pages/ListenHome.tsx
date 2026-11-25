@@ -4,6 +4,8 @@ import type { ReactNode } from 'react'
 import { Cover } from '@/components/music/Cover'
 import { MixCard } from '@/components/music/MixCard'
 import { ReleasePlayButton } from '@/components/music/ReleaseCard'
+import { TrackArtistLink } from '@/components/music/TrackLinks'
+import { TrackMenu } from '@/components/music/TrackMenu'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Panel } from '@/components/ui/panel'
 import { Progress } from '@/components/ui/progress'
@@ -250,13 +252,13 @@ function HistorySection({ state, onRetry }: { state: AsyncState<HistoryTrack[]>;
         <Panel className="p-2">
           <ul className="grid gap-x-2 lg:grid-cols-2">
             {tracks.map((track, index) => (
-              <li key={track.id}>
-                <button
-                  type="button"
-                  onClick={() => playTrack(track, tracks, index, { kind: 'history', title: 'Zuletzt gehört' })}
-                  aria-label={`${track.title} abspielen`}
-                  className="focus-ring group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors duration-(--duration-fast) hover:bg-muted"
-                >
+              <li
+                key={track.id}
+                data-track-row
+                className="group relative flex items-center gap-1 rounded-xl pr-1 transition-colors duration-(--duration-fast) hover:bg-muted"
+              >
+                {/* The play button covers the row; artist link and menu sit above it. */}
+                <div className="flex min-w-0 flex-1 items-center gap-3 px-2 py-2">
                   <span className="relative shrink-0">
                     <Cover
                       src={libraryArtwork('tracks', track.id)}
@@ -266,19 +268,27 @@ function HistorySection({ state, onRetry }: { state: AsyncState<HistoryTrack[]>;
                     />
                     <span
                       aria-hidden
-                      className="absolute inset-0 flex items-center justify-center rounded-lg bg-overlay/60 text-foreground opacity-0 transition-opacity duration-(--duration-fast) group-hover:opacity-100 group-focus-visible:opacity-100"
+                      className="absolute inset-0 flex items-center justify-center rounded-lg bg-overlay/60 text-foreground opacity-0 transition-opacity duration-(--duration-fast) group-hover:opacity-100 group-focus-within:opacity-100"
                     >
                       <PlayIcon className="size-4 fill-current" />
                     </span>
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-foreground">{track.title}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {track.artists?.length ? joinArtists(track.artists) : track.album_artist}
+                    <button
+                      type="button"
+                      onClick={() => playTrack(track, tracks, index, { kind: 'history', title: 'Zuletzt gehört' })}
+                      aria-label={`${track.title} abspielen`}
+                      className="block w-full cursor-pointer truncate text-left text-sm font-medium text-foreground outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-ring"
+                    >
+                      {track.title}
+                    </button>
+                    <span className="relative block truncate text-xs text-muted-foreground">
+                      <TrackArtistLink track={track} />
                     </span>
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">{formatRelative(track.last_played_at)}</span>
-                </button>
+                </div>
+                <TrackMenu track={track} className="relative" />
               </li>
             ))}
           </ul>
