@@ -28,6 +28,7 @@ const track = (id: string): LibraryTrack => ({
 })
 const album = [track('a1'), track('a2')]
 const radio = [track('r1'), track('r2'), track('a2')]
+let radioAnswer = radio
 
 const auth = {
   user: { id: 'listener', username: 'listener', role: 'user', enabled: true },
@@ -62,10 +63,11 @@ describe('automatic queue transitions', () => {
     clock = 1000
     performance.now = () => clock
     requests = []
+    radioAnswer = radio
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       requests.push(`${init?.method ?? 'GET'} ${url}`)
-      if (url.includes('/library/radio')) return new Response(JSON.stringify({ data: radio }))
+      if (url.includes('/library/radio')) return new Response(JSON.stringify({ data: radioAnswer }))
       return new Response(null, { status: 204 })
     }) as typeof fetch
     function Consumer() {
@@ -140,6 +142,17 @@ describe('automatic queue transitions', () => {
     act(() => callbacks().onStatusChange?.('playing'))
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(requests.filter((r) => r.includes('/library/radio'))).toEqual([])
+  })
+
+  it('keeps tracks played earlier in the session out of later top-ups', async () => {
+    listen()
+    await waitFor(() => expect(state.queue.some((t) => t.queueOrigin === 'autoplay')).toBe(true))
+    // A new queue replaces the old one; a1 was played before it.
+    radioAnswer = [track('a1'), track('r3')]
+    act(() => actions.playAlbum([track('b1')], 0, { kind: 'album', id: 'rel2', title: 'Zweites Album' }))
+    act(() => callbacks().onStatusChange?.('playing'))
+    await waitFor(() => expect(state.queue.some((t) => t.queueOrigin === 'autoplay')).toBe(true))
+    expect(state.queue.map((t) => t.id)).toEqual(['b1', 'r3'])
   })
 
   it('undoes clearing the queue from the toast', async () => {
