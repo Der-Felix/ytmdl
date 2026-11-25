@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.4.1, build 35
+# Apple app handoff — preview 0.4.2, build 36
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,31 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 36: the Apple TV side (CI only, not installed)
+
+Builds on PR #111 (build 35); see FEATURES.md "Apple TV and undo (build 36)".
+
+- **Für dich on TV:** `TVForYouView` in `App/TVListenViews.swift` (a grid of `TVMixCard`,
+  genre mixes first via `PersonalMix.ordered`, loading/empty/unsupported/error states with
+  retry). `RootView.routedContent` maps `ForYouRoute` to it on tvOS. The Start tab ends
+  the first mix row with an **Alle Mixe** card (`tv-all-mixes`). `TVMixCard` replaces the
+  Start tab's private card, so both places share the long-press menu.
+- **Queue editing on TV:** `TVQueueView` has a long-press menu on upcoming rows (play next,
+  up, down, remove), **Warteschlange leeren** (upcoming entries, like "Nächste leeren") and
+  **Als Playlist speichern**. The rules live in core: `PlaybackQueue.isUpcoming`,
+  `canMoveUp`, `canMoveDown`, `canPlayNext`, `focusAfterRemoving`. Focus is set through a
+  `@FocusState` after a short delay so the closing menu does not reset it.
+- **Undo after clearing:** `QueueClearUndo` (core) keeps the queue before and after;
+  `restore(from:)` returns the old queue only while nothing changed since, ignoring
+  autoplay entries appended in between. `PlayerModel.clearQueue`/`clearUpcoming` set
+  `undoOffer` for `undoSeconds` (10); `undoClear()` restores, and after a full clear
+  reloads the title at its position (playing only if it played). `stop()` drops the
+  offer, so signing out never restores an old queue. `QueueUndoBar` (iPhone/iPad player,
+  Mac player at the top) and a focusable **Rückgängig** in the TV queue show it.
+- **Mix sorting:** `MixTrackSort` (core) mirrors the web mix page's columns; `Track`
+  decodes optional `album_artist`/`track_number`, so older saved queues still decode.
+- UI tests: `testTVForYouOpensFromStartAndFocusesAMix`, `testTVQueueRemovesUpcomingEntryFromMenu`.
 
 ## Build 35: rest of the listening parity (CI only, not installed)
 
@@ -134,7 +159,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.4.1 (35)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.4.2 (36)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness
@@ -271,7 +296,7 @@ Design reference: [Apple buttons](https://developer.apple.com/design/human-inter
 | Mac player, queue actions and compact playback options | `App/DesktopViews.swift` |
 | Mac Start feed and appearance | `App/DesktopHomeView.swift`, `App/Appearance.swift`, `App/ListeningHistory.swift` |
 | Listening home, mixes, mix page (shared) | `App/ListenHome.swift` |
-| Apple TV Start tab and queue sections | `App/TVListenViews.swift` |
+| Apple TV Start tab, Für dich, queue sections and editing | `App/TVListenViews.swift` |
 | Streaming, prefetch, timers, two-player crossfade, metering | `App/PlayerModel.swift` |
 | Audio processing and ten-band EQ | `App/Equalizer.swift`, `App/AudioSettingsViews.swift` |
 | Cover-derived colors | `App/ArtworkPalette.swift` |
