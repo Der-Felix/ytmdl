@@ -26,6 +26,8 @@ import YTMDLCore
     var device: DeviceStart?
     var player = PlayerModel()
     var listeningHistory = ListeningHistory()
+    /// Personal mixes, server listening history and new releases for the start screen.
+    var feed = ListenFeed()
     var offline: OfflineLibrary
     var offlineMode = false
     var handoff: PlaybackHandoff?
@@ -37,9 +39,18 @@ import YTMDLCore
         player.offlineLibrary = offline
         player.onTrackPlayed = { [weak self] track in
             guard let self else { return }
-            listeningHistory.record(track); if syncHistory { listeningHistory.enqueueEvent(track) }
-            Task { await flushListeningHistory() }
+            listeningHistory.record(track)
             if !offlineMode && offline.cachePlayed { offline.enqueue([track], automatic: true) }
+        }
+        // Plays and skips use the web player's rules. Events from local files
+        // wait in the account's queue until this account is online again.
+        player.onListeningEvent = { [weak self] track, kind in
+            guard let self, syncHistory else { return }
+            listeningHistory.enqueueEvent(track, kind: kind)
+            Task { await flushListeningHistory() }
+        }
+        player.onAutoplayNeeded = { [weak self] seed, count, last in
+            Task { await self?.extendAutoplay(seed: seed, expectedCount: count, lastID: last) }
         }
         player.onSnapshot = { [weak self] queue, position, mode, force in
             self?.listeningHistory.saveSnapshot(queue: queue, position: position, repeatMode: mode, force: force)
@@ -306,6 +317,7 @@ import YTMDLCore
         connecting = false; listeningBusy = false; handoff = nil; error = nil; pendingFavorites = []
         genres = []; genre = ""; releaseOffset = 0; moreReleases = false
         listeningHistory.configure(server: nil, userID: nil, persist: false)
+        feed.clear()
         query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil
     }
     // Cover previews are shared by Start and Playlists. Fetch at most twelve
@@ -425,7 +437,9 @@ import YTMDLCore
             if !genre.isEmpty { result = try await client.get("/library/radio", query: [.init(name: "genre", value: genre), .init(name: "nonce", value: UUID().uuidString)]) }
             else { result = try await client.get("/library/tracks", query: query) }
             guard self.client === client, player.playbackRevision == playbackRevision else { return }
-            player.play(name == "Neu" ? result : result.shuffled(), client: client)
+            let context = !genre.isEmpty ? QueueContext(kind: "radio", id: genre, title: "Radio: \(genre)")
+                : name == "Favoriten" ? QueueContext(kind: "favorites", title: "Lieblingstitel") : QueueContext(kind: "library", title: name)
+            player.play(name == "Neu" ? result : result.shuffled(), client: client, context: context)
         } catch { if self.client === client { report(error) } }
     }
     func startRadio(_ track: Track) async {
@@ -435,7 +449,8 @@ import YTMDLCore
         do {
             let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
             guard self.client === client, player.playbackRevision == playbackRevision else { return }
-            player.play([track] + result.filter { $0.id != track.id }, client: client)
+            player.play([track] + result.filter { $0.id != track.id }, client: client,
+                        context: QueueContext(kind: "radio", id: track.id, title: "Radio: \(track.title)"))
         } catch { if self.client === client { report(error) } }
     }
     func continueRadio(after track: Track) async {
@@ -450,7 +465,7 @@ import YTMDLCore
             let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
             guard self.client === client, player.playbackRevision == playbackRevision, player.autoplay, !player.isPlaybackRequested, player.current?.id == track.id else { return }
             let candidates = result.filter { !played.contains($0.id) }
-            if !candidates.isEmpty { player.play(candidates, client: client) }
+            if !candidates.isEmpty { player.play(candidates, client: client, context: QueueContext(kind: "radio", id: track.id, title: "Radio: \(track.title)")) }
         } catch { /* Autoplay must not turn normal queue completion into an alert. */ }
     }
     func resumeLastSession() {
@@ -473,11 +488,33 @@ import YTMDLCore
         for event in listeningHistory.pendingEvents {
             guard syncHistory, listeningHistory.enabled, self.generation == generation, self.client === client else { return }
             do {
-                try await client.mutate("/history", method: "POST", body: ["event_id": event.eventID, "track_id": event.trackID])
+                try await client.mutate(event.resolvedKind.path, method: "POST", body: ["event_id": event.eventID, "track_id": event.trackID])
                 guard self.generation == generation, self.client === client else { return }
                 listeningHistory.acknowledgeEvent(event.eventID)
-            } catch { return } // Retain idempotent events until this same account reconnects.
+            } catch {
+                // A definite refusal of this one event (a server without skips
+                // answers 404) must not hold back every later event.
+                if Self.dropsListeningEvent(after: error), self.generation == generation, self.client === client {
+                    listeningHistory.acknowledgeEvent(event.eventID); continue
+                }
+                return // Retain idempotent events until this same account reconnects.
+            }
         }
+    }
+    /// Client errors other than an expired session, a CSRF problem, a timeout
+    /// or a rate limit are permanent for that event.
+    nonisolated static func dropsListeningEvent(after error: Error) -> Bool {
+        guard case PlayerError.server(let status, _, _) = error else { return false }
+        return (400..<500).contains(status) && ![401, 403, 408, 429].contains(status)
+    }
+    /// Autoplay lookahead: similar tracks for the last track the user chose.
+    func extendAutoplay(seed: Track, expectedCount: Int, lastID: String) async {
+        guard !offlineMode, let client else { return }
+        do {
+            let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: seed.id), .init(name: "nonce", value: UUID().uuidString)])
+            guard self.client === client else { return }
+            player.appendAutoplay(result, expectedCount: expectedCount, lastID: lastID)
+        } catch { /* Autoplay is a suggestion; the queue ends normally without it. */ }
     }
     func saveHandoff() async {
         guard !offlineMode, let client, player.current != nil else { return }

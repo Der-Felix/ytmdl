@@ -154,15 +154,29 @@ func mobileCollectionDuration(_ milliseconds: Int) -> String {
     return minutes >= 60 ? "\(minutes / 60) Std. \(minutes % 60) Min." : "\(minutes) Min."
 }
 
+/// The listening start screen ("Start"): pick up where you left off, the day's
+/// personal mixes, what you heard last and what is new in the library, like
+/// the web's "Hören" page. Server sections load on their own and never raise
+/// an alert; without a connection a clear hint points to the saved music.
 struct MobileHomeView: View {
     var model: AppModel
+    var openPlayer: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var textSize
+    private var feed: ListenFeed { model.feed }
+    /// Server mixes replace the local "Für deinen Moment" shortcuts once the server has any.
+    private var hasServerMixes: Bool { feed.mixesPhase == .loaded && !feed.mixes.isEmpty }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 hero
                 MobileLibraryShortcuts()
-                if model.listeningHistory.snapshot != nil {
+                if feed.unreachable { offlineHint }
+                if let track = model.player.current {
+                    VStack(alignment: .leading, spacing: 12) {
+                        heading("Weiterhören", subtitle: "Deine aktuelle Wiedergabe")
+                        ContinueListeningCard(model: model, track: track, open: openPlayer)
+                    }
+                } else if model.listeningHistory.snapshot != nil {
                     Button { model.resumeLastSession() } label: {
                         HStack(spacing: 14) {
                             Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(.tint)
@@ -174,24 +188,17 @@ struct MobileHomeView: View {
                         }.padding(16).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
                     }.buttonStyle(.plain).accessibilityLabel("Letzte Wiedergabe fortsetzen")
                 }
-                if !model.listeningHistory.tracks.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        heading("Zuletzt gehört", subtitle: "Schnell zurück zu deiner Musik")
-                        VStack(spacing: 0) {
-                            ForEach(Array(model.listeningHistory.tracks.prefix(4))) { track in
-                                TrackRow(model: model, track: track) { if let client = model.client { model.player.play(model.listeningHistory.tracks, start: model.listeningHistory.tracks.firstIndex(of: track) ?? 0, client: client) } }
-                                    .padding(.horizontal, 12).padding(.vertical, 6)
-                            }
-                        }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
-                    }
-                }
-                if !model.releases.isEmpty { albumShelf }
-                VStack(alignment: .leading, spacing: 14) {
-                    heading("Für deinen Moment", subtitle: "Ein Mix aus deiner Bibliothek")
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: textSize.isAccessibilitySize ? 1 : 2), spacing: 12) {
-                        mix("Favoriten", subtitle: "Deine Lieblingstitel", symbol: "heart.fill")
-                        mix("Neu", subtitle: "Frisch hinzugefügt", symbol: "sparkles")
-                        ForEach(Array(model.genres.filter { $0 != "__none__" }.prefix(4)), id: \.self) { genre in mix(genre, subtitle: "Genre-Mix", symbol: "waveform", genre: genre) }
+                mixShelf
+                historySection
+                if !(feed.releasesPhase == .loaded ? feed.newReleases : model.releases).isEmpty { albumShelf }
+                if !hasServerMixes {
+                    VStack(alignment: .leading, spacing: 14) {
+                        heading("Für deinen Moment", subtitle: "Ein Mix aus deiner Bibliothek")
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: textSize.isAccessibilitySize ? 1 : 2), spacing: 12) {
+                            mix("Favoriten", subtitle: "Deine Lieblingstitel", symbol: "heart.fill")
+                            mix("Neu", subtitle: "Frisch hinzugefügt", symbol: "sparkles")
+                            ForEach(Array(model.genres.filter { $0 != "__none__" }.prefix(4)), id: \.self) { genre in mix(genre, subtitle: "Genre-Mix", symbol: "waveform", genre: genre) }
+                        }
                     }
                 }
                 if !model.playlists.isEmpty {
@@ -208,8 +215,83 @@ struct MobileHomeView: View {
             }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 32)
                 .frame(maxWidth: 1000).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("Start").refreshable { await model.loadLibrary() }
+            .navigationTitle("Start").refreshable { await model.loadLibrary(); await model.loadListenFeed() }
             .task(id: model.playlistRevision) { await model.loadPlaylistPreviews(Array(model.playlists.prefix(3))) }
+            .task(id: model.user?.id) { await model.loadListenFeed() }
+    }
+    private var offlineHint: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Keine Verbindung zum Server", systemImage: "wifi.slash").font(.headline)
+            Text("Mixe und dein Hörverlauf erscheinen, sobald der Server wieder erreichbar ist. Gespeicherte Musik spielt weiter.")
+                .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                NavigationLink(value: Destination.downloads) { Label("Gespeicherte Musik", systemImage: "arrow.down.circle") }
+                    .buttonStyle(MobileActionStyle())
+                Button { Task { await model.loadListenFeed() } } label: { Label("Erneut versuchen", systemImage: "arrow.clockwise") }
+                    .buttonStyle(MobileActionStyle())
+            }
+        }.padding(16).background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+            .accessibilityElement(children: .contain)
+    }
+    @ViewBuilder private var mixShelf: some View {
+        switch feed.mixesPhase {
+        case .loaded where !feed.mixes.isEmpty:
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    heading("Deine Mixe", subtitle: "Täglich neu aus deiner Mediathek")
+                    Spacer(minLength: 8)
+                    NavigationLink(value: ForYouRoute()) { Text("Alle Mixe").font(.subheadline.weight(.semibold)) }
+                        .frame(minHeight: 44).accessibilityHint("Öffnet „Für dich“")
+                }
+                if let message = feed.mixError { Text(message).font(.callout).foregroundStyle(.red) }
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: 16) {
+                        ForEach(feed.mixes.prefix(8)) { mix in MixCard(model: model, mix: mix, width: textSize.isAccessibilitySize ? 220 : 156) }
+                    }
+                }.scrollIndicators(.hidden)
+            }
+        case .failed(let message) where !feed.unreachable:
+            VStack(alignment: .leading, spacing: 12) {
+                heading("Deine Mixe", subtitle: "Täglich neu aus deiner Mediathek")
+                ListenSectionFailure(message: message) { Task { await model.loadListenFeed() } }
+            }
+        default: EmptyView()
+        }
+    }
+    /// The account's history from the server (all devices); without it the
+    /// local list of this device, as before.
+    @ViewBuilder private var historySection: some View {
+        let server = feed.historyPhase == .loaded ? feed.history : []
+        if !server.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                heading("Zuletzt gehört", subtitle: "Auf allen deinen Geräten")
+                VStack(spacing: 0) {
+                    ForEach(Array(server.prefix(6).enumerated()), id: \.element.id) { index, entry in
+                        HStack(alignment: .center, spacing: 6) {
+                            TrackRow(model: model, track: entry.track) { playHistory(server.map(\.track), start: index) }
+                            if let played = entry.lastPlayedAt {
+                                Text(played.formatted(.relative(presentation: .named))).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).fixedSize().accessibilityLabel("gehört \(played.formatted(.relative(presentation: .named)))")
+                            }
+                        }.padding(.horizontal, 12).padding(.vertical, 6)
+                    }
+                }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+            }
+        } else if !model.listeningHistory.tracks.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                heading("Zuletzt gehört", subtitle: "Schnell zurück zu deiner Musik")
+                VStack(spacing: 0) {
+                    ForEach(Array(model.listeningHistory.tracks.prefix(4))) { track in
+                        TrackRow(model: model, track: track) { playHistory(model.listeningHistory.tracks, start: model.listeningHistory.tracks.firstIndex(of: track) ?? 0) }
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                    }
+                }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+            }
+        }
+    }
+    private func playHistory(_ tracks: [Track], start: Int) {
+        guard let client = model.client else { return }
+        model.player.play(tracks, start: start, client: client, context: QueueContext(kind: "history", title: "Zuletzt gehört"))
     }
     private var hero: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -228,10 +310,10 @@ struct MobileHomeView: View {
     }
     private var albumShelf: some View {
         VStack(alignment: .leading, spacing: 14) {
-            heading("Neu in deiner Bibliothek", subtitle: "Deine zuletzt hinzugefügten Alben")
+            heading("Neu in der Mediathek", subtitle: "Deine zuletzt hinzugefügten Alben")
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 16) {
-                    ForEach(Array(model.releases.prefix(12))) { release in
+                    ForEach(Array((feed.releasesPhase == .loaded ? feed.newReleases : model.releases).prefix(12))) { release in
                         NavigationLink(value: CollectionKind.release(release)) {
                             VStack(alignment: .leading, spacing: 8) {
                                 ArtworkView(model: model, kind: "releases", id: release.id).frame(width: 148, height: 148)
@@ -557,11 +639,27 @@ struct MobilePlayerView: View {
                     Button("Leeren und stoppen", role: .destructive) { model.player.clearQueue() }
                 }.accessibilityIdentifier("mobile-queue-tools")
             }
+            Toggle(isOn: Binding(get: { model.player.autoplay }, set: { model.player.setAutoplay($0) })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Automatisch weiterspielen").font(.subheadline.weight(.medium))
+                    Text("Spielt am Ende der Warteschlange ähnliche Titel aus deiner Bibliothek.").font(.caption).foregroundStyle(.secondary)
+                }
+            }.accessibilityIdentifier("mobile-queue-autoplay")
             TextField("Warteschlange filtern", text: $queueQuery).textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("mobile-queue-filter")
-            ForEach(Array(model.player.queue.tracks.enumerated()).filter {
-                queueQuery.isEmpty || [$0.element.title, $0.element.artistText, $0.element.album].joined(separator: " ").localizedCaseInsensitiveContains(queueQuery)
-            }, id: \.offset) { index, track in
+            let queue = model.player.queue
+            ForEach(queue.rows { queueQuery.isEmpty || [$0.title, $0.artistText, $0.album].joined(separator: " ").localizedCaseInsensitiveContains(queueQuery) }) { row in
+                let index = row.position, track = row.track
+                if row.startsSection {
+                    HStack(spacing: 6) {
+                        if row.section == .autoplay { Image(systemName: "sparkles").accessibilityHidden(true) }
+                        Text(row.section.heading(queue.context)).lineLimit(2)
+                        Spacer(minLength: 8)
+                        if row.section != .current { Text("\(queue.count(of: row.section))").monospacedDigit() }
+                    }.font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 10).padding(.top, 10)
+                        .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+                }
                 HStack(spacing: 12) {
                     Button { model.player.select(index) } label: {
                         HStack(spacing: 12) {
@@ -660,7 +758,7 @@ struct MobileAudioSettings: View {
                 if let soundError = model.player.soundError { Text(soundError).font(.footnote).foregroundStyle(.secondary) }
             }
             Section("Wiedergabe") {
-                Toggle("Nach der Warteschlange ähnliche Musik", isOn: Binding(get: { model.player.autoplay }, set: { model.player.setAutoplay($0) }))
+                Toggle("Automatisch weiterspielen", isOn: Binding(get: { model.player.autoplay }, set: { model.player.setAutoplay($0) }))
                 HStack { Text("Überblendung"); Spacer(); Text(model.player.crossfadeSeconds == 0 ? "Aus" : "\(Int(model.player.crossfadeSeconds)) s") }
                 Slider(value: Binding(get: { model.player.crossfadeSeconds }, set: { model.player.setCrossfade($0) }), in: 0...12, step: 1)
                 Toggle("Albentitel ohne Überblendung", isOn: Binding(get: { model.player.smartAlbumTransition }, set: { model.player.setSmartAlbumTransition($0) }))

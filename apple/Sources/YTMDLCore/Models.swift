@@ -187,50 +187,117 @@ public struct ServerAddress: Equatable, Sendable {
     }
 }
 
+/// The bounded play queue. Each entry carries its origin (see `QueueOrigin`);
+/// the upcoming part is kept in three runs like the web player: first what the
+/// user queued, then the rest of the started context, then autoplay tracks.
 public struct PlaybackQueue: Equatable, Sendable {
+    public static let limit = 500
+    /// How many tracks may be left before autoplay looks for similar ones.
+    public static let autoplayLookahead = 2
     public private(set) var tracks: [Track] = []
+    public private(set) var origins: [QueueOrigin] = []
+    /// What the context entries were started from; nil when unknown.
+    public private(set) var context: QueueContext?
     public private(set) var index: Int = 0
     public var current: Track? { tracks.indices.contains(index) ? tracks[index] : nil }
+    /// Tracks after the current one.
+    public var remaining: Int { max(0, tracks.count - 1 - index) }
     public init() {}
-    public mutating func replace(_ tracks: [Track], start: Int = 0) {
+    public func origin(at position: Int) -> QueueOrigin { origins.indices.contains(position) ? origins[position] : .context }
+    public func section(at position: Int) -> QueueSection {
+        if position < index { return .played }
+        if position == index { return .current }
+        switch origin(at: position) { case .user: return .user; case .context: return .context; case .autoplay: return .autoplay }
+    }
+    /// Autoplay seeds with the last track the user chose (context or queued).
+    public var autoplaySeed: Track? {
+        tracks.indices.reversed().first { origin(at: $0) != .autoplay }.map { tracks[$0] } ?? tracks.last
+    }
+    public mutating func replace(_ tracks: [Track], start: Int = 0, context: QueueContext? = nil) {
         let selected = tracks.indices.contains(start) ? start : 0
         // Large artist/favorites lists must still play the selected track.
         // Begin a new bounded window when selection falls beyond the first 500.
-        let lowerBound = selected >= 500 ? selected : 0
-        self.tracks = Array(tracks.dropFirst(lowerBound).prefix(500))
+        let lowerBound = selected >= Self.limit ? selected : 0
+        self.tracks = Array(tracks.dropFirst(lowerBound).prefix(Self.limit))
+        origins = Array(repeating: .context, count: self.tracks.count)
+        self.context = self.tracks.isEmpty ? nil : context
         index = selected - lowerBound
     }
-    public mutating func append(_ track: Track) { if tracks.count < 500 { tracks.append(track) } }
-    @discardableResult public mutating func insertNext(_ track: Track) -> Bool {
-        guard tracks.count < 500 else { return false }
-        tracks.insert(track, at: tracks.isEmpty ? 0 : index + 1)
-        return true
+    /// Where "Zur Warteschlange" inserts: after the user entries that directly
+    /// follow the current track, so queued tracks play before the rest of the
+    /// album or playlist, in the order they were queued.
+    public var userInsertIndex: Int {
+        var position = min(tracks.count, index + 1)
+        while position < tracks.count && origin(at: position) == .user { position += 1 }
+        return position
+    }
+    /// "Zur Warteschlange". On an empty queue the track becomes the current one.
+    public mutating func append(_ track: Track) { append([track]) }
+    @discardableResult public mutating func append(_ list: [Track]) -> Int {
+        let added = Array(list.prefix(Self.limit - tracks.count))
+        guard !added.isEmpty else { return 0 }
+        if tracks.isEmpty { replace(added); return added.count }
+        let position = userInsertIndex
+        tracks.insert(contentsOf: added, at: position)
+        origins.insert(contentsOf: Array(repeating: .user, count: added.count), at: position)
+        return added.count
+    }
+    /// "Als Nächstes": directly after the current track, ahead of anything queued before.
+    @discardableResult public mutating func insertNext(_ track: Track) -> Bool { insertNext([track]) > 0 }
+    @discardableResult public mutating func insertNext(_ list: [Track]) -> Int {
+        let added = Array(list.prefix(Self.limit - tracks.count))
+        guard !added.isEmpty else { return 0 }
+        if tracks.isEmpty { replace(added); return added.count }
+        tracks.insert(contentsOf: added, at: index + 1)
+        origins.insert(contentsOf: Array(repeating: .user, count: added.count), at: index + 1)
+        return added.count
+    }
+    /// Similar tracks at the end of a queue that would otherwise run out.
+    /// Tracks already in the queue are left out.
+    @discardableResult public mutating func appendAutoplay(_ list: [Track]) -> Int {
+        guard current != nil else { return 0 }
+        var known = Set(tracks.map(\.id))
+        let added = list.filter { known.insert($0.id).inserted }.prefix(Self.limit - tracks.count)
+        tracks += added; origins += Array(repeating: .autoplay, count: added.count)
+        return added.count
     }
     /// Address queue occurrences by position, so duplicate IDs remain independent.
     @discardableResult public mutating func remove(at position: Int) -> Bool {
         guard tracks.indices.contains(position), position != index else { return false }
-        tracks.remove(at: position)
+        alignOrigins()
+        tracks.remove(at: position); origins.remove(at: position)
         if position < index { index -= 1 }
         return true
     }
     @discardableResult public mutating func playNext(at position: Int) -> Bool {
         guard position > index + 1, tracks.indices.contains(position) else { return false }
+        alignOrigins()
         tracks.insert(tracks.remove(at: position), at: index + 1)
+        origins.remove(at: position); origins.insert(.user, at: index + 1)
         return true
     }
     /// Move an occurrence while preserving the currently playing occurrence,
-    /// including when another queue entry has the same track ID.
+    /// including when another queue entry has the same track ID. An entry
+    /// dropped into the upcoming part takes the origin of the entry it now
+    /// follows; directly after the current track that is "Als Nächstes".
     @discardableResult public mutating func move(from source: Int, to destination: Int) -> Bool {
         guard tracks.indices.contains(source), tracks.indices.contains(destination), source != destination else { return false }
+        alignOrigins()
+        let movedCurrent = source == index
         tracks.insert(tracks.remove(at: source), at: destination)
-        if source == index { index = destination }
+        origins.insert(origins.remove(at: source), at: destination)
+        if movedCurrent { index = destination }
         else if source < index && destination >= index { index -= 1 }
         else if source > index && destination <= index { index += 1 }
+        if !movedCurrent, destination > index {
+            origins[destination] = destination - 1 == index ? .user : origins[destination - 1]
+        }
         return true
     }
     @discardableResult public mutating func clearUpcoming() -> Bool {
         guard index + 1 < tracks.count else { return false }
-        tracks.removeSubrange((index + 1)...)
+        alignOrigins()
+        tracks.removeSubrange((index + 1)...); origins.removeSubrange((index + 1)...)
         return true
     }
     public mutating func next(repeatAll: Bool) -> Bool {
@@ -240,5 +307,21 @@ public struct PlaybackQueue: Equatable, Sendable {
     }
     public mutating func previous() { index = max(0, index - 1) }
     public mutating func select(_ index: Int) { if tracks.indices.contains(index) { self.index = index } }
-    public mutating func shuffleUpcoming() { if index+1 < tracks.count { tracks.replaceSubrange((index+1)..., with: tracks[(index+1)...].shuffled()) } }
+    /// Shuffles only the upcoming tracks of the started context, like the web
+    /// player: queued tracks stay next in their order, autoplay stays at the end.
+    public mutating func shuffleUpcoming() {
+        guard index + 1 < tracks.count else { return }
+        alignOrigins()
+        let upcoming = (index + 1..<tracks.count).map { (tracks[$0], origins[$0]) }
+        let ordered = [QueueOrigin.user, .context, .autoplay].flatMap { origin -> [(Track, QueueOrigin)] in
+            let group = upcoming.filter { $0.1 == origin }
+            return origin == .context ? group.shuffled() : group
+        }
+        tracks.replaceSubrange((index + 1)..., with: ordered.map { $0.0 })
+        origins.replaceSubrange((index + 1)..., with: ordered.map { $0.1 })
+    }
+    private mutating func alignOrigins() {
+        if origins.count < tracks.count { origins += Array(repeating: .context, count: tracks.count - origins.count) }
+        else if origins.count > tracks.count { origins.removeLast(origins.count - tracks.count) }
+    }
 }

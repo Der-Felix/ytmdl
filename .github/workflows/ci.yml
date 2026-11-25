@@ -288,7 +288,7 @@ jobs:
     # exhausted the build job's time budget before UI checks could finish.
     runs-on: xcode-27
     needs: apple
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:

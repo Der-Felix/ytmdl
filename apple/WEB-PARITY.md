@@ -25,7 +25,7 @@ verglichen, nicht nach identischen Menünamen.
 | Offline-Sammlungen | iPhone/iPad und jetzt auch Mac: Playlists, Favoriten, Alben, Künstler, alle Titel | Reihenfolge, Suche und Sortierung über lokale Metadaten |
 | Lokale Downloads verwalten | Fortschritt, Pause, Wiederholen, Speicherbudget, WLAN, lokale Entfernung | Fertige Dateien funktionieren ohne Sitzung; neue Downloads brauchen Anmeldung |
 | Player und Mini-Player | Start/Pause, Vor/Zurück, Seek, Lautstärke/AirPlay, Wiederholung | Nutzt lokale Datei; fehlt sie, kein versteckter Streaming-Fallback im Offline-Modus |
-| Warteschlange | Hinzufügen, als Nächstes, freie Verschiebung, Entfernen, kommende Titel leeren, vollständig leeren | Lokale Änderungen und Wiedergabe funktionieren auch offline |
+| Warteschlange | Abschnitte wie im Web: „Als Nächstes“, „Weiter aus: …“, „Ähnliche Titel“; hinzufügen, als Nächstes, freie Verschiebung, Entfernen, kommende Titel leeren, vollständig leeren; ganze Alben, Künstler, Playlists und Mixe einreihen | Lokale Änderungen und Wiedergabe funktionieren auch offline |
 | Warteschlange als Playlist | Jetzt auch im mobilen Player erreichbar | Speichern auf dem Server braucht Verbindung |
 | Queue-Filter | Mobil und Mac | Filtert die vorhandene lokale Warteschlange |
 | Überblendung/Vorladen | 0–12 Sekunden, Schutz benachbarter Albentitel, schneller Start | Auch mit lokalen Dateien; keine Garantie für samplegenaues Gapless |
@@ -34,10 +34,33 @@ verglichen, nicht nach identischen Menünamen.
 | Lautstärke-Normalisierung | Neu: derselbe Mess-Endpunkt wie im Web; getrennte Werte pro überblendetem Titel | Bereits gespeicherte Werte verwenden; fehlt der Wert, unverändert abspielen und anzeigen |
 | Lyrics | Plain/LRC, Folgen und Antippen zum Seek; jetzt auch im Mac-Player | Bereits heruntergeladene Lyrics lokal verwenden |
 | Visualizer | Echte FFT, verschiedene Darstellungen, Farben, ohne Cover, Reduce Motion | Lokal; Stile unterscheiden sich vom Web |
-| Hörverlauf/Queue wiederherstellen | Lokal, konto- und servergebunden; Wiederherstellen ausdrücklich | Offline-Ereignisse später an dasselbe Konto synchronisieren, wenn aktiviert |
-| Song-/Genre-Radio | Server-Metadaten, ähnlich zum Web; Autoplay nach Queue-Ende | Neue Empfehlungen brauchen Verbindung |
+| Hörverlauf/Queue wiederherstellen | Wiedergaben und Überspringen mit den Regeln des Web-Players an `/history` und `/history/skips`; lokal, konto- und servergebunden; Wiederherstellen ausdrücklich | Auch Wiedergaben und Überspringen lokaler Dateien werden gespeichert und später an dasselbe Konto gesendet, wenn aktiviert |
+| Song-/Genre-Radio | Server-Metadaten, ähnlich zum Web; „Automatisch weiterspielen“ (standardmäßig an) hängt bei höchstens zwei verbleibenden Titeln ähnliche Titel an | Neue Empfehlungen brauchen Verbindung |
+| Start („Hören“) | Weiterhören, persönliche Mixe, „Zuletzt gehört“ vom Server, „Neu in der Mediathek“; Mac-Start zeigt Mixe und Serververlauf | Offline-Hinweis mit Weg zur gespeicherten Musik; gespeicherte Musik bleibt abspielbar |
+| Persönliche Mixe („Für dich“) | „Dein Mix 1…n“ mit Genre, Mixe aus dem Hören, Collage, Titelzahl, Abspielen; Mix-Seite mit Abspielen, Zufällig, Als Nächstes, Zur Warteschlange | Mixe berechnet der Server; ohne Verbindung nicht verfügbar |
+| Künstlerseite | „Am meisten gehört“ (bis zu zehn Titel), Abspielen/Zufall, ganze Künstler einreihen | Braucht Verbindung; Offline-Künstlersammlungen bleiben abspielbar |
 | Geräteübergabe | Ausdrückliches Senden/Annehmen mit Schutz vor verspäteten Antworten | Braucht Verbindung; startet nicht eigenständig Musik |
 | Sperrbildschirm/Medientasten | Now Playing mit Cover, Seek und Transport | Verwendet lokale Cover; Hardwareprüfung bleibt erforderlich |
+
+## Build 34 (0.4.0): Hören wie im Web 1.10
+
+Mit [PR #108](https://github.com/Der-Felix/ytmdl/pull/108), gegen die unveränderte Server-API
+von v1.10.0. Ausgeliefert als 0.4.0 (34).
+
+- Start ist der Hören-Bereich: Weiterhören, „Deine Mixe“ mit „Alle Mixe“ („Für dich“),
+  „Zuletzt gehört“ aus dem Serververlauf aller Geräte und „Neu in der Mediathek“. Jeder
+  Abschnitt lädt für sich; Fehler erscheinen im Abschnitt, nie als Meldungsfenster.
+- Wiedergabe und Überspringen zählen wie im Web: Wiedergabe nach min(30 s, halbe
+  Titeldauer ÷ Tempo) tatsächlicher Wiedergabezeit; Überspringen nach mindestens 2 s und
+  vor dieser Grenze, nicht nach mehr als drei Minuten Pause. Abweichung mit Absicht: Auch
+  lokale Dateien zählen; ihre Ereignisse warten in der Offline-Warteschlange.
+- „Am meisten gehört“ auf der Künstlerseite; Warteschlangen-Abschnitte mit Herkunft
+  (Als Nächstes, Weiter aus, Ähnliche Titel), Autoplay-Vorlauf und Schalter
+  „Automatisch weiterspielen“; „Als Nächstes“ und „Zur Warteschlange“ für ganze Sammlungen.
+- Zufällig mischt wie im Web nur den gestarteten Kontext; eingereihte Titel bleiben vorn.
+
+Nachweis: Swift-Tests für Dekodierung, Zähl-/Überspring-Regeln, Ereignis-Warteschlange und
+Warteschlangen-Abschnitte; Build und UI-Tests nur in der CI. Nicht auf einem Gerät geprüft.
 
 ## In Build 32 geschlossen
 
@@ -75,6 +98,10 @@ Diese Punkte sind echte offene Unterschiede und dürfen nicht als erledigt gelte
    und Playlist-Bedienung benötigt eine separate Prüfung mit Fernbedienung.
 8. Automatische Tests ersetzen keine Prüfung von Sperrbildschirm, Bluetooth,
    AirPlay, Telefonunterbrechungen und Downloads nach erzwungenem Beenden auf Hardware.
+9. **Hören auf tvOS und offen gebliebene Web-Details**: tvOS hat keinen Start-Bereich und
+   keine Warteschlangen-Abschnitte. Einen Mix als Playlist speichern, Mixe sortieren und
+   „Rückgängig“ nach dem Leeren der Warteschlange fehlen nativ. Herkunft und Kontext der
+   Warteschlangen-Einträge werden nicht mit „Letzte Wiedergabe fortsetzen“ gespeichert.
 
 Als nächste Arbeit zuerst Klangoptionen/benannte Presets und reversibles Shuffle,
 anschließend die verbleibenden Sortier- und Plattformunterschiede umsetzen. Vor
@@ -96,6 +123,14 @@ Stable-Freigabe alle Hardware-Punkte aus `RELEASE-CHECKLIST.md` abnehmen.
   Release, keine Stable-Promotion und keine vollständige Hardware-Freigabe.
 
 ## Nachprüfen
+
+- Hören: Start öffnen, Mixe, „Alle Mixe“, eine Mix-Seite und „Zuletzt gehört“ prüfen; auf
+  einer Künstlerseite „Am meisten gehört“. Einen Titel nach 10 s überspringen, einen anderen
+  über 30 s hören; im Web erscheint der zweite im Verlauf. Dasselbe im Flugmodus mit
+  gespeicherter Musik, danach online: die Ereignisse werden genau einmal gesendet.
+- Warteschlange: einen Titel „Als Nächstes“, ein Album „Zur Warteschlange“; Abschnitte und
+  Reihenfolge prüfen. Mit „Automatisch weiterspielen“ erscheinen bei zwei verbleibenden
+  Titeln „Ähnliche Titel“; mit Wiederholung oder Sleep-Timer nicht.
 
 - Online: Playlist erstellen → Titel hinzufügen → Reihenfolge ändern → einen Titel
   entfernen → umbenennen → neu öffnen. Intelligente Playlist-Regeln separat testen.

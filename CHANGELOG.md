@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Apple app (native preview, independent version)
+
+- **Listening like the web's Hören:** Start shows Weiterhören, the personal mixes (with a **Für dich** overview and mix pages), the server's **Zuletzt gehört** and **Neu in der Mediathek**; the artist page shows **Am meisten gehört**. Plays and skips follow the web player's rules and reach `POST /history` and `POST /history/skips`, including those of local files, which are queued until the account is online. The queue shows **Als Nächstes**, **Weiter aus: …** and **Ähnliche Titel**, with **Automatisch weiterspielen** on by default; albums, artists, playlists and mixes can be queued as a whole. No server change.
+
 ## 1.10.1 — 2026-11-25
 
 Fixes after 1.10.0: radio and autoplay stay near the seed, the download summary causes less load, the web app gets design fixes, and the access log shows the real client address.

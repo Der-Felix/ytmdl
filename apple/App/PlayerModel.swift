@@ -88,7 +88,15 @@ enum SleepMode: String, CaseIterable, Identifiable {
     var playbackRevision: UUID { activityRevision }
     var preparedTrackID: String? { pendingID }
     @ObservationIgnored private let volumePreferences: UserDefaults
+    /// The local "recently played" list and automatic offline caching: after one second.
     @ObservationIgnored var onTrackPlayed: ((Track) -> Void)?
+    /// What the server learns from, with the web player's rules (`ListeningTracker`).
+    @ObservationIgnored var onListeningEvent: ((Track, ListeningEventKind) -> Void)?
+    /// The queue is about to run out while autoplay is on: (seed, queue length, last track ID).
+    @ObservationIgnored var onAutoplayNeeded: ((Track, Int, String) -> Void)?
+    @ObservationIgnored private var listening = ListeningTracker()
+    @ObservationIgnored private var autoplayKey = ""
+    private static var clock: Double { ProcessInfo.processInfo.systemUptime }
     @ObservationIgnored private var recordedGeneration: UUID?
     @ObservationIgnored private var audio: AVPlayer
     @ObservationIgnored private var standby: AVPlayer
@@ -127,7 +135,8 @@ enum SleepMode: String, CaseIterable, Identifiable {
         if let value = volumePreferences.object(forKey: "crossfadeSeconds") as? Double, value.isFinite { crossfadeSeconds = min(12, max(0, value)) }
         smartAlbumTransition = volumePreferences.object(forKey: "smartAlbumTransition") as? Bool ?? true
         preloadEnabled = volumePreferences.object(forKey: "preloadNextTrack") as? Bool ?? true
-        autoplay = volumePreferences.bool(forKey: "playerAutoplay")
+        // On by default, like the web player's "Automatisch weiterspielen".
+        autoplay = volumePreferences.object(forKey: "playerAutoplay") as? Bool ?? true
         fastStart = volumePreferences.object(forKey: "fastPlaybackStart") as? Bool ?? true
         if let value = volumePreferences.object(forKey: "playbackRate") as? Double, value.isFinite { playbackRate = min(2, max(0.5, value)) }
         #if os(macOS)
@@ -192,10 +201,25 @@ enum SleepMode: String, CaseIterable, Identifiable {
             }
         }
     }
-    func play(_ tracks: [Track], start: Int = 0, client: APIClient) {
+    /// Replaces the queue. `context` is what was started ("Weiter aus: …").
+    func play(_ tracks: [Track], start: Int = 0, client: APIClient, context: QueueContext? = nil) {
         guard !tracks.isEmpty else { stop(); return }
+        reportSkip(movingTo: tracks.indices.contains(start) ? tracks[start] : tracks[0])
         if self.client !== client { loudnessValues.removeAll(); loudnessParameters.removeAll() }
-        self.client = client; queue.replace(tracks, start: start); loadCurrent()
+        self.client = client; queue.replace(tracks, start: start, context: context); loadCurrent()
+    }
+    /// A user action is about to replace the current track with `next`. Reports
+    /// a skip when the web player's rules say so (see `ListeningTracker`).
+    private func reportSkip(movingTo next: Track?) {
+        guard let current, ListeningTracker.movesOn(from: current.id, to: next?.id, failed: error != nil) else { return }
+        if listening.takeSkip(key: generation.uuidString, now: Self.clock, playing: isPlaying) { onListeningEvent?(current, .skip) }
+    }
+    /// Similar tracks for a queue that is about to run out. Ignored when the
+    /// queue changed in the meantime or autoplay was turned off.
+    func appendAutoplay(_ tracks: [Track], expectedCount: Int, lastID: String) {
+        guard autoplay, !repeatAll, !repeatOne, queue.tracks.count == expectedCount, queue.tracks.last?.id == lastID else { return }
+        guard queue.appendAutoplay(tracks) > 0 else { return }
+        prepareNext(); updateNowPlaying()
     }
     #if DEBUG
     // Loopback UI fixtures can inspect navigation with a selected title without
@@ -206,22 +230,34 @@ enum SleepMode: String, CaseIterable, Identifiable {
         else { artwork = nil; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
     }
     #endif
-    func append(_ track: Track, client: APIClient) {
+    func append(_ track: Track, client: APIClient) { append([track], client: client) }
+    /// "Zur Warteschlange": after what was already queued, before the rest of the context.
+    @discardableResult func append(_ tracks: [Track], client: APIClient) -> Int {
         // On an empty queue the track becomes the current one. It is loaded,
         // paused, so the player shows a title it can actually play.
         let wasEmpty = queue.tracks.isEmpty
-        self.client = client; queue.append(track)
-        if wasEmpty { loadCurrent(play: false); return }
-        prepareNext(); updateNowPlaying(); refreshNormalization()
-    }
-    func insertNext(_ track: Track, client: APIClient) {
-        let wasEmpty = queue.tracks.isEmpty
-        guard queue.insertNext(track) else { return }
+        let added = queue.append(tracks)
+        guard added > 0 else { return 0 }
         self.client = client
-        if wasEmpty { loadCurrent(play: false); return }
+        if wasEmpty { loadCurrent(play: false); return added }
         cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
+        return added
     }
-    func select(_ index: Int) { guard queue.tracks.indices.contains(index) else { return }; queue.select(index); loadCurrent() }
+    func insertNext(_ track: Track, client: APIClient) { insertNext([track], client: client) }
+    /// "Als Nächstes": directly after the current track, in the given order.
+    @discardableResult func insertNext(_ tracks: [Track], client: APIClient) -> Int {
+        let wasEmpty = queue.tracks.isEmpty
+        let added = queue.insertNext(tracks)
+        guard added > 0 else { return 0 }
+        self.client = client
+        if wasEmpty { loadCurrent(play: false); return added }
+        cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
+        return added
+    }
+    func select(_ index: Int) {
+        guard queue.tracks.indices.contains(index) else { return }
+        reportSkip(movingTo: queue.tracks[index]); queue.select(index); loadCurrent()
+    }
     func shuffle() { queue.shuffleUpcoming(); cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization() }
     func removeFromQueue(_ index: Int) {
         guard queue.remove(at: index) else { return }
@@ -330,14 +366,22 @@ enum SleepMode: String, CaseIterable, Identifiable {
         if peaks != spectrumPeaks { spectrumPeaks = peaks }
     }
     func next() {
+        reportSkip(movingTo: upcomingIndex.map { queue.tracks[$0] })
         if promotePrepared() { return }
         let play = wantsPlayback
         if queue.next(repeatAll: repeatAll) { loadCurrent(play: play) }
         else { let ended = current; cancelPrepared(); pause(); seek(0); if play && autoplay, let ended { onQueueEnded?(ended) } }
     }
-    func previous() { if position > 3 { seek(0) } else { let play = wantsPlayback; queue.previous(); loadCurrent(play: play) } }
+    func previous() {
+        if position > 3 { seek(0); return }
+        reportSkip(movingTo: queue.tracks.indices.contains(queue.index - 1) ? queue.tracks[queue.index - 1] : current)
+        let play = wantsPlayback; queue.previous(); loadCurrent(play: play)
+    }
     func toggle() { wantsPlayback ? pause() : resume() }
-    func pause() { activityRevision = UUID(); wantsPlayback = false; audio.pause(); standby.pause(); isPlaying = false; loading = false; updateNowPlaying() }
+    func pause() {
+        if current != nil { _ = listening.tick(key: generation.uuidString, playing: false, now: Self.clock, duration: duration, rate: playbackRate) }
+        activityRevision = UUID(); wantsPlayback = false; audio.pause(); standby.pause(); isPlaying = false; loading = false; updateNowPlaying()
+    }
     func resume() {
         guard current != nil else { return }
         activityRevision = UUID()
@@ -507,9 +551,24 @@ enum SleepMode: String, CaseIterable, Identifiable {
         if isPlaying, position >= 1, recordedGeneration != generation, let current {
             recordedGeneration = generation; onTrackPlayed?(current)
         }
+        if let current, listening.tick(key: generation.uuidString, playing: isPlaying, now: Self.clock, duration: duration, rate: playbackRate) {
+            onListeningEvent?(current, .play)
+        }
         if let sleepDeadline, Date() >= sleepDeadline { pause(); setSleepMode(.off); return }
-        if isPlaying { prepareNext(); updateFade() }
+        if isPlaying { prepareNext(); updateFade(); requestAutoplayIfNeeded() }
         if Date().timeIntervalSince(lastNowPlaying) >= 0.5 { updateNowPlaying() }
+    }
+    /// Like the web player: with two tracks or fewer left, ask once per queue
+    /// end for similar tracks. Repeat, a sleep timer and offline-only playback
+    /// end the queue on purpose, so they never extend it.
+    private func requestAutoplayIfNeeded() {
+        guard autoplay, !offlineOnly, !repeatAll, !repeatOne, sleepMode == .off, wantsPlayback,
+              queue.remaining <= PlaybackQueue.autoplayLookahead,
+              let seed = queue.autoplaySeed, let last = queue.tracks.last else { return }
+        let key = "\(queue.tracks.first?.id ?? ""):\(queue.tracks.count):\(last.id):\(seed.id)"
+        guard autoplayKey != key else { return }
+        autoplayKey = key
+        onAutoplayNeeded?(seed, queue.tracks.count, last.id)
     }
     private var upcomingIndex: Int? {
         if queue.index + 1 < queue.tracks.count { return queue.index + 1 }
@@ -591,6 +650,8 @@ enum SleepMode: String, CaseIterable, Identifiable {
         fadeStart = nil; fadeFraction = 0; isCrossfading = false; applyVolume()
     }
     private func didFinish() {
+        // A natural end is never a skip; a repeated title counts anew.
+        listening.reset()
         if shouldStopAtBoundary { pause(); setSleepMode(.off); cancelPrepared(); seek(0); return }
         if repeatOne { seek(0); resume(); return }
         next()

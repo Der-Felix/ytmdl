@@ -242,6 +242,8 @@ struct RootView: View {
         content(destination)
             .navigationDestination(for: CollectionKind.self) { kind in CollectionView(model: model, kind: kind) }
             .navigationDestination(for: Destination.self) { item in content(item) }
+            .navigationDestination(for: PersonalMix.self) { mix in MixDetailView(model: model, mix: mix) }
+            .navigationDestination(for: ForYouRoute.self) { _ in ForYouView(model: model) }
     }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {
@@ -250,7 +252,7 @@ struct RootView: View {
             DesktopHomeView(model: model, navigate: selectDestination)
             #else
             #if os(iOS)
-            MobileHomeView(model: model)
+            MobileHomeView(model: model) { expandedPlayer = true }
             #else
             LibraryView(model: model)
             #endif
@@ -678,7 +680,23 @@ struct CollectionView: View {
     @State private var deleting = false
     @State private var failure: String?
     @State private var loadFailure: String?
+    @State private var topTracks: [HistoryTrack] = []
     @Environment(\.dismiss) private var dismiss
+    /// What a queue started here is shown as: "Weiter aus: …".
+    private var queueContext: QueueContext {
+        switch kind {
+        case .favorites: QueueContext(kind: "favorites", title: "Lieblingstitel")
+        case .release(let release): QueueContext(kind: "album", id: release.id, title: release.title)
+        case .artist(let artist): QueueContext(kind: "artist", id: artist.id, title: artist.name)
+        case .playlist(let value): QueueContext(kind: "playlist", id: value.id, title: playlist?.name ?? value.name)
+        }
+    }
+    @ViewBuilder private var queueMenuItems: some View {
+        Button("Als Nächstes abspielen", systemImage: "text.insert") { model.enqueue(tracks, next: true) }
+            .disabled(tracks.isEmpty || model.player.queue.tracks.count >= PlaybackQueue.limit)
+        Button("Zur Warteschlange hinzufügen", systemImage: "text.badge.plus") { model.enqueue(tracks, next: false) }
+            .disabled(tracks.isEmpty || model.player.queue.tracks.count >= PlaybackQueue.limit)
+    }
     private var playlist: Playlist? {
         guard case .playlist(let value) = kind else { return nil }
         return model.playlists.first { $0.id == value.id } ?? value
@@ -696,7 +714,13 @@ struct CollectionView: View {
             #else
             standardCollection
             #endif
-        }.navigationTitle(collectionTitle).task { if tracks.isEmpty { await load() } }
+        }.navigationTitle(collectionTitle).task {
+            if tracks.isEmpty { await load() }
+            if case .artist(let artist) = kind, topTracks.isEmpty, !model.offlineMode {
+                // Optional like on the web: a failure or an older server just hides the section.
+                topTracks = (try? await model.artistTopTracks(artist.id)) ?? []
+            }
+        }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -707,9 +731,18 @@ struct CollectionView: View {
                     .disabled(busy || model.offlineMode)
             } }
             #endif
+            if playlist == nil {
+                ToolbarItem {
+                    Menu { queueMenuItems } label: {
+                        Image(systemName: "text.badge.plus").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }.accessibilityLabel("Zur Warteschlange").accessibilityIdentifier("collection-queue-options")
+                }
+            }
             if let playlist {
                 ToolbarItem {
                     Menu {
+                        queueMenuItems
+                        Divider()
                         #if !os(tvOS)
                         Button("Offline speichern", systemImage: "arrow.down.circle") { Task { await model.downloadCollection(kind) } }
                             .disabled(model.offlineMode)
@@ -776,6 +809,9 @@ struct CollectionView: View {
                     Button("Zufall", systemImage: "shuffle") { play(tracks.shuffled()) }.buttonStyle(.bordered).disabled(tracks.isEmpty)
                 }.padding(.vertical, 12)
                 #endif
+            }
+            if case .artist(let artist) = kind {
+                ArtistTopTracksSection(model: model, artist: artist, tracks: topTracks)
             }
             Section {
                 ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
@@ -932,7 +968,7 @@ struct CollectionView: View {
         } catch is CancellationError { }
         catch { if model.client === client { failure = playlistFailure(error) } }
     }
-    private func play(_ tracks: [Track], index: Int = 0) { if let client = model.client { model.player.play(tracks, start: index, client: client) } }
+    private func play(_ tracks: [Track], index: Int = 0) { if let client = model.client { model.player.play(tracks, start: index, client: client, context: queueContext) } }
     private func load() async {
         guard let client = model.client, !busy else { return }
         loadFailure = nil

@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.3.0, build 33
+# Apple app handoff — preview 0.4.0, build 34
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -113,7 +113,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.3.0 (33)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.4.0 (34)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness

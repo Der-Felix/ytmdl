@@ -1,9 +1,9 @@
-# Native listening preview 0.3.0 — build 33
+# Native listening preview 0.4.0 — build 34
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
-Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)); the feature matrix below is the build 32 state.
+Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)). The matrix below includes the listening parity with web 1.10 that build 34 adds (see below).
 See [AUDIT.md](AUDIT.md) for the dated functional audit through build 32, test evidence,
 corrected defects and the remaining real-device release checks.
 The [release checklist](RELEASE-CHECKLIST.md) tracks qualification separately
@@ -11,7 +11,9 @@ from implemented features and simulator verification.
 
 | Feature | Current implementation |
 | --- | --- |
-| iPhone/iPad Start | Recent albums, local recent listening, favorites, genre mixes, playlist shortcuts, resume last queue |
+| iPhone/iPad Start | Listening home like the web's **Hören**: Weiterhören (current title or last queue), personal mixes, server history **Zuletzt gehört** (local list as fallback), **Neu in der Mediathek**, favorites/playlist shortcuts; offline hint when the server is unreachable. Mac Start shows the same mixes and server history |
+| Personal mixes | `GET /library/mixes`: "Dein Mix 1…n" with genre label plus the listening mixes, collage cover, track count, play button; **Für dich** overview and mix page with play, shuffle, play next and add to queue. Older servers keep the previous local genre shortcuts |
+| Artist page | **Am meisten gehört** from `GET /library/artists/{id}/top-tracks` (5, up to 10 on request); queue actions for the whole artist |
 | Library/search | Existing library artists, albums, tracks, genre filter and authenticated artwork |
 | Favorites/playlists | Native editing, ordering, membership, smart server rules and favorites |
 | Offline music (iOS/iPadOS/macOS) | Track, album, artist, favorites and playlist snapshots; visible collection groups, cached covers, saved playlist order, local search, artist/album/title/date sorting and shuffle |
@@ -26,12 +28,40 @@ from implemented features and simulator verification.
 | Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer |
 | Mobile visualization | Four mobile FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
 | Lyrics | Cached/plain text; LRC timing, optional following and tap-to-seek when time tags exist |
-| Queue | Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all, save as playlist, local resume state and explicit restore |
-| Song/genre radio | Existing local-library server recommendations; optional autoplay after the queue ends |
-| Listening history | Local recent metadata and queue; optional idempotent server events, queued while offline, scoped to origin/account |
+| Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all, save as playlist, local resume state and explicit restore; whole albums, artists, playlists and mixes can be queued |
+| Song/genre radio | Existing local-library server recommendations; **Automatisch weiterspielen** (on by default) appends similar titles when two or fewer remain, not with repeat, sleep timer or offline-only playback |
+| Listening history | Local recent metadata and queue; plays and skips with the web's rules (`ListeningTracker`) as idempotent server events, also for local files, queued while offline and scoped to origin/account |
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## Listening parity with web 1.10 (build 34)
+
+Added in [PR #108](https://github.com/Der-Felix/ytmdl/pull/108); it uses the server API of
+v1.10.0 unchanged. It ships as 0.4.0 (34).
+
+- **Plays and skips** follow `frontend/src/lib/audio/listeningTracker.ts`: a play counts
+  after min(30 s, half the duration ÷ tempo) of actual playing time, once per start.
+  Moving on actively (next, previous to another title, choosing a queue entry, starting
+  something else) after at least 2 s and before that threshold is a skip, unless the
+  title stood paused for more than three minutes. Natural ends, failed titles and staying
+  on the same title are never skips. Unlike the web, plays and skips of local files are
+  queued and sent later, so offline listening shapes the mixes too. The local "recently
+  played" list and automatic offline caching still record after one second.
+- Events wait in the existing account- and origin-scoped queue (`ListeningHistory`) and
+  keep their event ID across retries. A definite refusal of one event (for example 404
+  from a server without skips) drops it instead of blocking later events.
+- Each Start section loads on its own and never raises an alert. A server without mixes or
+  history hides those sections; an unreachable server shows a hint to the saved music.
+- tvOS keeps its tab layout without a Start screen; its queue panel has no sections yet.
+
+Review on a phone: open **Start** and check mixes, **Alle Mixe**, a mix page (play, shuffle,
+queue), **Zuletzt gehört** and the artist page's **Am meisten gehört**. Play a title for
+10 s and skip it, play another for more than 30 s, then check the web's mixes/history
+reflect it after a day's recomputation. Repeat in airplane mode with saved music, then
+go online and refresh: the queued events are sent once. In the player, queue a title with
+**Als Nächstes** and an album with **Zur Warteschlange** and check the sections; with
+**Automatisch weiterspielen** on, **Ähnliche Titel** appear when two titles remain.
 
 ## Player access review (build 26)
 
