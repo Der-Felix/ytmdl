@@ -528,10 +528,17 @@ final class PlayerUITests: XCTestCase {
         XCUIRemote.shared.press(.select)
         let genre = app.buttons["tv-foryou-mix-genre-0a1b2c3d4e5f"], listening = app.buttons["tv-foryou-mix-on_repeat"]
         XCTAssertTrue(genre.waitForExistence(timeout: 10), "Für dich shows every mix, genre mixes first.")
-        XCTAssertTrue(listening.exists)
         for _ in 0..<4 where !genre.hasFocus && !listening.hasFocus { XCUIRemote.shared.press(.down) }
         XCTAssertTrue(genre.hasFocus || listening.hasFocus, "A mix card in the grid takes the remote's focus.")
         attach(app, name: "TV Für dich with focused mix")
+        // The grid card has the same long-press menu as the Start cards.
+        XCUIRemote.shared.press(.select, forDuration: 1.5)
+        let shuffle = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Zufällig abspielen")).firstMatch
+        let opened = shuffle.waitForExistence(timeout: 5)
+        attach(app, name: "TV Für dich card menu")
+        if !opened { print(app.debugDescription) }
+        XCTAssertTrue(opened, "A long press opens the mix menu.")
+        XCUIRemote.shared.press(.menu)
         XCTAssertFalse(app.buttons["Pause"].exists, "Opening Für dich never starts playback.")
     }
     @MainActor func testTVQueueRemovesUpcomingEntryFromMenu() throws {
@@ -563,9 +570,13 @@ final class PlayerUITests: XCTestCase {
             }
         }
         XCTAssertTrue(target.hasFocus, "The first upcoming queue entry takes the remote's focus.")
+        attach(app, name: "TV queue entry focused")
         XCUIRemote.shared.press(.select, forDuration: 1.5)
-        let remove = app.buttons["Aus Warteschlange entfernen"].firstMatch
-        XCTAssertTrue(remove.waitForExistence(timeout: 5), "A long press opens the entry's menu.")
+        let remove = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Aus Warteschlange entfernen")).firstMatch
+        let opened = remove.waitForExistence(timeout: 5)
+        attach(app, name: "TV queue after long press")
+        if !opened { print(app.debugDescription) }
+        XCTAssertTrue(opened, "A long press opens the entry's menu.")
         for _ in 0..<4 where !remove.hasFocus { XCUIRemote.shared.press(.down) }
         XCTAssertTrue(remove.hasFocus)
         attach(app, name: "TV queue entry menu")
