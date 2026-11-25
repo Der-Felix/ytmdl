@@ -29,7 +29,8 @@ const buttonVariants = cva(
       },
       size: {
         default: "h-10 px-4",
-        sm: "h-8 gap-1.5 rounded-lg px-3 text-[0.8125rem]",
+        // Compact for the mouse; on touch screens tall enough to hit.
+        sm: "h-8 gap-1.5 rounded-lg px-3 text-[0.8125rem] pointer-coarse:h-10",
         lg: "h-11 px-5 text-[0.9375rem]",
         icon: "size-10",
         "icon-sm": "size-8 rounded-lg",

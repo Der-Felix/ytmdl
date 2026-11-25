@@ -9,6 +9,7 @@ import {
   Music2Icon,
   RefreshCwIcon,
   ShieldCheckIcon,
+  SlidersHorizontalIcon,
   SparklesIcon,
   UserIcon,
   WrenchIcon,
@@ -58,6 +59,7 @@ import { navigate, useLocation } from '@/lib/router'
 import { cn } from '@/lib/utils'
 import {
   formatBytes,
+  formatNumber,
   pluralize,
   releaseTypeLabel,
 } from '@/lib/utils/format'
@@ -450,7 +452,7 @@ export function Library() {
             <span>·</span>
             <span className="flex items-center gap-1.5 font-medium">
               <Music2Icon className="size-4 text-muted-foreground" />
-              {stats?.total_tracks !== undefined ? pluralize(stats.total_tracks, 'Track') : '–'}
+              {stats?.total_tracks !== undefined ? pluralize(stats.total_tracks, 'Titel', 'Titel') : '–'}
             </span>
             <span>·</span>
             <span className="flex items-center gap-1.5 font-medium">
@@ -532,7 +534,7 @@ export function Library() {
             onClick={() => handleTabChange('releases')}
           >
             <Disc3Icon className="size-4" />
-            Releases {stats?.total_releases !== undefined ? `(${stats.total_releases})` : ''}
+            Releases {stats?.total_releases !== undefined ? `(${formatNumber(stats.total_releases)})` : ''}
           </Button>
 
           <Button
@@ -542,7 +544,7 @@ export function Library() {
             onClick={() => handleTabChange('tracks')}
           >
             <Music2Icon className="size-4" />
-            Titel {stats?.total_tracks !== undefined ? `(${stats.total_tracks})` : ''}
+            Titel {stats?.total_tracks !== undefined ? `(${formatNumber(stats.total_tracks)})` : ''}
           </Button>
 
           <Button
@@ -552,10 +554,18 @@ export function Library() {
             onClick={() => handleTabChange('artists')}
           >
             <UserIcon className="size-4" />
-            Künstler {stats?.total_artists !== undefined ? `(${stats.total_artists})` : ''}
+            Künstler {stats?.total_artists !== undefined ? `(${formatNumber(stats.total_artists)})` : ''}
           </Button>
 
-          <Button variant={view==='tools'?'default':'ghost'} size="sm" onClick={()=>handleTabChange('tools')}>Werkzeuge</Button>
+          <Button
+            variant={view === 'tools' ? 'default' : 'ghost'}
+            size="sm"
+            className="text-sm font-medium gap-2"
+            onClick={() => handleTabChange('tools')}
+          >
+            <SlidersHorizontalIcon className="size-4" />
+            Werkzeuge
+          </Button>
           <Button
             variant={view === 'maintenance' ? 'default' : 'ghost'}
             size="sm"

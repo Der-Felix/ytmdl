@@ -356,7 +356,7 @@ export function NowPlaying() {
   }
 
   return (
-    <div className="player-page player-enter relative min-h-dvh flex flex-col bg-background text-foreground select-none overflow-x-clip pb-[env(safe-area-inset-bottom)]">
+    <div className="player-page player-enter relative min-h-dvh flex flex-col bg-background text-foreground select-none overflow-clip pb-[env(safe-area-inset-bottom)]">
       
       {/* Dynamic Immersive Background Atmosphere from Cover Art */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25 filter blur-3xl scale-125 transition duration-1000">
@@ -763,7 +763,7 @@ export function NowPlaying() {
             <Tabs.List
               aria-label="Player-Bereiche"
               activateOnFocus
-              className="player-tabs grid grid-cols-4 shrink-0 items-center border-b border-border px-2 sm:px-4 pt-2 bg-muted"
+              className="player-tabs grid grid-cols-4 shrink-0 items-stretch border-b border-border px-2 sm:px-4 pt-2 bg-muted"
             >
               <Tabs.Tab value="lyrics" className={playerTabClass}>
                 <Mic2 className="size-4" strokeWidth={1.8} />

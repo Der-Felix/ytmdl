@@ -61,11 +61,17 @@ export function historyStateWithDepth(state: unknown, depth: number): Record<str
 export function navigate(to: string, options: { replace?: boolean } = {}): void {
   if (to === currentHref()) return
 
+  const fromPath = window.location.pathname
   const depth = entryDepth(window.history.state)
   if (options.replace) window.history.replaceState(historyStateWithDepth(null, depth), '', to)
   else window.history.pushState(historyStateWithDepth(null, depth + 1), '', to)
 
   window.dispatchEvent(new Event(NAVIGATION_EVENT))
+
+  // A new page starts at its top, as a page load would. A changed query on
+  // the same page (tab, filter, sort) keeps the position, and back/forward
+  // are left to the browser's own scroll restoration.
+  if (!options.replace && window.location.pathname !== fromPath) window.scrollTo({ top: 0, left: 0 })
 }
 
 /** True when the previous history entry is a page of this application. */

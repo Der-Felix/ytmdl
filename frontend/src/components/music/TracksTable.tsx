@@ -125,12 +125,16 @@ export function TracksTable({
           </Button>
         </div>
       )}
+      {/* relative: absolutely positioned children (the sr-only column
+          names) would otherwise escape the scroll box and widen the page. */}
       <div
-        className={`w-full overflow-x-auto rounded-xl border border-border bg-card/40 ${className}`}
+        className={`relative w-full overflow-x-auto rounded-xl border border-border bg-card/40 ${className}`}
       >
       <table className="w-full text-left text-sm border-collapse min-w-[650px]">
         <thead>
-          <tr className="border-b border-border/80 bg-card/40 text-muted-foreground">
+          {/* One header style for sortable and plain columns alike. */}
+          <tr className="border-b border-border/80 bg-card/40 text-xs font-semibold tracking-wider text-muted-foreground uppercase [&>th]:font-semibold">
+
             <th className="p-3 w-10">
               <input type="checkbox" aria-label="Alle angezeigten Titel auswählen"
                 checked={tracks.length > 0 && selected.length === tracks.length}
@@ -146,16 +150,17 @@ export function TracksTable({
               {renderSortHeader('Titel', 'title')}
             </th>
             {showArtist && (
-              <th className="py-3 px-3">
+              <th className="w-[18%] py-3 px-3">
                 {renderSortHeader('Künstler', 'artist')}
               </th>
             )}
             {showAlbum && (
-              <th className="py-3 px-3 hidden md:table-cell">
+              <th className="w-[20%] py-3 px-3 hidden md:table-cell">
                 {renderSortHeader('Album', 'album')}
               </th>
             )}
-            <th className="py-3 px-3 w-28 text-center">Format</th>
+            {/* Format is reference only; below xl its room goes to the names. */}
+            <th className="py-3 px-3 w-28 text-center hidden xl:table-cell">Format</th>
             <th className="py-3 px-3 w-24 text-center">Lyrics</th>
             <th className="py-3 px-3 w-20 text-right">
               {renderSortHeader('Dauer', 'duration')}
@@ -223,34 +228,40 @@ export function TracksTable({
                   </td>
                 )}
 
-                <td className="py-2.5 px-3 font-medium">
+                {/* Title, artist and album truncate inside their column
+                    (max-w-0): artist and album take a share of the width (see
+                    the header), the title the rest. A long name never pushes
+                    duration and actions out of the table, and the columns do
+                    not jump with the content. Below the title's minimum the
+                    table scrolls sideways instead. */}
+                <td className="max-w-0 min-w-36 py-2.5 px-3 font-medium">
                   <button
                     type="button"
                     onClick={playFromRow}
                     title={track.title}
-                    className={`focus-ring block max-w-[280px] cursor-pointer truncate rounded-sm text-left lg:max-w-md ${isCurrent ? 'text-primary font-semibold' : 'text-foreground'}`}
+                    className={`focus-ring block max-w-full cursor-pointer truncate rounded-sm text-left ${isCurrent ? 'text-primary font-semibold' : 'text-foreground'}`}
                   >
                     {track.title}
                   </button>
                 </td>
 
                 {showArtist && (
-                  <td className="py-2.5 px-3 text-muted-foreground">
-                    <div className="truncate max-w-[180px]" title={artistName}>
+                  <td className="max-w-0 py-2.5 px-3 text-muted-foreground">
+                    <div className="truncate" title={artistName}>
                       <TrackArtistLink track={track}>{artistName}</TrackArtistLink>
                     </div>
                   </td>
                 )}
 
                 {showAlbum && (
-                  <td className="py-2.5 px-3 text-muted-foreground hidden md:table-cell">
-                    <div className="truncate max-w-[200px]" title={track.album || undefined}>
+                  <td className="max-w-0 py-2.5 px-3 text-muted-foreground hidden md:table-cell">
+                    <div className="truncate" title={track.album || undefined}>
                       {track.album ? <TrackAlbumLink track={track} /> : '–'}
                     </div>
                   </td>
                 )}
 
-                <td className="py-2.5 px-3 text-center">
+                <td className="py-2.5 px-3 text-center hidden xl:table-cell">
                   {track.codec ? (
                     <Badge variant="outline" className="font-mono text-[11px] uppercase py-0 px-1.5 h-5">
                       {track.codec} {track.bitrate_kbps ? `${Math.round(track.bitrate_kbps)}k` : ''}

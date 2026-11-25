@@ -263,7 +263,7 @@ export function LibrarySearchField({
                       </p>
                       <p className="text-xs text-muted-foreground truncate">
                         {pluralize(artist.release_count, 'Release', 'Releases')} ·{' '}
-                        {pluralize(artist.track_count, 'Track')}
+                        {pluralize(artist.track_count, 'Titel', 'Titel')}
                       </p>
                     </div>
                   </button>

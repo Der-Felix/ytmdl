@@ -1,15 +1,20 @@
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import type { ReactNode } from 'react'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { deleteArtwork, uploadArtwork } from '@/lib/api/libraryTools'
 import { notifyError, notifySuccess } from '@/lib/notify'
 export function ArtworkEditor({
   kind,
   id,
   onSaved,
+  actions,
 }: {
   kind: 'artists' | 'releases'
   id: string
   onSaved?: () => void
+  /** Further admin actions of the page, in the same row (e.g. delete). */
+  actions?: ReactNode
 }) {
   const [busy, setBusy] = useState(false)
   const save = async (file?: File) => {
@@ -27,8 +32,17 @@ export function ArtworkEditor({
     }
   }
   return (
-    <div className="space-y-2 text-xs">
-      <label data-slot="button" data-disabled={busy ? '' : undefined} className="inline-flex rounded-md border border-border px-3 py-2 hover:bg-muted">
+    // Both controls in one row of the same height; the file input is hidden,
+    // so its keyboard focus is shown on the label that looks like a button.
+    <div className="flex flex-wrap items-center justify-center gap-2 text-center text-xs sm:justify-start sm:text-left">
+      <label
+        data-slot="button"
+        data-disabled={busy ? '' : undefined}
+        className={cn(
+          buttonVariants({ variant: 'outline', size: 'sm' }),
+          'cursor-pointer has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-ring data-disabled:pointer-events-none data-disabled:opacity-45',
+        )}
+      >
         {busy ? 'Speichere …' : 'Eigenes Bild hochladen'}
         <input
           className="sr-only"
@@ -46,7 +60,8 @@ export function ArtworkEditor({
       <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save()}>
         Eigenes Bild entfernen
       </Button>
-      <p className="text-muted-foreground">
+      {actions}
+      <p className="basis-full text-muted-foreground">
         JPEG oder PNG, bis 8 MiB. Audiodateien bleiben unverändert.
       </p>
     </div>

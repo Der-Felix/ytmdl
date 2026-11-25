@@ -1,6 +1,7 @@
 import { ListMusicIcon, ListPlusIcon, PlayIcon } from 'lucide-react'
 
 import { Cover } from '@/components/music/Cover'
+import { TrackMenu } from '@/components/music/TrackMenu'
 import { CommandGroup, CommandItem } from '@/components/ui/command'
 import { resultValue } from '@/hooks/useCommandSearch'
 import type { CommandSearch } from '@/hooks/useCommandSearch'
@@ -14,6 +15,8 @@ interface ResultGroupsProps {
   onPlay: (track: LibraryTrack) => void
   onQueue: (track: LibraryTrack) => void
   onOpen: (href: string) => void
+  /** Closes the menu, e.g. when a title's track menu opens another page. */
+  onClose: () => void
   hrefs: {
     artist: (id: string) => string
     release: (id: string) => string
@@ -22,7 +25,7 @@ interface ResultGroupsProps {
 }
 
 /** The four result groups. They render above the menu's own entries. */
-export function ResultGroups({ search, currentTrackId, onPlay, onQueue, onOpen, hrefs }: ResultGroupsProps) {
+export function ResultGroups({ search, currentTrackId, onPlay, onQueue, onOpen, onClose, hrefs }: ResultGroupsProps) {
   return (
     <>
       {search.tracks.length > 0 && (
@@ -37,6 +40,7 @@ export function ResultGroups({ search, currentTrackId, onPlay, onQueue, onOpen, 
                 onSelect={() => onPlay(track)}
                 aria-label={`${track.title} von ${artist} abspielen`}
                 className="group pr-1.5"
+                data-track-row
               >
                 <span className="relative size-9 shrink-0">
                   <Cover
@@ -75,6 +79,26 @@ export function ResultGroups({ search, currentTrackId, onPlay, onQueue, onOpen, 
                 >
                   <ListPlusIcon className="size-4" />
                 </button>
+                {/* The same menu as in every other track list; right-click on the
+                    row opens it as well (data-track-row). The menu is portaled,
+                    but React still bubbles its events to this item: without the
+                    wrapper a click or Enter in the menu would also play the title.
+                    A link in the menu ("Zum Album") closes the command menu. */}
+                <span
+                  className="contents"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    if ((event.target as Element).closest('a[href]')) onClose()
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  onPointerMove={(event) => event.stopPropagation()}
+                >
+                  <TrackMenu
+                    track={track}
+                    size="compact"
+                    className="text-muted-foreground pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-data-[selected=true]:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100"
+                  />
+                </span>
               </CommandItem>
             )
           })}

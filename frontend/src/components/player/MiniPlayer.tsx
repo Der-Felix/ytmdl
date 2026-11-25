@@ -60,7 +60,8 @@ export function MiniPlayer() {
         className="fixed right-0 bottom-(--bottom-nav-height) left-0 z-40 box-content h-16 border-t border-border bg-surface pr-[env(safe-area-inset-right)] pb-(--player-inset) pl-[env(safe-area-inset-left)] sm:h-[86px]"
     >
       {/* Phones: a thin strip, so it never takes taps meant for the buttons. */}
-      <MobileProgress className="h-2.5 sm:h-6" />
+      {/* Wider screens have the seek bar in the middle instead. */}
+      <MobileProgress className="h-2.5 sm:hidden" />
 
       <div className="mx-auto flex h-full max-w-[94rem] items-center justify-between px-3 sm:px-6 gap-2 sm:gap-6 pt-1 sm:pt-0">
         

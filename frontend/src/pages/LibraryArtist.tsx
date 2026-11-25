@@ -173,7 +173,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
           <span>Bibliothek · Künstler</span>
         </Link>
 
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 bg-card/40 border border-border/80 rounded-2xl p-6">
+        <div className="flex flex-col xl:flex-row xl:flex-wrap xl:items-center justify-between gap-6 bg-card/40 border border-border/80 rounded-2xl p-6">
           <div className="min-w-0 flex flex-col sm:flex-row items-center sm:items-start md:items-center gap-5 text-center sm:text-left">
             <Cover
               src={artworkVersion>0 ? libraryArtwork('artists', artist.id)+`?v=${artworkVersion}` : artist.image_url}
@@ -184,8 +184,6 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
             />
             <div className="space-y-2">
               <h1 className="text-2xl sm:text-3xl font-bold font-heading text-foreground">{artist.name}</h1>
- {isAdmin && <ArtworkEditor kind="artists" id={artist.id}
-                onSaved={() => setArtworkVersion((value) => value + 1)} />}
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Disc3Icon className="size-3.5" />
@@ -194,7 +192,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
                 <span>·</span>
                 <span className="flex items-center gap-1">
                   <Music2Icon className="size-3.5" />
-                  {pluralize(detail.track_count, 'Track')}
+                  {pluralize(detail.track_count, 'Titel', 'Titel')}
                 </span>
                 <span>·</span>
                 <span className="flex items-center gap-1">
@@ -218,6 +216,17 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
 
             <SubscribeControl artist={artist} />
           </div>
+
+          {/* Admin tools below name, facts and actions, as on the release page. */}
+          {isAdmin && (
+            <div className="border-t border-border/60 pt-4 xl:basis-full">
+              <ArtworkEditor
+                kind="artists"
+                id={artist.id}
+                onSaved={() => setArtworkVersion((value) => value + 1)}
+              />
+            </div>
+          )}
         </div>
       </div>
 
