@@ -65,7 +65,8 @@ private func track(_ id: String) -> Track { Track(id: id, title: id.uppercased()
     // A seek or a long stall never adds more than one second per tick.
     tracker.reset()
     _ = tracker.tick(key: "b", playing: true, now: 0, duration: 200)
-    #expect(!tracker.tick(key: "b", playing: true, now: 500, duration: 200))
+    let countedAfterStall = tracker.tick(key: "b", playing: true, now: 500, duration: 200)
+    #expect(!countedAfterStall)
     #expect(tracker.listenedSeconds == 1)
     // Paused time does not count.
     _ = tracker.tick(key: "b", playing: false, now: 501, duration: 200)
@@ -80,24 +81,31 @@ private func track(_ id: String) -> Track { Track(id: id, title: id.uppercased()
     var tracker = ListeningTracker()
     _ = tracker.tick(key: "a", playing: true, now: 0, duration: 200)
     _ = tracker.tick(key: "a", playing: true, now: 1, duration: 200)
-    #expect(!tracker.takeSkip(key: "a", now: 1, playing: true), "One second is no judgement of the track.")
+    let skipAfterOneSecond = tracker.takeSkip(key: "a", now: 1, playing: true)
+    #expect(!skipAfterOneSecond, "One second is no judgement of the track.")
     _ = tracker.tick(key: "a", playing: true, now: 2, duration: 200)
     _ = tracker.tick(key: "a", playing: true, now: 3, duration: 200)
-    #expect(!tracker.takeSkip(key: "other", now: 3, playing: true))
-    #expect(tracker.takeSkip(key: "a", now: 3, playing: true))
-    #expect(!tracker.takeSkip(key: "a", now: 3, playing: true), "At most once per track start.")
+    let skipOfOtherKey = tracker.takeSkip(key: "other", now: 3, playing: true)
+    #expect(!skipOfOtherKey)
+    let firstSkip = tracker.takeSkip(key: "a", now: 3, playing: true)
+    #expect(firstSkip)
+    let secondSkip = tracker.takeSkip(key: "a", now: 3, playing: true)
+    #expect(!secondSkip, "At most once per track start.")
 
     // Paused for longer than three minutes: the user left and came back.
     tracker.reset()
     for second in 0...5 { _ = tracker.tick(key: "b", playing: true, now: Double(second), duration: 200) }
     _ = tracker.tick(key: "b", playing: false, now: 6, duration: 200)
-    #expect(!tracker.takeSkip(key: "b", now: 5 + 181, playing: false))
-    #expect(tracker.takeSkip(key: "b", now: 5 + 179, playing: false))
+    let skipAfterLongPause = tracker.takeSkip(key: "b", now: 5 + 181, playing: false)
+    #expect(!skipAfterLongPause)
+    let skipAfterShortPause = tracker.takeSkip(key: "b", now: 5 + 179, playing: false)
+    #expect(skipAfterShortPause)
 
     // Once the track counted as a play, moving on is no skip.
     tracker.reset()
     for second in 0...31 { _ = tracker.tick(key: "c", playing: true, now: Double(second), duration: 200) }
-    #expect(!tracker.takeSkip(key: "c", now: 31, playing: true))
+    let skipAfterPlay = tracker.takeSkip(key: "c", now: 31, playing: true)
+    #expect(!skipAfterPlay)
 
     #expect(ListeningTracker.movesOn(from: "a", to: "b", failed: false))
     #expect(!ListeningTracker.movesOn(from: "a", to: "a", failed: false))
