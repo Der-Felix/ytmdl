@@ -33,7 +33,8 @@ private func song(_ id: String, _ title: String, artist: String = "", album: Str
     // Editing a filtered row edits that entry of the whole queue.
     let rows = queue.rows(filter: "Blaue")
     #expect(rows.count == 1 && rows[0].position == 3 && rows[0].startsSection)
-    #expect(queue.playNext(at: rows[0].position))
+    let moved = queue.playNext(at: rows[0].position)
+    #expect(moved)
     #expect(queue.tracks.map(\.id) == ["a", "d", "b", "c"])
 }
 

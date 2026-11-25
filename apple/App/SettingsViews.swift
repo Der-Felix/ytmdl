@@ -38,6 +38,18 @@ struct SettingsView: View {
                         LabeledContent("Klang & Wiedergabe", value: TVSoundSettings.summary(model.player))
                     }.accessibilityIdentifier("tv-settings-sound")
                 }
+                // The iPhone's history and handoff settings, so a TV can take
+                // over playback that another device saved.
+                Section("Hörverlauf & Übergabe") {
+                    Toggle("Lokalen Hörverlauf merken", isOn: Binding(get: { model.listeningHistory.enabled }, set: { model.listeningHistory.setEnabled($0) }))
+                    Toggle("Hörverlauf mit meinem Server synchronisieren", isOn: Binding(get: { model.syncHistory }, set: { model.setSyncHistory($0) }))
+                    Button("Lokalen Hörverlauf leeren", role: .destructive) { model.listeningHistory.clear() }
+                    Button("Wiedergabe von anderem Gerät prüfen", systemImage: "arrow.down.forward.and.arrow.up.backward") { Task { await model.checkHandoff() } }
+                    if let handoff = model.handoff {
+                        Text("\(handoff.sourceName) · \(handoff.queue?.count ?? 0) Titel").font(.caption).foregroundStyle(.secondary)
+                        Button("Wiedergabe hier fortsetzen") { model.acceptHandoff() }
+                    }
+                }
                 #endif
                 #if os(iOS)
                 Section("Musik & Wiedergabe") {

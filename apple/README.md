@@ -1,7 +1,7 @@
 # YTMDL for Apple
 
 Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The current
-preview is **0.4.2, build 36** and requires OS 27 and Xcode 27. It is a client of the
+preview is **0.4.3, build 37** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
 It is not in the App Store: [INSTALL.md](INSTALL.md) explains the downloads (unsigned
 `.ipa` for sideloading, un-notarized `.dmg`), and how releases are made.
@@ -26,6 +26,12 @@ reached from Start, and queue editing with the remote (long press on an upcoming
 **Warteschlange leeren**, **Als Playlist speichern**). On every platform, clearing the
 queue now offers **Rückgängig** for a few seconds, and a mix page sorts its titles like
 the web's. Details are in [FEATURES.md](FEATURES.md) and [WEB-PARITY.md](WEB-PARITY.md).
+
+Build 37 (0.4.3) brings the sound settings to Apple TV: **Optionen → Klang & Wiedergabe**
+with sleep timer, tempo, crossfade, normalization and the ten-band equalizer (−/+ buttons
+instead of sliders), sleep timer and tempo menus in the TV player, the iPhone's queue
+filter in the TV queue, history and handoff settings, and no more large title over the
+TV queue. Apple TV still has no offline catalogue; WEB-PARITY.md explains why.
 
 ## Open and run
 
@@ -58,7 +64,7 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 - Mobile playlist/favorites headers combine artwork, title, duration and large
   play/shuffle buttons. Playlist download/edit/add/reload/delete live in one menu.
   The iOS app embeds `YTMDLWidgets.appex`; its bundle identifier must remain a child
-  of the app identifier when changing signing settings. Both use the same version, currently 0.4.2 (36).
+  of the app identifier when changing signing settings. Both use the same version, currently 0.4.3 (37).
   Home and Lock Screen widgets link to app views without starting audio or sharing
   authentication. No App Group capability is required.
 - iPad/Mac sidebar navigation and adaptive album grids.

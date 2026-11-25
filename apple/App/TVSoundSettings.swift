@@ -156,6 +156,7 @@ struct TVPlayerQuickActions: View {
                 Menu {
                     Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
                     Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { adding = true }
+                    Button("Wiedergabe übergeben", systemImage: "arrow.up.forward.app") { Task { await model.saveHandoff() } }
                 } label: { Image(systemName: "ellipsis") }
                     .accessibilityLabel("Titel-Aktionen")
                     .accessibilityIdentifier("tv-player-actions")

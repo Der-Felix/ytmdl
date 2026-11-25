@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.4.2, build 36
+# Apple app handoff — preview 0.4.3, build 37
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,34 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 37: Apple TV sound settings and queue filter (CI only, not installed)
+
+Builds on PR #112 (build 36); see FEATURES.md "Apple TV sound and queue filter (build 37)".
+
+- **Sound on TV:** `App/TVSoundSettings.swift` (`#if os(tvOS)`, registered for all three
+  app targets like `TVListenViews.swift`). `TVSoundSettings` is a Form opened from
+  **Optionen → Klang** (`SettingsView`, `tv-settings-sound`); it calls the same
+  `PlayerModel`/`EqualizerModel` setters as `MobileAudioSettings`, so the preference keys
+  (`crossfadeSeconds`, `playbackRate`, `playerNormalization`, `eq*` …) are shared. Sleep
+  mode stays session state, as everywhere. `TVAdjustRow` replaces sliders with −/+ buttons;
+  the stepping is `SoundStep` in core (snaps to the step grid, clamps, disables the button
+  at a bound). `TVCountdown` shows the time left of a minute timer. Checked for tvOS: the
+  `MTAudioProcessingTap` in `Equalizer.swift`, `AVAudioMix` and `audioTimePitchAlgorithm`
+  have no platform guard and are available on tvOS, so EQ, normalization, crossfade and
+  tempo use the same engine path; nothing was left out for platform reasons.
+- **Player on TV:** `NowPlayingView` hides the navigation bar on tvOS (the large "Player"
+  title overlapped the scrolling queue panel), cycles repeat like the iPhone and shows
+  `TVPlayerQuickActions` (sleep timer and tempo menus with a `Picker` inside, title actions
+  with song radio, add to playlist and handoff).
+- **Queue filter on TV:** `TVQueueView` filters with `PlaybackQueue.rows(filter:)` and
+  `Track.matchesQueueFilter` (core, now also used by the iPhone queue). Rows keep their queue
+  positions; removal focuses `PlaybackQueue.focusAfterRemoving(_:visible:)`. "Als Nächstes"
+  now focuses the moved entry. Every row's menu also offers add to playlist and favorite.
+- **Settings on TV:** a **Hörverlauf & Übergabe** section mirrors the iPhone's history and
+  handoff settings.
+- **Offline on TV:** evaluated and not built; the reasons are in WEB-PARITY.md (build 37).
+- UI tests: `testTVSoundSettingsShowAChangedCrossfade`, `testTVQueueFilterEditsTheShownEntry`.
 
 ## Build 36: the Apple TV side (CI only, not installed)
 
@@ -159,7 +187,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.4.2 (36)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.4.3 (37)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness
@@ -296,7 +324,8 @@ Design reference: [Apple buttons](https://developer.apple.com/design/human-inter
 | Mac player, queue actions and compact playback options | `App/DesktopViews.swift` |
 | Mac Start feed and appearance | `App/DesktopHomeView.swift`, `App/Appearance.swift`, `App/ListeningHistory.swift` |
 | Listening home, mixes, mix page (shared) | `App/ListenHome.swift` |
-| Apple TV Start tab, Für dich, queue sections and editing | `App/TVListenViews.swift` |
+| Apple TV Start tab, Für dich, queue sections, editing and filter | `App/TVListenViews.swift` |
+| Apple TV sound settings and player quick actions | `App/TVSoundSettings.swift` |
 | Streaming, prefetch, timers, two-player crossfade, metering | `App/PlayerModel.swift` |
 | Audio processing and ten-band EQ | `App/Equalizer.swift`, `App/AudioSettingsViews.swift` |
 | Cover-derived colors | `App/ArtworkPalette.swift` |
