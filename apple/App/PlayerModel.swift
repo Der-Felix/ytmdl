@@ -135,7 +135,8 @@ enum SleepMode: String, CaseIterable, Identifiable {
         if let value = volumePreferences.object(forKey: "crossfadeSeconds") as? Double, value.isFinite { crossfadeSeconds = min(12, max(0, value)) }
         smartAlbumTransition = volumePreferences.object(forKey: "smartAlbumTransition") as? Bool ?? true
         preloadEnabled = volumePreferences.object(forKey: "preloadNextTrack") as? Bool ?? true
-        autoplay = volumePreferences.bool(forKey: "playerAutoplay")
+        // On by default, like the web player's "Automatisch weiterspielen".
+        autoplay = volumePreferences.object(forKey: "playerAutoplay") as? Bool ?? true
         fastStart = volumePreferences.object(forKey: "fastPlaybackStart") as? Bool ?? true
         if let value = volumePreferences.object(forKey: "playbackRate") as? Double, value.isFinite { playbackRate = min(2, max(0.5, value)) }
         #if os(macOS)

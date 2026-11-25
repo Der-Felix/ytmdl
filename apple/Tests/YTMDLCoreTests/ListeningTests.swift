@@ -134,6 +134,7 @@ private func track(_ id: String) -> Track { Track(id: id, title: id.uppercased()
     queue.shuffleUpcoming()
     let sections = (1..<queue.tracks.count).map { queue.section(at: $0) }
     #expect(sections == sections.sorted { order($0) < order($1) }, "Shuffle keeps queued tracks first and autoplay last.")
+    #expect(queue.tracks[1...3].map(\.id) == ["n", "u1", "u2"], "Only the started context is shuffled.")
     queue.select(2)
     #expect(queue.section(at: 0) == .played && queue.section(at: 1) == .played && queue.section(at: 2) == .current)
     let cleared = queue.clearUpcoming()

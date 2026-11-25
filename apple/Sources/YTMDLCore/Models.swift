@@ -307,13 +307,16 @@ public struct PlaybackQueue: Equatable, Sendable {
     }
     public mutating func previous() { index = max(0, index - 1) }
     public mutating func select(_ index: Int) { if tracks.indices.contains(index) { self.index = index } }
-    /// Shuffles the upcoming tracks within their sections: queued tracks stay
-    /// next, autoplay tracks stay at the end.
+    /// Shuffles only the upcoming tracks of the started context, like the web
+    /// player: queued tracks stay next in their order, autoplay stays at the end.
     public mutating func shuffleUpcoming() {
         guard index + 1 < tracks.count else { return }
         alignOrigins()
         let upcoming = (index + 1..<tracks.count).map { (tracks[$0], origins[$0]) }
-        let ordered = [QueueOrigin.user, .context, .autoplay].flatMap { origin in upcoming.filter { $0.1 == origin }.shuffled() }
+        let ordered = [QueueOrigin.user, .context, .autoplay].flatMap { origin -> [(Track, QueueOrigin)] in
+            let group = upcoming.filter { $0.1 == origin }
+            return origin == .context ? group.shuffled() : group
+        }
         tracks.replaceSubrange((index + 1)..., with: ordered.map { $0.0 })
         origins.replaceSubrange((index + 1)..., with: ordered.map { $0.1 })
     }
