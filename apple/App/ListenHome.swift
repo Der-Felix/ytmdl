@@ -264,8 +264,11 @@ struct MixDetailView: View {
     @State private var gone = false
     @State private var savingPlaylist = false
     @State private var savedPlaylist: Playlist?
+    @State private var sort = MixTrackSort.mix
+    @State private var descending = false
     @Environment(\.dynamicTypeSize) private var textSize
-    private var tracks: [Track] { detail?.tracks ?? [] }
+    /// In the chosen order, like the web; playing and saving use this order too.
+    private var tracks: [Track] { sort.apply(detail?.tracks ?? [], descending: descending) }
     private var shown: PersonalMix { detail?.mix ?? mix }
     /// Saving creates a playlist on the server: not without a connection.
     private var saveUnavailable: Bool { model.offlineMode || model.feed.unreachable || model.client == nil }
@@ -296,6 +299,9 @@ struct MixDetailView: View {
                 } else if tracks.isEmpty {
                     ContentUnavailableView("Keine Titel mehr verfügbar", systemImage: "sparkles", description: Text("Die Titel dieses Mixes sind nicht mehr in der Mediathek."))
                 }
+                #if os(tvOS)
+                if tracks.count > 1 { sortMenu }
+                #endif
                 ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
                     TrackRow(model: model, track: track) { play(start: index) }
                 }
@@ -307,11 +313,32 @@ struct MixDetailView: View {
         .refreshable { await load() }
         #endif
         .task { if detail == nil { await load() } }
+        #if !os(tvOS)
+        .toolbar { if tracks.count > 1 { ToolbarItem(placement: .primaryAction) { sortMenu } } }
+        #endif
         .sheet(isPresented: $savingPlaylist) {
             AddToPlaylistSheet(model: model, tracks: tracks, title: "Mix als Playlist speichern",
                                suggestedName: PersonalMix.playlistName(shown.title, date: .now),
                                createLabel: "Als neue Playlist speichern") { savedPlaylist = $0 }
         }
+    }
+    /// Sorting as on the web's mix page: the mix order or one column, either direction.
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sortieren nach", selection: $sort) {
+                ForEach(MixTrackSort.allCases) { option in Text(option.label).tag(option) }
+            }.pickerStyle(.inline)
+            if sort != .mix {
+                Picker("Richtung", selection: $descending) {
+                    Text("Aufsteigend").tag(false)
+                    Text("Absteigend").tag(true)
+                }.pickerStyle(.inline)
+            }
+        } label: {
+            Label(sort == .mix ? "Sortieren" : "Sortiert nach \(sort.label)", systemImage: "arrow.up.arrow.down")
+        }
+        .accessibilityLabel(sort == .mix ? "Sortieren, Mix-Reihenfolge" : "Sortieren, \(sort.label), \(descending ? "absteigend" : "aufsteigend")")
+        .accessibilityIdentifier("mix-sort")
     }
     private func savePlaylistButton() -> some View {
         Button { savedPlaylist = nil; savingPlaylist = true } label: { Label("Als Playlist speichern", systemImage: "music.note.list") }
@@ -436,6 +463,44 @@ struct ArtistTopTracksSection: View {
             .accessibilityLabel("\(entry.track.title) abspielen, \(entry.playCount)-mal gehört")
     }
 }
+
+#if !os(tvOS)
+/// "Rückgängig" after clearing the queue, like the web's toast: a small bar
+/// that never blocks the player and leaves after a few seconds or as soon as
+/// the queue changes. Apple TV shows a focusable button in its queue instead.
+struct QueueUndoBar: View {
+    var player: PlayerModel
+    /// The edge the bar slides in from.
+    var edge: Edge = .bottom
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        VStack {
+            if let offer = player.undoOffer {
+                HStack(spacing: 12) {
+                    Image(systemName: "trash").foregroundStyle(.secondary).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(offer.undo.clearedAll ? "Warteschlange geleert" : "Kommende Titel entfernt").font(.subheadline.weight(.semibold))
+                        Text("\(offer.removedCount) Titel entfernt").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Button("Rückgängig") { player.undoClear() }
+                        .buttonStyle(.borderless).font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                        .accessibilityHint("Stellt die entfernten Titel wieder her")
+                        .accessibilityIdentifier("queue-undo")
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .transition(reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: player.undoOffer?.id)
+    }
+}
+#endif
 
 /// An inline error with a retry action, used by the start screen's sections.
 struct ListenSectionFailure: View {

@@ -1,7 +1,7 @@
 # Web/App-Abgleich: Musik hören und Sammlungen verwalten
 
-Stand: 7. Oktober 2026, native Vorschau 0.3.0 (33), PR #42. Build 33 behebt nur Fehler;
-die Funktionsübersicht entspricht Build 32, installiert ist weiterhin Build 32.
+Stand: 25. November 2026, native Vorschau 0.4.2 (36). Die Abschnitte zu den Builds 34 bis 36
+beschreiben, was seit Build 32 dazukam; installiert ist auf dem iPhone weiterhin Build 32.
 Dies ist eine Funktionsprüfung, keine Freigabe als vollständiges oder fehlerfreies
 Stable-Release. Downloads vom Provider, Serververwaltung und Bibliothekswartung
 gehören nicht zum Umfang. „Offline speichern“ auf dem eigenen Gerät gehört dazu.
@@ -25,7 +25,7 @@ verglichen, nicht nach identischen Menünamen.
 | Offline-Sammlungen | iPhone/iPad und jetzt auch Mac: Playlists, Favoriten, Alben, Künstler, alle Titel | Reihenfolge, Suche und Sortierung über lokale Metadaten |
 | Lokale Downloads verwalten | Fortschritt, Pause, Wiederholen, Speicherbudget, WLAN, lokale Entfernung | Fertige Dateien funktionieren ohne Sitzung; neue Downloads brauchen Anmeldung |
 | Player und Mini-Player | Start/Pause, Vor/Zurück, Seek, Lautstärke/AirPlay, Wiederholung | Nutzt lokale Datei; fehlt sie, kein versteckter Streaming-Fallback im Offline-Modus |
-| Warteschlange | Abschnitte wie im Web: „Als Nächstes“, „Weiter aus: …“, „Ähnliche Titel“; hinzufügen, als Nächstes, freie Verschiebung, Entfernen, kommende Titel leeren, vollständig leeren; ganze Alben, Künstler, Playlists und Mixe einreihen | Lokale Änderungen und Wiedergabe funktionieren auch offline |
+| Warteschlange | Abschnitte wie im Web: „Als Nächstes“, „Weiter aus: …“, „Ähnliche Titel“; hinzufügen, als Nächstes, freie Verschiebung, Entfernen, kommende Titel leeren, vollständig leeren, danach „Rückgängig“ wie im Web; ganze Alben, Künstler, Playlists und Mixe einreihen; auf Apple TV über ein Menü per Gedrückthalten | Lokale Änderungen und Wiedergabe funktionieren auch offline |
 | Warteschlange als Playlist | Jetzt auch im mobilen Player erreichbar; „Mix als Playlist speichern“ auf der Mix-Seite | Speichern auf dem Server braucht Verbindung; ohne Verbindung ist die Aktion mit Hinweis gesperrt |
 | Queue-Filter | Mobil und Mac | Filtert die vorhandene lokale Warteschlange |
 | Überblendung/Vorladen | 0–12 Sekunden, Schutz benachbarter Albentitel, schneller Start | Auch mit lokalen Dateien; keine Garantie für samplegenaues Gapless |
@@ -37,10 +37,37 @@ verglichen, nicht nach identischen Menünamen.
 | Hörverlauf/Queue wiederherstellen | Wiedergaben und Überspringen mit den Regeln des Web-Players an `/history` und `/history/skips`; lokal, konto- und servergebunden; Wiederherstellen ausdrücklich, mit Herkunft und Kontext jedes Eintrags | Auch Wiedergaben und Überspringen lokaler Dateien werden gespeichert und später an dasselbe Konto gesendet, wenn aktiviert |
 | Song-/Genre-Radio | Server-Metadaten, ähnlich zum Web; „Automatisch weiterspielen“ (standardmäßig an) hängt bei höchstens zwei verbleibenden Titeln bis zu 12 ähnliche Titel an, ohne bereits eingereihte oder in dieser Sitzung gespielte | Neue Empfehlungen brauchen Verbindung |
 | Start („Hören“) | Weiterhören, persönliche Mixe, „Zuletzt gehört“ vom Server, „Neu in der Mediathek“; Mac-Start zeigt Mixe und Serververlauf; Apple TV hat einen eigenen Start-Tab mit fokussierbaren Reihen | Offline-Hinweis mit Weg zur gespeicherten Musik; gespeicherte Musik bleibt abspielbar |
-| Persönliche Mixe („Für dich“) | „Dein Mix 1…n“ mit Genre, Mixe aus dem Hören, Collage, Titelzahl, Abspielen; Mix-Seite mit Abspielen, Zufällig, Als Nächstes, Zur Warteschlange, Als Playlist speichern | Mixe berechnet der Server; ohne Verbindung nicht verfügbar |
+| Persönliche Mixe („Für dich“) | „Dein Mix 1…n“ mit Genre, Mixe aus dem Hören, Collage, Titelzahl, Abspielen; „Für dich“ auch auf Apple TV; Mix-Seite mit Abspielen, Zufällig, Als Nächstes, Zur Warteschlange, Als Playlist speichern und Sortieren wie im Web | Mixe berechnet der Server; ohne Verbindung nicht verfügbar |
 | Künstlerseite | „Am meisten gehört“ (bis zu zehn Titel), Abspielen/Zufall, ganze Künstler einreihen | Braucht Verbindung; Offline-Künstlersammlungen bleiben abspielbar |
 | Geräteübergabe | Ausdrückliches Senden/Annehmen mit Schutz vor verspäteten Antworten | Braucht Verbindung; startet nicht eigenständig Musik |
 | Sperrbildschirm/Medientasten | Now Playing mit Cover, Seek und Transport | Verwendet lokale Cover; Hardwareprüfung bleibt erforderlich |
+
+## Build 36 (0.4.2): Apple TV und „Rückgängig“
+
+Auf Build 35 aufbauend, gegen die unveränderte Server-API von v1.10.x. Ausgeliefert als 0.4.2 (36).
+
+- Apple TV „Für dich“: Die erste Mix-Reihe im Start-Tab endet mit „Alle Mixe“. Die Seite
+  zeigt alle Mixe des Tages als fokussierbares Raster, „Dein Mix 1…n“ zuerst, dann die Mixe
+  aus dem Hören. Auswählen öffnet die Mix-Seite, Gedrückthalten bietet „Abspielen“ und
+  „Zufällig abspielen“ wie im Start-Tab. Laden, keine Mixe, Server ohne Mixe und Fehler
+  haben je einen eigenen Zustand, mit „Erneut laden“.
+- Apple TV Warteschlange bearbeiten: Gedrückthalten auf einem kommenden Titel bietet „Als
+  Nächstes abspielen“, „Nach oben“, „Nach unten“ und „Aus Warteschlange entfernen“, jeweils
+  nur, wo es geht. Der laufende und schon gespielte Titel bleiben, wo sie sind. Der Fokus
+  bleibt beim verschobenen Titel oder beim Nachbarn. „Warteschlange leeren“ entfernt die
+  kommenden Titel, „Als Playlist speichern“ speichert die Warteschlange.
+- „Rückgängig“ nach dem Leeren (alle Plattformen) wie die Web-Meldung: zehn Sekunden lang,
+  bis sich die Warteschlange ändert. Die Titel kommen mit Abschnitten und Kontext zurück;
+  nach „Leeren und stoppen“ an der alten Position und nur dann spielend, wenn sie spielten.
+  Abweichung mit Absicht: Das Web bietet „Rückgängig“ nur nach dem vollständigen Leeren,
+  nativ auch nach „Nächste leeren“, weil das auf Apple TV die einzige Leeren-Aktion ist.
+- Mixe sortieren wie auf der Web-Mix-Seite: Mix-Reihenfolge, Titel, Künstler, Album, Dauer,
+  Titelnummer, auf- oder absteigend. Abspielen und „Als Playlist speichern“ folgen der
+  angezeigten Reihenfolge. Die Übersicht der Mixe hat auch im Web keine Sortierung.
+
+Nachweis: Swift-Tests für Wiederherstellen (auch mit Autoplay dazwischen), Bearbeitungsregeln,
+Fokus-Nachbarn und Sortierung; UI-Tests für „Für dich“ und das Entfernen eines Titels auf
+Apple TV, nur in der CI. Nicht auf einem Gerät mit Fernbedienung geprüft.
 
 ## Build 35 (0.4.1): der Rest von „Hören“
 
@@ -119,14 +146,15 @@ Diese Punkte sind echte offene Unterschiede und dürfen nicht als erledigt gelte
    Web-Sortierungen nach Album/Dauer und absteigender Richtung fehlen.
 6. Der Web-Visualizer hat eine Zeitbereichs-Wellenform. Die mobilen nativen Stile
    sind Frequenzdarstellungen; diese sind kein identischer Ersatz für eine Wellenform.
-7. **tvOS ist noch nicht gleichwertig**: kein Offline-Katalog; erweiterte Klang-
-   und Playlist-Bedienung benötigt eine separate Prüfung mit Fernbedienung.
+7. **tvOS ist noch nicht gleichwertig**: kein Offline-Katalog; keine Klang-Einstellungen
+   (EQ, Überblendung, Tempo, Sleep-Timer, Normalisierung) auf Apple TV; kein Filter der
+   Warteschlange; „Für dich“ und das Bearbeiten der Warteschlange (Build 36) brauchen noch
+   eine Prüfung mit der Fernbedienung auf einem Gerät.
 8. Automatische Tests ersetzen keine Prüfung von Sperrbildschirm, Bluetooth,
    AirPlay, Telefonunterbrechungen und Downloads nach erzwungenem Beenden auf Hardware.
-9. **Offen gebliebene Web-Details beim Hören**: Mixe sortieren und „Rückgängig“ nach dem
-   Leeren der Warteschlange fehlen nativ. Auf Apple TV fehlen „Für dich“ als eigene Seite
-   (die Mixe stehen direkt im Start-Tab) und das Bearbeiten der Warteschlange (Verschieben,
-   Entfernen); beides braucht eine eigene Bedienprüfung mit der Fernbedienung.
+
+Die in Build 35 offenen Hören-Details (Mixe sortieren, „Rückgängig“ nach dem Leeren,
+„Für dich“ und Warteschlange bearbeiten auf Apple TV) sind mit Build 36 umgesetzt.
 
 Als nächste Arbeit zuerst Klangoptionen/benannte Presets und reversibles Shuffle,
 anschließend die verbleibenden Sortier- und Plattformunterschiede umsetzen. Vor
@@ -162,7 +190,14 @@ Stable-Freigabe alle Hardware-Punkte aus `RELEASE-CHECKLIST.md` abnehmen.
 - Mix-Seite: „Als Playlist speichern“, Namen prüfen, speichern, die neue Playlist öffnen;
   im Flugmodus ist die Aktion gesperrt und erklärt.
 - Apple TV: Start-Tab mit der Fernbedienung durchgehen, Mix öffnen, abspielen und zufällig
-  abspielen; im Player die Abschnitte und „Automatisch weiterspielen“ prüfen.
+  abspielen; im Player die Abschnitte und „Automatisch weiterspielen“ prüfen. Am Ende von
+  „Deine Mixe“ „Alle Mixe“ öffnen, im Raster bewegen, einen Mix gedrückt halten und abspielen.
+  Im Player kommende Titel gedrückt halten: nach oben, nach unten, als Nächstes, entfernen;
+  der Fokus bleibt beim Titel oder Nachbarn. „Warteschlange leeren“, dann „Rückgängig“.
+- Rückgängig: auf dem iPhone „Leeren und stoppen“, innerhalb von zehn Sekunden „Rückgängig“:
+  dieselben Abschnitte, derselbe Titel an derselben Stelle. Nach Ablauf ist das Angebot weg.
+- Mix sortieren: nach Künstler absteigend sortieren, abspielen, als Playlist speichern; die
+  Playlist hat die angezeigte Reihenfolge.
 
 - Online: Playlist erstellen → Titel hinzufügen → Reihenfolge ändern → einen Titel
   entfernen → umbenennen → neu öffnen. Intelligente Playlist-Regeln separat testen.

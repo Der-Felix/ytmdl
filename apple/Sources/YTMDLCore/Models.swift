@@ -47,13 +47,18 @@ public struct Track: Codable, Identifiable, Equatable, Sendable {
     public let album: String
     public let durationMs: Int
     public let codec: String?
+    /// Optional library details; only sorting uses them. Older saved queues lack both.
+    public let albumArtist: String?
+    public let trackNumber: Int?
     public var artistText: String { artists.joined(separator: " · ") }
     public var duration: Double { Double(durationMs) / 1000 }
-    public init(id: String, title: String, artists: [String], album: String, durationMs: Int, codec: String? = nil) {
+    public init(id: String, title: String, artists: [String], album: String, durationMs: Int, codec: String? = nil,
+                albumArtist: String? = nil, trackNumber: Int? = nil) {
         self.id = id; self.title = title; self.artists = artists
         self.album = album; self.durationMs = durationMs; self.codec = codec
+        self.albumArtist = albumArtist; self.trackNumber = trackNumber
     }
-    enum CodingKeys: String, CodingKey { case id, title, artists, album, durationMs, codec }
+    enum CodingKeys: String, CodingKey { case id, title, artists, album, durationMs, codec, albumArtist, trackNumber }
     // The server serializes a track without artist tags as `"artists": null`.
     // One such row must not make a whole page of tracks undecodable.
     public init(from decoder: any Decoder) throws {
@@ -64,6 +69,9 @@ public struct Track: Codable, Identifiable, Equatable, Sendable {
         album = try c.decodeIfPresent(String.self, forKey: .album) ?? ""
         durationMs = try c.decode(Int.self, forKey: .durationMs)
         codec = try c.decodeIfPresent(String.self, forKey: .codec)
+        // Details only used for sorting: a value the app cannot read never drops the track.
+        albumArtist = (try? c.decodeIfPresent(String.self, forKey: .albumArtist)) ?? nil
+        trackNumber = (try? c.decodeIfPresent(Int.self, forKey: .trackNumber)) ?? nil
     }
 }
 public struct SmartPlaylistRules: Codable, Equatable, Sendable {
@@ -309,6 +317,17 @@ public struct PlaybackQueue: Equatable, Sendable {
         }
         return true
     }
+    /// Entries after the current one. Only these are edited from the Apple TV
+    /// queue: the playing entry and those already played stay where they are.
+    public func isUpcoming(_ position: Int) -> Bool { position > index && position < tracks.count }
+    public func canMoveUp(_ position: Int) -> Bool { isUpcoming(position) && position - 1 > index }
+    public func canMoveDown(_ position: Int) -> Bool { isUpcoming(position) && position + 1 < tracks.count }
+    public func canPlayNext(_ position: Int) -> Bool { isUpcoming(position) && position > index + 1 }
+    /// The row to keep focused after `position` was removed: the entry that
+    /// moved up into its place, else the one before it.
+    public func focusAfterRemoving(_ position: Int) -> Int? {
+        tracks.isEmpty ? nil : min(max(0, position), tracks.count - 1)
+    }
     @discardableResult public mutating func clearUpcoming() -> Bool {
         guard index + 1 < tracks.count else { return false }
         alignOrigins()
@@ -338,5 +357,30 @@ public struct PlaybackQueue: Equatable, Sendable {
     private mutating func alignOrigins() {
         if origins.count < tracks.count { origins += Array(repeating: .context, count: tracks.count - origins.count) }
         else if origins.count > tracks.count { origins.removeLast(origins.count - tracks.count) }
+    }
+}
+
+/// What clearing the queue removed, so "Rückgängig" can bring it back with
+/// each entry's origin and the started context (web: `RESTORE_QUEUE`).
+public struct QueueClearUndo: Equatable, Sendable {
+    /// The queue before it was cleared.
+    public let before: PlaybackQueue
+    /// The queue right after it was cleared.
+    public let after: PlaybackQueue
+    public init(before: PlaybackQueue, after: PlaybackQueue) { self.before = before; self.after = after }
+    public var removedCount: Int { max(0, before.tracks.count - after.tracks.count) }
+    /// The whole queue was cleared and playback stopped, not only the upcoming part.
+    public var clearedAll: Bool { after.current == nil }
+    /// The queue to go back to, or nil once the queue changed since it was
+    /// cleared. Similar tracks that autoplay appended in the meantime do not
+    /// count as a change: they are dropped, the removed entries return instead.
+    public func restore(from queue: PlaybackQueue) -> PlaybackQueue? {
+        let kept = after.tracks.count
+        guard removedCount > 0, queue.index == after.index, queue.context == after.context,
+              queue.tracks.count >= kept,
+              Array(queue.tracks.prefix(kept)) == after.tracks,
+              Array(queue.entryOrigins.prefix(kept)) == after.entryOrigins,
+              queue.entryOrigins.dropFirst(kept).allSatisfy({ $0 == .autoplay }) else { return nil }
+        return before
     }
 }

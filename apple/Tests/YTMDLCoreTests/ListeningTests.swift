@@ -260,3 +260,88 @@ private func track(_ id: String) -> Track { Track(id: id, title: id.uppercased()
 private func order(_ section: QueueSection) -> Int {
     switch section { case .played: 0; case .current: 1; case .user: 2; case .context: 3; case .autoplay: 4 }
 }
+
+@Test func clearingUpcomingEntriesCanBeUndoneWithTheirOrigins() {
+    let context = QueueContext(kind: "album", id: "r1", title: "Album")
+    var queue = PlaybackQueue()
+    queue.replace(["a", "b", "c"].map(track), start: 0, context: context)
+    queue.insertNext(track("n"))
+    _ = queue.appendAutoplay([track("x")])
+    let before = queue
+    let cleared = queue.clearUpcoming()
+    #expect(cleared)
+    let undo = QueueClearUndo(before: before, after: queue)
+    #expect(undo.removedCount == 4 && !undo.clearedAll)
+    let restored = undo.restore(from: queue)
+    #expect(restored == before)
+    #expect(restored?.entryOrigins == [.context, .user, .context, .context, .autoplay] && restored?.context == context)
+    // Similar tracks autoplay appended after the clear give way to the removed entries.
+    var topped = queue
+    _ = topped.appendAutoplay([track("y"), track("z")])
+    #expect(undo.restore(from: topped) == before)
+    // Anything the user changed since ends the offer.
+    var queued = queue
+    queued.append(track("u"))
+    #expect(undo.restore(from: queued) == nil)
+    var replaced = queue
+    replaced.replace([track("q")])
+    #expect(undo.restore(from: replaced) == nil)
+    var advanced = before
+    _ = advanced.next(repeatAll: false)
+    _ = advanced.clearUpcoming()
+    #expect(undo.restore(from: advanced) == nil)
+}
+
+@Test func clearingTheWholeQueueCanBeUndoneUntilSomethingElseStarts() {
+    let context = QueueContext(kind: "mix", id: "m", title: "Dein Mix 1")
+    var queue = PlaybackQueue()
+    queue.replace(["a", "b", "c"].map(track), start: 1, context: context)
+    queue.append(track("u"))
+    let before = queue
+    queue.replace([])
+    let undo = QueueClearUndo(before: before, after: queue)
+    #expect(undo.clearedAll && undo.removedCount == 4)
+    let restored = undo.restore(from: queue)
+    #expect(restored?.current?.id == "b" && restored?.index == 1 && restored?.context == context)
+    #expect(restored?.entryOrigins == [.context, .context, .user, .context])
+    var started = queue
+    started.append(track("z"))
+    #expect(undo.restore(from: started) == nil, "A new queue is never replaced by the old one.")
+    #expect(QueueClearUndo(before: queue, after: queue).restore(from: queue) == nil, "Nothing removed, nothing to undo.")
+}
+
+@Test func onlyUpcomingEntriesAreEditableAndFocusStaysNearby() {
+    var queue = PlaybackQueue()
+    queue.replace(["a", "b", "c", "d", "e"].map(track), start: 1)
+    #expect(!queue.isUpcoming(0) && !queue.isUpcoming(1) && queue.isUpcoming(2) && queue.isUpcoming(4) && !queue.isUpcoming(5))
+    #expect(!queue.canMoveUp(2) && queue.canMoveUp(3), "Nothing moves above the playing entry.")
+    #expect(queue.canMoveDown(3) && !queue.canMoveDown(4) && !queue.canMoveDown(1) && !queue.canMoveDown(0))
+    #expect(!queue.canPlayNext(2) && queue.canPlayNext(3) && !queue.canPlayNext(0))
+    let first = queue.remove(at: 3)
+    #expect(first && queue.focusAfterRemoving(3) == 3 && queue.tracks[3].id == "e", "Focus moves to the entry that took its place.")
+    let second = queue.remove(at: 3)
+    #expect(second && queue.focusAfterRemoving(3) == 2, "After the last row, focus moves to the one before.")
+    var single = PlaybackQueue()
+    #expect(single.focusAfterRemoving(0) == nil)
+    single.replace([track("a")])
+    #expect(!single.canMoveDown(0) && !single.isUpcoming(0))
+}
+
+@Test func mixTracksSortLikeTheWebMixPage() throws {
+    let raw = Data(#"[{"id":"1","title":"beta","artists":["Zed"],"album":"B","duration_ms":3000,"track_number":2},{"id":"2","title":"Alpha","artists":null,"album_artist":"Ann","album":"a","duration_ms":1000,"track_number":null},{"id":"3","title":"gamma","artists":["bob"],"album":"b","duration_ms":3000,"track_number":1}]"#.utf8)
+    let tracks = try decoder().decode([Track].self, from: raw)
+    #expect(tracks[0].trackNumber == 2 && tracks[1].albumArtist == "Ann" && tracks[1].trackNumber == nil)
+    func ids(_ sort: MixTrackSort, _ descending: Bool = false) -> [String] { sort.apply(tracks, descending: descending).map(\.id) }
+    #expect(ids(.mix) == ["1", "2", "3"] && ids(.mix, true) == ["1", "2", "3"])
+    #expect(ids(.title) == ["2", "1", "3"] && ids(.title, true) == ["3", "1", "2"], "Case does not matter.")
+    #expect(ids(.artist) == ["2", "3", "1"], "Without artists the album artist counts.")
+    #expect(ids(.album) == ["2", "1", "3"] && ids(.album, true) == ["1", "3", "2"], "Equal values keep the mix order.")
+    #expect(ids(.duration) == ["2", "1", "3"] && ids(.duration, true) == ["1", "3", "2"])
+    #expect(ids(.trackNumber) == ["2", "3", "1"])
+    #expect(MixTrackSort.allCases.map(\.label) == ["Mix-Reihenfolge", "Titel", "Künstler", "Album", "Dauer", "Titelnummer"])
+    // Older saved queues without the new details still decode.
+    let old = try JSONDecoder().decode(Track.self, from: Data(#"{"id":"t","title":"T","artists":[],"album":"","durationMs":1}"#.utf8))
+    #expect(old.albumArtist == nil && old.trackNumber == nil)
+    let roundTrip = try JSONDecoder().decode(Track.self, from: JSONEncoder().encode(tracks[0]))
+    #expect(roundTrip == tracks[0])
+}

@@ -1,9 +1,9 @@
-# Native listening preview 0.4.1 — build 35
+# Native listening preview 0.4.2 — build 36
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
 
-Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)). The matrix below includes the listening parity with web 1.10 that build 34 adds and build 35 completes (see below).
+Build 33 only fixes defects (see [HANDOFF.md](HANDOFF.md)). The matrix below includes the listening parity with web 1.10 that build 34 adds and build 35 completes, and the Apple TV side that build 36 adds (see below).
 See [AUDIT.md](AUDIT.md) for the dated functional audit through build 32, test evidence,
 corrected defects and the remaining real-device release checks.
 The [release checklist](RELEASE-CHECKLIST.md) tracks qualification separately
@@ -12,7 +12,7 @@ from implemented features and simulator verification.
 | Feature | Current implementation |
 | --- | --- |
 | iPhone/iPad Start | Listening home like the web's **Hören**: Weiterhören (current title or last queue), personal mixes, server history **Zuletzt gehört** (local list as fallback), **Neu in der Mediathek**, favorites/playlist shortcuts; offline hint when the server is unreachable. Mac Start shows the same mixes and server history. Apple TV has its own **Start** tab with the same sections as focusable shelves |
-| Personal mixes | `GET /library/mixes`: "Dein Mix 1…n" with genre label plus the listening mixes, collage cover, track count, play button; **Für dich** overview and mix page with play, shuffle, play next, add to queue and **Als Playlist speichern** (needs a connection). Older servers keep the previous local genre shortcuts |
+| Personal mixes | `GET /library/mixes`: "Dein Mix 1…n" with genre label plus the listening mixes, collage cover, track count, play button; **Für dich** overview (also on Apple TV) and mix page with play, shuffle, play next, add to queue, **Als Playlist speichern** (needs a connection) and track sorting like the web. Older servers keep the previous local genre shortcuts |
 | Artist page | **Am meisten gehört** from `GET /library/artists/{id}/top-tracks` (5, up to 10 on request); queue actions for the whole artist |
 | Library/search | Existing library artists, albums, tracks, genre filter and authenticated artwork |
 | Favorites/playlists | Native editing, ordering, membership, smart server rules and favorites |
@@ -28,12 +28,47 @@ from implemented features and simulator verification.
 | Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer |
 | Mobile visualization | Four mobile FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
 | Lyrics | Cached/plain text; LRC timing, optional following and tap-to-seek when time tags exist |
-| Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all, save as playlist, local resume state and explicit restore that keeps each entry's section and the started context; whole albums, artists, playlists and mixes can be queued |
+| Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all with **Rückgängig** for a few seconds, save as playlist, local resume state and explicit restore that keeps each entry's section and the started context; whole albums, artists, playlists and mixes can be queued. Apple TV edits upcoming entries through a long-press menu |
 | Song/genre radio | Existing local-library server recommendations; **Automatisch weiterspielen** (on by default) appends at most 12 similar titles when two or fewer remain, leaving out titles already queued or played earlier in the session (last 200, per account and server), and tops up again at the next lookahead; an explicitly started song radio keeps its full list. Not with repeat, sleep timer or offline-only playback |
 | Listening history | Local recent metadata and queue; plays and skips with the web's rules (`ListeningTracker`) as idempotent server events, also for local files, queued while offline and scoped to origin/account |
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## Apple TV and undo (build 36)
+
+Added on top of build 35; it uses the server API of v1.10.x unchanged. It ships as 0.4.2 (36).
+
+- **Für dich on Apple TV**: the first mix row on **Start** ends with an **Alle Mixe** card.
+  It opens a grid of all mixes of the day, "Dein Mix 1…n" first, then the mixes from
+  listening, each a focusable cover card with label, title and track count. Select opens
+  the mix page; a long press offers **Abspielen** and **Zufällig abspielen**, as on Start.
+  Loading, no mixes yet, a server without mixes and errors each have their own state;
+  errors and the empty state offer **Erneut laden**.
+- **Editing the queue on Apple TV**: in **Player**, a long press on an upcoming title
+  offers **Als Nächstes abspielen**, **Nach oben**, **Nach unten** and **Aus
+  Warteschlange entfernen**, only where they apply. The playing title and titles already
+  played have no menu. Focus stays on the moved title, or on the title that took the
+  removed one's place. **Warteschlange leeren** removes the upcoming titles (the current
+  one keeps playing); **Als Playlist speichern** saves the queue (needs a connection).
+- **Rückgängig after clearing the queue** (all platforms), like the web's toast: after
+  **Leeren und stoppen** or **Nächste leeren** a small bar (iPhone/iPad at the bottom of
+  the player, Mac at its top) or, on Apple TV, a focused button in the queue panel offers
+  **Rückgängig** for ten seconds. It restores the removed titles with their sections and
+  the started context; after a full clear the title returns at its position and plays
+  only if it was playing. Starting or queuing something else ends the offer; similar
+  titles that autoplay appended in the meantime make way for the restored ones.
+- **Sorting a mix** (all platforms), as on the web's mix page: **Sortieren** offers the
+  mix order, title, artist, album, duration or track number, ascending or descending.
+  Playing and **Als Playlist speichern** follow the shown order. On iPhone, iPad and Mac
+  it sits in the toolbar, on Apple TV above the titles.
+
+Review on Apple TV with the remote: open **Start**, move to the end of **Deine Mixe** and
+open **Alle Mixe**; move through the grid and long-press a mix to play it. In **Player**,
+long-press upcoming titles to move them up and down, play one next and remove one, and
+check where focus lands. Choose **Warteschlange leeren**, then **Rückgängig**. On a phone:
+**Leeren und stoppen**, then **Rückgängig** within ten seconds; sort a mix by artist and
+play it.
 
 ## Rest of the listening parity (build 35)
 
