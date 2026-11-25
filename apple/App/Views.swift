@@ -241,7 +241,13 @@ struct RootView: View {
             .navigationDestination(for: CollectionKind.self) { kind in CollectionView(model: model, kind: kind) }
             .navigationDestination(for: Destination.self) { item in content(item) }
             .navigationDestination(for: PersonalMix.self) { mix in MixDetailView(model: model, mix: mix) }
-            .navigationDestination(for: ForYouRoute.self) { _ in ForYouView(model: model) }
+            .navigationDestination(for: ForYouRoute.self) { _ in
+                #if os(tvOS)
+                TVForYouView(model: model) { selectDestination(.player) }
+                #else
+                ForYouView(model: model)
+                #endif
+            }
     }
     @ViewBuilder private func content(_ destination: Destination) -> some View {
         switch destination {

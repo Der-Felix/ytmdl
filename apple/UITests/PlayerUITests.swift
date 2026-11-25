@@ -516,6 +516,71 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "TV home with focused mix")
         XCTAssertFalse(app.buttons["Pause"].exists, "The start screen never starts playback.")
     }
+    @MainActor func testTVForYouOpensFromStartAndFocusesAMix() throws {
+        let app = try app()
+        let first = app.buttons["tv-mix-genre-0a1b2c3d4e5f"], all = app.buttons["tv-all-mixes"]
+        XCTAssertTrue(first.waitForExistence(timeout: 20), "The start screen shows the server's mixes.")
+        XCTAssertTrue(all.exists, "Alle Mixe closes the first mix row.")
+        for _ in 0..<6 where !first.hasFocus { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(first.hasFocus)
+        for _ in 0..<3 where !all.hasFocus { XCUIRemote.shared.press(.right) }
+        XCTAssertTrue(all.hasFocus)
+        XCUIRemote.shared.press(.select)
+        let genre = app.buttons["tv-foryou-mix-genre-0a1b2c3d4e5f"], listening = app.buttons["tv-foryou-mix-on_repeat"]
+        XCTAssertTrue(genre.waitForExistence(timeout: 10), "Für dich shows every mix, genre mixes first.")
+        XCTAssertTrue(listening.exists)
+        for _ in 0..<4 where !genre.hasFocus && !listening.hasFocus { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(genre.hasFocus || listening.hasFocus, "A mix card in the grid takes the remote's focus.")
+        attach(app, name: "TV Für dich with focused mix")
+        XCTAssertFalse(app.buttons["Pause"].exists, "Opening Für dich never starts playback.")
+    }
+    @MainActor func testTVQueueRemovesUpcomingEntryFromMenu() throws {
+        let app = try app(pausedPlayer: true)
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
+        let playerTab = app.buttons["Player"].firstMatch
+        XCTAssertTrue(playerTab.waitForExistence(timeout: 20))
+        XCUIRemote.shared.press(.up)
+        for _ in 0..<8 where !app.buttons["Bibliothek"].firstMatch.hasFocus { XCUIRemote.shared.press(.left) }
+        for _ in 0..<8 where !playerTab.hasFocus { XCUIRemote.shared.press(.right) }
+        XCTAssertTrue(playerTab.hasFocus)
+        XCUIRemote.shared.press(.select)
+        let target = app.buttons["tv-queue-track-1"]
+        XCTAssertTrue(target.waitForExistence(timeout: 10))
+        XCTAssertTrue(target.label.hasPrefix("Zeitlos"), "The fixture queue starts with Nachtfahrt, then Zeitlos.")
+        XCUIRemote.shared.press(.down)
+        // Walk into the queue panel on the right without touching the tab bar
+        // or the Warteschlange/Lyrics switch, then down to the first upcoming row.
+        let tabs: Set<String> = ["Start", "Bibliothek", "Suche", "Favoriten", "Playlists", "Player", "Optionen", "Warteschlange", "Lyrics"]
+        for _ in 0..<30 where !target.hasFocus {
+            let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+            let id = focused.exists ? focused.identifier : ""
+            if id.hasPrefix("tv-queue-track-"), let row = Int(id.dropFirst("tv-queue-track-".count)) {
+                XCUIRemote.shared.press(row < 1 ? .down : .up)
+            } else if id.hasPrefix("tv-queue-") || (focused.exists && (tabs.contains(focused.label) || focused.elementType == .segmentedControl)) {
+                XCUIRemote.shared.press(.down)
+            } else {
+                XCUIRemote.shared.press(.right)
+            }
+        }
+        XCTAssertTrue(target.hasFocus, "The first upcoming queue entry takes the remote's focus.")
+        XCUIRemote.shared.press(.select, forDuration: 1.5)
+        let remove = app.buttons["Aus Warteschlange entfernen"].firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "A long press opens the entry's menu.")
+        for _ in 0..<4 where !remove.hasFocus { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(remove.hasFocus)
+        attach(app, name: "TV queue entry menu")
+        XCUIRemote.shared.press(.select)
+        let next = app.buttons["tv-queue-track-1"]
+        expectation(for: NSPredicate(format: "label BEGINSWITH %@", "Fernweh"), evaluatedWith: next)
+        waitForExpectations(timeout: 5)
+        let removed = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label BEGINSWITH %@", "tv-queue-track-", "Zeitlos"))
+        XCTAssertEqual(removed.count, 0, "The removed entry is gone from the queue.")
+        XCTAssertTrue(app.buttons["tv-queue-track-0"].label.contains("Nachtfahrt"), "The playing entry stays.")
+        expectation(for: NSPredicate(format: "hasFocus == true"), evaluatedWith: next)
+        waitForExpectations(timeout: 5)
+        attach(app, name: "TV queue after removing an entry")
+        XCTAssertFalse(app.buttons["Pause"].exists, "Editing the queue never starts playback.")
+    }
     #endif
     @MainActor func testAuthenticatedPlayerAndQueue() throws {
         #if os(iOS)

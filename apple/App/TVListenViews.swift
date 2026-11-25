@@ -81,11 +81,18 @@ struct TVHomeView: View {
         case .loaded where !feed.mixes.isEmpty:
             VStack(alignment: .leading, spacing: 20) {
                 if let message = feed.mixError { Text(message).font(.callout).foregroundStyle(.red) }
+                // "Alle Mixe" closes the first mix row, like "Alle Mixe" on the iPhone.
                 if !genreMixes.isEmpty {
-                    shelf("Deine Mixe", subtitle: "Täglich neu aus deiner Mediathek") { ForEach(genreMixes) { mix in mixCard(mix) } }
+                    shelf("Deine Mixe", subtitle: "Täglich neu aus deiner Mediathek") {
+                        ForEach(genreMixes) { mix in TVMixCard(model: model, mix: mix, openPlayer: openPlayer) }
+                        allMixesCard
+                    }
                 }
                 if !listeningMixes.isEmpty {
-                    shelf("Aus deinem Hören", subtitle: "Aus dem, was du zuletzt gehört hast") { ForEach(listeningMixes) { mix in mixCard(mix) } }
+                    shelf("Aus deinem Hören", subtitle: "Aus dem, was du zuletzt gehört hast") {
+                        ForEach(listeningMixes) { mix in TVMixCard(model: model, mix: mix, openPlayer: openPlayer) }
+                        if genreMixes.isEmpty { allMixesCard }
+                    }
                 }
             }
         case .loaded, .unsupported:
@@ -142,7 +149,7 @@ struct TVHomeView: View {
 
     // MARK: Building blocks
 
-    private static let cardSize: CGFloat = 280
+    private static let cardSize = TVMixCard.size
 
     private func heading(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -169,26 +176,19 @@ struct TVHomeView: View {
         }
     }
 
-    /// Select opens the mix; a long press offers to play it right away.
-    private func mixCard(_ mix: PersonalMix) -> some View {
+    /// Opens "Für dich" with every mix of the day.
+    private var allMixesCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            NavigationLink(value: mix) {
-                MixArtwork(model: model, mix: mix, size: Self.cardSize)
-                    .overlay {
-                        if feed.playingMixID == mix.id { ProgressView().padding(16).background(.regularMaterial, in: Circle()) }
-                    }
+            NavigationLink(value: ForYouRoute()) {
+                Image(systemName: "square.grid.2x2").font(.system(size: 72, weight: .medium)).foregroundStyle(.tint)
+                    .frame(width: Self.cardSize, height: Self.cardSize).background(.tint.opacity(0.12))
             }.buttonStyle(.card)
-                .accessibilityLabel("\(mix.title), \(mix.label), \(mix.trackCount) Titel")
-                .accessibilityHint("Öffnet den Mix. Gedrückt halten zum direkten Abspielen.")
-                .accessibilityIdentifier("tv-mix-" + mix.id)
-                .contextMenu {
-                    Button("Abspielen", systemImage: "play.fill") { Task { await model.playPersonalMix(mix); openPlayer() } }
-                    Button("Zufällig abspielen", systemImage: "shuffle") { Task { await model.playPersonalMix(mix, shuffle: true); openPlayer() } }
-                }
-            Text(mix.label.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.tint).lineLimit(1)
+                .accessibilityLabel("Alle Mixe")
+                .accessibilityHint("Öffnet „Für dich“ mit allen Mixen des Tages")
+                .accessibilityIdentifier("tv-all-mixes")
+            Text("Alle Mixe").font(.callout.weight(.semibold)).lineLimit(1).accessibilityHidden(true)
+            Text(feed.mixes.count == 1 ? "1 Mix in „Für dich“" : "\(feed.mixes.count) Mixe in „Für dich“").font(.caption).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
                 .accessibilityHidden(true)
-            Text(mix.title).font(.callout.weight(.semibold)).lineLimit(2).accessibilityHidden(true)
-            Text("\(mix.trackCount) Titel").font(.caption).monospacedDigit().foregroundStyle(.secondary).accessibilityHidden(true)
         }.frame(width: Self.cardSize, alignment: .leading)
     }
 
@@ -217,20 +217,136 @@ struct TVHomeView: View {
     }
 }
 
+/// One mix as a focusable cover card with its label, title and size. Select
+/// opens the mix; a long press offers to play it right away. Used by the
+/// Start shelves and the "Für dich" grid, so both behave the same.
+struct TVMixCard: View {
+    var model: AppModel
+    var mix: PersonalMix
+    var openPlayer: () -> Void
+    /// Keeps accessibility identifiers unique while Start stays beneath "Für dich".
+    var identifierPrefix = "tv-mix-"
+    static let size: CGFloat = 280
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            NavigationLink(value: mix) {
+                MixArtwork(model: model, mix: mix, size: Self.size)
+                    .overlay {
+                        if model.feed.playingMixID == mix.id { ProgressView().padding(16).background(.regularMaterial, in: Circle()) }
+                    }
+            }.buttonStyle(.card)
+                .accessibilityLabel("\(mix.title), \(mix.label), \(mix.trackCount) Titel")
+                .accessibilityHint("Öffnet den Mix. Gedrückt halten zum direkten Abspielen.")
+                .accessibilityIdentifier(identifierPrefix + mix.id)
+                .contextMenu {
+                    Button("Abspielen", systemImage: "play.fill") { Task { await model.playPersonalMix(mix); openPlayer() } }
+                    Button("Zufällig abspielen", systemImage: "shuffle") { Task { await model.playPersonalMix(mix, shuffle: true); openPlayer() } }
+                }
+            Text(mix.label.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.tint).lineLimit(1)
+                .accessibilityHidden(true)
+            Text(mix.title).font(.callout.weight(.semibold)).lineLimit(2).accessibilityHidden(true)
+            Text("\(mix.trackCount) Titel").font(.caption).monospacedDigit().foregroundStyle(.secondary).accessibilityHidden(true)
+        }.frame(width: Self.size, alignment: .leading)
+    }
+}
+
+/// "Für dich" on Apple TV: every mix of the day as a grid of cover cards,
+/// genre mixes ("Dein Mix 1…n") first, then the mixes from listening.
+struct TVForYouView: View {
+    var model: AppModel
+    /// Switches to the Player tab.
+    var openPlayer: () -> Void
+    private var feed: ListenFeed { model.feed }
+    private var mixes: [PersonalMix] { PersonalMix.ordered(feed.mixes) }
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 48) {
+                Text("Täglich neu gemischt aus deiner Mediathek und deinem Hörverlauf · \(Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)))")
+                    .font(.callout).foregroundStyle(.secondary)
+                if let message = feed.mixError { Text(message).font(.callout).foregroundStyle(.red) }
+                content
+            }.padding(.horizontal, 80).padding(.vertical, 40)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle("Für dich")
+        .task { if feed.mixesPhase == .idle { await model.loadListenFeed() } }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch feed.mixesPhase {
+        case .idle, .loading:
+            ProgressView("Mixe werden zusammengestellt …").frame(maxWidth: .infinity).padding(.top, 80)
+        case .failed(let message):
+            state("Mixe konnten nicht geladen werden", symbol: "exclamationmark.triangle", message: message, retry: true)
+        case .unsupported:
+            state("Mixe nicht verfügbar", symbol: "sparkles",
+                  message: "Dein Server bietet noch keine persönlichen Mixe an. Sie gibt es ab YTMDL 1.10.", retry: false)
+        case .loaded:
+            if mixes.isEmpty {
+                state("Noch keine Mixe", symbol: "sparkles",
+                      message: "Mixe entstehen aus der Musik in deiner Mediathek und aus dem, was du hörst. Jeder Mix braucht mindestens zehn passende Titel – mit mehr Musik und Hörverlauf erscheinen sie hier und wechseln täglich.",
+                      retry: true)
+            } else {
+                grid("Deine Mixe", subtitle: "Täglich neu aus deiner Mediathek", mixes.filter(\.isGenreMix))
+                grid("Aus deinem Hören", subtitle: "Aus dem, was du zuletzt gehört hast", mixes.filter { !$0.isGenreMix })
+            }
+        }
+    }
+
+    private func state(_ title: String, symbol: String, message: String, retry: Bool) -> some View {
+        ContentUnavailableView {
+            Label(title, systemImage: symbol)
+        } description: {
+            Text(message)
+        } actions: {
+            if retry {
+                Button { Task { await model.loadListenFeed() } } label: { Label("Erneut laden", systemImage: "arrow.clockwise") }
+                    .accessibilityIdentifier("tv-foryou-retry")
+            }
+        }.frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder private func grid(_ title: String, subtitle: String, _ mixes: [PersonalMix]) -> some View {
+        if !mixes.isEmpty {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                    Text(subtitle).font(.callout).foregroundStyle(.secondary)
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: TVMixCard.size, maximum: TVMixCard.size), spacing: 48, alignment: .top)],
+                          alignment: .leading, spacing: 56) {
+                    ForEach(mixes) { mix in
+                        TVMixCard(model: model, mix: mix, openPlayer: openPlayer, identifierPrefix: "tv-foryou-mix-")
+                    }
+                }.padding(.vertical, 12)
+            }
+        }
+    }
+}
+
 /// The Apple TV queue: the same sections as on iPhone and the web ("Als
 /// Nächstes", "Weiter aus: …", "Ähnliche Titel") with the autoplay switch.
-/// Each row is one focusable button that plays that entry.
+/// Select plays an entry; a long press on an upcoming entry offers "Als
+/// Nächstes abspielen", "Nach oben", "Nach unten" and "Aus Warteschlange
+/// entfernen". The playing entry and those already played stay where they
+/// are. Focus stays with the edited entry or its neighbour.
 struct TVQueueView: View {
     var model: AppModel
+    @State private var savingQueue = false
+    @State private var playlistSelection: [Track] = []
+    @FocusState private var focus: Focus?
+    private enum Focus: Hashable { case row(Int), clear, undo }
+    private var player: PlayerModel { model.player }
     var body: some View {
-        let queue = model.player.queue
+        let queue = player.queue
         LazyVStack(alignment: .leading, spacing: 6) {
-            Toggle(isOn: Binding(get: { model.player.autoplay }, set: { model.player.setAutoplay($0) })) {
+            Toggle(isOn: Binding(get: { player.autoplay }, set: { player.setAutoplay($0) })) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Automatisch weiterspielen").font(.callout.weight(.medium))
                     Text("Spielt am Ende der Warteschlange ähnliche Titel aus deiner Bibliothek.").font(.caption).foregroundStyle(.secondary)
                 }
             }.accessibilityIdentifier("tv-queue-autoplay")
+            actions(queue)
             ForEach(queue.rows()) { row in
                 if row.startsSection {
                     HStack(spacing: 10) {
@@ -242,7 +358,7 @@ struct TVQueueView: View {
                         .padding(.top, 24).padding(.horizontal, 8)
                         .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
                 }
-                Button { model.player.select(row.position) } label: {
+                Button { player.select(row.position) } label: {
                     HStack(spacing: 20) {
                         ArtworkView(model: model, kind: "tracks", id: row.track.id).frame(width: 72, height: 72)
                         VStack(alignment: .leading, spacing: 4) {
@@ -253,9 +369,80 @@ struct TVQueueView: View {
                         if row.section == .current { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink).accessibilityHidden(true) }
                     }.padding(12)
                 }.buttonStyle(.plain)
+                    .focused($focus, equals: .row(row.position))
+                    .contextMenu { rowMenu(row.position, queue) }
                     .accessibilityLabel(row.section == .current ? "Läuft: \(row.track.title), \(row.track.artistText)" : "\(row.track.title) abspielen, \(row.track.artistText)")
+                    .accessibilityHint(queue.isUpcoming(row.position) ? "Gedrückt halten zum Verschieben oder Entfernen" : "")
                     .accessibilityIdentifier("tv-queue-track-\(row.position)")
             }
+        }
+        .sheet(isPresented: $savingQueue) { AddToPlaylistSheet(model: model, tracks: playlistSelection) }
+    }
+
+    /// "Warteschlange leeren" removes the upcoming entries; for a few seconds
+    /// "Rückgängig" takes its place and brings them back.
+    private func actions(_ queue: PlaybackQueue) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let offer = player.undoOffer {
+                HStack(spacing: 24) {
+                    Button { undo() } label: { Label("Rückgängig", systemImage: "arrow.uturn.backward") }
+                        .focused($focus, equals: .undo)
+                        .accessibilityLabel("Rückgängig, \(offer.removedCount) Titel wiederherstellen")
+                        .accessibilityIdentifier("tv-queue-undo")
+                    Text("\(offer.removedCount) Titel entfernt").font(.callout).monospacedDigit().foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                Button { clear() } label: { Label("Warteschlange leeren", systemImage: "trash") }
+                    .disabled(queue.remaining == 0)
+                    .focused($focus, equals: .clear)
+                    .accessibilityHint("Entfernt alle kommenden Titel. Der laufende Titel spielt weiter.")
+                    .accessibilityIdentifier("tv-queue-clear")
+            }
+            Button { playlistSelection = queue.tracks; savingQueue = true } label: { Label("Als Playlist speichern", systemImage: "music.note.list") }
+                .disabled(queue.tracks.isEmpty || model.offlineMode)
+                .accessibilityHint("Legt eine Playlist mit den Titeln der Warteschlange an")
+                .accessibilityIdentifier("tv-queue-save")
+        }.padding(.vertical, 16)
+    }
+
+    /// Only upcoming entries have a menu; it offers only what applies.
+    @ViewBuilder private func rowMenu(_ position: Int, _ queue: PlaybackQueue) -> some View {
+        if queue.isUpcoming(position) {
+            if queue.canPlayNext(position) {
+                Button("Als Nächstes abspielen", systemImage: "text.insert") { player.playNextInQueue(position); refocus(position) }
+            }
+            if queue.canMoveUp(position) {
+                Button("Nach oben", systemImage: "arrow.up") { player.moveInQueue(from: position, to: position - 1); refocus(position - 1) }
+            }
+            if queue.canMoveDown(position) {
+                Button("Nach unten", systemImage: "arrow.down") { player.moveInQueue(from: position, to: position + 1); refocus(position + 1) }
+            }
+            Button("Aus Warteschlange entfernen", systemImage: "minus.circle", role: .destructive) {
+                player.removeFromQueue(position)
+                refocus(player.queue.focusAfterRemoving(position))
+            }
+        }
+    }
+
+    private func clear() {
+        player.clearUpcoming()
+        setFocus(.undo)
+    }
+    private func undo() {
+        player.undoClear()
+        setFocus(.clear)
+    }
+    private func refocus(_ position: Int?) {
+        guard let position else { return }
+        setFocus(.row(position))
+    }
+    /// After the menu closed and the rows changed, so the system does not
+    /// put focus back on the top of the panel.
+    private func setFocus(_ target: Focus) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            focus = target
         }
     }
 }
