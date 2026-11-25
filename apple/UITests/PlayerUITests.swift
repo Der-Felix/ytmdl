@@ -440,6 +440,33 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.alerts.firstMatch.exists)
         XCTAssertFalse(app.buttons["Pause"].exists)
     }
+    @MainActor func testListeningHomeOpensMixAndStartsItsQueue() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact home requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].waitForExistence(timeout: 20))
+        // The server sections of the fixture: mixes, history and new albums.
+        let card = app.buttons["mix-card-genre-0a1b2c3d4e5f"]
+        XCTAssertTrue(card.waitForExistence(timeout: 15), "Mixes come from the server.")
+        XCTAssertTrue(app.staticTexts["Zuletzt gehört"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Neu in der Mediathek"].exists)
+        for _ in 0..<4 where !card.isHittable { app.swipeUp() }
+        attach(app, name: "Listening home with mixes")
+        card.tap()
+        let play = app.buttons["mix-play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: play)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons["mix-save-playlist"].isEnabled)
+        play.tap()
+        let mini = app.buttons["mobile-mini-player-open"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 10), "Play starts the mix queue.")
+        XCTAssertTrue(mini.label.contains("Nachtfahrt"), "The mix starts with its first title.")
+        let pause = app.buttons["Pause"].firstMatch
+        XCTAssertTrue(pause.waitForExistence(timeout: 20), "The mix must actually begin playing.")
+        pause.tap()
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        attach(app, name: "Mix queue started from its page")
+    }
     @MainActor func testTabletPlayerControlsFitWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tablet layout requires iPad.")
         let app = try app(pausedPlayer: true)
@@ -475,6 +502,19 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Abspielen"].firstMatch.exists, "Collection drilldown must be discarded on section change.")
         XCTAssertFalse(app.alerts.firstMatch.exists)
         attach(app, name: "Sidebar returns to library without playback")
+    }
+    #endif
+    #if os(tvOS)
+    @MainActor func testTVHomeShowsFocusableMixes() throws {
+        let app = try app()
+        let first = app.buttons["tv-mix-genre-0a1b2c3d4e5f"], second = app.buttons["tv-mix-on_repeat"]
+        XCTAssertTrue(first.waitForExistence(timeout: 20), "The start screen shows the server's mixes.")
+        XCTAssertTrue(second.exists)
+        XCTAssertTrue(app.staticTexts["Zuletzt gehört"].waitForExistence(timeout: 10))
+        for _ in 0..<6 where !first.hasFocus && !second.hasFocus { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(first.hasFocus || second.hasFocus, "A mix card takes the remote's focus.")
+        attach(app, name: "TV home with focused mix")
+        XCTAssertFalse(app.buttons["Pause"].exists, "The start screen never starts playback.")
     }
     #endif
     @MainActor func testAuthenticatedPlayerAndQueue() throws {
