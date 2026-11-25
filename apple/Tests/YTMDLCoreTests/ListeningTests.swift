@@ -58,7 +58,8 @@ private func track(_ id: String) -> Track { Track(id: id, title: id.uppercased()
     #expect(ListeningTracker.playThreshold(duration: 200) == 30)
     #expect(ListeningTracker.playThreshold(duration: 40) == 20)
     #expect(ListeningTracker.playThreshold(duration: 40, rate: 2) == 10)
-    #expect(ListeningTracker.playThreshold(duration: 40, rate: 0.1) == 40)
+    #expect(ListeningTracker.playThreshold(duration: 40, rate: 0.1) == 30)
+    #expect(ListeningTracker.playThreshold(duration: 20, rate: 0.1) == 20)
     var counted = 0
     for second in 0...40 { if tracker.tick(key: "a", playing: true, now: Double(second), duration: 200) { counted += 1 } }
     #expect(counted == 1 && tracker.listenedSeconds >= 30)
