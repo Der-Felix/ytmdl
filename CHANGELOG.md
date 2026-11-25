@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.10.1 — 2026-11-25
+
+Fixes after 1.10.0: radio and autoplay stay near the seed, the download summary causes less load, the web app gets design fixes, and the access log shows the real client address.
 
 ### Changes
 
@@ -21,6 +23,16 @@
 - **Access log behind a reverse proxy:** The `http request` log line reports the client resolved through trusted proxies as `remote_ip`, the same address the sign-in rate limits use, and the direct peer as `peer_ip` when it differs.
 - **Docs:** `docs/single-image.md` covers a reverse proxy on the same Docker host, which reaches the app from the Docker network's gateway addresses, and how to check the setting in the access log.
 - Fix a flaky naming migration test that started a second run before the background run had released its lock.
+
+### Upgrade from v1.10.0
+
+Use the checksum-verified v1.10.1 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.10.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.10.1`. The database schema stays
+at 22 and no migration runs; still keep a verified backup. Protect the media
+separately; the database dump does not contain music files. With the single image,
+pull the image and recreate the stack instead.
 
 ## 1.10.0 — 2026-11-25
 
