@@ -6,12 +6,13 @@ import type { LibraryTrack } from '@/types/api'
 
 const playAlbum = mock((_tracks: LibraryTrack[], _start?: number) => {})
 const addToQueue = mock((_tracks: LibraryTrack[] | LibraryTrack) => {})
+const playShuffled = mock((_tracks: LibraryTrack[], _context?: unknown) => {})
 
 mock.module('@/hooks/usePlayer', () => ({
   usePlayer: () => ({ currentTrack: null }),
   usePlayerState: () => ({ currentTrack: null, status: 'idle' }),
   usePlayerProgress: () => ({ currentTime: 0, duration: 0 }),
-  usePlayerActions: () => ({ playAlbum, addToQueue, playTrack: () => {}, togglePlayPause: () => {}, playNext: () => {} }),
+  usePlayerActions: () => ({ playAlbum, playShuffled, addToQueue, playTrack: () => {}, togglePlayPause: () => {}, playNext: () => {} }),
 }))
 
 let mixes: PersonalMix[] = []
@@ -132,7 +133,10 @@ describe('Für dich', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Abspielen' }))
     expect(playAlbum.mock.calls[0]![0].map((t) => t.id)).toEqual(tracks.map((t) => t.id))
     fireEvent.click(screen.getByRole('button', { name: 'Zufällig' }))
-    expect(playAlbum.mock.calls[1]![0].map((t) => t.id).sort()).toEqual(tracks.map((t) => t.id).sort())
+    // The player shuffles, in its own shuffle mode, the list as the mix has it.
+    expect(playShuffled.mock.calls[0]![0].map((t) => t.id)).toEqual(tracks.map((t) => t.id))
+    expect(playShuffled.mock.calls[0]![1]).toEqual({ kind: 'mix', id: 'unheard', title: 'Noch nicht gehört' })
+    expect(playAlbum).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Zur Warteschlange' }))
     expect(addToQueue).toHaveBeenCalledTimes(1)
   })

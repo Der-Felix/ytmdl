@@ -30,7 +30,7 @@ export function useMixPlayback() {
       try {
         const detail = await personalMix(mix.id, request.signal)
         if (request.signal.aborted) return
-        if (detail.tracks.length > 0) playAlbum(detail.tracks)
+        if (detail.tracks.length > 0) playAlbum(detail.tracks, 0, { kind: 'mix', id: detail.id, title: detail.title })
       } catch (error) {
         if (request.signal.aborted) return
         setPlayError(error instanceof Error ? error.message : 'Mix konnte nicht geladen werden.')

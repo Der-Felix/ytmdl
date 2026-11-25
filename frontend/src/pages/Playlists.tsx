@@ -107,7 +107,7 @@ export function Playlists() {
         setPlayingPlaylistId(playlist.id)
         const detail = await getPlaylist(playlist.id)
         if (detail.tracks && detail.tracks.length > 0) {
-          playAlbum(detail.tracks)
+          playAlbum(detail.tracks, 0, { kind: 'playlist', id: playlist.id, title: playlist.name })
         }
       } catch (error) {
         setPlayError(error instanceof Error ? error.message : 'Playlist konnte nicht geladen werden.')

@@ -154,7 +154,7 @@ export function OfflinePage() {
                   Gespeichert {new Date(playlist.saved_at).toLocaleString()}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => playAlbum(playlist.tracks)}>
+                  <Button size="sm" onClick={() => playAlbum(playlist.tracks, 0, { kind: 'offline', id: playlist.id, title: playlist.name })}>
                     <Play className="size-4" />
                     Offline abspielen
                   </Button>

@@ -16,6 +16,7 @@ import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
 import type { LibraryTrack } from '@/types/api'
+import type { QueueContext } from '@/lib/audio/types'
 import { AddToPlaylistDialog } from './AddToPlaylistDialog'
 import { useOptionalAuth } from '@/hooks/useAuth'
 import type { MetadataPatch } from '@/lib/api/libraryTools'
@@ -31,6 +32,8 @@ interface TracksTableProps {
   onTrackSelect: (track: LibraryTrack) => void
   onLyricsSelect?: (track: LibraryTrack) => void
   fullQueue?: LibraryTrack[]
+  /** What the list is, shown in the queue as "Weiter aus: …". */
+  queueContext?: QueueContext | null
   showAlbum?: boolean
   showArtist?: boolean
   showDiscNumber?: boolean
@@ -46,6 +49,7 @@ export function TracksTable({
   onTrackSelect,
   onLyricsSelect,
   fullQueue,
+  queueContext,
   showAlbum = true,
   showArtist = true,
   showDiscNumber = false,
@@ -173,7 +177,7 @@ export function TracksTable({
                 const queueIdx = fullQueue
                   ? fullQueue.findIndex((t) => t.id === track.id)
                   : trackIdx
-                playTrack(track, targetQueue, queueIdx >= 0 ? queueIdx : trackIdx)
+                playTrack(track, targetQueue, queueIdx >= 0 ? queueIdx : trackIdx, queueContext)
               }
             }
 

@@ -2,6 +2,7 @@ import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { ListMusic, Maximize2, Trash2, X } from 'lucide-react'
 
 import { QueueList } from '@/components/player/QueueList'
+import { QueueOptions } from '@/components/player/QueueOptions'
 import { Button } from '@/components/ui/button'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { Link } from '@/lib/router'
@@ -35,11 +36,11 @@ export function QueueDrawer({ open, onOpenChange }: QueueDrawerProps) {
         >
           <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3.5 sm:px-5">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+              <div className="flex size-8 shrink-0 max-sm:hidden items-center justify-center rounded-lg bg-accent text-accent-foreground">
                 <ListMusic className="size-4" aria-hidden="true" />
               </div>
               <div className="min-w-0">
-                <DialogPrimitive.Title className="text-base leading-tight font-semibold text-foreground">
+                <DialogPrimitive.Title className="truncate text-base leading-tight font-semibold text-foreground">
                   Warteschlange
                 </DialogPrimitive.Title>
                 <p className="figures text-xs text-muted-foreground">{queue.length} Titel</p>
@@ -52,7 +53,7 @@ export function QueueDrawer({ open, onOpenChange }: QueueDrawerProps) {
                   variant="ghost"
                   size="sm"
                   onClick={clearUpcomingQueue}
-                  className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                  className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground max-sm:px-1.5"
                   title="Kommende Titel entfernen (bereits gespielte und aktuellen Titel beibehalten)"
                 >
                   Nächste leeren
@@ -64,7 +65,7 @@ export function QueueDrawer({ open, onOpenChange }: QueueDrawerProps) {
                   variant="ghost"
                   size="sm"
                   onClick={clearQueue}
-                  className="h-8 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  className="h-8 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive max-sm:px-1.5"
                   title="Komplette Warteschlange leeren und Wiedergabe stoppen"
                 >
                   <Trash2 className="mr-1 size-3.5" aria-hidden="true" />
@@ -87,6 +88,8 @@ export function QueueDrawer({ open, onOpenChange }: QueueDrawerProps) {
               </DialogPrimitive.Close>
             </div>
           </div>
+
+          {queue.length > 0 && <QueueOptions className="border-b border-border px-4 py-1 sm:px-5" />}
 
           <div className="flex-1 overflow-y-auto overscroll-contain px-2 py-2 sm:px-3">
             {queue.length === 0 ? (

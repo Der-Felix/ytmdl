@@ -186,7 +186,7 @@ function HistoryPanel() {
                     size="sm"
                     variant="ghost"
                     aria-label={`${track.title} abspielen`}
-                    onClick={() => playTrack(track, state.data, index)}
+                    onClick={() => playTrack(track, state.data, index, { kind: 'history', title: 'Hörverlauf' })}
                   >
                     Abspielen
                   </Button>

@@ -46,6 +46,11 @@ import { setPlaylistRules } from '@/lib/api/libraryTools'
 import { notifyError } from '@/lib/notify'
 import type { SmartRules } from '@/types/playlist'
 import type { PlaylistTrack } from '@/types/playlist'
+import type { QueueContext } from '@/lib/audio/types'
+
+function playlistContext(playlist: { id: string; name: string }): QueueContext {
+  return { kind: 'playlist', id: playlist.id, title: playlist.name }
+}
 
 interface PlaylistDetailProps {
   id: string
@@ -54,7 +59,7 @@ interface PlaylistDetailProps {
 export function PlaylistDetail({ id }: PlaylistDetailProps) {
   const navigate = useNavigate()
   const { currentTrack, status } = usePlayerState()
-  const { playTrack, playAlbum, togglePlayPause, playNext, addToQueue } = usePlayerActions()
+  const { playTrack, playAlbum, playShuffled, togglePlayPause, playNext, addToQueue } = usePlayerActions()
   const favorites = useOptionalFavorites()
 
   const { state, reload, setData } = useAsync((signal) => getPlaylist(id, signal), [id])
@@ -90,15 +95,14 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
   // Play entire playlist
   const handlePlayAll = useCallback(() => {
     if (!playlist?.tracks || playlist.tracks.length === 0) return
-    playAlbum(playlist.tracks)
+    playAlbum(playlist.tracks, 0, playlistContext(playlist))
   }, [playlist, playAlbum])
 
-  // Play shuffled
+  // Play shuffled: the player's own shuffle, so turning it off restores the order.
   const handlePlayShuffled = useCallback(() => {
     if (!playlist?.tracks || playlist.tracks.length === 0) return
-    const shuffled = [...playlist.tracks].sort(() => Math.random() - 0.5)
-    playAlbum(shuffled)
-  }, [playlist, playAlbum])
+    playShuffled(playlist.tracks, playlistContext(playlist))
+  }, [playlist, playShuffled])
 
   // Play specific track
   const handlePlayTrack = useCallback(
@@ -107,7 +111,7 @@ export function PlaylistDetail({ id }: PlaylistDetailProps) {
       if (currentTrack?.id === track.id) {
         togglePlayPause()
       } else {
-        playTrack(track, playlist.tracks, index)
+        playTrack(track, playlist.tracks, index, playlistContext(playlist))
       }
     },
     [currentTrack?.id, playlist, playTrack, togglePlayPause],
