@@ -17,6 +17,7 @@ import {
 
 import { IntegrityPanel } from '@/components/library/IntegrityPanel'
 import { LibrarySearchField } from '@/components/library/LibrarySearchField'
+import { PlayFilteredTracks } from '@/components/library/PlayFilteredTracks'
 import { ArtistCard } from '@/components/music/ArtistCard'
 import { ReleaseCard } from '@/components/music/ReleaseCard'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
@@ -69,6 +70,12 @@ import type {
 } from '@/types/api'
 
 type LibraryTab = 'releases' | 'tracks' | 'artists' | 'maintenance' | 'tools'
+
+/** The order the title list uses when the URL names none (as its loader does). */
+function defaultTrackOrder(sort: string): string {
+  if (sort === 'relevance') return 'asc'
+  return sort === 'year' || sort === 'duration' || sort === 'recent' ? 'desc' : 'asc'
+}
 
 export function Library() {
   const auth = useOptionalAuth()
@@ -1060,6 +1067,23 @@ export function Library() {
             </Panel>
           ) : (
             <>
+              <PlayFilteredTracks
+                total={tracksTotal}
+                context={currentQ ? { kind: 'search', title: `Suche „${currentQ}“` } : { kind: 'library', title: 'Bibliothek' }}
+                query={{
+                  genre: currentGenre,
+                  genreMissing: currentGenreMissing,
+                  q: currentQ,
+                  artistId: currentArtistId,
+                  releaseId: currentReleaseId,
+                  lyricsState: currentLyrics,
+                  year: currentYear,
+                  favorite: currentFavorite,
+                  // The same order the list is loaded in.
+                  sort: currentSort || (currentQ ? 'relevance' : 'recent'),
+                  order: currentOrder || defaultTrackOrder(currentSort || (currentQ ? 'relevance' : 'recent')),
+                }}
+              />
               <TracksTable
                 tracks={tracks}
                 queueContext={currentQ ? { kind: 'search', title: `Suche „${currentQ}“` } : { kind: 'library', title: 'Bibliothek' }}

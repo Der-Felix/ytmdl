@@ -5,14 +5,13 @@ import {
   Disc3Icon,
   DownloadIcon,
   HardDriveIcon,
-  ListPlus,
   Music2Icon,
-  Play,
   Trash2Icon,
 } from 'lucide-react'
 
 import { ArtworkEditor } from '@/components/music/ArtworkEditor'
 import { Cover } from '@/components/music/Cover'
+import { ListenActions } from '@/components/music/ListenActions'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
 import { TracksTable } from '@/components/music/TracksTable'
 import { Badge } from '@/components/ui/badge'
@@ -22,7 +21,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/state-view'
 import { useOptionalAuth } from '@/hooks/useAuth'
 import { usePageTitle } from '@/hooks/useDocumentTitle'
-import { usePlayerActions } from '@/hooks/usePlayer'
 import {
   deleteLibraryRelease,
   libraryReleaseDetail,
@@ -40,7 +38,6 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
   const auth = useOptionalAuth()
   const [artworkVersion, setArtworkVersion] = useState(0)
   const isAdmin = auth ? auth.isAdmin : true
-  const { playAlbum, addToQueue } = usePlayerActions()
   const [detail, setDetail] = useState<LibraryReleaseDetail | null>(null)
   usePageTitle(detail?.release.title)
   const [loading, setLoading] = useState(true)
@@ -198,7 +195,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
             className="size-36 sm:size-44 rounded-xl shadow-2xl shrink-0"
           />
 
-          <div className="flex-1 space-y-3 text-center sm:text-left min-w-0">
+          <div className="w-full flex-1 space-y-3 text-center sm:text-left min-w-0">
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
               <Badge variant="outline" className="text-xs uppercase font-mono tracking-wider">
                 {release.release_type || 'Album'}
@@ -210,7 +207,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
               )}
             </div>
 
-            <h1 className="text-2xl sm:text-3xl font-bold font-heading text-foreground truncate">
+            <h1 className="text-2xl sm:text-3xl font-bold font-heading text-foreground line-clamp-2 text-balance break-words">
               {release.title}
             </h1>
  {isAdmin && <ArtworkEditor kind="releases" id={release.id}
@@ -251,45 +248,27 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
                 {formatBytes(detail.total_size_bytes)}
               </span>
             </div>
-          </div>
 
-          <div className="flex flex-wrap sm:flex-col items-center sm:items-end gap-2 shrink-0">
-            {!notLoaded && (
-              <>
-                <Button
-                  size="sm"
-                  onClick={() => canonicalTracks.length > 0 && playAlbum(canonicalTracks, 0, albumContext)}
-                  className="gap-2 bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/25 hover:bg-primary/90"
-                >
-                  <Play className="size-4 fill-current" />
-                  <span>Album abspielen</span>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => canonicalTracks.length > 0 && addToQueue(canonicalTracks)}
-                  className="gap-1.5 text-xs border-input hover:bg-muted"
-                >
-                  <ListPlus className="size-3.5" />
-                  <span>Zur Queue</span>
-                </Button>
-              </>
-            )}
-
-            {isAdmin && (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="gap-1.5 text-xs mt-1"
-                disabled={actionInProgress !== null}
-                onClick={handleDelete}
-              >
-                <Trash2Icon className="size-3.5" />
-                Release löschen
-              </Button>
+            {/* Listening actions: one primary, the rest quieter; they wrap on phones. */}
+            {!notLoaded && albumContext && (
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-3 sm:justify-start">
+                <ListenActions tracks={canonicalTracks} context={albumContext} playLabel="Album abspielen" />
+              </div>
             )}
           </div>
+
+          {isAdmin && (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="shrink-0 gap-1.5 text-xs"
+              disabled={actionInProgress !== null}
+              onClick={handleDelete}
+            >
+              <Trash2Icon className="size-3.5" />
+              Release löschen
+            </Button>
+          )}
         </div>
       </div>
 

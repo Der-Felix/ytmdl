@@ -233,6 +233,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				library.Get("/search", h.LibrarySearch)
 				library.Get("/artists", h.LibraryArtists)
 				library.Get("/artists/{id}", h.LibraryArtistDetail)
+				library.Get("/artists/{id}/top-tracks", h.LibraryArtistTopTracks)
 				library.Get("/releases", h.LibraryReleases)
 				library.Get("/releases/{id}", h.LibraryReleaseDetail)
 				library.Get("/tracks", h.LibraryTracks)

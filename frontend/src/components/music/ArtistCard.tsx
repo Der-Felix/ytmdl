@@ -1,5 +1,11 @@
+import { useCallback, useMemo } from 'react'
+
 import { libraryArtwork } from '@/lib/artwork'
+import { CardPlayButton } from '@/components/music/CardPlayButton'
 import { Cover } from '@/components/music/Cover'
+import { useCollectionPlayback } from '@/hooks/useCollectionPlayback'
+import type { QueueContext } from '@/lib/audio/types'
+import { artistTracks } from '@/lib/collection-tracks'
 import { Link, paths } from '@/lib/router'
 import { formatNumber, pluralize } from '@/lib/utils/format'
 import type { Artist, LibraryArtist } from '@/types/api'
@@ -18,7 +24,8 @@ interface ArtistCardProps {
 }
 
 /**
- * One artist card for discover or library.
+ * One artist card for discover or library. The name is a link stretched over
+ * the whole card; a library artist also gets a play button on its picture.
  */
 function ArtistCard({ artist, href, isLocal }: ArtistCardProps) {
   const targetHref = href ?? (isLocal ? paths.libraryArtist(artist.id) : paths.artist(artist.id, artist.provider))
@@ -26,25 +33,30 @@ function ArtistCard({ artist, href, isLocal }: ArtistCardProps) {
   const isLibArtist = 'release_count' in artist
 
   return (
-    <Link
-      href={targetHref}
-      className="panel panel-interactive focus-ring group flex h-full flex-col items-center gap-4 p-5 text-center"
-    >
-      <Cover
-        src={artist.image_url}
-        fallbackSrc={isLocal ? libraryArtwork('artists', artist.id) : undefined}
-        alt=""
-        shape="circle"
-        className="w-28 max-w-full"
-      />
+    <div className="panel panel-interactive group relative flex h-full flex-col items-center gap-4 p-5 text-center">
+      <div className="relative w-28 max-w-full">
+        <Cover
+          src={artist.image_url}
+          fallbackSrc={isLocal ? libraryArtwork('artists', artist.id) : undefined}
+          alt=""
+          shape="circle"
+          className="w-full"
+        />
+        {isLocal && <ArtistPlayButton id={artist.id} name={artist.name} />}
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p
-          className="line-clamp-2 font-heading text-[0.9375rem] leading-snug font-semibold text-foreground"
-          title={artist.name}
+        <Link
+          href={targetHref}
+          className="focus-ring rounded-md after:absolute after:inset-0 after:rounded-2xl after:content-['']"
         >
-          {artist.name}
-        </p>
+          <span
+            className="line-clamp-2 font-heading text-[0.9375rem] leading-snug font-semibold text-foreground"
+            title={artist.name}
+          >
+            {artist.name}
+          </span>
+        </Link>
 
         {isLibArtist ? (
           <p className="text-xs text-muted-foreground">
@@ -71,8 +83,16 @@ function ArtistCard({ artist, href, isLocal }: ArtistCardProps) {
           {PROVIDER_LABELS[artist.provider] ?? artist.provider}
         </p>
       </div>
-    </Link>
+    </div>
   )
+}
+
+/** Plays all of a library artist's tracks, as the artist page's "Abspielen" does. */
+function ArtistPlayButton({ id, name }: { id: string; name: string }) {
+  const load = useCallback((signal: AbortSignal) => artistTracks(id, signal), [id])
+  const context = useMemo<QueueContext>(() => ({ kind: 'artist', id, title: name }), [id, name])
+  const playback = useCollectionPlayback(context, load, 'artist')
+  return <CardPlayButton title={name} playback={playback} className="right-0 bottom-0" />
 }
 
 export { ArtistCard }

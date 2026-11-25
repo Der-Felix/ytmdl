@@ -177,6 +177,54 @@ func (c *Catalog) ListeningHistory(ctx context.Context, userID, sort string) ([]
 	}
 	return out, nil
 }
+
+// MaxArtistTopTracks bounds ArtistTopTracks; the artist page shows up to ten.
+const MaxArtistTopTracks = 20
+
+// ArtistTopTracks returns the user's most played tracks of one artist, most
+// played first. Tracks without a file are left out, so every entry can play.
+// An artist the user never listened to yields an empty list.
+func (c *Catalog) ArtistTopTracks(ctx context.Context, userID, artistID string, limit int) ([]HistoryTrack, error) {
+	limit = min(max(limit, 1), MaxArtistTopTracks)
+	rows, err := c.db.QueryContext(ctx, `SELECT l.track_id,l.play_count,l.last_played_at
+		FROM listening_history l JOIN tracks t ON t.id=l.track_id
+		WHERE l.user_id=$1 AND t.artist_id=$2 AND l.play_count>0
+		  AND EXISTS(SELECT 1 FROM files f WHERE f.track_id=t.id)
+		ORDER BY l.play_count DESC,l.last_played_at DESC,l.track_id
+		LIMIT $3`, userID, artistID, limit)
+	if err != nil {
+		return nil, wrapDB("artist top tracks", err)
+	}
+	ids := []string{}
+	details := map[string]HistoryTrack{}
+	for rows.Next() {
+		var id string
+		var t HistoryTrack
+		if err = rows.Scan(&id, &t.PlayCount, &t.LastPlayedAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+		details[id] = t
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	tracks, err := c.TracksByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]HistoryTrack, 0, len(tracks))
+	for _, t := range tracks {
+		entry := details[t.ID]
+		entry.LibraryTrack = t
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
 func (c *Catalog) ClearListeningHistory(ctx context.Context, userID string) error {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {

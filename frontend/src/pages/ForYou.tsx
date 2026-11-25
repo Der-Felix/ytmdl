@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import type { MouseEvent } from 'react'
-import { ArrowLeft, ListPlus, Play, Shuffle, Sparkles } from 'lucide-react'
+import { ArrowLeft, ListMusic, ListPlus, Play, Shuffle, Sparkles } from 'lucide-react'
 
 import { MixCard, MixCover } from '@/components/music/MixCard'
+import { SaveQueueDialog } from '@/components/player/QueueOptions'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
 import { TracksTable } from '@/components/music/TracksTable'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -120,6 +121,7 @@ export function MixDetail({ id }: { id: string }) {
   const [order, setOrder] = useState<'asc' | 'desc'>('asc')
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [saveOpen, setSaveOpen] = useState(false)
 
   const tracks = useMemo(() => {
     const list = state.status === 'success' ? [...state.data.tracks] : []
@@ -216,6 +218,10 @@ export function MixDetail({ id }: { id: string }) {
               <ListPlus className="size-4" />
               Zur Warteschlange
             </Button>
+            <Button variant="ghost" disabled={!tracks.length} onClick={() => setSaveOpen(true)}>
+              <ListMusic className="size-4" aria-hidden />
+              Als Playlist speichern
+            </Button>
             {sort !== '' && (
               <Button variant="ghost" size="sm" onClick={() => setSort('')}>
                 Mix-Reihenfolge
@@ -243,6 +249,16 @@ export function MixDetail({ id }: { id: string }) {
       )}
 
       <TrackDetailDialog trackId={selectedTrackId} open={detailOpen} onOpenChange={setDetailOpen} />
+      <SaveQueueDialog
+        open={saveOpen}
+        onOpenChange={setSaveOpen}
+        source={{
+          title: mix.title,
+          trackIds: tracks.map((t) => t.id),
+          heading: 'Mix als Playlist speichern',
+          orderNote: 'in der angezeigten Reihenfolge',
+        }}
+      />
     </div>
   )
 }

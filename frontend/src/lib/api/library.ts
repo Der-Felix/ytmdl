@@ -1,4 +1,5 @@
 import { ApiError, request, requestList, type ListResult } from '@/lib/api/client'
+import type { HistoryTrack } from '@/lib/api/libraryTools'
 import type {
   AuditFinding,
   AuditRun,
@@ -58,6 +59,20 @@ export async function libraryArtistDetail(
   options: { signal?: AbortSignal } = {},
 ): Promise<LibraryArtistDetail> {
   return request<LibraryArtistDetail>(`/library/artists/${encodeURIComponent(id)}`, {
+    signal: options.signal,
+  })
+}
+
+/**
+ * GET /library/artists/{id}/top-tracks — the signed-in user's most played
+ * tracks of the artist, most played first (limit 1–20). Empty without history.
+ */
+export async function libraryArtistTopTracks(
+  id: string,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<HistoryTrack[]> {
+  return request<HistoryTrack[]>(`/library/artists/${encodeURIComponent(id)}/top-tracks`, {
+    query: { limit: options.limit },
     signal: options.signal,
   })
 }

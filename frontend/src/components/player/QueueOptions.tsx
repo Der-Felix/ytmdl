@@ -97,15 +97,29 @@ function defaultName(title: string | undefined) {
   return `${title ?? 'Warteschlange'} · ${date}`
 }
 
+/** Something other than the queue to save, such as a mix. */
+export interface PlaylistSource {
+  /** Names the playlist by default: "{title} · dd.mm.yyyy". */
+  title: string
+  trackIds: string[]
+  /** The dialog heading, e.g. "Mix als Playlist speichern". */
+  heading: string
+  /** How the order is described: "in der Reihenfolge des Mixes". */
+  orderNote: string
+}
+
 export function SaveQueueDialog({
   open,
   onOpenChange,
   save = saveQueueAsPlaylist,
+  source,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Creates and fills the playlist; replaceable in tests. */
   save?: typeof saveQueueAsPlaylist
+  /** Saves these titles instead of the queue. */
+  source?: PlaylistSource
 }) {
   const { queue, queueContext } = usePlayerState()
   const [name, setName] = useState('')
@@ -115,7 +129,7 @@ export function SaveQueueDialog({
   const inputId = useId()
   const errorId = useId()
 
-  const trackIds = [...new Set(queue.map((t) => t.id))]
+  const trackIds = [...new Set(source ? source.trackIds : queue.map((t) => t.id))]
   const error = touched ? nameError(name) : ''
 
   // A fresh form every time the dialog opens, named after what plays.
@@ -123,7 +137,7 @@ export function SaveQueueDialog({
   if (open !== wasOpen) {
     setWasOpen(open)
     if (open) {
-      setName(defaultName(queueContext?.title))
+      setName(defaultName(source ? source.title : queueContext?.title))
       setTouched(false)
       setFailure('')
     }
@@ -159,9 +173,9 @@ export function SaveQueueDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Warteschlange als Playlist speichern</DialogTitle>
+          <DialogTitle>{source?.heading ?? 'Warteschlange als Playlist speichern'}</DialogTitle>
           <DialogDescription>
-            {trackIds.length === 1 ? '1 Titel' : `${trackIds.length} Titel`} in der Reihenfolge der Warteschlange.
+            {trackIds.length === 1 ? '1 Titel' : `${trackIds.length} Titel`} {source?.orderNote ?? 'in der Reihenfolge der Warteschlange'}.
           </DialogDescription>
         </DialogHeader>
         <form id={`${inputId}-form`} onSubmit={(e) => void submit(e)} className="space-y-1.5">

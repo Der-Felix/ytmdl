@@ -5,13 +5,13 @@ import {
   Disc3Icon,
   HardDriveIcon,
   Music2Icon,
-  Play,
-  Shuffle,
   UserIcon,
 } from 'lucide-react'
 
+import { ArtistTopTracks } from '@/components/music/ArtistTopTracks'
 import { ArtworkEditor } from '@/components/music/ArtworkEditor'
 import { Cover } from '@/components/music/Cover'
+import { ListenActions } from '@/components/music/ListenActions'
 import { ReleaseCard } from '@/components/music/ReleaseCard'
 import { TrackDetailDialog } from '@/components/music/TrackDetailDialog'
 import { TracksTable } from '@/components/music/TracksTable'
@@ -20,8 +20,8 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useOptionalAuth } from '@/hooks/useAuth'
 import { usePageTitle } from '@/hooks/useDocumentTitle'
-import { usePlayerActions } from '@/hooks/usePlayer'
 import { libraryArtistDetail, updateArtistGenres } from '@/lib/api/library'
+import type { QueueContext } from '@/lib/audio/types'
 import { Link, paths } from '@/lib/router'
 import { formatBytes, pluralize, releaseTypeLabel } from '@/lib/utils/format'
 import type { LibraryArtistDetail, LibraryTrack } from '@/types/api'
@@ -38,7 +38,6 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
   const auth = useOptionalAuth()
   const [artworkVersion, setArtworkVersion] = useState(0)
   const isAdmin = auth ? auth.isAdmin : true
-  const { playArtist } = usePlayerActions()
   const [genreDraft, setGenreDraft] = useState('')
   const [genreEditing, setGenreEditing] = useState(false)
   const [genreSaving, setGenreSaving] = useState(false)
@@ -159,6 +158,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
   }
 
   const artist = detail.artist
+  const artistContext: QueueContext = { kind: 'artist', id: artist.id, title: artist.name }
   const releaseTypes = Array.from(new Set(detail.releases.map((r) => r.release_type).filter(Boolean)))
 
   return (
@@ -207,27 +207,13 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
 
           <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 shrink-0">
             {detail.tracks.length > 0 && (
-              <>
-                <Button
-                  size="sm"
-                  onClick={() => playArtist(detail.tracks, false, { kind: 'artist', id: artist.id, title: artist.name })}
-                  className="gap-2 bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/25 hover:bg-primary/90"
-                >
-                  <Play className="size-4 fill-current" />
-                  <span>Künstler abspielen</span>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => playArtist(detail.tracks, true, { kind: 'artist', id: artist.id, title: artist.name })}
-                  className="gap-1.5 text-xs border-input hover:bg-muted"
-                  title="Zufallswiedergabe aller Titel"
-                >
-                  <Shuffle className="size-3.5" />
-                  <span>Mischen</span>
-                </Button>
-              </>
+              <ListenActions
+                tracks={detail.tracks}
+                context={artistContext}
+                playLabel="Künstler abspielen"
+                mode="artist"
+                queueActions={false}
+              />
             )}
 
             <SubscribeControl artist={artist} />
@@ -259,6 +245,8 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
         </form>}
         {genreMessage && <p role="status" className="text-sm text-muted-foreground">{genreMessage}</p>}
       </section>
+
+      <ArtistTopTracks artistId={artist.id} artistName={artist.name} />
 
       {/* Local Releases Section */}
       <div className="space-y-4">

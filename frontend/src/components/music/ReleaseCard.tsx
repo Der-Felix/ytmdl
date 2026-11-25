@@ -1,7 +1,13 @@
+import { useCallback, useMemo } from 'react'
+
 import { libraryArtwork } from '@/lib/artwork'
 import { DownloadButton } from '@/components/downloads/DownloadButton'
+import { CardPlayButton } from '@/components/music/CardPlayButton'
 import { Cover } from '@/components/music/Cover'
+import { useCollectionPlayback } from '@/hooks/useCollectionPlayback'
 import { downloadRelease } from '@/lib/api/jobs'
+import type { QueueContext } from '@/lib/audio/types'
+import { releaseTracks } from '@/lib/collection-tracks'
 import { Link, paths } from '@/lib/router'
 import { formatYear, pluralize } from '@/lib/utils/format'
 import type { LibraryRelease, Release } from '@/types/api'
@@ -25,7 +31,10 @@ function ReleaseCard({ release, provider, href, isLocal }: ReleaseCardProps) {
 
   return (
     <div className="panel panel-interactive group relative flex h-full flex-col gap-3 p-3">
-      <Cover src={isLocal ? libraryArtwork('releases', release.id) : release.cover_url} fallbackSrc={isLocal ? release.cover_url : undefined} alt="" className="w-full" />
+      <div className="relative">
+        <Cover src={isLocal ? libraryArtwork('releases', release.id) : release.cover_url} fallbackSrc={isLocal ? release.cover_url : undefined} alt="" className="w-full" />
+        {isLocal && <ReleasePlayButton id={release.id} title={release.title} />}
+      </div>
 
       <div className="min-w-0 flex-1 space-y-1 px-1">
         <Link
@@ -67,4 +76,12 @@ function ReleaseCard({ release, provider, href, isLocal }: ReleaseCardProps) {
   )
 }
 
-export { ReleaseCard }
+/** Plays a library release from its card; the tracks load on the first click. */
+function ReleasePlayButton({ id, title, className }: { id: string; title: string; className?: string }) {
+  const load = useCallback((signal: AbortSignal) => releaseTracks(id, signal), [id])
+  const context = useMemo<QueueContext>(() => ({ kind: 'album', id, title }), [id, title])
+  const playback = useCollectionPlayback(context, load)
+  return <CardPlayButton title={title} playback={playback} className={className} />
+}
+
+export { ReleaseCard, ReleasePlayButton }

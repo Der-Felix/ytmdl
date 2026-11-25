@@ -34,6 +34,28 @@ func (h *Handlers) ListeningHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	response.OK(w, r, data)
 }
+
+// LibraryArtistTopTracks answers GET /library/artists/{id}/top-tracks: the
+// signed-in user's most played tracks of the artist (limit 1–20, default 10).
+func (h *Handlers) LibraryArtistTopTracks(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		response.Error(w, r, apperr.New(apperr.CodeInvalidRequest, "Artist ID is required."))
+		return
+	}
+	limit, _, err := pagination(r, 10, repository.MaxArtistTopTracks)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	u := middleware.UserFromContext(r.Context())
+	data, err := h.deps.Catalog.ArtistTopTracks(r.Context(), u.ID, id, limit)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.OK(w, r, data)
+}
 func (h *Handlers) RecordPlayback(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFromContext(r.Context())
 	var req struct {
