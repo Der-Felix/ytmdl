@@ -49,6 +49,17 @@ public struct PersonalMix: Decodable, Identifiable, Hashable, Sendable {
     }
     /// How a mix is shown in the queue: "Weiter aus: {Mix}".
     public var queueContext: QueueContext { QueueContext(kind: "mix", id: id, title: title) }
+    /// The suggested name when a mix is saved as a playlist, as on the web:
+    /// "{title} · dd.mm.yyyy", shortened to the server's 128 bytes.
+    public static func playlistName(_ title: String, date: Date, calendar: Calendar = .current) -> String {
+        let parts = calendar.dateComponents([.day, .month, .year], from: date)
+        func two(_ value: Int?) -> String { let text = String(value ?? 1); return text.count < 2 ? "0" + text : text }
+        let suffix = " · \(two(parts.day)).\(two(parts.month)).\(parts.year ?? 2000)"
+        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { name = "Mix" }
+        while !name.isEmpty && (name + suffix).utf8.count > 128 { name.removeLast() }
+        return name + suffix
+    }
     /// Genre mixes ("Dein Mix 1…n") first, then the mixes from listening, in server order.
     public static func ordered(_ mixes: [PersonalMix]) -> [PersonalMix] {
         mixes.filter(\.isGenreMix) + mixes.filter { !$0.isGenreMix }
@@ -166,6 +177,27 @@ public struct ListeningTracker: Sendable {
 /// playlist, a mix …), `user` what was queued on top of it ("Als Nächstes"),
 /// `autoplay` similar tracks appended when the queue was about to run out.
 public enum QueueOrigin: String, Codable, Sendable { case user, context, autoplay }
+
+/// The tracks played in this listening session, oldest first, so autoplay
+/// top-ups do not bring them back after a new queue replaced the old one
+/// (web: the last 200 played IDs). A session belongs to one account on one
+/// server; another scope starts a new, empty session.
+public struct SessionPlayHistory: Equatable, Sendable {
+    public static let limit = 200
+    public private(set) var scope: String?
+    public private(set) var ids: [String] = []
+    public init() {}
+    public mutating func setScope(_ value: String?) {
+        guard value != scope else { return }
+        scope = value; ids = []
+    }
+    public mutating func record(_ id: String) {
+        guard !id.isEmpty else { return }
+        ids.removeAll { $0 == id }
+        ids.append(id)
+        if ids.count > Self.limit { ids.removeFirst(ids.count - Self.limit) }
+    }
+}
 
 /// What the queue was started from, shown as "Weiter aus: {title}".
 public struct QueueContext: Codable, Hashable, Sendable {

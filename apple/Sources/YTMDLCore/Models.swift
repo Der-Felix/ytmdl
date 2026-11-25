@@ -194,6 +194,10 @@ public struct PlaybackQueue: Equatable, Sendable {
     public static let limit = 500
     /// How many tracks may be left before autoplay looks for similar ones.
     public static let autoplayLookahead = 2
+    /// How many similar tracks autoplay appends at a time (web: `AUTOPLAY_BATCH`).
+    /// A small batch keeps the queue readable; the next one follows when the
+    /// lookahead is reached again. A radio the user starts keeps its full list.
+    public static let autoplayBatch = 12
     public private(set) var tracks: [Track] = []
     public private(set) var origins: [QueueOrigin] = []
     /// What the context entries were started from; nil when unknown.
@@ -204,6 +208,8 @@ public struct PlaybackQueue: Equatable, Sendable {
     public var remaining: Int { max(0, tracks.count - 1 - index) }
     public init() {}
     public func origin(at position: Int) -> QueueOrigin { origins.indices.contains(position) ? origins[position] : .context }
+    /// One origin per track, as saved with the queue for the next launch.
+    public var entryOrigins: [QueueOrigin] { tracks.indices.map { origin(at: $0) } }
     public func section(at position: Int) -> QueueSection {
         if position < index { return .played }
         if position == index { return .current }
@@ -213,13 +219,19 @@ public struct PlaybackQueue: Equatable, Sendable {
     public var autoplaySeed: Track? {
         tracks.indices.reversed().first { origin(at: $0) != .autoplay }.map { tracks[$0] } ?? tracks.last
     }
-    public mutating func replace(_ tracks: [Track], start: Int = 0, context: QueueContext? = nil) {
+    /// Replaces the queue. `origins` restores a saved queue's sections; it is
+    /// used only when it has one entry per track, otherwise all are context.
+    public mutating func replace(_ tracks: [Track], start: Int = 0, context: QueueContext? = nil, origins: [QueueOrigin]? = nil) {
         let selected = tracks.indices.contains(start) ? start : 0
         // Large artist/favorites lists must still play the selected track.
         // Begin a new bounded window when selection falls beyond the first 500.
         let lowerBound = selected >= Self.limit ? selected : 0
         self.tracks = Array(tracks.dropFirst(lowerBound).prefix(Self.limit))
-        origins = Array(repeating: .context, count: self.tracks.count)
+        if let origins, origins.count == tracks.count {
+            self.origins = Array(origins.dropFirst(lowerBound).prefix(Self.limit))
+        } else {
+            self.origins = Array(repeating: .context, count: self.tracks.count)
+        }
         self.context = self.tracks.isEmpty ? nil : context
         index = selected - lowerBound
     }
@@ -252,12 +264,15 @@ public struct PlaybackQueue: Equatable, Sendable {
         origins.insert(contentsOf: Array(repeating: .user, count: added.count), at: index + 1)
         return added.count
     }
-    /// Similar tracks at the end of a queue that would otherwise run out.
-    /// Tracks already in the queue are left out.
-    @discardableResult public mutating func appendAutoplay(_ list: [Track]) -> Int {
+    /// Similar tracks at the end of a queue that would otherwise run out, at
+    /// most `batch` at a time. Tracks already in the queue and the IDs in
+    /// `exclude` (tracks played earlier in this session) are left out.
+    @discardableResult public mutating func appendAutoplay(_ list: [Track], excluding exclude: [String] = [], batch: Int = PlaybackQueue.autoplayBatch) -> Int {
         guard current != nil else { return 0 }
-        var known = Set(tracks.map(\.id))
-        let added = list.filter { known.insert($0.id).inserted }.prefix(Self.limit - tracks.count)
+        alignOrigins()
+        var known = Set(tracks.map(\.id)).union(exclude)
+        let room = max(0, min(batch, Self.limit - tracks.count))
+        let added = Array(list.filter { known.insert($0.id).inserted }.prefix(room))
         tracks += added; origins += Array(repeating: .autoplay, count: added.count)
         return added.count
     }

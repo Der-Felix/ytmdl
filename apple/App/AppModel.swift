@@ -58,6 +58,12 @@ import YTMDLCore
         }
         player.onQueueEnded = { [weak self] track in Task { await self?.continueRadio(after: track) } }
     }
+    /// Binds the player's listening session (what autoplay leaves out) to this
+    /// account on this server; a change of either starts a new session.
+    private func scopeListeningSession() {
+        guard let user, let client else { player.setSessionScope(nil); return }
+        player.setSessionScope(client.server.url.absoluteString.lowercased() + "\n" + user.id)
+    }
     private var generation = UUID()
     private var catalogGeneration = UUID()
     private var favoriteRevision = UUID()
@@ -75,6 +81,7 @@ import YTMDLCore
         client?.invalidate(); client = replacement; player.stop(); persistsSession = persist
         listeningHistory.configure(server: nil, userID: nil, persist: false)
         generation = UUID(); catalogGeneration = UUID(); clearLibrary(); user = nil; connecting = false; busy = false
+        scopeListeningSession()
         if persist { UserDefaults.standard.set(text, forKey: "serverAddress") }
     }
     @discardableResult func restore() async -> Bool {
@@ -84,6 +91,7 @@ import YTMDLCore
             let status: AuthStatus = try await client.get("/auth/status")
             guard self.generation == generation else { return false }
             user = status.authenticated ? status.user : nil
+            scopeListeningSession()
             if let user { offline.configure(client: client, user: user) }
             else { offline.detach(); player.stop() }
             listeningHistory.configure(server: client.server, userID: user?.id, persist: persistsSession)
@@ -102,6 +110,7 @@ import YTMDLCore
             let result = try await client.login(username: username, password: password)
             guard self.generation == generation else { return }
             user = result
+            scopeListeningSession()
             offline.configure(client: client, user: result)
             listeningHistory.configure(server: client.server, userID: result.id, persist: persistsSession)
             await loadLibrary()
@@ -309,6 +318,7 @@ import YTMDLCore
         do { if !offlineMode { try client.forget() } } catch { failure = error }
         offlineMode = false; player.offlineOnly = false
         client.invalidate(); self.client = nil; user = nil; generation = UUID(); clearLibrary(); player.stop()
+        scopeListeningSession()
         if let failure { report(failure) }
     }
     private func clearLibrary() {
@@ -358,6 +368,7 @@ import YTMDLCore
             let local = try APIClient(server: address, persist: false)
             player.stop(); client?.invalidate(); offline.detach(); clearLibrary()
             client = local; user = profile.user; offlineMode = true; player.offlineOnly = true
+            scopeListeningSession()
             generation = UUID(); offline.selectProfile(profile)
             listeningHistory.configure(server: address, userID: profile.user.id, persist: true)
         } catch { report(error) }
@@ -461,20 +472,25 @@ import YTMDLCore
         }
         let playbackRevision = player.playbackRevision
         do {
-            let played = Set(player.queue.tracks.map(\.id))
             let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
             guard self.client === client, player.playbackRevision == playbackRevision, player.autoplay, !player.isPlaybackRequested, player.current?.id == track.id else { return }
-            let candidates = result.filter { !played.contains($0.id) }
+            // Like an autoplay top-up: one small batch without anything played
+            // in this session; the lookahead asks for the next batch later.
+            let played = Set(player.queue.tracks.map(\.id)).union(player.sessionPlayedIDs)
+            var seen = Set<String>()
+            let candidates = Array(result.filter { !played.contains($0.id) && seen.insert($0.id).inserted }.prefix(PlaybackQueue.autoplayBatch))
             if !candidates.isEmpty { player.play(candidates, client: client, context: QueueContext(kind: "radio", id: track.id, title: "Radio: \(track.title)")) }
         } catch { /* Autoplay must not turn normal queue completion into an alert. */ }
     }
+    /// Restores the saved queue with its sections ("Als Nächstes", "Weiter aus: …",
+    /// "Ähnliche Titel"). Offline only the titles with a local file come back.
     func resumeLastSession() {
         guard let snapshot = listeningHistory.snapshot, let client else { return }
-        let tracks = offlineMode ? snapshot.tracks.filter { offline.audioURL($0.id) != nil } : snapshot.tracks
-        guard !tracks.isEmpty else { return }
+        let localOnly = offlineMode, library = offline
+        guard let restored = snapshot.restorable(keeping: { !localOnly || library.audioURL($0.id) != nil }) else { return }
         let selected = snapshot.tracks.indices.contains(snapshot.index) ? snapshot.tracks[snapshot.index].id : ""
         player.repeatAll = snapshot.repeatMode == "queue"; player.setRepeatOne(snapshot.repeatMode == "track")
-        player.play(tracks, start: tracks.firstIndex { $0.id == selected } ?? 0, client: client)
+        player.play(restored.tracks, start: restored.start, client: client, context: snapshot.context, origins: restored.origins)
         if player.current?.id == selected { player.seek(snapshot.position) }
     }
     func setSyncHistory(_ value: Bool) {
@@ -549,6 +565,7 @@ import YTMDLCore
             offline.detach()
             try? client.forget()
             client.invalidate(); self.client = nil; user = nil; generation = UUID(); clearLibrary(); player.stop()
+            scopeListeningSession()
         }
         if failure is PlayerError || failure is VaultError { error = failure.localizedDescription }
         else { error = "Der Server ist nicht erreichbar oder die Antwort passt nicht zur App. Bitte Verbindung und Server-Version prüfen." }

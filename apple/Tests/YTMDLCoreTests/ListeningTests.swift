@@ -185,6 +185,78 @@ private func track(_ id: String) -> Track { Track(id: id, title: id.uppercased()
     #expect(queue.count(of: .context) == 2 && queue.count(of: .user) == 1 && queue.count(of: .played) == 1)
 }
 
+@Test func autoplayAppendsOneSmallBatchWithoutQueuedOrSessionTracks() {
+    var queue = PlaybackQueue()
+    queue.replace(["a", "b", "c"].map(track), start: 2, context: QueueContext(kind: "album", id: "r", title: "Album"))
+    let similar = ["a", "p1", "d"] + (0..<30).map { "s\($0)" }
+    // "p1" and "d" were played earlier in this session (before this queue).
+    let first = queue.appendAutoplay(similar.map(track), excluding: ["p1", "d", "c"])
+    #expect(first == PlaybackQueue.autoplayBatch)
+    #expect(queue.tracks.suffix(12).map(\.id) == (0..<12).map { "s\($0)" })
+    #expect(queue.count(of: .autoplay) == 12 && queue.tracks.count == queue.origins.count)
+    // The next top-up continues with what is not in the queue yet.
+    let second = queue.appendAutoplay(similar.map(track), excluding: ["p1", "d"])
+    #expect(second == 12 && queue.tracks.suffix(12).map(\.id) == (12..<24).map { "s\($0)" })
+    // Duplicates within one answer count once; a smaller batch is honoured.
+    let small = queue.appendAutoplay(["x", "x", "y", "z"].map(track), batch: 2)
+    #expect(small == 2 && queue.tracks.suffix(2).map(\.id) == ["x", "y"])
+    #expect(queue.autoplaySeed?.id == "c", "Autoplay keeps seeding from the last title the user chose.")
+    // Only excluded or known tracks: nothing is added.
+    let nothing = queue.appendAutoplay(["a", "p1"].map(track), excluding: ["p1"])
+    #expect(nothing == 0)
+}
+
+@Test func sessionPlayHistoryKeepsTheLast200AndStartsOverForAnotherScope() {
+    var session = SessionPlayHistory()
+    session.setScope("https://music.example\nanna")
+    for index in 0..<250 { session.record("t\(index)") }
+    #expect(session.ids.count == SessionPlayHistory.limit && session.ids.first == "t50" && session.ids.last == "t249")
+    // Playing a track again moves it to the end instead of duplicating it.
+    session.record("t60")
+    #expect(session.ids.count == 200 && session.ids.last == "t60" && session.ids.filter { $0 == "t60" }.count == 1)
+    session.record("")
+    #expect(session.ids.last == "t60")
+    // The same scope keeps the session; another account or server resets it.
+    session.setScope("https://music.example\nanna")
+    #expect(session.ids.count == 200)
+    session.setScope("https://music.example\nben")
+    #expect(session.ids.isEmpty && session.scope == "https://music.example\nben")
+    session.record("a"); session.setScope(nil)
+    #expect(session.ids.isEmpty && session.scope == nil)
+}
+
+@Test func restoringAQueueKeepsItsOriginsAndAWrongOriginListFallsBackToContext() {
+    let context = QueueContext(kind: "mix", id: "m1", title: "Dein Mix 1")
+    var original = PlaybackQueue()
+    original.replace(["a", "b", "c"].map(track), start: 0, context: context)
+    original.append(track("u"))
+    _ = original.appendAutoplay([track("x")])
+    original.select(1)
+    var restored = PlaybackQueue()
+    restored.replace(original.tracks, start: original.index, context: original.context, origins: original.entryOrigins)
+    #expect(restored == original)
+    #expect(restored.rows().map(\.section) == [.played, .current, .context, .context, .autoplay])
+    #expect(QueueSection.context.heading(restored.context) == "Weiter aus: Dein Mix 1")
+    var mismatched = PlaybackQueue()
+    mismatched.replace(original.tracks, start: 1, context: context, origins: [.user])
+    #expect(mismatched.origins == [QueueOrigin](repeating: .context, count: 5))
+    // A selection beyond the 500 window keeps the origins of the window.
+    let long = (0..<600).map { track("l\($0)") }
+    var window = PlaybackQueue()
+    window.replace(long, start: 550, origins: (0..<600).map { $0 == 551 ? QueueOrigin.user : QueueOrigin.context })
+    #expect(window.tracks.first?.id == "l550" && window.origin(at: 1) == .user && window.origins.count == window.tracks.count)
+}
+
+@Test func mixPlaylistNameCarriesTheDateAndFitsTheServerLimit() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(identifier: "Europe/Berlin"))
+    let date = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 7, hour: 12)))
+    #expect(PersonalMix.playlistName("Dein Mix 1", date: date, calendar: calendar) == "Dein Mix 1 · 07.03.2026")
+    #expect(PersonalMix.playlistName("  ", date: date, calendar: calendar) == "Mix · 07.03.2026")
+    let long = PersonalMix.playlistName(String(repeating: "Ä", count: 100), date: date, calendar: calendar)
+    #expect(long.utf8.count <= 128 && long.hasSuffix(" · 07.03.2026") && long.hasPrefix("ÄÄ"))
+}
+
 private func order(_ section: QueueSection) -> Int {
     switch section { case .played: 0; case .current: 1; case .user: 2; case .context: 3; case .autoplay: 4 }
 }

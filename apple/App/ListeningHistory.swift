@@ -8,6 +8,23 @@ struct ListeningSnapshot: Codable, Sendable {
     let index: Int
     let position: Double
     let repeatMode: String
+    /// Where each entry came from, one per track. Queues saved before build 35
+    /// have neither origins nor context and restore as a plain context.
+    var origins: [QueueOrigin]? = nil
+    var context: QueueContext? = nil
+    /// What comes back: the entries this device can play (`keeping`), each with
+    /// its origin, and where to start: at the saved title, or at the next one
+    /// that is still there.
+    func restorable(keeping include: (Track) -> Bool) -> (tracks: [Track], origins: [QueueOrigin], start: Int)? {
+        let saved = origins.flatMap { $0.count == tracks.count ? $0 : nil } ?? Array(repeating: QueueOrigin.context, count: tracks.count)
+        var kept: [Track] = [], keptOrigins: [QueueOrigin] = [], before = 0
+        for position in tracks.indices where include(tracks[position]) {
+            if position < index { before += 1 }
+            kept.append(tracks[position]); keptOrigins.append(saved[position])
+        }
+        guard !kept.isEmpty else { return nil }
+        return (kept, keptOrigins, min(before, kept.count - 1))
+    }
 }
 /// A play or skip waiting for `POST /history` or `POST /history/skips`.
 /// Events stored before skips existed have no kind and are plays.
@@ -69,8 +86,12 @@ struct ListeningEvent: Codable, Sendable {
             if force { snapshot = nil; if persistent { preferences.removeObject(forKey: key + ".queue") } }
             return
         }
-        guard force || snapshot?.tracks != queue.tracks || Date().timeIntervalSince(lastSnapshot) >= 5 else { return }
-        snapshot = ListeningSnapshot(tracks: queue.tracks, index: queue.index, position: max(0, position), repeatMode: repeatMode); lastSnapshot = Date()
+        let origins = queue.entryOrigins
+        guard force || snapshot?.tracks != queue.tracks || snapshot?.origins != origins || snapshot?.context != queue.context
+                || Date().timeIntervalSince(lastSnapshot) >= 5 else { return }
+        snapshot = ListeningSnapshot(tracks: queue.tracks, index: queue.index, position: max(0, position), repeatMode: repeatMode,
+                                     origins: origins, context: queue.context)
+        lastSnapshot = Date()
         if persistent, let data = try? JSONEncoder().encode(snapshot), data.count <= 1024 * 1024 { preferences.set(data, forKey: key + ".queue") }
     }
     /// Queues a play or skip for this account and server. Plays and skips from
