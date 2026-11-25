@@ -20,10 +20,8 @@ struct RootView: View {
     @Environment(\.colorScheme) private var colorScheme
     private var selectedTheme: DesktopTheme { DesktopTheme(rawValue: themeName) ?? .rose }
     private var accent: Color { selectedTheme.accent(colorScheme) }
-    #elseif os(iOS)
-    @State private var destination: Destination? = .home
     #else
-    @State private var destination: Destination? = .library
+    @State private var destination: Destination? = .home
     #endif
     @State private var expandedPlayer = false
     @State private var pendingWidgetRoute: MusicWidgetRoute?
@@ -61,7 +59,7 @@ struct RootView: View {
             else {
                 #if os(tvOS)
                 TabView(selection: $destination) {
-                    ForEach([Destination.library, .search, .favorites, .playlists, .player, .settings]) { item in
+                    ForEach([Destination.home, .library, .search, .favorites, .playlists, .player, .settings]) { item in
                         NavigationStack { routedContent(item) }.tabItem { Label(item == .settings ? "Optionen" : item.rawValue, systemImage: item.icon) }.tag(Optional(item))
                     }
                 }
@@ -254,7 +252,7 @@ struct RootView: View {
             #if os(iOS)
             MobileHomeView(model: model) { expandedPlayer = true }
             #else
-            LibraryView(model: model)
+            TVHomeView(model: model) { selectDestination(.player) }
             #endif
             #endif
         case .library: LibraryView(model: model)
@@ -1501,6 +1499,9 @@ struct NowPlayingView: View {
     }
     @ViewBuilder private var detailsContent: some View {
         if tab == 0 {
+            #if os(tvOS)
+            TVQueueView(model: model)
+            #else
             LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(model.player.queue.tracks.enumerated()), id: \.offset) { index, track in
                     Button { model.player.select(index) } label: {
@@ -1519,6 +1520,7 @@ struct NowPlayingView: View {
                     }.buttonStyle(.plain)
                 }
             }
+            #endif
         } else {
             MobileLyricsView(player: model.player)
         }
