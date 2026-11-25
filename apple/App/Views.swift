@@ -85,6 +85,9 @@ struct RootView: View {
                                     }
                                 }
                             }
+                                // Every page of the tab, pushed ones included: nothing
+                                // readable shows between the mini player and the tab bar.
+                                .scrollEdgeEffectStyle(.hard, for: .bottom)
                                 .tabItem { Label(item.rawValue, systemImage: item.icon) }.tag(Optional(item))
                         }
                     }.tabBarMinimizeBehavior(.never)
