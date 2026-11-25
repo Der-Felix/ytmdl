@@ -30,6 +30,7 @@ import {
 import { Link, navigate, paths } from '@/lib/router'
 import { formatBytes, formatDuration, pluralize } from '@/lib/utils/format'
 import type { LibraryReleaseDetail, LibraryTrack } from '@/types/api'
+import type { QueueContext } from '@/lib/audio/types'
 
 interface LibraryReleaseProps {
   id: string
@@ -108,6 +109,12 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
       return (a.track_number || 0) - (b.track_number || 0)
     })
   }, [detail?.tracks])
+
+  const releaseInfo = detail?.release
+  const albumContext = useMemo<QueueContext | null>(
+    () => (releaseInfo ? { kind: 'album', id: releaseInfo.id, title: releaseInfo.title } : null),
+    [releaseInfo],
+  )
 
   const totalDurationMS = useMemo(() => {
     if (!detail?.tracks) return 0
@@ -251,7 +258,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
               <>
                 <Button
                   size="sm"
-                  onClick={() => canonicalTracks.length > 0 && playAlbum(canonicalTracks)}
+                  onClick={() => canonicalTracks.length > 0 && playAlbum(canonicalTracks, 0, albumContext)}
                   className="gap-2 bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/25 hover:bg-primary/90"
                 >
                   <Play className="size-4 fill-current" />
@@ -311,6 +318,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
               <TracksTable
                 tracks={discTracks}
                 fullQueue={canonicalTracks}
+                queueContext={albumContext}
                 sort={trackSort}
                 order={trackOrder}
                 onSortChange={handleSortChange}
@@ -328,6 +336,7 @@ export function LibraryRelease({ id }: LibraryReleaseProps) {
             <TracksTable
               tracks={detail.tracks}
               fullQueue={canonicalTracks}
+              queueContext={albumContext}
               sort={trackSort}
               order={trackOrder}
               onSortChange={handleSortChange}

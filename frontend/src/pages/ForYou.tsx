@@ -18,15 +18,12 @@ import type { PersonalMix } from '@/lib/api/mixes'
 import { mixLabel } from '@/lib/mixes'
 import { Link, paths } from '@/lib/router'
 import { formatDuration, pluralize } from '@/lib/utils/format'
+import type { QueueContext } from '@/lib/audio/types'
 import type { LibraryTrack } from '@/types/api'
 
-function shuffled<T>(list: T[]): T[] {
-  const out = [...list]
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[out[i], out[j]] = [out[j]!, out[i]!]
-  }
-  return out
+/** How a mix shows in the queue: "Weiter aus: {Mix}". */
+function mixContext(mix: { id: string; title: string }): QueueContext {
+  return { kind: 'mix', id: mix.id, title: mix.title }
 }
 
 function MixSection({ title, mixes, playing, onPlay }: { title: string; mixes: PersonalMix[]; playing: string | null; onPlay: (event: MouseEvent, mix: PersonalMix) => void }) {
@@ -116,7 +113,7 @@ function sortValue(track: LibraryTrack, field: SortField): string | number {
 
 /** One mix with its tracks. */
 export function MixDetail({ id }: { id: string }) {
-  const { playAlbum, addToQueue } = usePlayerActions()
+  const { playAlbum, playShuffled, addToQueue } = usePlayerActions()
   const { state, reload } = useAsync((signal) => personalMix(id, signal), [id])
   usePageTitle(state.status === 'success' ? state.data.title : null)
   const [sort, setSort] = useState<SortField>('')
@@ -207,11 +204,11 @@ export function MixDetail({ id }: { id: string }) {
             {pluralize(tracks.length, 'Titel', 'Titel')} · {formatDuration(totalMs)}
           </p>
           <div className="flex flex-wrap items-center gap-2 pt-2">
-            <Button variant="default" disabled={!tracks.length} onClick={() => playAlbum(tracks)}>
+            <Button variant="default" disabled={!tracks.length} onClick={() => playAlbum(tracks, 0, mixContext(mix))}>
               <Play className="size-4 fill-current" />
               Abspielen
             </Button>
-            <Button disabled={!tracks.length} onClick={() => playAlbum(shuffled(tracks))}>
+            <Button disabled={!tracks.length} onClick={() => playShuffled(tracks, mixContext(mix))}>
               <Shuffle className="size-4" />
               Zufällig
             </Button>
@@ -241,6 +238,7 @@ export function MixDetail({ id }: { id: string }) {
             setDetailOpen(true)
           }}
           fullQueue={tracks}
+          queueContext={mixContext(mix)}
         />
       )}
 

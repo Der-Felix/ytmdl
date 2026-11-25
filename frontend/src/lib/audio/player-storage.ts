@@ -3,6 +3,9 @@ import type {
   ParametricFilter,
   PlayerHistoryItem,
   PlayerState,
+  QueueContext,
+  QueueContextKind,
+  QueueTrack,
   RepeatMode,
 } from './types'
 
@@ -15,6 +18,8 @@ export interface PersistedPlayerState {
   queue: PlayerState['queue']
   originalQueue: PlayerState['originalQueue']
   queueIndex: number
+  queueContext: PlayerState['queueContext']
+  autoplay: boolean
   currentTime: number
   volume: number
   muted: boolean
@@ -106,17 +111,17 @@ function sanitizePersistedState(
         : 0
   }
 
-  // Sanitize queue: verify each track has valid ID and title
+  // Sanitize queue: verify each track has valid ID and title. Queues saved
+  // before entries carried an origin read as context (no mark); an unknown
+  // mark is dropped the same way.
   if (Array.isArray(out.queue)) {
-    out.queue = out.queue.filter(
-      (t) => t && typeof t.id === 'string' && t.id.trim() !== '' && typeof t.title === 'string',
-    )
+    out.queue = out.queue.filter(isStoredTrack).map(withKnownOrigin)
   }
   if (Array.isArray(out.originalQueue)) {
-    out.originalQueue = out.originalQueue.filter(
-      (t) => t && typeof t.id === 'string' && t.id.trim() !== '' && typeof t.title === 'string',
-    )
+    out.originalQueue = out.originalQueue.filter(isStoredTrack).map(withKnownOrigin)
   }
+  if (out.queueContext !== undefined) out.queueContext = sanitizeQueueContext(out.queueContext)
+  if (out.autoplay !== undefined) out.autoplay = out.autoplay !== false
 
   // Ensure preamp is within [-12, +6]
   if (typeof out.preamp === 'number') {
@@ -124,6 +129,32 @@ function sanitizePersistedState(
   }
 
   return out
+}
+
+function isStoredTrack(t: QueueTrack | null | undefined): t is QueueTrack {
+  return Boolean(t && typeof t.id === 'string' && t.id.trim() !== '' && typeof t.title === 'string')
+}
+
+function withKnownOrigin(track: QueueTrack): QueueTrack {
+  const origin = (track as { queueOrigin?: unknown }).queueOrigin
+  if (origin === undefined || origin === 'user' || origin === 'autoplay') return track
+  const { queueOrigin: _origin, ...plain } = track
+  return plain
+}
+
+const CONTEXT_KINDS: ReadonlySet<string> = new Set<QueueContextKind>([
+  'album', 'playlist', 'mix', 'artist', 'favorites', 'radio', 'search', 'library', 'offline', 'history',
+])
+
+function sanitizeQueueContext(value: unknown): QueueContext | null {
+  if (!value || typeof value !== 'object') return null
+  const { kind, id, title } = value as Record<string, unknown>
+  if (typeof kind !== 'string' || !CONTEXT_KINDS.has(kind) || typeof title !== 'string' || !title.trim()) return null
+  return {
+    kind: kind as QueueContextKind,
+    title: title.slice(0, 200),
+    ...(typeof id === 'string' && id ? { id } : {}),
+  }
 }
 
 export function saveCustomPresets(presets: EQPreset[]): void {

@@ -252,7 +252,7 @@ function HistorySection({ state, onRetry }: { state: AsyncState<HistoryTrack[]>;
               <li key={track.id}>
                 <button
                   type="button"
-                  onClick={() => playTrack(track, tracks, index)}
+                  onClick={() => playTrack(track, tracks, index, { kind: 'history', title: 'Zuletzt gehört' })}
                   aria-label={`${track.title} abspielen`}
                   className="focus-ring group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors duration-(--duration-fast) hover:bg-muted"
                 >

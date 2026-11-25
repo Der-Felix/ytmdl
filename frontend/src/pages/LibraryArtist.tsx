@@ -210,7 +210,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
               <>
                 <Button
                   size="sm"
-                  onClick={() => playArtist(detail.tracks, false)}
+                  onClick={() => playArtist(detail.tracks, false, { kind: 'artist', id: artist.id, title: artist.name })}
                   className="gap-2 bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/25 hover:bg-primary/90"
                 >
                   <Play className="size-4 fill-current" />
@@ -220,7 +220,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => playArtist(detail.tracks, true)}
+                  onClick={() => playArtist(detail.tracks, true, { kind: 'artist', id: artist.id, title: artist.name })}
                   className="gap-1.5 text-xs border-input hover:bg-muted"
                   title="Zufallswiedergabe aller Titel"
                 >
@@ -323,6 +323,7 @@ function LibraryArtistView({ id }: LibraryArtistProps) {
           onSortChange={handleTrackSortChange}
           onTrackSelect={setSelectedTrack}
           showArtist={false}
+          queueContext={{ kind: 'artist', id: artist.id, title: artist.name }}
           showAlbum={true}
         />
       </div>

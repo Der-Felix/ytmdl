@@ -13,12 +13,15 @@ import { EmptyState, ErrorState, ListSkeleton } from '@/components/ui/state-view
 import { useAsync } from '@/hooks/useAsync'
 import { useOptionalFavorites } from '@/hooks/useFavorites'
 import { usePlayerActions } from '@/hooks/usePlayer'
+import type { QueueContext } from '@/lib/audio/types'
 import { listFavorites } from '@/lib/api/playlists'
 import { Link, paths } from '@/lib/router'
 import { formatDuration } from '@/lib/utils/format'
 
+const FAVORITES_CONTEXT: QueueContext = { kind: 'favorites', title: 'Favoriten' }
+
 export function Favorites() {
-  const { playAlbum } = usePlayerActions()
+  const { playAlbum, playShuffled } = usePlayerActions()
   const favorites = useOptionalFavorites()
   const favoriteIds = useMemo(() => favorites?.favoriteIds ?? new Set<string>(), [favorites?.favoriteIds])
 
@@ -97,14 +100,14 @@ export function Favorites() {
 
   const handlePlayAll = useCallback(() => {
     if (sortedTracks.length === 0) return
-    playAlbum(sortedTracks)
+    playAlbum(sortedTracks, 0, FAVORITES_CONTEXT)
   }, [playAlbum, sortedTracks])
 
   const handlePlayShuffled = useCallback(() => {
     if (sortedTracks.length === 0) return
-    const shuffled = [...sortedTracks].sort(() => Math.random() - 0.5)
-    playAlbum(shuffled)
-  }, [playAlbum, sortedTracks])
+    // The player's own shuffle, so turning it off brings back the list order.
+    playShuffled(sortedTracks, FAVORITES_CONTEXT)
+  }, [playShuffled, sortedTracks])
 
   return (
     <div className="space-y-6 pb-28">
@@ -183,6 +186,7 @@ export function Favorites() {
             setDetailOpen(true)
           }}
           fullQueue={sortedTracks}
+          queueContext={FAVORITES_CONTEXT}
         />
       )}
 

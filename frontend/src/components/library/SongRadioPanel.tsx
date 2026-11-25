@@ -7,28 +7,32 @@ import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { libraryGenres } from '@/lib/api/library'
 import { localRadio } from '@/lib/api/libraryTools'
 import { libraryArtwork } from '@/lib/artwork'
+import { radioContext } from '@/contexts/player-reducer'
+import type { RadioSource } from '@/contexts/player-reducer'
 import type { LibraryTrack } from '@/types/api'
 export function SongRadioPanel() {
   const { currentTrack } = usePlayerState()
-  const { playAlbum, addToQueue } = usePlayerActions()
+  const { playAlbum, playRadio, addToQueue } = usePlayerActions()
   const genres = useAsync((signal) => libraryGenres(signal), [])
   const [genre, setGenre] = useState(''),
     [seed, setSeed] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [message, setMessage] = useState(''),
-    [tracks, setTracks] = useState<LibraryTrack[]>([])
+    [tracks, setTracks] = useState<LibraryTrack[]>([]),
+    [source, setSource] = useState<RadioSource>({})
   const prepare = async () => {
     if (busy) return
     setBusy(true)
     setError('')
     setMessage('')
     try {
-      const result = await localRadio(
-        seed ? currentTrack?.id : undefined,
-        genre,
-        crypto.randomUUID(),
-      )
+      const from: RadioSource = {
+        seed: seed && currentTrack ? currentTrack : undefined,
+        genre: genre || undefined,
+      }
+      const result = await localRadio(from.seed?.id, genre, crypto.randomUUID())
+      setSource(from)
       setTracks(result)
       if (!result.length)
         setMessage(
@@ -111,7 +115,7 @@ export function SongRadioPanel() {
       {!!tracks.length && (
         <>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => playAlbum(tracks)}>
+            <Button onClick={() => playRadio(tracks, source)}>
               <Play className="size-4" />
               {tracks.length} Titel abspielen
             </Button>
@@ -142,7 +146,7 @@ export function SongRadioPanel() {
                   size="sm"
                   variant="ghost"
                   aria-label={`${track.title} im Radio abspielen`}
-                  onClick={() => playAlbum(tracks, i)}
+                  onClick={() => playAlbum(tracks, i, radioContext(source))}
                 >
                   Abspielen
                 </Button>

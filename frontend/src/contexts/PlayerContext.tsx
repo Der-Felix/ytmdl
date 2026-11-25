@@ -13,7 +13,7 @@ import type { ReactNode } from 'react'
 
 import { useOptionalAuth } from '@/hooks/useAuth'
 import { ListeningTracker, movesOnToAnotherTrack } from '@/lib/audio/listeningTracker'
-import { analyzeLoudness, recordPlayback, recordSkip } from '@/lib/api/libraryTools'
+import { analyzeLoudness, localRadio, recordPlayback, recordSkip } from '@/lib/api/libraryTools'
 import { AudioEngine } from '@/lib/audio/engine'
 import { offlineAudioURL, releaseOfflineAudioURLs, trimOfflineAudioURLs } from '@/lib/offline-store'
 import { libraryArtwork } from '@/lib/artwork'
@@ -27,20 +27,29 @@ import {
   saveHistory,
   savePlayerState,
 } from '@/lib/audio/player-storage'
+import type { PersistedPlayerState } from '@/lib/audio/player-storage'
 import type {
   EQMode,
   ParametricFilter,
   PlayerState,
+  QueueContext,
   RepeatMode,
   SleepTimerOption,
   StopAfterOption,
   VisualizerMode,
 } from '@/lib/audio/types'
-import { notifySuccess } from '@/lib/notify'
+import { notifyError, notifySuccess, notifyWithAction } from '@/lib/notify'
 import { joinArtists } from '@/lib/utils/format'
 import type { LibraryTrack } from '@/types/api'
-import { INITIAL_PLAYER_STATE, playArtistAction, playerReducer } from './player-reducer'
-import type { PlayerAction } from './player-reducer'
+import {
+  autoplaySeed,
+  INITIAL_PLAYER_STATE,
+  playArtistAction,
+  playerReducer,
+  radioContext,
+  wantsAutoplay,
+} from './player-reducer'
+import type { PlayerAction, QueueSnapshot, RadioSource } from './player-reducer'
 import { createProgressStore, PlayerProgressStoreContext } from './player-progress-store'
 
 export interface PlayerProgressContextValue {
@@ -52,15 +61,27 @@ export type PlayerStateContextValue = Omit<PlayerState, 'currentTime' | 'duratio
 
 export interface PlayerActionsContextValue {
   engine: AudioEngine
-  playTrack: (track: LibraryTrack, queue?: LibraryTrack[], queueIndex?: number) => void
+  playTrack: (
+    track: LibraryTrack,
+    queue?: LibraryTrack[],
+    queueIndex?: number,
+    context?: QueueContext | null,
+  ) => void
   resumeSession: (
     tracks: LibraryTrack[],
     index: number,
     position: number,
     repeatMode: RepeatMode,
   ) => void
-  playAlbum: (tracks: LibraryTrack[], startIndex?: number) => void
-  playArtist: (tracks: LibraryTrack[], shuffle?: boolean) => void
+  playAlbum: (tracks: LibraryTrack[], startIndex?: number, context?: QueueContext | null) => void
+  playArtist: (tracks: LibraryTrack[], shuffle?: boolean, context?: QueueContext | null) => void
+  /** Plays the list with the player's shuffle on, so turning it off restores the order. */
+  playShuffled: (tracks: LibraryTrack[], context?: QueueContext | null) => void
+  /** Replaces the queue with radio tracks already fetched (seed first when given). */
+  playRadio: (tracks: LibraryTrack[], source: RadioSource) => void
+  /** Fetches a radio from the library and plays it; reports the result as a toast. */
+  startRadio: (source: RadioSource) => Promise<boolean>
+  setAutoplay: (enabled: boolean) => void
   playNext: (track: LibraryTrack) => void
   playQueueIndex: (index: number) => void
   addToQueue: (tracks: LibraryTrack[] | LibraryTrack) => void
@@ -626,68 +647,91 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [engine, nextAction, previousAction])
 
+  // 6b. Autoplay: when the queue is about to run out, similar tracks from the
+  // library are appended (origin autoplay), so playback simply carries on.
+  // One request per queue end; a failure or an empty answer leaves the
+  // queue to end as before. The nonce makes every batch a fresh draw.
+  const autoplayRef = useRef<{ key: string; controller: AbortController | null }>({ key: '', controller: null })
+  const autoplayUserId = user?.id
+  useEffect(() => {
+    const pending = autoplayRef.current
+    return () => pending.controller?.abort()
+  }, [autoplayUserId])
+  useEffect(() => {
+    const s = stateRef.current
+    const online = typeof navigator === 'undefined' || navigator.onLine !== false
+    if (!autoplayUserId || !wantsAutoplay(s, online)) return
+    const seed = autoplaySeed(s.queue)
+    const last = s.queue[s.queue.length - 1]
+    if (!seed || !last || seed.offline_blob_key) return
+    const key = `${autoplayUserId}:${s.queue[0]?.id}:${s.queue.length}:${last.id}:${seed.id}`
+    if (autoplayRef.current.key === key) return
+    autoplayRef.current.key = key
+    autoplayRef.current.controller?.abort()
+    const controller = new AbortController()
+    autoplayRef.current.controller = controller
+    const length = s.queue.length
+    void localRadio(seed.id, undefined, newEventID(), controller.signal).then(
+      (tracks) => {
+        if (controller.signal.aborted) return
+        const now = stateRef.current
+        // Something else was started, or the end moved, in the meantime.
+        if (now.queue.length !== length || now.queue[length - 1]?.id !== last.id || !now.autoplay) return
+        dispatch({ type: 'APPEND_AUTOPLAY', payload: { tracks: Array.isArray(tracks) ? tracks : [] } })
+      },
+      () => {},
+    )
+  }, [
+    autoplayUserId,
+    state.autoplay,
+    state.repeatMode,
+    state.stopAfter,
+    state.sleepTimer,
+    state.status,
+    state.currentTrack,
+    state.queue,
+    state.queueIndex,
+  ])
+
   // 7. Throttled LocalStorage Persistence
   useEffect(() => {
+    const persisted = (s: PlayerState): Partial<PersistedPlayerState> => ({
+      queue: s.queue,
+      originalQueue: s.originalQueue,
+      queueIndex: s.queueIndex,
+      queueContext: s.queueContext,
+      autoplay: s.autoplay,
+      currentTime: s.currentTime,
+      volume: s.volume,
+      muted: s.muted,
+      shuffle: s.shuffle,
+      repeatMode: s.repeatMode,
+      playbackRate: s.playbackRate,
+      crossfadeSeconds: s.crossfadeSeconds,
+      smartAlbumTransition: s.smartAlbumTransition,
+      eqEnabled: s.eqEnabled,
+      eqMode: s.eqMode,
+      selectedPresetId: s.selectedPresetId,
+      graphicBands: s.graphicBands,
+      parametricFilters: s.parametricFilters,
+      preamp: s.preamp,
+      autoHeadroom: s.autoHeadroom,
+      limiterEnabled: s.limiterEnabled,
+      normalizationEnabled: s.normalizationEnabled,
+      balance: s.balance,
+      mono: s.mono,
+      bassBoost: s.bassBoost,
+      visualizerMode: s.visualizerMode,
+    })
     const interval = window.setInterval(() => {
       const s = stateRef.current
-      savePlayerState(userRef.current?.id, {
-        queue: s.queue,
-        originalQueue: s.originalQueue,
-        queueIndex: s.queueIndex,
-        currentTime: s.currentTime,
-        volume: s.volume,
-        muted: s.muted,
-        shuffle: s.shuffle,
-        repeatMode: s.repeatMode,
-        playbackRate: s.playbackRate,
-        crossfadeSeconds: s.crossfadeSeconds,
-        smartAlbumTransition: s.smartAlbumTransition,
-        eqEnabled: s.eqEnabled,
-        eqMode: s.eqMode,
-        selectedPresetId: s.selectedPresetId,
-        graphicBands: s.graphicBands,
-        parametricFilters: s.parametricFilters,
-        preamp: s.preamp,
-        autoHeadroom: s.autoHeadroom,
-        limiterEnabled: s.limiterEnabled,
-        normalizationEnabled: s.normalizationEnabled,
-        balance: s.balance,
-        mono: s.mono,
-        bassBoost: s.bassBoost,
-        visualizerMode: s.visualizerMode,
-      })
+      savePlayerState(userRef.current?.id, persisted(s))
       saveHistory(userRef.current?.id, s.history)
       saveCustomPresets(s.customPresets)
     }, 5000)
 
     const handleBeforeUnload = () => {
-      const s = stateRef.current
-      savePlayerState(userRef.current?.id, {
-        queue: s.queue,
-        originalQueue: s.originalQueue,
-        queueIndex: s.queueIndex,
-        currentTime: s.currentTime,
-        volume: s.volume,
-        muted: s.muted,
-        shuffle: s.shuffle,
-        repeatMode: s.repeatMode,
-        playbackRate: s.playbackRate,
-        crossfadeSeconds: s.crossfadeSeconds,
-        smartAlbumTransition: s.smartAlbumTransition,
-        eqEnabled: s.eqEnabled,
-        eqMode: s.eqMode,
-        selectedPresetId: s.selectedPresetId,
-        graphicBands: s.graphicBands,
-        parametricFilters: s.parametricFilters,
-        preamp: s.preamp,
-        autoHeadroom: s.autoHeadroom,
-        limiterEnabled: s.limiterEnabled,
-        normalizationEnabled: s.normalizationEnabled,
-        balance: s.balance,
-        mono: s.mono,
-        bassBoost: s.bassBoost,
-        visualizerMode: s.visualizerMode,
-      })
+      savePlayerState(userRef.current?.id, persisted(stateRef.current))
     }
 
     window.addEventListener('beforeunload', handleBeforeUnload)
@@ -714,11 +758,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // Context Actions
   const playTrack = useCallback(
-    (track: LibraryTrack, queue?: LibraryTrack[], queueIndex?: number) => {
-      reportSkipBefore({ type: 'PLAY_TRACK', payload: { track, queue, queueIndex } })
+    (track: LibraryTrack, queue?: LibraryTrack[], queueIndex?: number, context?: QueueContext | null) => {
+      const action: PlayerAction = { type: 'PLAY_TRACK', payload: { track, queue, queueIndex, context } }
+      reportSkipBefore(action)
       currentEngineTrackIdRef.current = null
       requestLoad()
-      dispatch({ type: 'PLAY_TRACK', payload: { track, queue, queueIndex } })
+      dispatch(action)
     },
     [reportSkipBefore],
   )
@@ -749,18 +794,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [engine],
   )
 
-  const playAlbum = useCallback((tracks: LibraryTrack[], startIndex = 0) => {
-    if (tracks.length > 0) {
-      reportSkipBefore({ type: 'PLAY_ALBUM', payload: { tracks, startIndex } })
-      currentEngineTrackIdRef.current = null
-      requestLoad()
-    }
-    dispatch({ type: 'PLAY_ALBUM', payload: { tracks, startIndex } })
-  }, [reportSkipBefore])
-
-  const playArtist = useCallback((tracks: LibraryTrack[], shuffle = false) => {
-    // The shuffle is drawn once, so the skip check sees the track that plays.
-    const action = playArtistAction(tracks, shuffle)
+  const playAlbum = useCallback((tracks: LibraryTrack[], startIndex = 0, context?: QueueContext | null) => {
+    const action: PlayerAction = { type: 'PLAY_ALBUM', payload: { tracks, startIndex, context } }
     if (tracks.length > 0) {
       reportSkipBefore(action)
       currentEngineTrackIdRef.current = null
@@ -768,6 +803,70 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
     dispatch(action)
   }, [reportSkipBefore])
+
+  const playArtist = useCallback((tracks: LibraryTrack[], shuffle = false, context?: QueueContext | null) => {
+    // The shuffle is drawn once, so the skip check sees the track that plays.
+    const action = playArtistAction(tracks, shuffle, context)
+    if (tracks.length > 0) {
+      reportSkipBefore(action)
+      currentEngineTrackIdRef.current = null
+      requestLoad()
+    }
+    dispatch(action)
+  }, [reportSkipBefore])
+
+  const playShuffled = useCallback(
+    (tracks: LibraryTrack[], context?: QueueContext | null) => playArtist(tracks, true, context),
+    [playArtist],
+  )
+
+  const playRadio = useCallback(
+    (tracks: LibraryTrack[], source: RadioSource) => {
+      const action: PlayerAction = {
+        type: 'START_RADIO',
+        payload: { tracks, seed: source.seed, context: radioContext(source) },
+      }
+      const before = stateRef.current
+      const after = playerReducer(before, action)
+      if (after === before) return
+      // A radio from the track that plays carries on with it: no skip, no reload.
+      reportSkipBefore(action)
+      if (after.currentTrack?.id !== before.currentTrack?.id || after.status !== before.status) {
+        currentEngineTrackIdRef.current = null
+        requestLoad()
+      }
+      dispatch(action)
+    },
+    [reportSkipBefore],
+  )
+
+  const startRadio = useCallback(
+    async (source: RadioSource) => {
+      const context = radioContext(source)
+      let tracks: LibraryTrack[]
+      try {
+        tracks = await localRadio(source.seed?.id, source.genre, newEventID())
+      } catch (error) {
+        notifyError('Radio konnte nicht gestartet werden', error)
+        return false
+      }
+      if (!tracks.filter((t) => t.id !== source.seed?.id).length) {
+        notifyError(
+          'Kein Radio möglich',
+          'In deiner Bibliothek gibt es noch keine weiteren Titel, die dazu passen.',
+        )
+        return false
+      }
+      playRadio(tracks, source)
+      notifySuccess(context.title, `${tracks.length} ähnliche Titel aus deiner Bibliothek`)
+      return true
+    },
+    [playRadio],
+  )
+
+  const setAutoplayAction = useCallback((enabled: boolean) => {
+    dispatch({ type: 'SET_AUTOPLAY', payload: enabled })
+  }, [])
 
   const playNextAction = useCallback((track: LibraryTrack) => {
     dispatch({ type: 'PLAY_NEXT', payload: { track } })
@@ -799,8 +898,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const clearQueueAction = useCallback(() => {
+    const s = stateRef.current
+    const snapshot: QueueSnapshot = {
+      queue: s.queue,
+      originalQueue: s.originalQueue,
+      queueIndex: s.queueIndex,
+      currentTrack: s.currentTrack,
+      queueContext: s.queueContext,
+      shuffle: s.shuffle,
+      currentTime: s.currentTime,
+      status: s.status,
+    }
     dispatch({ type: 'CLEAR_QUEUE' })
     engine.pause()
+    if (snapshot.queue.length === 0) return
+    notifyWithAction(
+      'Warteschlange geleert',
+      {
+        label: 'Rückgängig',
+        onClick: () => {
+          // Only while nothing else was started since.
+          if (stateRef.current.queue.length > 0) return
+          currentEngineTrackIdRef.current = null
+          requestLoad()
+          dispatch({ type: 'RESTORE_QUEUE', payload: snapshot })
+        },
+      },
+      { type: 'info', description: `${snapshot.queue.length} Titel entfernt` },
+    )
   }, [engine])
 
   const clearUpcomingQueueAction = useCallback(() => {
@@ -965,6 +1090,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       resumeSession,
       playAlbum,
       playArtist,
+      playShuffled,
+      playRadio,
+      startRadio,
+      setAutoplay: setAutoplayAction,
       playNext: playNextAction,
       playQueueIndex: playQueueIndexAction,
       addToQueue: addToQueueAction,
@@ -1015,6 +1144,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       resumeSession,
       playAlbum,
       playArtist,
+      playShuffled,
+      playRadio,
+      startRadio,
+      setAutoplayAction,
       playNextAction,
       playQueueIndexAction,
       addToQueueAction,
@@ -1082,6 +1215,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     state.queue,
     state.originalQueue,
     state.queueIndex,
+    state.queueContext,
+    state.autoplay,
     state.status,
     state.volume,
     state.muted,

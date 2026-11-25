@@ -41,6 +41,7 @@ import { usePlayerProgressSelector } from '@/contexts/player-progress-store'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { RepeatButton, ShuffleButton } from '@/components/player/PlayerModeButtons'
 import { QueueList } from '@/components/player/QueueList'
+import { QueueOptions } from '@/components/player/QueueOptions'
 import { SeekBar } from '@/components/player/SeekBar'
 import { notifyError } from '@/lib/notify'
 import { refreshTrackLyrics, trackLyrics } from '@/lib/api/library'
@@ -149,6 +150,7 @@ export function NowPlaying() {
     setVisualizerMode,
     clearUpcomingQueue,
     clearQueue,
+    startRadio,
   } = { ...usePlayerState(), ...usePlayerActions() }
 
   const initialTab: PrimaryTab =
@@ -164,6 +166,7 @@ export function NowPlaying() {
   const [savePresetOpen, setSavePresetOpen] = useState(false)
   const [customPresetName, setCustomPresetName] = useState('')
   const [showHistory, setShowHistory] = useState(false)
+  const [radioStarting, setRadioStarting] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [visualizerMenuOpen, setVisualizerMenuOpen] = useState(false)
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false)
@@ -350,7 +353,7 @@ export function NowPlaying() {
   }
 
   return (
-    <div className="player-page player-enter relative min-h-dvh flex flex-col bg-background text-foreground select-none overflow-x-hidden pb-[env(safe-area-inset-bottom)]">
+    <div className="player-page player-enter relative min-h-dvh flex flex-col bg-background text-foreground select-none overflow-x-clip pb-[env(safe-area-inset-bottom)]">
       
       {/* Dynamic Immersive Background Atmosphere from Cover Art */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25 filter blur-3xl scale-125 transition duration-1000">
@@ -379,10 +382,15 @@ export function NowPlaying() {
 
         <div className="flex items-center gap-2">
           <Button
-            variant="ghost" size="icon-sm" aria-label="Song-Radio" title="Song-Radio"
-            onClick={() => navigate('/library?view=tools&tool=radio')}
+            variant="ghost" size="icon-sm" aria-label="Song-Radio starten" title="Song-Radio: ähnliche Titel zu diesem Song"
+            disabled={radioStarting}
+            aria-busy={radioStarting || undefined}
+            onClick={() => {
+              setRadioStarting(true)
+              void startRadio({ seed: currentTrack }).finally(() => setRadioStarting(false))
+            }}
             className="size-8 pointer-coarse:size-10 rounded-xl bg-muted text-muted-foreground hover:bg-secondary hover:text-foreground border border-border"
-          ><Radio className="size-4" /></Button>
+          >{radioStarting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Radio className="size-4" aria-hidden="true" />}</Button>
           <Button
             variant="ghost" size="icon-sm" aria-label="Geräteübergabe" title="Geräteübergabe"
             onClick={() => navigate('/library?view=tools&tool=handoff')}
@@ -942,6 +950,7 @@ export function NowPlaying() {
                   )}
 
                   {/* Active Queue List */}
+                  {!showHistory && queue.length > 0 && <QueueOptions className="-mt-1 px-1" />}
                   {!showHistory && queue.length > 0 && <QueueList />}
 
                   {/* History List */}

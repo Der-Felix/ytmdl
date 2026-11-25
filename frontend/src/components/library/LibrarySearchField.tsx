@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
+import type { QueueContext } from '@/lib/audio/types'
 import {
   ArrowRight,
   Disc3Icon,
@@ -110,6 +111,8 @@ export function LibrarySearchField({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  const searchContext: QueueContext = { kind: 'search', title: value.trim() ? `Suche „${value.trim()}“` : 'Suchergebnisse' }
+
   const handleTrackPlayClick = (e: React.MouseEvent, track: LibraryTrack, index: number) => {
     e.stopPropagation()
     if (!playerActions) return
@@ -118,7 +121,7 @@ export function LibrarySearchField({
       return
     }
     if (results?.tracks && results.tracks.length > 0) {
-      playerActions.playTrack(track, results.tracks, index)
+      playerActions.playTrack(track, results.tracks, index, searchContext)
     } else {
       playerActions.playTrack(track, [track], 0)
     }
@@ -131,7 +134,7 @@ export function LibrarySearchField({
       return
     }
     if (results?.tracks && results.tracks.length > 0) {
-      playerActions.playTrack(track, results.tracks, index)
+      playerActions.playTrack(track, results.tracks, index, searchContext)
     } else {
       playerActions.playTrack(track, [track], 0)
     }

@@ -1062,6 +1062,7 @@ export function Library() {
             <>
               <TracksTable
                 tracks={tracks}
+                queueContext={currentQ ? { kind: 'search', title: `Suche „${currentQ}“` } : { kind: 'library', title: 'Bibliothek' }}
  onMetadataUpdated={() => setRefreshIndex((value) => value + 1)}
                 sort={currentSort || (currentQ ? 'relevance' : 'recent')}
                 order={

@@ -1,16 +1,17 @@
-import { useMemo } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import { Accessibility } from '@dnd-kit/dom'
 import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/dom'
 import { DragDropProvider } from '@dnd-kit/react'
 import { isSortable, useSortable } from '@dnd-kit/react/sortable'
-import { ArrowDown, ArrowUp, GripVertical, Radio, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, GripVertical, Radio, Sparkles, X } from 'lucide-react'
 
 import { Cover } from '@/components/music/Cover'
+import { moveQueueEntry, queueOrigin } from '@/contexts/player-reducer'
 import { usePlayerActions, usePlayerState } from '@/hooks/usePlayer'
 import { libraryArtwork } from '@/lib/artwork'
+import type { QueueContext, QueueTrack } from '@/lib/audio/types'
 import { cn } from '@/lib/utils'
 import { formatDuration, joinArtists } from '@/lib/utils/format'
-import type { LibraryTrack } from '@/types/api'
 
 /*
  * The queue as a sortable list, shared by the queue drawer and the player
@@ -22,6 +23,15 @@ import type { LibraryTrack } from '@/types/api'
  * Without a pointer: focus the grip, press Space to pick the title up, move
  * it with the arrow keys and press Space again (Escape cancels). The up and
  * down buttons on every row do the same in one step.
+ *
+ * The list is split into sections: what played, the current track, "Als
+ * Nächstes" (what the user queued), the rest of what was started, and the
+ * similar tracks autoplay appended. A title moved into a section belongs to
+ * it: the drop takes the origin of the title it lands after (directly after
+ * the current track that is "Als Nächstes"). While dragging, the list is
+ * drawn from the player's own move rule, so the row shows up in the section
+ * it will belong to before it is dropped. React keeps the order; dnd-kit's
+ * own reordering of the DOM is turned off for that.
  */
 
 /** The 1-based position of the dragged row, for the screen reader. */
@@ -45,7 +55,7 @@ const germanAccessibility = Accessibility.configure({
 })
 
 /** Stable ids for the rows; the same track can be queued more than once. */
-function rowIds(queue: LibraryTrack[]) {
+function rowIds(queue: QueueTrack[]) {
   const seen = new Map<string, number>()
   return queue.map((track) => {
     const n = seen.get(track.id) ?? 0
@@ -54,34 +64,112 @@ function rowIds(queue: LibraryTrack[]) {
   })
 }
 
+type QueueSection = 'played' | 'current' | 'user' | 'context' | 'autoplay'
+
+function queueSection(track: QueueTrack, index: number, queueIndex: number): QueueSection {
+  if (index < queueIndex) return 'played'
+  if (index === queueIndex) return 'current'
+  return queueOrigin(track)
+}
+
+function sectionHeading(section: QueueSection, context: QueueContext | null) {
+  switch (section) {
+    case 'played':
+      return 'Zuvor gespielt'
+    case 'current':
+      return 'Aktueller Titel'
+    case 'user':
+      return 'Als Nächstes'
+    case 'context':
+      return context ? `Weiter aus: ${context.title}` : 'Weiter in der Warteschlange'
+    case 'autoplay':
+      return 'Ähnliche Titel'
+  }
+}
+
 export function QueueList({ className }: { className?: string }) {
-  const { queue, queueIndex, status } = usePlayerState()
+  const { queue, queueIndex, status, queueContext } = usePlayerState()
   const { reorderQueue } = usePlayerActions()
-  const ids = useMemo(() => rowIds(queue), [queue])
+  const baseIds = useMemo(() => rowIds(queue), [queue])
+  const [drag, setDragState] = useState<{ from: number; to: number } | null>(null)
+  // The handlers read the move from here, never from a stale render.
+  const dragRef = useRef<{ from: number; to: number } | null>(null)
+  const setDrag = (next: { from: number; to: number } | null) => {
+    dragRef.current = next
+    setDragState(next)
+  }
+
+  // The order shown: the queue, or while dragging the queue as it will be.
+  const view = useMemo(() => {
+    if (!drag || drag.from === drag.to) return { queue, queueIndex, ids: baseIds }
+    const moved = moveQueueEntry(queue, queueIndex, drag.from, drag.to)
+    const ids = [...baseIds]
+    const [id] = ids.splice(drag.from, 1)
+    ids.splice(drag.to, 0, id!)
+    return { ...moved, ids }
+  }, [baseIds, drag, queue, queueIndex])
+
+  const counts = useMemo(() => {
+    const n: Record<QueueSection, number> = { played: 0, current: 0, user: 0, context: 0, autoplay: 0 }
+    view.queue.forEach((t, i) => n[queueSection(t, i, view.queueIndex)]++)
+    return n
+  }, [view])
 
   return (
     <DragDropProvider
       plugins={(defaults) => defaults.map((plugin) => (plugin === Accessibility ? germanAccessibility : plugin))}
-      onDragEnd={(event) => {
-        if (event.canceled) return
+      onDragStart={(event) => {
         const { source } = event.operation
-        if (isSortable(source) && source.initialIndex !== source.index) {
-          reorderQueue(source.initialIndex, source.index)
-        }
+        if (isSortable(source)) setDrag({ from: source.index, to: source.index })
+      }}
+      onDragOver={(event) => {
+        const { source, target } = event.operation
+        // The order comes from state; dnd-kit must not move rows itself.
+        event.preventDefault()
+        if (!isSortable(source) || !isSortable(target) || source.id === target.id) return
+        const current = dragRef.current
+        if (current && current.to !== target.index) setDrag({ from: current.from, to: target.index })
+      }}
+      onDragEnd={(event) => {
+        const current = dragRef.current
+        setDrag(null)
+        if (event.canceled || !current || current.from === current.to) return
+        reorderQueue(current.from, current.to)
       }}
     >
       <ol aria-label="Titel in der Warteschlange" className={cn('space-y-1', className)}>
-        {queue.map((track, idx) => (
-          <QueueRow
-            key={ids[idx]}
-            id={ids[idx]!}
-            track={track}
-            index={idx}
-            total={queue.length}
-            isCurrent={idx === queueIndex}
-            isPlaying={status === 'playing'}
-          />
-        ))}
+        {view.queue.map((track, idx) => {
+          const section = queueSection(track, idx, view.queueIndex)
+          const previous = idx > 0 ? queueSection(view.queue[idx - 1]!, idx - 1, view.queueIndex) : null
+          return (
+            <Fragment key={view.ids[idx]}>
+              {section !== previous && (
+                <li
+                  className={cn('flex items-baseline gap-2 px-2 pb-1', idx > 0 && 'pt-3')}
+                  data-queue-section={section}
+                >
+                  <h3 className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                    {section === 'autoplay' && <Sparkles className="size-3.5 shrink-0" aria-hidden="true" />}
+                    <span className="truncate" title={sectionHeading(section, queueContext)}>
+                      {sectionHeading(section, queueContext)}
+                    </span>
+                  </h3>
+                  {section !== 'current' && (
+                    <span className="figures shrink-0 text-[11px] text-muted-foreground/80">{counts[section]}</span>
+                  )}
+                </li>
+              )}
+              <QueueRow
+                id={view.ids[idx]!}
+                track={track}
+                index={idx}
+                total={view.queue.length}
+                section={section}
+                isPlaying={status === 'playing'}
+              />
+            </Fragment>
+          )
+        })}
       </ol>
     </DragDropProvider>
   )
@@ -89,17 +177,21 @@ export function QueueList({ className }: { className?: string }) {
 
 interface QueueRowProps {
   id: string
-  track: LibraryTrack
+  track: QueueTrack
   index: number
   total: number
-  isCurrent: boolean
+  section: QueueSection
   isPlaying: boolean
 }
 
-function QueueRow({ id, track, index, total, isCurrent, isPlaying }: QueueRowProps) {
+function QueueRow({ id, track, index, total, section, isPlaying }: QueueRowProps) {
   const { playQueueIndex, removeFromQueue, reorderQueue } = usePlayerActions()
   const { ref, handleRef, isDragSource } = useSortable({ id, index })
   const artistText = track.artists?.length > 0 ? joinArtists(track.artists) : track.album_artist || ''
+  const isCurrent = section === 'current'
+  // Played titles and autoplay suggestions step back; hovering or focusing
+  // a row brings it to full strength.
+  const quiet = section === 'played' || section === 'autoplay'
 
   // On pointer devices the row controls appear on hover or when a control in
   // the row has focus. On touch screens the grip is dragged directly, so the
@@ -112,6 +204,7 @@ function QueueRow({ id, track, index, total, isCurrent, isPlaying }: QueueRowPro
     <li
       ref={ref}
       data-dragging={isDragSource ? '' : undefined}
+      data-queue-origin={queueOrigin(track)}
       className={cn(
         'group relative flex items-center gap-1.5 rounded-lg border p-1.5 transition-[background-color,border-color,opacity] duration-(--duration-fast)',
         isCurrent ? 'border-primary/40 bg-accent' : 'border-transparent pointer-fine:hover:bg-muted',
@@ -133,7 +226,10 @@ function QueueRow({ id, track, index, total, isCurrent, isPlaying }: QueueRowPro
         onClick={() => playQueueIndex(index)}
         aria-current={isCurrent ? 'true' : undefined}
         aria-label={`${track.title} abspielen`}
-        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-0.5 text-left"
+        className={cn(
+          'flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-0.5 text-left transition-opacity duration-(--duration-fast)',
+          quiet && !isDragSource && 'opacity-60 group-hover:opacity-100 group-focus-within:opacity-100',
+        )}
       >
         <span className="flex w-5 shrink-0 justify-center" aria-hidden="true">
           {isCurrent ? (
@@ -147,12 +243,13 @@ function QueueRow({ id, track, index, total, isCurrent, isPlaying }: QueueRowPro
           fallbackSrc={track.cover_url}
           alt=""
           shape="square"
-          className="size-9 shrink-0 rounded-md border border-input"
+          className={cn('shrink-0 rounded-md border border-input', section === 'autoplay' ? 'size-8' : 'size-9')}
         />
         <span className="min-w-0 flex-1">
           <span
             className={cn(
-              'block truncate text-[13px] leading-tight font-semibold',
+              'block truncate text-[13px] leading-tight',
+              section === 'autoplay' ? 'font-medium' : 'font-semibold',
               isCurrent ? 'text-accent-foreground' : 'text-foreground',
             )}
             title={track.title}
