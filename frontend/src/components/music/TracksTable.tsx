@@ -1,14 +1,5 @@
 import { useState } from 'react'
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  FolderPlus,
-  Heart,
-  InfoIcon,
-  ListPlus,
-  Play,
-} from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Heart } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,12 +14,24 @@ import type { MetadataPatch } from '@/lib/api/libraryTools'
 import { BulkMetadataDialog } from './BulkMetadataDialog'
 import { LyricsBadge } from './LyricsBadge'
 import { TrackPlaybackButton } from './TrackPlaybackButton'
+import { TrackAlbumLink, TrackArtistLink } from './TrackLinks'
+import { isRowGesture } from '@/lib/track-row'
+import { TrackMenu } from './TrackMenu'
+
+/*
+ * Rows: the number button plays or pauses, a click on the title plays (or
+ * resumes) the title with the list as context, and so does a double-click
+ * anywhere else in the row. Artist and album are links. Everything else sits
+ * in the track menu ("more" button or right-click); the heart stays as the
+ * one quick action.
+ */
 
 interface TracksTableProps {
   tracks: LibraryTrack[]
   sort: string
   order: string
   onSortChange: (sort: string) => void
+  /** Opens the track's details ("Details anzeigen" in the track menu). */
   onTrackSelect: (track: LibraryTrack) => void
   onLyricsSelect?: (track: LibraryTrack) => void
   fullQueue?: LibraryTrack[]
@@ -57,7 +60,7 @@ export function TracksTable({
   onMetadataUpdated,
 }: TracksTableProps) {
   const { currentTrack, status } = usePlayerState()
-  const { playTrack, togglePlayPause, playNext, addToQueue } = usePlayerActions()
+  const { playTrack, togglePlayPause, addToQueue } = usePlayerActions()
   const auth = useOptionalAuth()
   const [metadata, setMetadata] = useState<Record<string, MetadataPatch>>({})
   const tracks = sourceTracks.map((track) => ({ ...track, ...metadata[track.id] }))
@@ -73,8 +76,6 @@ export function TracksTable({
       return next
     })
   const favorites = useOptionalFavorites()
-  const [playlistTrack, setPlaylistTrack] = useState<LibraryTrack | null>(null)
-  const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false)
 
   const renderSortHeader = (label: string, field: string) => {
     const isCurrent = sort === field
@@ -159,7 +160,7 @@ export function TracksTable({
             <th className="py-3 px-3 w-20 text-right">
               {renderSortHeader('Dauer', 'duration')}
             </th>
-            <th className="py-3 px-2 w-40 text-right"></th>
+            <th className="py-3 px-2 w-24 text-right"><span className="sr-only">Aktionen</span></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-800/40">
@@ -168,25 +169,36 @@ export function TracksTable({
             const isPlaying = isCurrent && status === 'playing'
             const artistName = track.artists?.length > 0 ? joinArtists(track.artists) : track.album_artist || ''
 
+            const startTrack = () => {
+              const targetQueue = fullQueue ?? tracks
+              const queueIdx = fullQueue
+                ? fullQueue.findIndex((t) => t.id === track.id)
+                : trackIdx
+              playTrack(track, targetQueue, queueIdx >= 0 ? queueIdx : trackIdx, queueContext)
+            }
+            // The number button toggles; the title and a double-click only
+            // ever start or resume, so a double-click on the title never
+            // pauses what its first click started.
             const handlePlayClick = (e: React.MouseEvent) => {
               e.stopPropagation()
-              if (isCurrent) {
-                togglePlayPause()
-              } else {
-                const targetQueue = fullQueue ?? tracks
-                const queueIdx = fullQueue
-                  ? fullQueue.findIndex((t) => t.id === track.id)
-                  : trackIdx
-                playTrack(track, targetQueue, queueIdx >= 0 ? queueIdx : trackIdx, queueContext)
-              }
+              if (isCurrent) togglePlayPause()
+              else startTrack()
+            }
+            const playFromRow = () => {
+              if (!isCurrent) startTrack()
+              else if (!isPlaying) togglePlayPause()
             }
 
             return (
               <tr
                 key={track.id}
+                data-track-row
                 aria-selected={selection.has(track.id)}
-                onClick={() => onTrackSelect(track)}
-                className={`transition-colors cursor-pointer group ${
+                onDoubleClick={(e) => {
+                  if (!isRowGesture(e)) return
+                  playFromRow()
+                }}
+                className={`transition-colors group ${
                   isCurrent ? 'bg-muted' : 'hover:bg-muted'
                 }`}
               >
@@ -212,20 +224,29 @@ export function TracksTable({
                 )}
 
                 <td className="py-2.5 px-3 font-medium">
-                  <div className={`truncate max-w-[280px] lg:max-w-md ${isCurrent ? 'text-primary font-semibold' : 'text-foreground'}`}>
+                  <button
+                    type="button"
+                    onClick={playFromRow}
+                    title={track.title}
+                    className={`focus-ring block max-w-[280px] cursor-pointer truncate rounded-sm text-left lg:max-w-md ${isCurrent ? 'text-primary font-semibold' : 'text-foreground'}`}
+                  >
                     {track.title}
-                  </div>
+                  </button>
                 </td>
 
                 {showArtist && (
                   <td className="py-2.5 px-3 text-muted-foreground">
-                    <div className="truncate max-w-[180px]">{artistName}</div>
+                    <div className="truncate max-w-[180px]" title={artistName}>
+                      <TrackArtistLink track={track}>{artistName}</TrackArtistLink>
+                    </div>
                   </td>
                 )}
 
                 {showAlbum && (
                   <td className="py-2.5 px-3 text-muted-foreground hidden md:table-cell">
-                    <div className="truncate max-w-[200px]">{track.album || '–'}</div>
+                    <div className="truncate max-w-[200px]" title={track.album || undefined}>
+                      {track.album ? <TrackAlbumLink track={track} /> : '–'}
+                    </div>
                   </td>
                 )}
 
@@ -256,12 +277,12 @@ export function TracksTable({
                 </td>
 
                 <td className="py-2.5 px-2 text-right">
-                  <div className="flex items-center justify-end gap-1">
+                  <div className="flex items-center justify-end gap-0.5">
                     {favorites && (
                       <Button
                         variant="ghost"
-                        size="sm"
-                        className={`h-7 w-7 p-0 transition-colors ${
+                        size="icon-sm"
+                        className={`transition-colors ${
                           favorites.isFavorite(track.id)
                             ? 'text-rose-500 hover:text-rose-400 opacity-100'
                             : 'text-muted-foreground hover:text-rose-400'
@@ -270,6 +291,9 @@ export function TracksTable({
                           e.stopPropagation()
                           void favorites.toggleFavorite(track.id)
                         }}
+                        aria-label={`${track.title}: ${
+                          favorites.isFavorite(track.id) ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'
+                        }`}
                         title={
                           favorites.isFavorite(track.id)
                             ? 'Aus Favoriten entfernen'
@@ -285,55 +309,7 @@ export function TracksTable({
                         />
                       </Button>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        playNext(track)
-                      }}
-                      title="Als Nächstes abspielen"
-                    >
-                      <Play className="size-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        addToQueue(track)
-                      }}
-                      title="Zur Queue hinzufügen"
-                    >
-                      <ListPlus className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setPlaylistTrack(track)
-                        setPlaylistDialogOpen(true)
-                      }}
-                      title="Zur Playlist hinzufügen"
-                    >
-                      <FolderPlus className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onTrackSelect(track)
-                      }}
-                      title="Track-Details"
-                    >
-                      <InfoIcon className="size-3.5" />
-                    </Button>
+                    <TrackMenu track={track} size="compact" onShowDetails={() => onTrackSelect(track)} />
                   </div>
                 </td>
               </tr>
@@ -341,11 +317,6 @@ export function TracksTable({
           })}
         </tbody>
       </table>
-      <AddToPlaylistDialog
-        track={playlistTrack}
-        open={playlistDialogOpen}
-        onOpenChange={setPlaylistDialogOpen}
-      />
       <AddToPlaylistDialog track={null} tracks={selected} open={bulkPlaylist} onOpenChange={setBulkPlaylist} />
       <BulkMetadataDialog ids={selected.map(t=>t.id)} open={bulkMetadata} onOpenChange={setBulkMetadata} onSaved={(patch) => {
         setMetadata((previous) => { const next = { ...previous }; for (const track of selected) next[track.id] = { ...next[track.id], ...patch }; return next })

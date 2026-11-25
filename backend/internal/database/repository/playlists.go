@@ -192,6 +192,7 @@ func (r *Playlists) GetPlaylistForUser(ctx context.Context, userID, playlistID s
 			return PlaylistDetail{}, wrapDB("scan playlist track", err)
 		}
 		pt.ReleaseID = stringOf(releaseID)
+		pt.ArtistID = stringOf(artistID)
 		pt.Artists = decodeStrings(artistsJSON)
 		pt.LyricsState = music.LyricsState(lyricsState)
 		if checkedAt.Valid {
@@ -605,6 +606,7 @@ func (r *Playlists) ListFavoriteTracks(ctx context.Context, userID string) ([]mu
 			return nil, wrapDB("scan favorite track", err)
 		}
 		lt.ReleaseID = stringOf(releaseID)
+		lt.ArtistID = stringOf(artistID)
 		lt.Artists = decodeStrings(artistsJSON)
 		lt.LyricsState = music.LyricsState(lyricsState)
 		if checkedAt.Valid {

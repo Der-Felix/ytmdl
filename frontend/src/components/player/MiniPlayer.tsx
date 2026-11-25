@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import { Cover } from '@/components/music/Cover'
+import { TrackArtistLink } from '@/components/music/TrackLinks'
 import { RepeatButton, ShuffleButton } from '@/components/player/PlayerModeButtons'
 import { QueueDrawer } from '@/components/player/QueueDrawer'
 import { Button } from '@/components/ui/button'
@@ -78,25 +79,23 @@ export function MiniPlayer() {
               shape="square"
               className="size-11 sm:size-14 rounded-xl border border-input shadow-md transition-transform duration-200 group-hover:scale-105"
             />
-            <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-overlay/40 opacity-0-[1px] transition-opacity group-hover:opacity-100">
+            <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-overlay/40 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
               <Maximize2 className="size-4 text-foreground" />
             </div>
           </Link>
 
           <div className="min-w-0 flex-1">
-            {/* The whole title area opens the player; py adds height to the tap target. */}
+            {/* The title opens the player; the padding adds height to the tap target. */}
             <Link
               href={paths.player ? paths.player() : '/player'}
-              className="group/meta block min-w-0 py-1.5 focus-visible:outline-none"
+              className="focus-ring block max-w-full truncate rounded-sm pt-1.5 text-sm sm:text-[15px] font-semibold text-foreground hover:text-primary transition-colors leading-snug"
               title={`${currentTrack.title} · ${artistText}`}
             >
-              <span className="block truncate text-sm sm:text-[15px] font-semibold text-foreground group-hover/meta:text-primary transition-colors leading-snug">
-                {currentTrack.title}
-              </span>
-              <p className="truncate text-xs text-muted-foreground mt-0.5">
-                {artistText}
-              </p>
+              {currentTrack.title}
             </Link>
+            <p className="truncate text-xs text-muted-foreground mt-0.5">
+              <TrackArtistLink track={currentTrack}>{artistText}</TrackArtistLink>
+            </p>
           </div>
 
           {favorites && (
