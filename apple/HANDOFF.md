@@ -44,9 +44,9 @@ Builds on PR #112 (build 36); see FEATURES.md "Apple TV sound and queue filter (
   **Optionen → Klang** (`SettingsView`, `tv-settings-sound`); it calls the same
   `PlayerModel`/`EqualizerModel` setters as `MobileAudioSettings`, so the preference keys
   (`crossfadeSeconds`, `playbackRate`, `playerNormalization`, `eq*` …) are shared. Sleep
-  mode stays session state, as everywhere. `TVAdjustRow` replaces sliders with −/+ buttons;
-  the stepping is `SoundStep` in core (snaps to the step grid, clamps, disables the button
-  at a bound). `TVCountdown` shows the time left of a minute timer. Checked for tvOS: the
+  mode stays session state, as everywhere. `TVValuePicker` replaces sliders with a standard picker (−/+ buttons in a Form row never took the remote's focus in CI);
+  its choices come from `SoundStep.options(around:step:in:)` in core (the step grid plus an
+  off-grid current value). `TVCountdown` shows the time left of a minute timer. Checked for tvOS: the
   `MTAudioProcessingTap` in `Equalizer.swift`, `AVAudioMix` and `audioTimePitchAlgorithm`
   have no platform guard and are available on tvOS, so EQ, normalization, crossfade and
   tempo use the same engine path; nothing was left out for platform reasons.

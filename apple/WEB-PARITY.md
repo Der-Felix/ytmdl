@@ -30,7 +30,7 @@ verglichen, nicht nach identischen Menünamen.
 | Queue-Filter | Mobil, Mac und Apple TV (Titel, Künstler, Album) | Filtert die vorhandene lokale Warteschlange |
 | Überblendung/Vorladen | 0–12 Sekunden, Schutz benachbarter Albentitel, schneller Start | Auch mit lokalen Dateien; keine Garantie für samplegenaues Gapless |
 | Tempo/Sleep-Timer | 0,5–2× einschließlich 1,75×; 15/30/45/60 Minuten, Titel-/Albumende; auf Apple TV in „Optionen“ und im Player | Lokal; kein Server erforderlich |
-| Zehnband-EQ/Vorverstärkung | Vorhanden, Presets und EQ-Pegelschutz; auf Apple TV mit −/+ je 1 dB | Lokal auf unterstütztem PCM-Ausgabeformat |
+| Zehnband-EQ/Vorverstärkung | Vorhanden, Presets und EQ-Pegelschutz; auf Apple TV als Auswahl in 1-dB-Schritten | Lokal auf unterstütztem PCM-Ausgabeformat |
 | Lautstärke-Normalisierung | Neu: derselbe Mess-Endpunkt wie im Web; getrennte Werte pro überblendetem Titel | Bereits gespeicherte Werte verwenden; fehlt der Wert, unverändert abspielen und anzeigen |
 | Lyrics | Plain/LRC, Folgen und Antippen zum Seek; jetzt auch im Mac-Player | Bereits heruntergeladene Lyrics lokal verwenden |
 | Visualizer | Echte FFT, verschiedene Darstellungen, Farben, ohne Cover, Reduce Motion | Lokal; Stile unterscheiden sich vom Web |
@@ -51,7 +51,7 @@ Auf Build 36 aufbauend, gegen die unveränderte Server-API von v1.10.x. Ausgelie
   Automatisch weiterspielen, Lautstärke-Normalisierung mit Status und der Zehnband-EQ mit
   Klangprofilen, Bändern, Vorverstärkung und Pegelschutz. Dieselben gespeicherten Werte
   und derselbe Player wie auf den anderen Plattformen. tvOS hat keinen Schieberegler:
-  Werte ändern sich mit −/+ (EQ und Vorverstärkung je 1 dB). Geprüft im Code: die
+  Werte werden aus Listen gewählt (EQ und Vorverstärkung in 1-dB-Schritten); −/+-Tasten in einer Formularzeile bekommen auf tvOS keinen Fokus. Geprüft im Code: die
   Klangverarbeitung (`MTAudioProcessingTap` über `AVAudioMix`) und das Tempo
   (`audioTimePitchAlgorithm`) sind auf tvOS verfügbar und laufen dort ohne
   Sonderweg; nichts wurde weggelassen, weil es auf tvOS nicht ginge.
@@ -85,7 +85,7 @@ deutlich mehr als 300 Zeilen für einen Nutzen, der am Fernseher gering ist (das
 fest am Netz, und gelöschte Caches würden Sammlungen unbemerkt ausdünnen). Apple TV streamt
 daher weiter vom Server.
 
-Nachweis: Swift-Tests für die −/+-Schritte (Raster, Grenzen, ungültige Werte), den Filter
+Nachweis: Swift-Tests für die Auswahlwerte (Raster, Grenzen, Zwischenwerte, ungültige Werte), den Filter
 (Titel, Künstler, Album, leerer Filter, Positionen) und den Fokus nach dem Entfernen
 gefilterter Zeilen; UI-Tests auf Apple TV, die die Überblendung in „Klang & Wiedergabe“
 ändern und eine gefilterte Zeile als Nächstes einreihen, nur in der CI. Nicht auf einem

@@ -4,9 +4,9 @@ import YTMDLCore
 
 /// "Klang & Wiedergabe" on Apple TV: the iPhone's sound settings, through the
 /// same `PlayerModel` and `EqualizerModel` and so the same stored preferences.
-/// tvOS has no slider, so values change with − and + buttons; choices use the
-/// standard pickers. The timer and tempo come first because they are what a
-/// listener on the sofa changes most.
+/// tvOS has no slider, so values and choices both use the standard pickers.
+/// The timer and tempo come first because a listener on the sofa changes
+/// them most.
 struct TVSoundSettings: View {
     var model: AppModel
     private var player: PlayerModel { model.player }
@@ -24,8 +24,8 @@ struct TVSoundSettings: View {
                 Picker("Tempo", selection: Binding(get: { player.playbackRate }, set: { player.setPlaybackRate($0) })) {
                     ForEach(SoundStep.playbackRates, id: \.self) { Text(Self.rate($0)).tag($0) }
                 }.accessibilityIdentifier("tv-sound-speed")
-                TVAdjustRow(title: "Überblendung", value: Self.crossfade(player.crossfadeSeconds), identifier: "tv-sound-crossfade",
-                            current: player.crossfadeSeconds, step: 1, range: SoundStep.crossfade) { player.setCrossfade($0) }
+                TVValuePicker(title: "Überblendung", identifier: "tv-sound-crossfade", current: player.crossfadeSeconds,
+                              step: 1, range: SoundStep.crossfade, text: Self.crossfade) { player.setCrossfade($0) }
                 Toggle("Albentitel ohne Überblendung", isOn: Binding(get: { player.smartAlbumTransition }, set: { player.setSmartAlbumTransition($0) }))
                 Toggle("Nächsten Titel vorladen", isOn: Binding(get: { player.preloadEnabled }, set: { player.setPreload($0) }))
                 Toggle("Schneller Abspielstart", isOn: Binding(get: { player.fastStart }, set: { player.setFastStart($0) }))
@@ -50,11 +50,11 @@ struct TVSoundSettings: View {
                 }
                 if equalizer.enabled {
                     ForEach(0..<10, id: \.self) { band in
-                        TVAdjustRow(title: Self.frequency(band), value: Self.decibels(equalizer.gains[band]), identifier: "tv-sound-band-\(band)",
-                                    current: equalizer.gains[band], step: 1, range: SoundStep.equalizerGain) { equalizer.setGain($0, band: band) }
+                        TVValuePicker(title: Self.frequency(band), identifier: "tv-sound-band-\(band)", current: equalizer.gains[band],
+                                      step: 1, range: SoundStep.equalizerGain, text: Self.decibels) { equalizer.setGain($0, band: band) }
                     }
-                    TVAdjustRow(title: "Vorverstärkung", value: Self.decibels(equalizer.preamp), identifier: "tv-sound-preamp",
-                                current: equalizer.preamp, step: 1, range: SoundStep.preamp) { equalizer.setPreamp($0) }
+                    TVValuePicker(title: "Vorverstärkung", identifier: "tv-sound-preamp", current: equalizer.preamp,
+                                  step: 1, range: SoundStep.preamp, text: Self.decibels) { equalizer.setPreamp($0) }
                     Toggle("Automatischer EQ-Pegelschutz", isOn: Binding(get: { equalizer.headroom }, set: { equalizer.setHeadroom($0) }))
                     Button("Klang zurücksetzen") { equalizer.select(.flat); equalizer.setPreamp(0) }
                 }
@@ -69,9 +69,9 @@ struct TVSoundSettings: View {
         .navigationTitle("Klang & Wiedergabe")
     }
 
-    static func rate(_ value: Double) -> String { String(format: "%g×", value) }
-    static func crossfade(_ seconds: Double) -> String { seconds == 0 ? "Aus" : "\(Int(seconds)) s" }
-    static func decibels(_ value: Double) -> String { String(format: "%+.1f dB", value) }
+    nonisolated static func rate(_ value: Double) -> String { String(format: "%g×", value) }
+    nonisolated static func crossfade(_ seconds: Double) -> String { seconds == 0 ? "Aus" : "\(Int(seconds)) s" }
+    nonisolated static func decibels(_ value: Double) -> String { String(format: "%+.1f dB", value) }
     static func frequency(_ band: Int) -> String { String(format: "%g Hz", EqualizerModel.frequencies[band]) }
     /// One line for the settings overview: what is not at its default.
     static func summary(_ player: PlayerModel) -> String {
@@ -85,32 +85,21 @@ struct TVSoundSettings: View {
     }
 }
 
-/// A value changed with − and +, since tvOS has no slider. A button at the
-/// end of the range is disabled, so focus never lands on a press that does nothing.
-struct TVAdjustRow: View {
+/// A value chosen from its steps with the standard tvOS picker, since tvOS has
+/// no slider. (−/+ buttons inside a Form row cannot take the remote's focus.)
+/// A value off the grid, such as an older finer setting, stays selectable.
+struct TVValuePicker: View {
     let title: String
-    let value: String
     let identifier: String
     let current: Double
     let step: Double
     let range: ClosedRange<Double>
+    let text: (Double) -> String
     let set: (Double) -> Void
     var body: some View {
-        HStack(spacing: 24) {
-            Text(title)
-            Spacer(minLength: 24)
-            Button { set(SoundStep.adjusted(current, by: -step, in: range)) } label: { Image(systemName: "minus") }
-                .disabled(!SoundStep.canAdjust(current, by: -step, in: range))
-                .accessibilityLabel("\(title) verringern")
-                .accessibilityIdentifier(identifier + "-minus")
-            Text(value).monospacedDigit().frame(minWidth: 150)
-                .accessibilityLabel(value)
-                .accessibilityIdentifier(identifier + "-value")
-            Button { set(SoundStep.adjusted(current, by: step, in: range)) } label: { Image(systemName: "plus") }
-                .disabled(!SoundStep.canAdjust(current, by: step, in: range))
-                .accessibilityLabel("\(title) erhöhen")
-                .accessibilityIdentifier(identifier + "-plus")
-        }
+        Picker(title, selection: Binding(get: { current }, set: { set($0) })) {
+            ForEach(SoundStep.options(around: current, step: step, in: range), id: \.self) { Text(text($0)).tag($0) }
+        }.accessibilityIdentifier(identifier)
     }
 }
 

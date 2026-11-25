@@ -5,20 +5,18 @@ private func song(_ id: String, _ title: String, artist: String = "", album: Str
     Track(id: id, title: title, artists: artist.isEmpty ? [] : [artist], album: album, durationMs: 200_000)
 }
 
-@Test func soundStepsSnapToTheGridAndStopAtTheBounds() {
-    #expect(SoundStep.adjusted(0, by: 1, in: SoundStep.crossfade) == 1)
-    #expect(SoundStep.adjusted(12, by: 1, in: SoundStep.crossfade) == 12)
-    #expect(SoundStep.adjusted(0, by: -1, in: SoundStep.crossfade) == 0)
-    #expect(!SoundStep.canAdjust(0, by: -1, in: SoundStep.crossfade) && SoundStep.canAdjust(0, by: 1, in: SoundStep.crossfade))
-    #expect(!SoundStep.canAdjust(12, by: 1, in: SoundStep.crossfade))
-    // A gain set with a finer slider elsewhere moves to the next whole step.
-    #expect(SoundStep.adjusted(2.5, by: 1, in: SoundStep.equalizerGain) == 3)
-    #expect(SoundStep.adjusted(2.5, by: -1, in: SoundStep.equalizerGain) == 2)
-    #expect(SoundStep.adjusted(-11.5, by: -1, in: SoundStep.equalizerGain) == -12)
-    #expect(SoundStep.adjusted(5.5, by: 1, in: SoundStep.preamp) == 6)
-    #expect(SoundStep.adjusted(20, by: -1, in: SoundStep.preamp) == 5, "An out-of-range value is clamped first.")
-    #expect(SoundStep.adjusted(.nan, by: 1, in: SoundStep.equalizerGain) == 1)
-    #expect(SoundStep.adjusted(3, by: 0, in: SoundStep.equalizerGain) == 3)
+@Test func soundPickerOptionsCoverTheRangeAndKeepTheCurrentValue() {
+    let crossfade = SoundStep.options(around: 0, step: 1, in: SoundStep.crossfade)
+    #expect(crossfade.count == 13 && crossfade.first == 0 && crossfade.last == 12)
+    let gains = SoundStep.options(around: 3, step: 1, in: SoundStep.equalizerGain)
+    #expect(gains.count == 25 && gains.first == -12 && gains.last == 12)
+    #expect(SoundStep.options(around: 0, step: 1, in: SoundStep.preamp).count == 19)
+    // A gain set with a finer slider elsewhere stays selectable, in order.
+    let fine = SoundStep.options(around: 2.5, step: 1, in: SoundStep.equalizerGain)
+    #expect(fine.count == 26 && fine.contains(2.5) && fine == fine.sorted())
+    #expect(SoundStep.options(around: 20, step: 1, in: SoundStep.preamp).last == 6, "An out-of-range value is clamped.")
+    #expect(SoundStep.options(around: .nan, step: 1, in: SoundStep.crossfade).count == 13)
+    #expect(SoundStep.options(around: 3, step: 0, in: SoundStep.crossfade) == [3])
     #expect(SoundStep.playbackRates.contains(1) && SoundStep.playbackRates.first == 0.5 && SoundStep.playbackRates.last == 2)
 }
 
