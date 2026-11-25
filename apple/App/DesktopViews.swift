@@ -508,6 +508,8 @@ struct DesktopListeningView: View {
             }
         }
         .background(playerBackground)
+        // At the top, so the offer never covers the transport controls.
+        .overlay(alignment: .top) { QueueUndoBar(player: model.player, edge: .top).padding(.top, 16) }
         .preference(key: PlayerOverlayPreferenceKey.self, value: visualizerSettingsOpen || transitionSettingsOpen || expandedArtwork || expandedVisualizer || addingToPlaylist)
         .environment(\.desktopAccent, playerAccent)
         .environment(\.desktopButtonAccent, playerButtonAccent)

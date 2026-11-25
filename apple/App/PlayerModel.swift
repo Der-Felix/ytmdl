@@ -10,6 +10,16 @@ import UIKit
 import AppKit
 #endif
 
+/// An offer to undo clearing the queue ("Rückgängig").
+struct QueueUndoOffer: Identifiable {
+    let id = UUID()
+    let undo: QueueClearUndo
+    fileprivate let client: APIClient?
+    fileprivate let position: Double
+    fileprivate let resume: Bool
+    var removedCount: Int { undo.removedCount }
+}
+
 enum SleepMode: String, CaseIterable, Identifiable {
     case off, minutes15, minutes30, minutes45, minutes60, endOfTrack, endOfAlbum
     var id: String { rawValue }
@@ -68,6 +78,8 @@ enum SleepMode: String, CaseIterable, Identifiable {
     var offlineLibrary: OfflineLibrary?
     var offlineOnly = false
     private(set) var autoplay = false
+    private var lastClear: QueueUndoOffer?
+    @ObservationIgnored private var undoExpiry: Task<Void, Never>?
     @ObservationIgnored var onQueueEnded: ((Track) -> Void)?
     @ObservationIgnored var onSnapshot: ((PlaybackQueue, Double, String, Bool) -> Void)?
     var repeatAll = false { didSet { cancelPrepared(); prepareNext() } }
@@ -279,10 +291,55 @@ enum SleepMode: String, CaseIterable, Identifiable {
         guard queue.move(from: source, to: destination) else { return }
         cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
     }
-    func clearQueue() { stop(); onSnapshot?(queue, 0, "off", true) }
+    /// "Leeren und stoppen". "Rückgängig" can bring the queue back for a few seconds.
+    func clearQueue() {
+        let before = queue, client = self.client, position = self.position, resume = wantsPlayback
+        stop(); onSnapshot?(queue, 0, "off", true)
+        offerUndo(QueueClearUndo(before: before, after: queue), client: client, position: position, resume: resume)
+    }
+    /// Removes the upcoming entries; the current title keeps playing.
     func clearUpcoming() {
+        let before = queue
         guard queue.clearUpcoming() else { return }
         cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
+        offerUndo(QueueClearUndo(before: before, after: queue), client: client, position: position, resume: wantsPlayback)
+    }
+    /// The last clear that "Rückgängig" can still undo: only for a few seconds
+    /// and only while the queue was not changed since (web: the undo toast).
+    var undoOffer: QueueUndoOffer? {
+        guard let lastClear, lastClear.undo.restore(from: queue) != nil else { return nil }
+        return lastClear
+    }
+    static let undoSeconds = 10.0
+    private func offerUndo(_ undo: QueueClearUndo, client: APIClient?, position: Double, resume: Bool) {
+        undoExpiry?.cancel()
+        guard undo.removedCount > 0 else { lastClear = nil; return }
+        let offer = QueueUndoOffer(undo: undo, client: client, position: position, resume: resume)
+        lastClear = offer
+        let id = offer.id, seconds = Self.undoSeconds
+        undoExpiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, let self, self.lastClear?.id == id else { return }
+            self.lastClear = nil
+        }
+    }
+    /// "Rückgängig": restores the cleared entries with their origins and the
+    /// started context. After a full clear the title loads again at its
+    /// position and plays if it played before.
+    func undoClear() {
+        guard let offer = lastClear else { return }
+        lastClear = nil; undoExpiry?.cancel(); undoExpiry = nil
+        guard let restored = offer.undo.restore(from: queue) else { return }
+        if offer.undo.clearedAll {
+            guard let client = offer.client else { return }
+            self.client = client; queue = restored
+            loadCurrent(play: offer.resume)
+            if offer.position > 0 { seek(offer.position) }
+            updateNowPlaying()
+        } else {
+            queue = restored
+            cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
+        }
     }
     func setNormalization(_ value: Bool) {
         normalizationEnabled = value; volumePreferences.set(value, forKey: "playerNormalization")
@@ -432,6 +489,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         }
     }
     func stop() {
+        lastClear = nil; undoExpiry?.cancel(); undoExpiry = nil
         normalizationTask?.cancel(); normalizationTask = nil
         loudnessValues.removeAll(); loudnessParameters.removeAll(); normalizationMessage = "Normalisierung ausgeschaltet"
         visualizerTask?.cancel(); visualizerTask = nil; resetSpectrum()

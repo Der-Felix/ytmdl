@@ -66,6 +66,58 @@ public struct PersonalMix: Decodable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// The track order on a mix page, as on the web's mix page (`ForYou.tsx`):
+/// the mix's own order, or one column ascending or descending. Equal values
+/// keep the mix order; text compares case-insensitively.
+public enum MixTrackSort: String, CaseIterable, Identifiable, Sendable {
+    case mix, title, artist, album, duration, trackNumber
+    public var id: String { rawValue }
+    public var label: String {
+        switch self {
+        case .mix: "Mix-Reihenfolge"
+        case .title: "Titel"
+        case .artist: "Künstler"
+        case .album: "Album"
+        case .duration: "Dauer"
+        case .trackNumber: "Titelnummer"
+        }
+    }
+    private enum Key: Comparable {
+        case text(String), number(Int)
+        static func < (a: Key, b: Key) -> Bool {
+            switch (a, b) {
+            case (.text(let x), .text(let y)): x < y
+            case (.number(let x), .number(let y)): x < y
+            default: false
+            }
+        }
+    }
+    private func key(_ track: Track) -> Key {
+        switch self {
+        case .mix: .number(0)
+        case .title: .text(track.title.lowercased())
+        case .artist: .text(Self.artist(track).lowercased())
+        case .album: .text(track.album.lowercased())
+        case .duration: .number(track.durationMs)
+        case .trackNumber: .number(track.trackNumber ?? 0)
+        }
+    }
+    /// The first artist, else the album artist, like the web.
+    private static func artist(_ track: Track) -> String {
+        if let first = track.artists.first, !first.isEmpty { return first }
+        return track.albumArtist ?? ""
+    }
+    public func apply(_ tracks: [Track], descending: Bool = false) -> [Track] {
+        guard self != .mix else { return tracks }
+        return tracks.enumerated().map { (offset: $0.offset, track: $0.element, key: key($0.element)) }
+            .sorted { a, b in
+                if a.key == b.key { return a.offset < b.offset }
+                return descending ? b.key < a.key : a.key < b.key
+            }
+            .map { $0.track }
+    }
+}
+
 /// One mix with its tracks (`GET /library/mixes/{id}`, up to 50 tracks).
 public struct PersonalMixDetail: Decodable, Sendable {
     public let mix: PersonalMix

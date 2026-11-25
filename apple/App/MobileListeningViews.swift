@@ -623,6 +623,7 @@ struct MobilePlayerView: View {
                 }
             }
         }.navigationTitle("Jetzt läuft").navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom, spacing: 0) { QueueUndoBar(player: model.player) }
         .sheet(isPresented: $tools) { NavigationStack { MobileAudioSettings(model: model).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fertig") { tools = false } } } } }
         .sheet(isPresented: $adding) { AddToPlaylistSheet(model: model, tracks: playlistSelection) }
     }

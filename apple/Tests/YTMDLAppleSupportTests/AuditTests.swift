@@ -225,6 +225,30 @@ private final class AuditProtocol: URLProtocol, @unchecked Sendable {
     #expect(!player.normalizationEnabled && !preferences.bool(forKey: "playerNormalization"))
 }
 
+@MainActor @Test func clearingTheQueueOffersAnUndoUntilTheQueueChanges() throws {
+    let suite = "audit-undo-clear-" + UUID().uuidString, preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let client = try auditClient(), player = PlayerModel(volumePreferences: preferences)
+    defer { player.stop(); client.invalidate() }
+    let tracks = (0..<3).map { Track(id: "t\($0)", title: "Fixture \($0)", artists: [], album: "", durationMs: 1000) }
+    player.previewPaused(tracks, client: client)
+    player.insertNext([Track(id: "n", title: "Next", artists: [], album: "", durationMs: 1000)], client: client)
+    #expect(player.undoOffer == nil)
+    player.clearUpcoming()
+    #expect(player.queue.tracks.count == 1 && player.undoOffer?.removedCount == 3)
+    player.undoClear()
+    #expect(player.queue.tracks.map(\.id) == ["t0", "n", "t1", "t2"] && player.queue.origin(at: 1) == .user)
+    #expect(player.undoOffer == nil, "An offer is used once.")
+    player.clearUpcoming()
+    player.append([Track(id: "u", title: "Queued", artists: [], album: "", durationMs: 1000)], client: client)
+    #expect(player.undoOffer == nil, "A changed queue ends the offer.")
+    player.clearQueue()
+    #expect(player.current == nil && player.undoOffer?.removedCount == 2 && player.undoOffer?.undo.clearedAll == true)
+    player.stop()
+    #expect(player.undoOffer == nil, "Signing out or stopping never leaves an old queue to restore.")
+    #expect(!player.isPlaybackRequested)
+}
+
 @MainActor @Test func clearingQueueAlsoRemovesPersistedResumeSnapshot() throws {
     let suite = "audit-clear-queue-" + UUID().uuidString, preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
