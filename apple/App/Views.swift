@@ -537,7 +537,20 @@ struct LibraryView: View {
                 }.buttonStyle(.bordered)
                 genrePicker
                 #endif
-                if model.connecting && model.releases.isEmpty { ProgressView("Bibliothek wird geladen …") }
+                // A failed load is never shown as an empty library: "Noch keine
+                // Alben" needs an answer from the server with an empty list.
+                if let message = model.libraryError, !model.connecting {
+                    if model.releases.isEmpty {
+                        ContentUnavailableView {
+                            Label("Alben konnten nicht geladen werden", systemImage: "exclamationmark.triangle")
+                        } description: { Text(message) } actions: {
+                            Button("Erneut laden", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
+                                .buttonStyle(.borderedProminent).accessibilityIdentifier("library-retry")
+                        }.accessibilityIdentifier("library-error")
+                    } else {
+                        ListenSectionFailure(message: message) { Task { await model.loadLibrary() } }
+                    }
+                } else if model.releases.isEmpty && (model.connecting || !model.releasesLoaded) { ProgressView("Bibliothek wird geladen …") }
                 else if model.releases.isEmpty { ContentUnavailableView("Noch keine Alben", systemImage: "square.stack", description: Text("Musik im Web hinzufügen oder einen anderen Genre-Filter wählen.")) }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: cardMinimum, maximum: max(280, cardMinimum + 40)), spacing: 20)], spacing: 24) {
                     ForEach(model.releases) { release in
@@ -556,8 +569,12 @@ struct LibraryView: View {
                 .frame(maxWidth: 1600).frame(maxWidth: .infinity)
                 #endif
         }.navigationTitle("Bibliothek")
+        // Nothing has answered yet and nothing is running: load instead of
+        // waiting for a load that was never started.
+        .task { if !model.releasesLoaded && model.libraryError == nil && !model.connecting { await model.loadLibrary() } }
         #if os(iOS)
         .background(Color(uiColor: .systemGroupedBackground))
+        .scrollEdgeEffectStyle(.hard, for: .bottom)
         .refreshable { await model.loadLibrary() }
         #else
         .toolbar { ToolbarItem { Button { Task { await model.loadLibrary() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Bibliothek aktualisieren").disabled(model.connecting) } }
@@ -1015,6 +1032,9 @@ struct TrackRow: View {
     var model: AppModel
     var track: Track
     var playlistEdit: PlaylistRowEdit? = nil
+    /// Optional text after the artist (for example when it was played); the
+    /// row then leaves out the duration so the title keeps its room.
+    var detail: String? = nil
     var action: () -> Void
     @State private var addingToPlaylist = false
     var body: some View {
@@ -1036,6 +1056,10 @@ struct TrackRow: View {
             Divider()
         }
     }
+    private var rowLabel: String {
+        if let detail { return "\(track.title) abspielen, \(track.artistText), \(detail)" }
+        return "\(track.title) abspielen, \(track.artistText)"
+    }
     private var standardRow: some View {
         HStack(spacing: 14) {
             Button(action: action) {
@@ -1043,11 +1067,23 @@ struct TrackRow: View {
                     ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 52, height: 52)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(track.title).desktopScaledFont(18, weight: .semibold, fallback: .headline).lineLimit(1)
-                        Text(track.artistText).desktopScaledFont(16, fallback: .subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        if let detail {
+                            // The detail (when it was played) shares the second
+                            // line with the artist, so the title keeps the width.
+                            HStack(spacing: 4) {
+                                Text(track.artistText).lineLimit(1)
+                                Text("·").accessibilityHidden(true)
+                                Text(detail).lineLimit(1).fixedSize()
+                            }.desktopScaledFont(16, fallback: .subheadline).foregroundStyle(.secondary)
+                        } else {
+                            Text(track.artistText).desktopScaledFont(16, fallback: .subheadline).foregroundStyle(.secondary).lineLimit(1)
+                        }
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                    Text(formatTime(track.duration)).desktopScaledFont(15, fallback: .caption).monospacedDigit().foregroundStyle(.secondary)
+                    if detail == nil {
+                        Text(formatTime(track.duration)).desktopScaledFont(15, fallback: .caption).monospacedDigit().foregroundStyle(.secondary)
+                    }
                 }.contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
+            }.buttonStyle(.plain).accessibilityLabel(rowLabel)
             Menu {
                 Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }.disabled(model.offlineMode)
                 playlistMenuItems

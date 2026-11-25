@@ -215,6 +215,9 @@ struct MobileHomeView: View {
             }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 32)
                 .frame(maxWidth: 1000).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground))
+            // Content scrolling under the floating tab bar and mini player gets a
+            // solid edge, so no caption reads half-covered behind them.
+            .scrollEdgeEffectStyle(.hard, for: .bottom)
             .navigationTitle("Start").refreshable { await model.loadLibrary(); await model.loadListenFeed() }
             .task(id: model.playlistRevision) { await model.loadPlaylistPreviews(Array(model.playlists.prefix(3))) }
             .task(id: model.user?.id) { await model.loadListenFeed() }
@@ -267,12 +270,10 @@ struct MobileHomeView: View {
                 heading("Zuletzt gehört", subtitle: "Auf allen deinen Geräten")
                 VStack(spacing: 0) {
                     ForEach(Array(server.prefix(6).enumerated()), id: \.element.id) { index, entry in
-                        HStack(alignment: .center, spacing: 6) {
-                            TrackRow(model: model, track: entry.track) { playHistory(server.map(\.track), start: index) }
-                            if let played = entry.lastPlayedAt {
-                                Text(played.formatted(.relative(presentation: .named))).font(.caption).foregroundStyle(.secondary)
-                                    .lineLimit(1).fixedSize().accessibilityLabel("gehört \(played.formatted(.relative(presentation: .named)))")
-                            }
+                        // When it was played goes to the second line, next to
+                        // the artist: one trailing control leaves the title room.
+                        TrackRow(model: model, track: entry.track, detail: entry.lastPlayedAt.map { $0.formatted(.relative(presentation: .named)) }) {
+                            playHistory(server.map(\.track), start: index)
                         }.padding(.horizontal, 12).padding(.vertical, 6)
                     }
                 }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
@@ -559,20 +560,32 @@ struct MobilePlayerView: View {
             ScrollView {
                 if let track = model.player.current {
                     VStack(spacing: 22) {
-                        ZStack(alignment: .bottom) {
-                            if !model.player.visualizationEnabled || placement != "background" {
-                                ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: coverSize(geometry.size), height: coverSize(geometry.size))
-                                    .shadow(color: .black.opacity(0.18), radius: 20, y: 12)
-                            }
-                            if model.player.visualizationEnabled {
-                                MobileSpectrum(player: model.player).frame(height: placement == "background" ? 300 : 100)
+                        let side = coverSize(geometry.size)
+                        Group {
+                            if model.player.visualizationEnabled && placement == "background" {
+                                MobileSpectrum(player: model.player).frame(height: 300)
                                     .padding(18).allowsHitTesting(false).accessibilityHidden(true)
+                            } else {
+                                // On the cover the bars stay inside its rounded
+                                // square: same width, clipped to the same corners.
+                                ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: side, height: side)
+                                    .overlay(alignment: .bottom) {
+                                        if model.player.visualizationEnabled {
+                                            MobileSpectrum(player: model.player).frame(height: min(100, side * 0.32))
+                                                .padding(.horizontal, 12).padding(.bottom, 10)
+                                                .allowsHitTesting(false).accessibilityHidden(true)
+                                        }
+                                    }
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .shadow(color: .black.opacity(0.18), radius: 20, y: 12)
                             }
                         }.frame(maxWidth: .infinity)
                         HStack(alignment: .center, spacing: 12) {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(track.title).font(.title2.bold()).lineLimit(3)
-                                Text(track.artistText).font(.title3).foregroundStyle(.secondary)
+                                // Two lines at most, shrinking a little before
+                                // the tail is cut; the artist keeps its own line.
+                                Text(track.title).font(.title2.bold()).lineLimit(2).truncationMode(.tail).minimumScaleFactor(0.8)
+                                Text(track.artistText).font(.title3).foregroundStyle(.secondary).lineLimit(1)
                                 if !track.album.isEmpty && track.album != track.title { Text(track.album).font(.caption).foregroundStyle(.secondary) }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                             if !model.offlineMode {
@@ -646,8 +659,18 @@ struct MobilePlayerView: View {
                     Text("Spielt am Ende der Warteschlange ähnliche Titel aus deiner Bibliothek.").font(.caption).foregroundStyle(.secondary)
                 }
             }.accessibilityIdentifier("mobile-queue-autoplay")
-            TextField("Warteschlange filtern", text: $queueQuery).textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("mobile-queue-filter")
+            // Styled like the playlist filter: rounded, secondary fill,
+            // magnifier and a clear button.
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                TextField("Warteschlange filtern", text: $queueQuery).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("mobile-queue-filter")
+                if !queueQuery.isEmpty {
+                    Button { queueQuery = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Filter leeren")
+                }
+            }.padding(.leading, 14).padding(.trailing, queueQuery.isEmpty ? 14 : 0).frame(minHeight: 48)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
             let queue = model.player.queue
             ForEach(queue.rows(filter: queueQuery)) { row in
                 let index = row.position, track = row.track
@@ -665,11 +688,12 @@ struct MobilePlayerView: View {
                     Button { model.player.select(index) } label: {
                         HStack(spacing: 12) {
                             ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 48, height: 48)
-                            VStack(alignment: .leading) { Text(track.title).font(.headline).lineLimit(1); Text(track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                            Spacer()
-                            if index == model.player.queue.index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink) }
-                        }.contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityIdentifier("mobile-queue-track-\(index)")
+                            // The title takes every point up to the indicator and the menu.
+                            VStack(alignment: .leading, spacing: 2) { Text(track.title).font(.headline).lineLimit(1); Text(track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
+                            if index == model.player.queue.index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink).accessibilityLabel("Läuft gerade") }
+                        }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    }.buttonStyle(.plain).layoutPriority(1).accessibilityIdentifier("mobile-queue-track-\(index)")
                     Menu {
                         Button("Nach oben", systemImage: "arrow.up") { model.player.moveInQueue(from: index, to: index - 1) }.disabled(index == 0)
                         Button("Nach unten", systemImage: "arrow.down") { model.player.moveInQueue(from: index, to: index + 1) }.disabled(index + 1 >= model.player.queue.tracks.count)
@@ -680,8 +704,8 @@ struct MobilePlayerView: View {
                         Button("Als Nächstes", systemImage: "text.insert") { model.player.playNextInQueue(index) }.disabled(index <= model.player.queue.index + 1)
                         Button("Aus Warteschlange entfernen", systemImage: "minus.circle", role: .destructive) { model.player.removeFromQueue(index) }.disabled(index == model.player.queue.index)
                         if !model.offlineMode { Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) } }
-                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.accessibilityLabel("Warteschlangen-Aktionen für \(track.title)").accessibilityIdentifier("mobile-queue-actions-\(index)")
-                }.padding(10).background(index == model.player.queue.index ? Color.pink.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 14))
+                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.fixedSize().accessibilityLabel("Warteschlangen-Aktionen für \(track.title)").accessibilityIdentifier("mobile-queue-actions-\(index)")
+                }.padding(.vertical, 10).padding(.leading, 10).padding(.trailing, 2).background(index == model.player.queue.index ? Color.pink.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 14))
             }
         }
     }

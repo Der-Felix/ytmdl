@@ -22,6 +22,18 @@ public struct Artist: Decodable, Identifiable, Sendable {
     public let genres: [String]?
     public let trackCount: Int?
 }
+extension Artist {
+    private enum CodingKeys: String, CodingKey { case id, name, genres, trackCount }
+    // Genres and counts are display details: an artist without genres (the
+    // server leaves the key out) or an odd count must not drop the whole page.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        genres = (try? c.decodeIfPresent([String].self, forKey: .genres)) ?? nil
+        trackCount = (try? c.decodeIfPresent(Int.self, forKey: .trackCount)) ?? nil
+    }
+}
 public struct Release: Decodable, Identifiable, Sendable {
     public let id: String
     public let title: String
@@ -35,9 +47,11 @@ extension Release {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         title = try c.decode(String.self, forKey: .title)
-        artists = try c.decodeIfPresent([String].self, forKey: .artists) ?? []
-        year = try c.decode(Int.self, forKey: .year)
-        trackCountInLibrary = try c.decodeIfPresent(Int.self, forKey: .trackCountInLibrary)
+        artists = (try? c.decodeIfPresent([String].self, forKey: .artists)) ?? []
+        // A release without a known year is 0 on the server; null or a missing
+        // key reads the same, so one such album cannot empty the library page.
+        year = (try? c.decodeIfPresent(Int.self, forKey: .year)) ?? 0
+        trackCountInLibrary = (try? c.decodeIfPresent(Int.self, forKey: .trackCountInLibrary)) ?? nil
     }
 }
 public struct Track: Codable, Identifiable, Equatable, Sendable {
@@ -93,7 +107,12 @@ public struct SmartPlaylistRules: Codable, Equatable, Sendable {
         artistId = try c.decodeIfPresent(String.self, forKey: .artistId)
         favorites = try c.decodeIfPresent(Bool.self, forKey: .favorites) ?? false
         addedDays = try c.decodeIfPresent(Int.self, forKey: .addedDays) ?? 0
-        sort = try c.decode(String.self, forKey: .sort); limit = try c.decode(Int.self, forKey: .limit)
+        // Rules saved by an older server can lack sort or limit; the server
+        // then resolves them with its defaults, so the app shows those.
+        let storedSort = (try? c.decodeIfPresent(String.self, forKey: .sort)) ?? nil
+        sort = storedSort.flatMap { $0.isEmpty ? nil : $0 } ?? "recent"
+        let storedLimit = (try? c.decodeIfPresent(Int.self, forKey: .limit)) ?? nil
+        limit = storedLimit.flatMap { $0 > 0 ? $0 : nil } ?? 50
     }
 }
 public struct Playlist: Decodable, Identifiable, Sendable {
@@ -107,6 +126,18 @@ public struct Playlist: Decodable, Identifiable, Sendable {
                 description: String? = nil, smartRules: SmartPlaylistRules? = nil) {
         self.id = id; self.name = name; self.trackCount = trackCount; self.durationMs = durationMs
         self.description = description; self.smartRules = smartRules
+    }
+    private enum CodingKeys: String, CodingKey { case id, name, trackCount, durationMs, description, smartRules }
+    // Counts and description are display details: a playlist without them
+    // (empty, or from an older server) still lists with zero and no text.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        trackCount = (try? c.decodeIfPresent(Int.self, forKey: .trackCount)) ?? 0
+        durationMs = (try? c.decodeIfPresent(Int.self, forKey: .durationMs)) ?? 0
+        description = (try? c.decodeIfPresent(String.self, forKey: .description)) ?? nil
+        smartRules = try c.decodeIfPresent(SmartPlaylistRules.self, forKey: .smartRules)
     }
 }
 public struct PlaylistDetail: Decodable, Sendable {

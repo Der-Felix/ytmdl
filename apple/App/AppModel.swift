@@ -147,32 +147,98 @@ import YTMDLCore
         }
         return false
     }
+    /// Why the albums could not be loaded. Nil once the server answered, even
+    /// with an empty list, so a failed load never reads as an empty library.
+    private(set) var libraryError: String?
+    /// The server has answered the album list at least once for this session.
+    private(set) var releasesLoaded = false
+    /// The running catalog load. The model owns it, not the view that asked:
+    /// a restored session replaces the sign-in screen while the load runs, and
+    /// the cancelled `.task` of that screen used to cancel the whole load.
+    @ObservationIgnored private var libraryTask: Task<Void, Never>?
+    @ObservationIgnored private var libraryReloadPending = false
+
+    /// Loads albums, artists, playlists, favorites and genres. A request while a
+    /// load runs is not dropped: the running load is followed by one more.
     func loadLibrary() async {
-        guard !offlineMode, let client, !connecting else { return }
+        guard !offlineMode, client != nil else { return }
+        if let running = libraryTask {
+            libraryReloadPending = true
+            await running.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                libraryReloadPending = false
+                await performLibraryLoad()
+            } while libraryReloadPending && !offlineMode && client != nil
+            libraryTask = nil
+        }
+        libraryTask = task
+        await task.value
+    }
+    private func fetch<T: Decodable & Sendable>(_ client: APIClient, _ path: String, query: [URLQueryItem] = []) async -> Result<T, any Error> {
+        do { return .success(try await client.get(path, query: query)) } catch { return .failure(error) }
+    }
+    nonisolated private static func isCancellation(_ error: any Error) -> Bool {
+        if error is CancellationError { return true }
+        if let transport = error as? URLError, transport.code == .cancelled { return true }
+        return false
+    }
+    /// Each part is loaded and applied on its own: one failing or undecodable
+    /// answer leaves the other four in place.
+    private func performLibraryLoad() async {
+        guard !offlineMode, let client else { return }
         let generation = generation
         let catalogGeneration = UUID(); self.catalogGeneration = catalogGeneration
         let playlistRevision = playlistRevision
         let favoriteRevision = favoriteRevision
         connecting = true; defer { if self.catalogGeneration == catalogGeneration { connecting = false } }
-        do {
-            async let releasePage: [Release] = client.get("/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc"), .init(name: "genre", value: genre)])
-            async let artistPage: [Artist] = client.get("/library/artists", query: [.init(name: "limit", value: "60")])
-            async let playlistPage: [Playlist] = client.get("/playlists")
-            async let favoritePage: [String] = client.get("/favorites/ids")
-            async let genrePage: [String] = client.get("/library/genres")
-            let (releases, artists, playlists, favorites, genres) = try await (releasePage, artistPage, playlistPage, favoritePage, genrePage)
-            guard self.generation == generation, self.catalogGeneration == catalogGeneration else { return }
-            self.releases = releases; self.artists = artists
-            if self.playlistRevision == playlistRevision {
-                self.playlists = playlists; self.playlistRevision = UUID()
+        async let releasePage: Result<[Release], any Error> = fetch(client, "/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc"), .init(name: "genre", value: genre)])
+        async let artistPage: Result<[Artist], any Error> = fetch(client, "/library/artists", query: [.init(name: "limit", value: "60")])
+        async let playlistPage: Result<[Playlist], any Error> = fetch(client, "/playlists")
+        async let favoritePage: Result<[String], any Error> = fetch(client, "/favorites/ids")
+        async let genrePage: Result<[String], any Error> = fetch(client, "/library/genres")
+        let (releaseResult, artistResult, playlistResult, favoriteResult, genreResult) = await (releasePage, artistPage, playlistPage, favoritePage, genrePage)
+        guard self.generation == generation, self.client === client else { return }
+        var failures: [any Error] = []
+        // A genre filter chosen meanwhile owns the album list; only the albums
+        // depend on it, the other parts still apply.
+        if self.catalogGeneration == catalogGeneration {
+            switch releaseResult {
+            case .success(let releases):
+                self.releases = releases; releaseOffset = releases.count; moreReleases = releases.count == 60
+                releasesLoaded = true; libraryError = nil
+            case .failure(let error):
+                if !Self.isCancellation(error) { libraryError = describe(error); failures.append(error) }
             }
-            if self.favoriteRevision == favoriteRevision { favoriteIDs = Set(favorites) }
-            releaseOffset = releases.count; moreReleases = releases.count == 60
-            self.genres = genres; connecting = false
-            if offline.syncFavorites { await downloadCollection(.favorites, automatic: false, announceLimit: false) }
-            await refreshOfflineCollections()
-            await flushListeningHistory()
-        } catch { if self.generation == generation, self.catalogGeneration == catalogGeneration { report(error) } }
+        }
+        switch artistResult {
+        case .success(let artists): self.artists = artists
+        case .failure(let error): failures.append(error)
+        }
+        switch playlistResult {
+        case .success(let playlists):
+            if self.playlistRevision == playlistRevision { self.playlists = playlists; self.playlistRevision = UUID() }
+        case .failure(let error): failures.append(error)
+        }
+        switch favoriteResult {
+        case .success(let favorites): if self.favoriteRevision == favoriteRevision { favoriteIDs = Set(favorites) }
+        case .failure(let error): failures.append(error)
+        }
+        // Without an answer the genre row stays hidden (or keeps the last list).
+        switch genreResult {
+        case .success(let genres): self.genres = genres
+        case .failure(let error): failures.append(error)
+        }
+        if self.catalogGeneration == catalogGeneration { connecting = false }
+        // One message is enough; a 401 among them signs out.
+        if let failure = failures.first(where: { !Self.isCancellation($0) }) { report(failure) }
+        guard self.generation == generation, user != nil else { return }
+        if offline.syncFavorites { await downloadCollection(.favorites, automatic: false, announceLimit: false) }
+        await refreshOfflineCollections()
+        await flushListeningHistory()
     }
     func loadMore() async {
         guard let client, !connecting, moreReleases else { return }
@@ -195,7 +261,12 @@ import YTMDLCore
             let result: [Release] = try await client.get("/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "genre", value: value), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc")])
             guard self.generation == generation, self.catalogGeneration == catalogGeneration, genre == value else { return }
             releases = result; releaseOffset = result.count; moreReleases = result.count == 60
-        } catch { if self.generation == generation, self.catalogGeneration == catalogGeneration { report(error) } }
+            releasesLoaded = true; libraryError = nil
+        } catch {
+            guard self.generation == generation, self.catalogGeneration == catalogGeneration else { return }
+            if !Self.isCancellation(error) { libraryError = describe(error) }
+            report(error)
+        }
     }
     func search(_ value: String) async throws -> SearchResults? {
         guard let client, value.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else { return nil }
@@ -325,7 +396,7 @@ import YTMDLCore
         playlistPreviews = [:]; previewRequests = []; previewRevision = nil
         playlistBusy = false; playlistRevision = UUID(); catalogGeneration = UUID(); favoriteRevision = UUID()
         connecting = false; listeningBusy = false; handoff = nil; error = nil; pendingFavorites = []
-        genres = []; genre = ""; releaseOffset = 0; moreReleases = false
+        genres = []; genre = ""; releaseOffset = 0; moreReleases = false; libraryError = nil; releasesLoaded = false
         listeningHistory.configure(server: nil, userID: nil, persist: false)
         feed.clear()
         query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil
@@ -567,8 +638,12 @@ import YTMDLCore
             client.invalidate(); self.client = nil; user = nil; generation = UUID(); clearLibrary(); player.stop()
             scopeListeningSession()
         }
-        if failure is PlayerError || failure is VaultError { error = failure.localizedDescription }
-        else { error = "Der Server ist nicht erreichbar oder die Antwort passt nicht zur App. Bitte Verbindung und Server-Version prüfen." }
+        error = describe(failure)
+    }
+    func describe(_ failure: any Error) -> String {
+        if failure is PlayerError || failure is VaultError { return failure.localizedDescription }
+        if failure is DecodingError { return "Die Antwort des Servers passt nicht zur App. Bitte Server-Version prüfen." }
+        return "Der Server ist nicht erreichbar oder die Antwort passt nicht zur App. Bitte Verbindung und Server-Version prüfen."
     }
     #if DEBUG
     // UI fixtures are accepted only on literal loopback. This cannot silently

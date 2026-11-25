@@ -154,6 +154,20 @@ private final class AuditProtocol: URLProtocol, @unchecked Sendable {
     #expect(model.favoriteIDs.isEmpty) // A subsequent explicit refresh remains authoritative.
 }
 
+// A restored session replaces the sign-in screen, which cancels the `.task`
+// that asked for the library. The load belongs to the model and must finish.
+@MainActor @Test func auditLibraryLoadSurvivesItsCancelledCaller() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let model = AppModel(offlineLibrary: OfflineLibrary(root: root, startTransfers: false)), client = try auditClient()
+    model.client = client; defer { client.invalidate(); model.player.stop() }
+    let caller = Task { await model.loadLibrary() }
+    try await Task.sleep(for: .milliseconds(60))
+    caller.cancel()
+    await caller.value
+    #expect(model.releasesLoaded && model.libraryError == nil && !model.connecting)
+}
+
 @MainActor @Test func auditDelayedHandoffCannotPauseNewlySelectedPlayback() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let suite = "audit-handoff-" + UUID().uuidString, defaults = try #require(UserDefaults(suiteName: suite))

@@ -399,13 +399,30 @@ struct MixDetailView: View {
                 Button { play(start: 0, shuffle: true) } label: { Label("Zufällig", systemImage: "shuffle") }
                     .buttonStyle(MobileActionStyle()).accessibilityIdentifier("mix-shuffle")
             }.disabled(tracks.isEmpty)
-            HStack(spacing: 12) {
-                Button { model.enqueue(tracks, next: true) } label: { Label("Als Nächstes", systemImage: "text.insert") }
-                    .buttonStyle(MobileActionStyle())
-                Button { model.enqueue(tracks, next: false) } label: { Label("Zur Warteschlange", systemImage: "text.badge.plus") }
-                    .buttonStyle(MobileActionStyle())
-            }.disabled(tracks.isEmpty)
-            savePlaylistButton().buttonStyle(MobileActionStyle())
+            // Three equal icon-over-label tiles with short labels; when they do
+            // not fit (large text), one "Weitere Aktionen" menu instead, so no
+            // label ever wraps inside its button.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    Button { model.enqueue(tracks, next: true) } label: { Label("Als Nächstes", systemImage: "text.insert") }
+                        .buttonStyle(MixTileStyle()).disabled(tracks.isEmpty)
+                        .accessibilityLabel("Als Nächstes abspielen").accessibilityIdentifier("mix-play-next")
+                    Button { model.enqueue(tracks, next: false) } label: { Label("Warteschlange", systemImage: "text.badge.plus") }
+                        .buttonStyle(MixTileStyle()).disabled(tracks.isEmpty)
+                        .accessibilityLabel("Zur Warteschlange hinzufügen").accessibilityIdentifier("mix-enqueue")
+                    Button { savedPlaylist = nil; savingPlaylist = true } label: { Label("Als Playlist", systemImage: "music.note.list") }
+                        .buttonStyle(MixTileStyle()).disabled(tracks.isEmpty || saveUnavailable)
+                        .accessibilityLabel("Als Playlist speichern")
+                        .accessibilityHint(saveUnavailable ? "Braucht eine Verbindung zum Server" : "Legt eine Playlist mit den Titeln dieses Mixes an")
+                        .accessibilityIdentifier("mix-save-playlist")
+                }
+                Menu {
+                    Button("Als Nächstes abspielen", systemImage: "text.insert") { model.enqueue(tracks, next: true) }.disabled(tracks.isEmpty)
+                    Button("Zur Warteschlange hinzufügen", systemImage: "text.badge.plus") { model.enqueue(tracks, next: false) }.disabled(tracks.isEmpty)
+                    savePlaylistButton()
+                } label: { Label("Weitere Aktionen", systemImage: "ellipsis.circle") }
+                    .buttonStyle(MobileActionStyle()).accessibilityIdentifier("mix-more")
+            }
             offlineSaveNote
         }.padding(.vertical, 8)
     }
@@ -503,6 +520,36 @@ struct QueueUndoBar: View {
 #endif
 
 /// An inline error with a retry action, used by the start screen's sections.
+/// A secondary action of the mix page: symbol above a one-line label, equal
+/// widths in a row, at least 44 pt tall.
+struct MixTileStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    /// The same surface as `MobileActionStyle`.
+    private var surface: Color {
+        #if os(iOS)
+        Color(uiColor: .secondarySystemGroupedBackground)
+        #else
+        Color.primary.opacity(0.06)
+        #endif
+    }
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.labelStyle(MixTileLabelStyle())
+            .padding(.horizontal, 8).padding(.vertical, 10).frame(maxWidth: .infinity, minHeight: 60)
+            .foregroundStyle(Color.primary)
+            .background { RoundedRectangle(cornerRadius: 16).fill(surface) }
+            .opacity(!enabled ? 0.45 : configuration.isPressed ? 0.75 : 1)
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+private struct MixTileLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(spacing: 6) {
+            configuration.icon.font(.title3).foregroundStyle(.tint)
+            configuration.title.font(.footnote.weight(.semibold)).lineLimit(1).fixedSize()
+        }
+    }
+}
+
 struct ListenSectionFailure: View {
     var message: String
     var retry: () -> Void

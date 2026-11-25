@@ -103,3 +103,17 @@ import Testing
     let stored = try JSONDecoder().decode(Track.self, from: JSONEncoder().encode(tracks[2]))
     #expect(stored == tracks[2])
 }
+
+@Test func libraryListsTolerateMissingDisplayDetails() throws {
+    let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+    // A release without a year (null or missing) still lists, with year 0.
+    let releases = try decoder.decode(Envelope<[Release]>.self, from: Data(#"{"data":[{"id":"r1","title":"Eins","artists":null,"year":null},{"id":"r2","title":"Zwei"}],"meta":{"total":2,"count":2}}"#.utf8)).data
+    #expect(releases.map(\.year) == [0, 0] && releases[0].artists.isEmpty)
+    // An artist without genres, and one with a count the app cannot read.
+    let artists = try decoder.decode(Envelope<[Artist]>.self, from: Data(#"{"data":[{"id":"a1","name":"A","genres":null},{"id":"a2","name":"B","track_count":"7"}]}"#.utf8)).data
+    #expect(artists.count == 2 && artists[0].genres == nil && artists[1].trackCount == nil)
+    // A playlist without counts or description, and smart rules saved without sort and limit.
+    let playlists = try decoder.decode(Envelope<[Playlist]>.self, from: Data(#"{"data":[{"id":"p1","name":"Leer","description":null},{"id":"p2","name":"Smart","track_count":3,"duration_ms":9000,"description":"","smart_rules":{"genre":"Pop","sort":"","limit":0}}]}"#.utf8)).data
+    #expect(playlists[0].trackCount == 0 && playlists[0].durationMs == 0 && playlists[0].description == nil)
+    #expect(playlists[1].smartRules?.sort == "recent" && playlists[1].smartRules?.limit == 50 && playlists[1].smartRules?.genre == "Pop")
+}
