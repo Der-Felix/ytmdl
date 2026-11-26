@@ -19,6 +19,10 @@ import YTMDLCore
     private(set) var historyPhase = Phase.idle
     private(set) var newReleases: [Release] = []
     private(set) var releasesPhase = Phase.idle
+    /// The account's most played titles ("Am meisten gehört"); optional, a
+    /// failure only hides that shelf.
+    private(set) var frequent: [HistoryTrack] = []
+    private(set) var frequentPhase = Phase.idle
     /// The last load could not reach the server at all.
     private(set) var unreachable = false
     /// The mix whose tracks are being loaded to start playback.
@@ -26,17 +30,19 @@ import YTMDLCore
     var mixError: String?
     @ObservationIgnored private var revision = UUID()
     func clear() {
-        revision = UUID(); mixes = []; history = []; newReleases = []; unreachable = false
-        mixesPhase = .idle; historyPhase = .idle; releasesPhase = .idle; playingMixID = nil; mixError = nil
+        revision = UUID(); mixes = []; history = []; newReleases = []; frequent = []; unreachable = false
+        mixesPhase = .idle; historyPhase = .idle; releasesPhase = .idle; frequentPhase = .idle; playingMixID = nil; mixError = nil
     }
     fileprivate func begin() -> UUID {
         revision = UUID()
         if mixesPhase != .loaded { mixesPhase = .loading }
         if historyPhase != .loaded { historyPhase = .loading }
         if releasesPhase != .loaded { releasesPhase = .loading }
+        if frequentPhase != .loaded { frequentPhase = .loading }
         return revision
     }
-    fileprivate func apply(_ token: UUID, mixes: Result<[PersonalMix], any Error>, history: Result<[HistoryTrack], any Error>, releases: Result<[Release], any Error>) {
+    fileprivate func apply(_ token: UUID, mixes: Result<[PersonalMix], any Error>, history: Result<[HistoryTrack], any Error>, releases: Result<[Release], any Error>,
+                           frequent: Result<[HistoryTrack], any Error> = .success([])) {
         guard token == revision else { return }
         let failures = [mixes.failure, history.failure, releases.failure].compactMap { $0 }
         unreachable = !failures.isEmpty && failures.allSatisfy(Self.isUnreachable)
@@ -51,6 +57,10 @@ import YTMDLCore
         switch releases {
         case .success(let value): newReleases = value; releasesPhase = .loaded
         case .failure(let error): releasesPhase = Self.phase(for: error)
+        }
+        switch frequent {
+        case .success(let value): self.frequent = value; frequentPhase = .loaded
+        case .failure(let error): frequentPhase = Self.phase(for: error); if frequentPhase == .unsupported { self.frequent = [] }
         }
     }
     static func isUnreachable(_ error: any Error) -> Bool { error is URLError }
@@ -85,9 +95,10 @@ extension AppModel {
         async let history: Result<[HistoryTrack], any Error> = Self.fetch(client, "/history", [.init(name: "sort", value: "recent")])
         async let releases: Result<[Release], any Error> = Self.fetch(client, "/library/releases", [
             .init(name: "limit", value: "12"), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc"), .init(name: "in_library", value: "true")])
-        let loaded = await (mixes, history, releases)
+        async let frequent: Result<[HistoryTrack], any Error> = Self.fetch(client, "/history", [.init(name: "sort", value: "frequent")])
+        let loaded = await (mixes, history, releases, frequent)
         guard self.client === client else { return }
-        feed.apply(token, mixes: loaded.0, history: loaded.1, releases: loaded.2)
+        feed.apply(token, mixes: loaded.0, history: loaded.1, releases: loaded.2, frequent: loaded.3)
     }
     private static func fetch<T: Decodable & Sendable>(_ client: APIClient, _ path: String, _ query: [URLQueryItem] = []) async -> Result<T, any Error> {
         do { return .success(try await client.get(path, query: query)) } catch { return .failure(error) }
@@ -559,39 +570,5 @@ struct ListenSectionFailure: View {
             Text(message).font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             Button("Erneut laden", action: retry)
         }.padding(14).background(listenSurface, in: RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-/// "Weiterhören": the player's current title with its position, as on the web.
-struct ContinueListeningCard: View {
-    var model: AppModel
-    var track: Track
-    var open: () -> Void
-    var body: some View {
-        HStack(spacing: 14) {
-            Button(action: open) {
-                HStack(spacing: 14) {
-                    ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 64, height: 64)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(track.title).font(.headline).foregroundStyle(.primary).lineLimit(1)
-                        Text([track.artistText, track.album].filter { !$0.isEmpty }.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                        if model.player.queue.tracks.count > 1 {
-                            Text("Titel \(model.player.queue.index + 1) von \(model.player.queue.tracks.count) in der Warteschlange").font(.caption).monospacedDigit().foregroundStyle(.secondary)
-                        }
-                        if model.player.duration > 0 {
-                            ProgressView(value: min(model.player.position, model.player.duration), total: model.player.duration)
-                                .accessibilityLabel("Position im Titel")
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.contentShape(Rectangle())
-            }.buttonStyle(.plain)
-                .accessibilityLabel("Weiterhören: \(track.title), \(track.artistText)")
-                .accessibilityHint("Öffnet den Player")
-            Button { model.player.toggle() } label: {
-                Image(systemName: model.player.isPlaybackRequested ? "pause.fill" : "play.fill").font(.system(size: 20, weight: .semibold))
-                    .frame(width: 48, height: 48).background(.tint, in: Circle()).foregroundStyle(.white).contentShape(Circle())
-            }.buttonStyle(.plain)
-                .accessibilityLabel(model.player.isPlaybackRequested ? "Wiedergabe pausieren" : "Wiedergabe fortsetzen")
-        }.padding(14).background(listenSurface, in: RoundedRectangle(cornerRadius: 18))
     }
 }

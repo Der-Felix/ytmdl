@@ -362,22 +362,26 @@ jobs:
           else
             exit 1
           fi
-      - name: Export failed fixture screenshots
-        if: failure()
+      - name: Export fixture screenshots
+        # Always: the attached screenshots are the review of every UI change,
+        # not only a diagnosis of failures.
+        if: always()
         run: |
           if [ -d "$RUNNER_TEMP/apple-ui-results.xcresult" ]; then
             # Screenshots attached to test activities are omitted by
             # --only-failures on this Xcode version. Export PNGs from the
             # fixture run; upload excludes manifests and issue descriptions.
-            xcrun xcresulttool export attachments --filter '*.png' --path "$RUNNER_TEMP/apple-ui-results.xcresult" --output-path "$RUNNER_TEMP/apple-ui-failure-images"
+            xcrun xcresulttool export attachments --filter '*.png' --path "$RUNNER_TEMP/apple-ui-results.xcresult" --output-path "$RUNNER_TEMP/apple-ui-images"
           fi
-      - name: Preserve fixture screenshots for diagnosis
-        if: failure()
+      - name: Preserve fixture screenshots
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: apple-ui-failure-${{ matrix.device }}
-          # Only PNGs from loopback fixture tests: no raw result bundles,
-          # simulator diagnostics, attachment manifests or logs.
-          path: ${{ runner.temp }}/apple-ui-failure-images/**/*.png
+          name: apple-ui-screens-${{ matrix.device }}
+          # Only PNGs from loopback fixture tests and the manifest that names
+          # them: no raw result bundles, simulator diagnostics or logs.
+          path: |
+            ${{ runner.temp }}/apple-ui-images/**/*.png
+            ${{ runner.temp }}/apple-ui-images/**/manifest.json
           if-no-files-found: ignore
           retention-days: 7
