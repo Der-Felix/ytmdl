@@ -219,7 +219,7 @@ struct CollectionActionRow: View {
 }
 
 /// "Einreihen": the queue actions for a whole collection.
-func queueCollectionAction(_ model: AppModel, tracks: [Track], id: String) -> CollectionAction {
+@MainActor func queueCollectionAction(_ model: AppModel, tracks: [Track], id: String) -> CollectionAction {
     let full = model.player.queue.tracks.count >= PlaybackQueue.limit
     return CollectionAction(id: id, title: "Einreihen", label: "Warteschlange", symbol: "text.badge.plus",
         hint: "Als Nächstes spielen oder an die Warteschlange anhängen", enabled: !tracks.isEmpty && !full,
