@@ -242,6 +242,10 @@ public struct PlaybackQueue: Equatable, Sendable {
     /// What the context entries were started from; nil when unknown.
     public private(set) var context: QueueContext?
     public private(set) var index: Int = 0
+    /// Shuffle is on: the upcoming entries of the started context were
+    /// shuffled and `unshuffledOrder` keeps their order to return to.
+    public private(set) var isShuffled = false
+    private var unshuffledOrder: [String] = []
     public var current: Track? { tracks.indices.contains(index) ? tracks[index] : nil }
     /// Tracks after the current one.
     public var remaining: Int { max(0, tracks.count - 1 - index) }
@@ -273,6 +277,7 @@ public struct PlaybackQueue: Equatable, Sendable {
         }
         self.context = self.tracks.isEmpty ? nil : context
         index = selected - lowerBound
+        isShuffled = false; unshuffledOrder = []
     }
     /// Where "Zur Warteschlange" inserts: after the user entries that directly
     /// follow the current track, so queued tracks play before the rest of the
@@ -384,6 +389,46 @@ public struct PlaybackQueue: Equatable, Sendable {
         }
         tracks.replaceSubrange((index + 1)..., with: ordered.map { $0.0 })
         origins.replaceSubrange((index + 1)..., with: ordered.map { $0.1 })
+    }
+    /// Shuffle as a mode ("Zufall" in the iPhone player and queue). On: the
+    /// upcoming context entries are shuffled like `shuffleUpcoming` and their
+    /// order before is kept. Off: those entries go back to that order, in the
+    /// places context entries hold now; entries the order does not know (added
+    /// since) follow them in their current order. Queued and autoplay entries
+    /// keep their places either way. A new queue starts with shuffle off.
+    public mutating func setShuffle(_ enabled: Bool) {
+        guard enabled != isShuffled else { return }
+        if enabled {
+            unshuffledOrder = upcomingContextPositions.map { tracks[$0].id }
+            isShuffled = true
+            shuffleUpcoming()
+        } else {
+            restoreContextOrder()
+            isShuffled = false; unshuffledOrder = []
+        }
+    }
+    private var upcomingContextPositions: [Int] {
+        guard index + 1 < tracks.count else { return [] }
+        return (index + 1..<tracks.count).filter { origin(at: $0) == .context }
+    }
+    private mutating func restoreContextOrder() {
+        alignOrigins()
+        let positions = upcomingContextPositions
+        guard positions.count > 1 else { return }
+        // Duplicate IDs take the earliest free rank, so each occurrence keeps one place.
+        var ranks: [String: [Int]] = [:]
+        for (rank, id) in unshuffledOrder.enumerated() { ranks[id, default: []].append(rank) }
+        var keyed: [(rank: Int, offset: Int, track: Track)] = []
+        for (offset, position) in positions.enumerated() {
+            let track = tracks[position]
+            if var free = ranks[track.id], !free.isEmpty {
+                keyed.append((free.removeFirst(), offset, track)); ranks[track.id] = free
+            } else {
+                keyed.append((Int.max, offset, track))
+            }
+        }
+        keyed.sort { $0.rank != $1.rank ? $0.rank < $1.rank : $0.offset < $1.offset }
+        for (slot, position) in positions.enumerated() { tracks[position] = keyed[slot].track }
     }
     private mutating func alignOrigins() {
         if origins.count < tracks.count { origins += Array(repeating: .context, count: tracks.count - origins.count) }

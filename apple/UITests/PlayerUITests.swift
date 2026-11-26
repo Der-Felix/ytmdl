@@ -41,29 +41,34 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "Native library")
     }
     #if os(iOS)
+    /// Opens "Jetzt läuft" from the mini player and waits for its transport.
+    @MainActor private func openPlayer(_ app: XCUIApplication) {
+        let mini = app.buttons["mobile-mini-player-open"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 20))
+        mini.tap()
+        XCTAssertTrue(app.buttons["mobile-player-toggle"].waitForExistence(timeout: 10))
+    }
+    /// Opens the queue sheet from the player and waits for its first upcoming row.
+    @MainActor private func openQueue(_ app: XCUIApplication) {
+        let button = app.buttons["mobile-player-queue"]
+        for _ in 0..<6 where !button.isHittable { app.swipeUp() }
+        button.tap()
+        if !app.buttons["mobile-queue-track-1"].waitForExistence(timeout: 10) { print(app.debugDescription) }
+        XCTAssertTrue(app.buttons["mobile-queue-track-1"].exists)
+    }
     @MainActor func testQueueManagementAndNormalizationSettingsWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact player test requires iPhone.")
         let app = try app(pausedPlayer: true)
-        XCTAssertTrue(app.buttons["mobile-mini-player-open"].waitForExistence(timeout: 20))
-        app.buttons["mobile-mini-player-open"].tap()
-        let row = app.buttons["mobile-queue-track-0"]
-        for _ in 0..<5 { if row.isHittable { break }; app.swipeUp() }
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
-        let title = row.label
-        app.buttons["mobile-queue-actions-0"].tap()
-        XCTAssertTrue(app.buttons["Nach unten"].waitForExistence(timeout: 5))
-        app.buttons["Nach unten"].tap()
-        XCTAssertEqual(app.buttons["mobile-queue-track-1"].label, title)
-        XCTAssertTrue(app.buttons["mobile-player-toggle"].label == "Abspielen")
-        // After scrolling to the queue, "Werkzeuge" can sit under the player's
-        // navigation bar: the test system still calls it hittable, but the tap
-        // lands on the bar. Scroll back until it is clear of the bar.
+        openPlayer(app)
+        XCTAssertEqual(app.buttons["mobile-player-toggle"].label, "Abspielen")
+        // Everything of the player fits at default text size: no scrolling to
+        // reach the tools, and nothing sits under the navigation bar.
         let werkzeuge = app.buttons["Werkzeuge"]
         let playerBar = app.navigationBars["Jetzt läuft"]
-        for _ in 0..<6 {
-            if werkzeuge.isHittable && werkzeuge.frame.minY > playerBar.frame.maxY + 8 { break }
-            app.swipeDown()
-        }
+        XCTAssertTrue(werkzeuge.isHittable)
+        XCTAssertGreaterThan(werkzeuge.frame.minY, playerBar.frame.maxY)
+        XCTAssertLessThanOrEqual(werkzeuge.frame.maxY, app.frame.maxY)
+        attach(app, name: "Player paused")
         let normalization = app.switches["playback-normalization"]
         werkzeuge.tap()
         if !normalization.waitForExistence(timeout: 5) {
@@ -88,17 +93,122 @@ final class PlayerUITests: XCTestCase {
         app.buttons["Fertig"].tap()
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: normalization)
         waitForExpectations(timeout: 10)
+
+        openQueue(app)
+        attach(app, name: "Queue sheet")
+        // Moving an upcoming row down from its menu.
+        let title = app.buttons["mobile-queue-track-1"].label
+        app.buttons["mobile-queue-actions-1"].tap()
+        XCTAssertTrue(app.buttons["Nach unten"].waitForExistence(timeout: 5))
+        app.buttons["Nach unten"].tap()
+        XCTAssertTrue(app.buttons["mobile-queue-track-2"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["mobile-queue-track-2"].label, title)
+        // "Als Nächstes spielen" moves a later row up into its own section,
+        // right after the current title. (The row's context menu offers the
+        // same items; a long press is left out here because it also lifts the
+        // row for dragging.)
+        let later = app.buttons["mobile-queue-track-4"]
+        XCTAssertTrue(later.waitForExistence(timeout: 5))
+        let laterTitle = later.label
+        app.buttons["mobile-queue-actions-4"].tap()
+        let playNext = app.buttons["Als Nächstes spielen"].firstMatch
+        XCTAssertTrue(playNext.waitForExistence(timeout: 5))
+        playNext.tap()
+        expectation(for: NSPredicate(format: "label == %@", laterTitle), evaluatedWith: app.buttons["mobile-queue-track-1"])
+        waitForExpectations(timeout: 5)
+        let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Als Nächstes")).firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 5), "The queued title gets the section \"Als Nächstes\".")
+        attach(app, name: "Queue with queued title")
+        // The modes at the top switch and say so.
+        let shuffle = app.buttons["mobile-queue-shuffle"]
+        XCTAssertEqual(shuffle.value as? String, "Aus")
+        shuffle.tap()
+        XCTAssertEqual(shuffle.value as? String, "Ein")
+        attach(app, name: "Queue shuffled")
+        shuffle.tap()
+        XCTAssertEqual(shuffle.value as? String, "Aus")
+        // Clearing what follows can be undone.
         let tools = app.buttons["mobile-queue-tools"]
-        for _ in 0..<5 { if tools.isHittable { break }; app.swipeUp() }
+        tools.tap()
+        XCTAssertTrue(app.buttons["Nächste leeren"].waitForExistence(timeout: 5))
+        app.buttons["Nächste leeren"].tap()
+        let undo = app.buttons["queue-undo"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["mobile-queue-track-1"].exists)
+        attach(app, name: "Queue cleared with undo")
+        undo.tap()
+        XCTAssertTrue(app.buttons["mobile-queue-track-1"].waitForExistence(timeout: 5))
         tools.tap()
         XCTAssertTrue(app.buttons["Als Playlist speichern"].waitForExistence(timeout: 5))
         app.buttons["Als Playlist speichern"].tap()
         XCTAssertTrue(app.buttons["Erstellen und Titel hinzufügen"].waitForExistence(timeout: 5))
         app.navigationBars["Zur Playlist hinzufügen"].buttons["Schließen"].tap()
+        let done = app.buttons["mobile-queue-done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        done.tap()
         let close = app.navigationBars["Jetzt läuft"].buttons["Schließen"]
         XCTAssertTrue(close.waitForExistence(timeout: 10))
         close.tap()
         XCTAssertTrue(app.buttons["mobile-mini-player-open"].isHittable)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
+    @MainActor func testPlayerModesLyricsAndArtistLinkWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact player test requires iPhone.")
+        let app = try app(pausedPlayer: true)
+        openPlayer(app)
+        for id in ["mobile-player-scrubber", "mobile-player-volume", "mobile-player-airplay", "mobile-player-favorite",
+                   "mobile-player-lyrics", "mobile-player-sleep", "mobile-player-tools", "mobile-player-queue"] {
+            XCTAssertTrue(app.descendants(matching: .any)[id].firstMatch.exists, id)
+        }
+        XCTAssertTrue(app.staticTexts["playbackRemaining"].exists)
+        for id in ["mobile-player-shuffle", "mobile-player-previous", "mobile-player-toggle", "mobile-player-next", "mobile-player-repeat"] {
+            let control = app.buttons[id]
+            XCTAssertTrue(control.isHittable, id)
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44, id)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44, id)
+        }
+        let shuffle = app.buttons["mobile-player-shuffle"], repeatButton = app.buttons["mobile-player-repeat"]
+        XCTAssertEqual(shuffle.value as? String, "Aus")
+        shuffle.tap()
+        XCTAssertEqual(shuffle.value as? String, "Ein")
+        XCTAssertEqual(repeatButton.value as? String, "Wiederholung aus")
+        repeatButton.tap()
+        XCTAssertEqual(repeatButton.value as? String, "Warteschlange wiederholen")
+        attach(app, name: "Player with shuffle and repeat on")
+        repeatButton.tap()
+        XCTAssertEqual(repeatButton.value as? String, "Einzeltitel wiederholen")
+        repeatButton.tap()
+        XCTAssertEqual(repeatButton.value as? String, "Wiederholung aus")
+        shuffle.tap()
+        XCTAssertEqual(shuffle.value as? String, "Aus")
+        // Lyrics take the cover's place and give it back.
+        app.buttons["mobile-player-lyrics"].tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Durch die Stadt bei Nacht")).firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["mobile-player-cover"].exists)
+        attach(app, name: "Player lyrics")
+        app.buttons["mobile-player-lyrics"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["mobile-player-cover"].waitForExistence(timeout: 5))
+        // The sleep timer is one menu away and shows that it runs.
+        app.buttons["mobile-player-sleep"].tap()
+        let fifteen = app.buttons["15 Minuten"].firstMatch
+        XCTAssertTrue(fifteen.waitForExistence(timeout: 5))
+        fifteen.tap()
+        expectation(for: NSPredicate(format: "value BEGINSWITH %@", "Endet um"), evaluatedWith: app.buttons["mobile-player-sleep"])
+        waitForExpectations(timeout: 5)
+        app.buttons["mobile-player-sleep"].tap()
+        let off = app.buttons["Aus"].firstMatch
+        XCTAssertTrue(off.waitForExistence(timeout: 5))
+        off.tap()
+        // The artist opens its page in the tab the player was opened from.
+        let artist = app.buttons["mobile-player-artist"]
+        XCTAssertTrue(artist.exists)
+        XCTAssertEqual(artist.label, "Nordlicht")
+        artist.tap()
+        XCTAssertTrue(app.navigationBars["Nordlicht"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.navigationBars["Jetzt läuft"].exists)
+        XCTAssertTrue(app.buttons["mobile-mini-player-open"].isHittable)
+        attach(app, name: "Artist opened from the player")
+        XCTAssertFalse(app.buttons["Pause"].exists)
     }
 
     @MainActor func testWidgetLinksOpenDestinationsWithoutPlayback() throws {
@@ -159,14 +269,25 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Schließen"].firstMatch.isHittable)
         let previous = app.buttons["mobile-player-previous"]
         for _ in 0..<6 where !previous.isHittable { app.swipeUp() }
-        for id in ["mobile-player-shuffle", "mobile-player-previous", "mobile-player-next", "mobile-player-repeat"] {
+        // Fixed-size targets: modes 44 pt, skips 64 pt, never growing with text.
+        for (id, largest) in [("mobile-player-shuffle", 50.0), ("mobile-player-previous", 72.0), ("mobile-player-next", 72.0), ("mobile-player-repeat", 50.0)] {
             let control = app.buttons[id]
             XCTAssertTrue(control.isHittable, id)
             XCTAssertGreaterThanOrEqual(control.frame.width, 44, id)
             XCTAssertGreaterThanOrEqual(control.frame.height, 44, id)
-            XCTAssertLessThanOrEqual(control.frame.height, 50, id)
+            XCTAssertLessThanOrEqual(control.frame.height, largest, id)
         }
         attach(app, name: "Accessible large player")
+        // The rest of the player scrolls into view, the queue opens from it.
+        let queueButton = app.buttons["mobile-player-queue"]
+        for _ in 0..<6 where !queueButton.isHittable { app.swipeUp() }
+        XCTAssertTrue(queueButton.isHittable)
+        attach(app, name: "Accessible large player scrolled")
+        queueButton.tap()
+        XCTAssertTrue(app.buttons["mobile-queue-done"].waitForExistence(timeout: 10))
+        attach(app, name: "Accessible large queue")
+        app.buttons["mobile-queue-done"].tap()
+        XCTAssertTrue(app.buttons["Schließen"].firstMatch.waitForExistence(timeout: 10))
         app.buttons["Schließen"].firstMatch.tap()
         XCTAssertTrue(mini.isHittable)
         XCTAssertFalse(app.buttons["Pause"].exists)
@@ -553,15 +674,26 @@ final class PlayerUITests: XCTestCase {
     @MainActor func testTabletPlayerControlsFitWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tablet layout requires iPad.")
         let app = try app(pausedPlayer: true)
-        let mini = app.buttons["Player öffnen: Nachtfahrt"].firstMatch
+        let mini = app.buttons["mobile-mini-player-open"].firstMatch
         XCTAssertTrue(mini.waitForExistence(timeout: 20))
         XCTAssertTrue(mini.isHittable)
+        XCTAssertTrue(mini.label.hasPrefix("Player öffnen: Nachtfahrt"))
+        XCTAssertLessThanOrEqual(mini.frame.width, 640, "The tablet mini player keeps a limited width.")
+        attach(app, name: "Tablet mini player")
         mini.tap()
         XCTAssertTrue(app.navigationBars["Jetzt läuft"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["mobile-player-toggle"].isHittable, "Transport must fit the tablet sheet without scrolling.")
         XCTAssertTrue(app.buttons["Werkzeuge"].firstMatch.isHittable)
+        let cover = app.descendants(matching: .any)["mobile-player-cover"]
+        XCTAssertTrue(cover.exists)
+        XCTAssertLessThanOrEqual(cover.frame.width, 421, "The cover stops growing on wide sheets.")
         XCTAssertFalse(app.buttons["Pause"].exists)
         attach(app, name: "Tablet player controls without audio")
+        app.buttons["mobile-player-queue"].tap()
+        XCTAssertTrue(app.buttons["mobile-queue-track-1"].waitForExistence(timeout: 10))
+        attach(app, name: "Tablet queue")
+        app.buttons["mobile-queue-done"].tap()
+        XCTAssertTrue(app.buttons["Schließen"].firstMatch.waitForExistence(timeout: 10))
         app.buttons["Schließen"].firstMatch.tap()
         XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 5))
     }
