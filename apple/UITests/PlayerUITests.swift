@@ -1344,7 +1344,8 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(undo.waitForExistence(timeout: 5), "The confirmation offers Rückgängig.")
         attach(app, name: "Weniger davon mit Rückgängig")
         undo.tap()
-        let notice = app.descendants(matching: .any)["app-notice-text"]
+        // The confirmation without an action is one element, "app-notice".
+        let notice = app.descendants(matching: .any)["app-notice"]
         expectation(for: NSPredicate(format: "label CONTAINS %@", "wieder vorgeschlagen"), evaluatedWith: notice)
         waitForExpectations(timeout: 10)
         // Again, and this time it stays.
