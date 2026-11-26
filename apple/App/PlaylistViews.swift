@@ -284,9 +284,14 @@ struct AddToPlaylistSheet: View {
         working = true; failure = nil; defer { working = false }
         do {
             let detail = try await model.changePlaylistTracks(playlist, ids: uniqueTracks.map(\.id))
-            guard model.client === client else { return }; saved(detail.playlist(fallback: playlist)); dismiss()
+            guard model.client === client else { return }; saved(detail.playlist(fallback: playlist)); confirm(playlist.name); dismiss()
         } catch is CancellationError { }
         catch { if model.client === client { failure = playlistFailure(error) } }
+    }
+    /// The short confirmation once the server has the titles.
+    private func confirm(_ playlistName: String) {
+        model.announce(createLabel == "Erstellen und Titel hinzufügen" ? "Zur Playlist „\(playlistName)“ hinzugefügt" : "Als Playlist „\(playlistName)“ gespeichert",
+                       symbol: "music.note.list")
     }
     private func createAndAdd() async {
         guard let client = model.client, !working else { return }
@@ -296,7 +301,7 @@ struct AddToPlaylistSheet: View {
             let playlist = try await model.createPlaylist(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: "", rules: nil)
             created = true
             let detail = try await model.changePlaylistTracks(playlist, ids: uniqueTracks.map(\.id))
-            guard model.client === client else { return }; saved(detail.playlist(fallback: playlist)); dismiss()
+            guard model.client === client else { return }; saved(detail.playlist(fallback: playlist)); confirm(playlist.name); dismiss()
         } catch is CancellationError { }
         catch { if model.client === client { failure = (created ? "Die Playlist wurde erstellt. Die Titel wurden nicht hinzugefügt; wähle die Playlist unten zum erneuten Versuch. " : "") + playlistFailure(error) } }
     }

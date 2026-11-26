@@ -29,7 +29,8 @@ enum PlayerMetrics {
     static func reserved(for size: DynamicTypeSize) -> CGFloat {
         size.isAccessibilitySize ? 600 : size > .large ? 400 : 350
     }
-    static let queueArtwork: CGFloat = 44
+    /// The queue's rows have the size of every other track row.
+    static let queueArtwork: CGFloat = ListenMetrics.rowArtwork
 }
 
 /// The mini player in the tab bar's accessory (iPhone) or above the content
@@ -153,6 +154,8 @@ struct MobilePlayerView: View {
         }
         // While the queue is open it shows "Rückgängig" itself.
         .safeAreaInset(edge: .bottom, spacing: 0) { if !queueShown { QueueUndoBar(player: model.player) } }
+        // Confirmations of the "…" menu ("Zur Playlist hinzugefügt").
+        .overlay(alignment: .top) { if !queueShown { NoticeBanner(model: model) } }
         .sheet(isPresented: $queueShown) { MobileQueueSheet(model: model) }
         .sheet(isPresented: $tools) {
             NavigationStack { MobileAudioSettings(model: model).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fertig") { tools = false } } } }
@@ -631,6 +634,7 @@ struct MobileQueueView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { QueueUndoBar(player: model.player) }
+        .overlay(alignment: .top) { NoticeBanner(model: model) }
         .sheet(isPresented: $adding) { AddToPlaylistSheet(model: model, tracks: playlistSelection) }
     }
 
@@ -652,7 +656,7 @@ struct MobileQueueView: View {
                 } header: { header(run, queue: queue) }
             }
             if filtering && visible.isEmpty {
-                ContentUnavailableView.search(text: query)
+                NoMatchesView(query: query)
             } else if !filtering && queue.remaining == 0 {
                 Section {
                     Text(model.player.autoplay ? "Danach sucht Autoplay ähnliche Titel aus deiner Bibliothek."
@@ -747,11 +751,15 @@ struct MobileQueueView: View {
                 .accessibilityHint(isCurrent ? "" : "Spielt diesen Titel")
                 .accessibilityIdentifier("mobile-queue-track-\(position)")
             Menu { actions(row, queue: queue) } label: {
-                Image(systemName: "ellipsis").frame(width: PlayerMetrics.target, height: PlayerMetrics.target).contentShape(Rectangle())
+                Image(systemName: "ellipsis").foregroundStyle(.secondary)
+                    .frame(width: PlayerMetrics.target, height: PlayerMetrics.target).contentShape(Rectangle())
             }.fixedSize()
                 .accessibilityLabel("Warteschlangen-Aktionen für \(track.title)")
                 .accessibilityIdentifier("mobile-queue-actions-\(position)")
         }
+        // The compact height of every track row, not the list's default.
+        .frame(minHeight: PlayerMetrics.queueArtwork)
+        .listRowInsets(ListenMetrics.rowInsets)
         .opacity(row.section == .played ? 0.6 : 1)
         .listRowBackground(isCurrent ? Color.accentColor.opacity(0.12) : nil)
         .moveDisabled(!queue.isUpcoming(position))

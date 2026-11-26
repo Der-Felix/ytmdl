@@ -39,16 +39,20 @@ struct MobileActionStyle: ButtonStyle {
         #endif
     }
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.headline).fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 14).padding(.vertical, 12).frame(maxWidth: .infinity, minHeight: 52)
             .foregroundStyle(prominent ? Color.white : Color.primary)
             .background {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: listenSurfaceRadius, style: .continuous)
                     .fill(prominent ? AnyShapeStyle(.tint) : AnyShapeStyle(collectionSurface))
             }
+            .contentShape(RoundedRectangle(cornerRadius: listenSurfaceRadius, style: .continuous))
+            // Press feedback: a slight shrink (not with Reduce Motion) and dimming.
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .opacity(!enabled ? 0.45 : configuration.isPressed ? 0.75 : 1)
-            .contentShape(RoundedRectangle(cornerRadius: 16))
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
     }
 }
 
@@ -289,12 +293,10 @@ struct OfflineLibraryView: View {
             }.buttonStyle(.plain).disabled(!available)
                 .accessibilityIdentifier("offline-track-" + record.track.id)
             Menu {
-                Button("Als Nächstes abspielen", systemImage: "text.insert") {
-                    if let client = model.client { model.player.insertNext(record.track, client: client) }
-                }.disabled(!available || model.player.queue.tracks.count >= 500)
-                Button("Zur Warteschlange hinzufügen", systemImage: "text.badge.plus") {
-                    if let client = model.client { model.player.append(record.track, client: client) }
-                }.disabled(!available || model.player.queue.tracks.count >= 500)
+                Button("Als Nächstes spielen", systemImage: "text.insert") { model.enqueue([record.track], next: true) }
+                    .disabled(!available || model.player.queue.tracks.count >= 500)
+                Button("Zur Warteschlange", systemImage: "text.badge.plus") { model.enqueue([record.track], next: false) }
+                    .disabled(!available || model.player.queue.tracks.count >= 500)
                 if record.state != .ready {
                     if record.state == .downloading || record.state == .queued { Button("Pausieren", systemImage: "pause") { model.offline.pause(record.track.id) } }
                     else { Button("Erneut herunterladen", systemImage: "arrow.clockwise") { model.offline.enqueue([record.track]) }.disabled(model.offlineMode) }

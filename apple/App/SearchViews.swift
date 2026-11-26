@@ -81,20 +81,21 @@ struct MobileSearchView: View {
                     .listRowSeparator(.hidden)
             }
         } else {
+            // Section titles are rows, not headers: in the start colour and
+            // never pinned above the tab bar's edge.
             Section {
-                ForEach(recent.entries, id: \.self) { entry in recentRow(entry) }
-            } header: {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Zuletzt gesucht").font(.title3.bold()).foregroundStyle(.primary).accessibilityAddTraits(.isHeader)
-                    Spacer(minLength: 8)
+                CollectionSectionTitle(title: "Zuletzt gesucht") {
                     Button("Alle löschen") { recent.clear(); saveRecent() }
+                        .buttonStyle(.borderless)
                         .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
                         .accessibilityLabel("Suchverlauf löschen").accessibilityIdentifier("search-recent-clear")
-                }.textCase(nil)
+                }.sectionTitleRow()
+                ForEach(recent.entries, id: \.self) { entry in recentRow(entry).listRowInsets(ListenMetrics.rowInsets) }
             }
         }
         if !genres.isEmpty {
             Section {
+                CollectionSectionTitle(title: "Stöbern").sectionTitleRow()
                 let shown = allGenres ? genres : Array(genres.prefix(12))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: textSize.isAccessibilitySize ? 280 : 150), spacing: ListenMetrics.tileGap)],
                           spacing: ListenMetrics.tileGap) {
@@ -111,8 +112,6 @@ struct MobileSearchView: View {
                     Button(allGenres ? "Weniger Genres" : "Alle \(genres.count) Genres") { allGenres.toggle() }
                         .font(.subheadline.weight(.semibold)).frame(minHeight: 44).listRowSeparator(.hidden)
                 }
-            } header: {
-                Text("Stöbern").font(.title3.bold()).foregroundStyle(.primary).textCase(nil).accessibilityAddTraits(.isHeader)
             }
         }
     }
@@ -138,7 +137,7 @@ struct MobileSearchView: View {
                 ContentUnavailableView {
                     Label("Suche fehlgeschlagen", systemImage: "exclamationmark.triangle")
                 } description: { Text(failure) } actions: {
-                    Button("Erneut versuchen", systemImage: "arrow.clockwise") { attempt += 1 }
+                    Button("Erneut laden", systemImage: "arrow.clockwise") { attempt += 1 }
                         .buttonStyle(.borderedProminent).accessibilityIdentifier("search-retry")
                 }.listRowSeparator(.hidden)
             }
@@ -164,54 +163,57 @@ struct MobileSearchView: View {
     @ViewBuilder private func groups(_ results: SearchResults, playlists: [Playlist]) -> some View {
         if let hit = SearchMatch.topHit(query: resultsQuery, artists: results.artists.map(\.name), releases: results.releases.map(\.title),
                                         tracks: results.tracks.map(\.title), playlists: playlists.map(\.name)) {
-            Section { topHit(hit, results: results, playlists: playlists) } header: {
-                HStack(spacing: 8) {
-                    Text("Top-Treffer").font(.title3.bold()).foregroundStyle(.primary).accessibilityAddTraits(.isHeader)
+            Section {
+                CollectionSectionTitle(title: "Top-Treffer") {
                     // A newer search is on its way: the old results stay in place.
                     if loading { ProgressView().controlSize(.small).accessibilityLabel("Suche läuft") }
-                    Spacer()
-                }.textCase(nil)
+                }.sectionTitleRow()
+                topHit(hit, results: results, playlists: playlists).listRowInsets(ListenMetrics.rowInsets)
             }
         }
         if !results.tracks.isEmpty {
             Section {
+                header("Titel", count: results.tracks.count, group: .tracks).sectionTitleRow()
                 ForEach(Array(shown(results.tracks, .tracks).enumerated()), id: \.offset) { index, track in
-                    TrackRow(model: model, track: track) { play(results.tracks, start: index) }
+                    TrackRow(model: model, track: track) { play(results.tracks, start: index) }.listRowInsets(ListenMetrics.rowInsets)
                 }
-            } header: { header("Titel", count: results.tracks.count, group: .tracks) }
+            }
         }
         if !results.releases.isEmpty {
             Section {
+                header("Alben", count: results.releases.count, group: .releases).sectionTitleRow()
                 ForEach(shown(results.releases, .releases)) { release in
                     NavigationLink(value: CollectionKind.release(release)) {
                         ResultRow(title: release.title, detail: releaseDetail(release)) {
-                            ArtworkView(model: model, kind: "releases", id: release.id, cornerRadius: 8)
+                            ArtworkView(model: model, kind: "releases", id: release.id, cornerRadius: 6)
                         }
-                    }
+                    }.listRowInsets(ListenMetrics.rowInsets)
                 }
-            } header: { header("Alben", count: results.releases.count, group: .releases) }
+            }
         }
         if !results.artists.isEmpty {
             Section {
+                header("Künstler", count: results.artists.count, group: .artists).sectionTitleRow()
                 ForEach(shown(results.artists, .artists)) { artist in
                     NavigationLink(value: CollectionKind.artist(artist)) {
                         ResultRow(title: artist.name, detail: artist.trackCount.map { "Künstler · \($0) Titel" } ?? "Künstler") {
                             ArtworkView(model: model, kind: "artists", id: artist.id).clipShape(Circle())
                         }
-                    }
+                    }.listRowInsets(ListenMetrics.rowInsets)
                 }
-            } header: { header("Künstler", count: results.artists.count, group: .artists) }
+            }
         }
         if !playlists.isEmpty {
             Section {
+                header("Playlists", count: playlists.count, group: .playlists, server: false).sectionTitleRow()
                 ForEach(shown(playlists, .playlists)) { playlist in
                     NavigationLink(value: CollectionKind.playlist(playlist)) {
                         ResultRow(title: playlist.name, detail: "Playlist · \(playlist.trackCount) Titel") {
                             MobileCollectionArtwork(model: model, tracks: model.playlistPreviews[playlist.id] ?? [], size: ListenMetrics.rowArtwork)
                         }
-                    }
+                    }.listRowInsets(ListenMetrics.rowInsets)
                 }
-            } header: { header("Playlists", count: playlists.count, group: .playlists, server: false) }
+            }
         }
     }
     @ViewBuilder private func topHit(_ hit: (kind: SearchMatch.Kind, index: Int), results: SearchResults, playlists: [Playlist]) -> some View {
@@ -267,14 +269,15 @@ struct MobileSearchView: View {
         let truncated = count > (Self.collapsed[group] ?? 5)
         let countText = server && count >= Self.serverLimit ? "\(count)+" : "\(count)"
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title).font(.title3.bold()).foregroundStyle(.primary).accessibilityAddTraits(.isHeader)
+            // The look of `CollectionSectionTitle`, plus the count.
+            Text(title).font(.title2.bold()).foregroundStyle(Color.primary).accessibilityAddTraits(.isHeader)
                 .accessibilityLabel("\(title), \(countText) Treffer")
             Text(countText).font(.subheadline).monospacedDigit().foregroundStyle(.secondary).accessibilityHidden(true)
             Spacer(minLength: 8)
             if truncated {
                 Button(expanded.contains(group) ? "Weniger" : "Alle anzeigen") {
                     if expanded.contains(group) { expanded.remove(group) } else { expanded.insert(group) }
-                }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                }.buttonStyle(.borderless).font(.subheadline.weight(.semibold)).frame(minHeight: 44)
                     .accessibilityIdentifier("search-show-all-" + group.rawValue)
             }
         }.textCase(nil)
@@ -283,15 +286,7 @@ struct MobileSearchView: View {
     private var skeleton: some View {
         Section {
             ForEach(0..<6, id: \.self) { _ in
-                HStack(spacing: 14) {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ListenMetrics.surface)
-                        .frame(width: ListenMetrics.rowArtwork, height: ListenMetrics.rowArtwork)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Capsule().fill(ListenMetrics.surface).frame(width: 180, height: 12)
-                        Capsule().fill(ListenMetrics.surface).frame(width: 110, height: 10)
-                    }
-                    Spacer()
-                }.padding(.vertical, 4).listRowSeparator(.hidden)
+                TrackRowSkeleton().listRowInsets(ListenMetrics.rowInsets).listRowSeparator(.hidden)
                     .accessibilityElement(children: .ignore).accessibilityLabel("Suche läuft")
             }
         }
@@ -361,13 +356,14 @@ private struct ResultRow<Artwork: View>: View {
     var detail: String
     @ViewBuilder var artwork: Artwork
     var body: some View {
-        HStack(spacing: 14) {
+        // The measures of a track row: 48 pt cover, 12 pt gap, 2 pt between lines.
+        HStack(spacing: 12) {
             artwork.frame(width: ListenMetrics.rowArtwork, height: ListenMetrics.rowArtwork)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.body.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
                 Text(detail).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }.frame(maxWidth: .infinity, alignment: .leading)
-        }.padding(.vertical, 2)
+        }
     }
 }
 

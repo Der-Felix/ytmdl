@@ -31,9 +31,22 @@ enum CollectionMetrics {
     static let readableWidth: CGFloat = 860
     /// Track numbers and the playing indicator.
     static let numberColumn: CGFloat = 28
-    static let rowArtwork: CGFloat = 48
+    /// The row cover and insets of every list (`ListenMetrics`).
+    static let rowArtwork: CGFloat = ListenMetrics.rowArtwork
     static let shelfCard: CGFloat = 148
-    static let rowInsets = EdgeInsets(top: 6, leading: ListenMetrics.pageMargin, bottom: 6, trailing: 4)
+    static let rowInsets = ListenMetrics.rowInsets
+    /// Insets of a section title written as a row: room above, none below
+    /// the gap to its first row.
+    static let titleInsets = EdgeInsets(top: 20, leading: ListenMetrics.pageMargin, bottom: 4, trailing: ListenMetrics.pageMargin)
+}
+
+extension View {
+    /// A section title (`CollectionSectionTitle`) as an ordinary list row
+    /// instead of a section header: it scrolls away like everything else,
+    /// never pins above the tab bar's hard edge and keeps the full colour.
+    func sectionTitleRow() -> some View {
+        listRowInsets(CollectionMetrics.titleInsets).listRowSeparator(.hidden).listRowBackground(Color.clear)
+    }
 }
 
 /// Centers a scrolling page in `CollectionMetrics.readableWidth` on wide
@@ -229,7 +242,8 @@ struct CollectionActionRow: View {
         ]))
 }
 
-/// The section title of a collection page.
+/// The section title of every list page (collection pages, search): the
+/// style of Start's section titles, with an optional trailing control.
 struct CollectionSectionTitle<Trailing: View>: View {
     var title: String
     @ViewBuilder var trailing: Trailing
@@ -237,10 +251,10 @@ struct CollectionSectionTitle<Trailing: View>: View {
         HStack(alignment: .firstTextBaseline) {
             // `Color.primary`, not `.primary`: inside a list header the
             // hierarchical style resolves against the header's dimmed colour.
-            Text(title).font(.title3.bold()).foregroundStyle(Color.primary).accessibilityAddTraits(.isHeader)
+            Text(title).font(.title2.bold()).foregroundStyle(Color.primary).accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             trailing
-        }.textCase(nil).padding(.top, 8)
+        }.textCase(nil)
     }
 }
 extension CollectionSectionTitle where Trailing == EmptyView {
@@ -283,7 +297,7 @@ struct TrackRowSkeleton: View {
                 Capsule().fill(ListenMetrics.surface).frame(width: 96, height: 10)
             }
             Spacer()
-        }.frame(minHeight: numbered ? 44 : 56).accessibilityHidden(true)
+        }.frame(minHeight: numbered ? 44 : CollectionMetrics.rowArtwork).accessibilityHidden(true)
     }
 }
 #endif

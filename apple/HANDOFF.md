@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.5.2, build 41
+# Apple app handoff — preview 0.5.3, build 42
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,34 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 42: iPhone and iPad polish (CI only, not installed)
+
+Builds on build 41; see FEATURES.md "iPhone and iPad polish (build 42)". No new files.
+
+- **Tab roots:** `RootView.mobileTab` passes `tabRoot: true` through `routedContent`/`content`
+  to `MobileHomeView`, `MobileLibraryView` and `PlaylistListView`. Those show
+  `MobilePageHeader` and apply `TabRootChrome` (navigation bar hidden, page colour behind the
+  status bar). The same views pushed from elsewhere keep the system bar. The settings left the
+  iPhone tab bar; Start's header links `Destination.settings` (`home-settings`).
+- **Feedback:** `AppModel.announce(_:symbol:)` sets `notice` (`AppNotice`, cleared after 2.4 s);
+  `AppModel.enqueue` announces, so iOS track rows, `TrackQuickActions` and offline rows go
+  through it. `AddToPlaylistSheet` announces after the server confirmed. `NoticeBanner` sits
+  over the iPhone tab view, the iPad split view, offline mode, the player and the queue; the
+  tab view plays `.success` per notice and a light impact per `favoriteConfirmations`.
+- **Lists:** `CollectionSectionTitle` (title2, `Color.primary`) plus `.sectionTitleRow()` replace
+  section headers on album, artist and search pages; Künstler letters are rows too.
+  `ListenMetrics.rowArtwork` (48) and `rowInsets` are shared by `CollectionMetrics`,
+  `PlayerMetrics.queueArtwork`, search results and the mix page. `listenSurfaceRadius` is 12 on
+  iOS for `MobileActionStyle`, `MixTileStyle` and `ListenSectionFailure`; both styles scale to
+  0.97 when pressed unless Reduce Motion is on.
+- **Info.plist:** `CFBundleDevelopmentRegion` `de` and `CFBundleLocalizations` [`de`], so
+  system strings follow the app's language.
+- **UI tests:** `openSettings` replaces the Einstellungen tab; new
+  `testLightAppearanceScreensWithoutPlayback` (launch argument `-appearance light`).
+- **Not done:** the zoom transition from cards to pages (`navigationTransition(.zoom)`) was left
+  out: pages are also pushed from places without a matching source, and the fallback could not
+  be checked without a device.
 
 ## Build 41: iPhone and iPad library and collection pages (CI only, not installed)
 
