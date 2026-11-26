@@ -35,6 +35,50 @@ default branch; a tag triggers it from any commit), no sideloading tool was used
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
 
+## Build 43: Für dich, radio everywhere and Start anpassen (CI only, not installed)
+
+Builds on build 42; see FEATURES.md "Für dich, radio everywhere and Start anpassen (build 43)".
+New files: `App/ForYouViews.swift` (registered in the project like `CollectionPages.swift`:
+file reference, three build files, the iOS/macOS/tvOS source phases and the App group),
+`Sources/YTMDLCore/ForYou.swift` and `Tests/YTMDLCoreTests/ForYouTests.swift`.
+
+- **Core (`ForYou.swift`):** `MixGroup` (sections of Für dich from `PersonalMix.group`, new and
+  optional, else from the kind; unknown → `.more`), `RadioStation`/`RadioSeed`, `TopArtist`,
+  `HomeShelf`/`HomePin`/`HomeLayout` (versioned JSON, lenient decoding, `normalized` inserts new
+  shelves after their default predecessor) and `RecentSources`. `QueueSection.heading` names a
+  radio's sections "Radio: …" and "Mehr aus diesem Radio".
+- **Radio, how each kind is produced** (`GET /library/radio`, server 1.10.1):
+  - Song radio: `seed=<track>`; the queue is the track followed by the results.
+  - Genre radio: `genre=<name>` (the server's personal radio limited to the genre, no seed track).
+  - Artist radio (client-side): the seed is the listener's most played title of the artist
+    (`GET /library/artists/{id}/top-tracks`), else a random title of the artist
+    (`GET /library/tracks?artist_id=`); then `seed=<that track>`. The seed radio's tier 1 keeps
+    the artist and close artists first.
+  - Album radio (client-side): a random title of the album as `seed`.
+  - The chosen seed track is part of the context ID (`artist:<id>|<track>`,
+    `album:<id>|<track>`, `track:<id>`, `genre:<name>`), so top-ups and "Wieder einsteigen" use
+    the same seed. Switching to real server seeds later only changes `RadioStation.query`
+    (for example `artist=<id>`); `refillQueries` asks with the station's seed first, then
+    `seed=<last queue title>` (plus `genre` for a genre radio) when the seed has nothing new.
+  - `PlayerModel.radioStation` (from the queue context) keeps `requestAutoplayIfNeeded`,
+    `appendAutoplay` and the queue-end radio going with autoplay off; `AppModel.extendAutoplay`
+    and `continueRadio` use the station's queries. `RadioStation.startQueue` leaves out
+    `SessionPlayHistory` titles; the seed itself may repeat.
+- **App:** `AppModel` holds `homeLayout`/`recentSources` (loaded in `scopeListeningSession`,
+  saved under `HomeLayout.storageKey`/`RecentSources.storageKey`), `togglePin`, the radio entry
+  points and `PlayerModel.onQueueStarted` (fired by `play` without saved origins).
+  `MobileHomeView` renders `homeLayout.visibleShelves`, `ResumeCard` and the "Start anpassen"
+  link; `ForYouHubView` replaces `ForYouView` on iOS for `ForYouRoute`; `HomeEditorView` is a
+  list in permanent edit mode. `GenreTile` moved from `SearchViews.swift` to `ForYouViews.swift`.
+  The iOS collection page has a "…" toolbar menu (radio, pin) except for playlists, whose menu
+  gains the pin.
+- **UI tests:** `testForYouHubShowsSectionsAndOpensAMix`, `testRadioFromTrackRowAndArtistPageFillsTheQueue`,
+  `testStartEditorHidesAndReordersShelvesAcrossRelaunch` (drags a handle), `testPinAndUnpinAQuickAccessTile`
+  and `testTabletForYouAndStartEditor`. The fixture serves `/library/radio`, three more mixes
+  (one with the unknown kind `time_capsule` and the group `rewind`) and `sort=frequent` history.
+- **Not verifiable here:** drag-to-reorder and long-press menus on a real device, how a radio
+  sounds with a large library, VoiceOver's custom actions in the editor.
+
 ## Build 42: iPhone and iPad polish (CI only, not installed)
 
 Builds on build 41; see FEATURES.md "iPhone and iPad polish (build 42)". No new files.

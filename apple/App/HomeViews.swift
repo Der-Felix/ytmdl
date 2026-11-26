@@ -400,7 +400,9 @@ struct MobileHomeView: View {
                     Text(message).font(.callout).foregroundStyle(.red).padding(.horizontal, ListenMetrics.pageMargin)
                 }
                 ListenShelf {
-                    ForEach(feed.mixes.prefix(10)) { mix in MixCard(model: model, mix: mix, width: cardWidth) }
+                    ForEach(feed.mixes.prefix(10)) { mix in
+                        MixCard(model: model, mix: mix, width: cardWidth).contextMenu { PinToStartButton(model: model, pin: .mix(mix)) }
+                    }
                 }
             }
         case .idle, .loading:
@@ -803,6 +805,11 @@ struct HomeReleaseCard: View {
         // The button reads its texts as one label ("Title, Artist").
         }.buttonStyle(ListenPressStyle())
             .accessibilityHint("Öffnet das Album")
+            .contextMenu {
+                Button("Album-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startAlbumRadio(release) } }
+                    .disabled(model.offlineMode || model.listeningBusy)
+                PinToStartButton(model: model, pin: .album(release))
+            }
     }
 }
 
