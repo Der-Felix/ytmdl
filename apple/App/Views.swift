@@ -110,6 +110,8 @@ struct RootView: View {
             #if os(iOS)
             // Drag down to close; the grabber says so.
             .presentationDragIndicator(.visible)
+            // iPad: a tall page sheet, so the cover gets room; iPhone ignores it.
+            .presentationSizing(.page)
             #endif
         }
         .alert("YTMDL", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {

@@ -27,7 +27,7 @@ enum PlayerMetrics {
     /// Height everything below the cover needs at default text size; the
     /// cover takes the rest, so the player fits without scrolling.
     static func reserved(for size: DynamicTypeSize) -> CGFloat {
-        size.isAccessibilitySize ? 600 : size > .large ? 450 : 410
+        size.isAccessibilitySize ? 600 : size > .large ? 400 : 350
     }
     static let queueArtwork: CGFloat = 44
 }
@@ -52,7 +52,7 @@ struct MobileMiniPlayer: View {
                             Text(model.player.loading ? "Wird geladen …" : track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         // The system bottom accessory has a compact height;
                         // the expanded player shows fully scaled metadata.
-                        }.dynamicTypeSize(...DynamicTypeSize.xxxLarge).frame(maxWidth: .infinity, alignment: .leading)
+                        }.dynamicTypeSize(...DynamicTypeSize.xxLarge).frame(maxWidth: .infinity, alignment: .leading)
                     }.contentShape(Rectangle())
                 }.buttonStyle(.plain)
                     .accessibilityLabel("Player öffnen: \(track.title), \(track.artistText)")
@@ -123,13 +123,8 @@ struct MobilePlayerView: View {
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The cover's accent for active modes, lighter in dark mode so it stays
-    /// readable on the tinted background.
-    private var accent: Color {
-        guard coverColors, let color = model.player.artworkPalette?.accent.button else { return .pink }
-        let base = Color(red: color.red, green: color.green, blue: color.blue)
-        return scheme == .dark ? base.mix(with: .white, by: 0.35) : base
-    }
+    // Active states use the app tint, not a cover colour: a dark cover made
+    // "on" look dimmer than "off" (seen in the CI screenshots).
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
@@ -240,7 +235,7 @@ struct MobilePlayerView: View {
                 let favorite = model.favoriteIDs.contains(track.id)
                 Button { favoriteTaps += 1; Task { await model.toggleFavorite(track) } } label: {
                     Image(systemName: favorite ? "heart.fill" : "heart").font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(favorite ? accent : Color.primary)
+                        .foregroundStyle(favorite ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.primary))
                         .contentTransition(.symbolEffect(.replace))
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: favorite)
                         .frame(width: PlayerMetrics.target, height: PlayerMetrics.target).contentShape(Rectangle())
@@ -277,7 +272,7 @@ struct MobilePlayerView: View {
         let player = model.player, requested = player.isPlaybackRequested
         return HStack(spacing: 0) {
             PlayerModeButton(label: "Zufällige Wiedergabe", symbol: "shuffle", active: player.queue.isShuffled,
-                             value: player.queue.isShuffled ? "Ein" : "Aus", accent: accent) { player.setShuffle(!player.queue.isShuffled) }
+                             value: player.queue.isShuffled ? "Ein" : "Aus") { player.setShuffle(!player.queue.isShuffled) }
                 .accessibilityIdentifier("mobile-player-shuffle")
             Spacer(minLength: 4)
             transportButton("backward.fill", label: "Vorheriger Titel", id: "mobile-player-previous") { skipTaps += 1; player.previous() }
@@ -300,7 +295,7 @@ struct MobilePlayerView: View {
             transportButton("forward.fill", label: "Nächster Titel", id: "mobile-player-next") { skipTaps += 1; player.next() }
             Spacer(minLength: 4)
             PlayerModeButton(label: "Wiederholen", symbol: player.repeatMode.symbol, active: player.repeatMode.isActive,
-                             value: player.repeatMode.label, accent: accent) { player.setRepeat(player.repeatMode.next) }
+                             value: player.repeatMode.label) { player.setRepeat(player.repeatMode.next) }
                 .accessibilityIdentifier("mobile-player-repeat")
         }.foregroundStyle(.primary)
     }
@@ -327,7 +322,7 @@ struct MobilePlayerView: View {
         let sleeping = model.player.sleepMode != .off
         return HStack(spacing: 0) {
             PlayerModeButton(label: "Liedtext", symbol: showsLyrics ? "quote.bubble.fill" : "quote.bubble", active: showsLyrics,
-                             value: showsLyrics ? "Eingeblendet" : "Ausgeblendet", accent: accent) {
+                             value: showsLyrics ? "Eingeblendet" : "Ausgeblendet") {
                 if reduceMotion { showsLyrics.toggle() } else { withAnimation(.easeOut(duration: 0.2)) { showsLyrics.toggle() } }
             }.accessibilityIdentifier("mobile-player-lyrics")
             Spacer(minLength: 0)
@@ -336,19 +331,19 @@ struct MobilePlayerView: View {
                     ForEach(SleepMode.allCases) { Text($0.name).tag($0) }
                 }
             } label: {
-                PlayerModeLabel(symbol: sleeping ? "moon.zzz.fill" : "moon.zzz", active: sleeping, accent: accent)
+                PlayerModeLabel(symbol: sleeping ? "moon.zzz.fill" : "moon.zzz", active: sleeping)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Schlaf-Timer")
             .accessibilityValue(sleepValue)
             .accessibilityIdentifier("mobile-player-sleep")
             Spacer(minLength: 0)
-            PlayerModeButton(label: "Werkzeuge", symbol: "slider.horizontal.3", active: false, value: "", accent: accent) { tools = true }
+            PlayerModeButton(label: "Werkzeuge", symbol: "slider.horizontal.3", active: false, value: "") { tools = true }
                 .accessibilityHint("Klang, Equalizer, Überblendung und Visualizer")
                 .accessibilityIdentifier("mobile-player-tools")
             Spacer(minLength: 0)
             PlayerModeButton(label: "Warteschlange", symbol: "list.bullet", active: false,
-                             value: "\(model.player.queue.remaining) Titel danach", accent: accent) { queueShown = true }
+                             value: "\(model.player.queue.remaining) Titel danach") { queueShown = true }
                 .accessibilityIdentifier("mobile-player-queue")
         }
     }
@@ -456,10 +451,9 @@ struct PlayerModeButton: View {
     var symbol: String
     var active: Bool
     var value: String
-    var accent: Color
     var action: () -> Void
     var body: some View {
-        Button(action: action) { PlayerModeLabel(symbol: symbol, active: active, accent: accent) }
+        Button(action: action) { PlayerModeLabel(symbol: symbol, active: active) }
             .buttonStyle(ListenPressStyle())
             .accessibilityLabel(label)
             .accessibilityValue(value)
@@ -470,13 +464,12 @@ struct PlayerModeButton: View {
 struct PlayerModeLabel: View {
     var symbol: String
     var active: Bool
-    var accent: Color
     var body: some View {
         VStack(spacing: 3) {
             Image(systemName: symbol).font(.system(size: 20, weight: .semibold))
             Circle().frame(width: 4, height: 4).opacity(active ? 1 : 0)
         }
-        .foregroundStyle(active ? accent : Color.primary.opacity(0.75))
+        .foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.primary.opacity(0.65)))
         .frame(width: PlayerMetrics.target, height: PlayerMetrics.target)
         .contentShape(Rectangle())
     }
@@ -820,8 +813,8 @@ private struct QueueModeChip: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: symbol)
-                .font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
-                .padding(.horizontal, 10)
+                .font(.footnote.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                .padding(.horizontal, 6)
                 .frame(maxWidth: .infinity, minHeight: PlayerMetrics.target)
                 .foregroundStyle(active ? Color.white : Color.primary)
                 .background(active ? AnyShapeStyle(.tint) : AnyShapeStyle(Color(uiColor: .tertiarySystemFill)), in: Capsule())
