@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.4.3, build 37
+# Apple app handoff — preview 0.5.0, build 39
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,28 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 39: iPhone search, navigation and Start (CI only, not installed)
+
+Builds on build 38; see FEATURES.md "iPhone search, navigation and Start (build 39)".
+
+- **New files:** `App/SearchViews.swift` (`MobileSearchView`, iPhone and iPad; Mac and TV
+  keep `SearchView` in `Views.swift`) and `App/HomeViews.swift` (`MobileHomeView`, moved out
+  of `MobileListeningViews.swift`, plus `ListenMetrics`, the spacing/size tokens of both
+  pages, and the shelf, card and tile views). Both are registered for the three app targets
+  like `TVSoundSettings.swift`. Core: `Sources/YTMDLCore/SearchAndHome.swift` (`SearchMatch`
+  top hit, `RecentSearches`, `HomeGreeting`) with `SearchAndHomeTests`.
+- **Root:** the compact `TabView` uses the `Tab` API; Search is `Tab(role: .search)`. The
+  `open-mobile-player` toolbar item is gone; the mini player (`mobile-mini-player-open`)
+  opens the player, also by swiping up. `mobileSelection` returns a re-chosen tab to its
+  first page and raises `searchFocusRequest` for Search. `openGenre` sets the library's
+  genre filter and switches to Bibliothek.
+- **Feed:** `ListenFeed.frequent` (`/history?sort=frequent`) feeds "Am meisten gehört";
+  its failure only hides the shelf. `ContinueListeningCard` was removed (unused).
+- **Recent searches** live in UserDefaults under `recentSearches.<server>|<user id>`.
+- **CI:** `apple-ui` uploads the attached screenshots of every run as `apple-ui-screens-<device>`.
+- UI tests: `testMobileSearchGroupsResultsRemembersSearchesAndBrowsesGenres`; Start tests
+  look for `home-quick-favorites` instead of the old hero text.
 
 ## Build 37: Apple TV sound settings and queue filter (CI only, not installed)
 
@@ -187,7 +209,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.4.3 (37)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.5.0 (39)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness
@@ -316,7 +338,8 @@ Design reference: [Apple buttons](https://developer.apple.com/design/human-inter
 | Schemes, targets, minimum OS and signing | `YTMDL.xcodeproj`, `Resources/Info.plist`, `Resources/Mac.entitlements` |
 | App lifecycle and media shortcuts | `App/YTMDLApp.swift` |
 | Library, search, authentication, favorites | `App/AppModel.swift`, `App/APIClient.swift` |
-| Mobile Home/player, offline views and sound controls | `App/MobileListeningViews.swift` |
+| Mobile player, offline views and sound controls | `App/MobileListeningViews.swift` |
+| iPhone/iPad Start and search, layout tokens | `App/HomeViews.swift`, `App/SearchViews.swift` |
 | Scoped offline files/background transfer | `App/OfflineLibrary.swift` |
 | Timed lyric parser and playback transfer wire models | `Sources/YTMDLCore/ListeningFeatures.swift` |
 | Sessions, keychain and logout | `App/SessionVault.swift` |

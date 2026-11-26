@@ -1,4 +1,4 @@
-# Native listening preview 0.4.3 — build 37
+# Native listening preview 0.5.0 — build 39
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -11,15 +11,15 @@ from implemented features and simulator verification.
 
 | Feature | Current implementation |
 | --- | --- |
-| iPhone/iPad Start | Listening home like the web's **Hören**: Weiterhören (current title or last queue), personal mixes, server history **Zuletzt gehört** (local list as fallback), **Neu in der Mediathek**, favorites/playlist shortcuts; offline hint when the server is unreachable. Mac Start shows the same mixes and server history. Apple TV has its own **Start** tab with the same sections as focusable shelves |
+| iPhone/iPad Start | Greeting by time of day, a quick-access grid (Weiterhören for the saved queue, Favoriten, first mixes, playlists), then shelves: personal mixes, server history **Zuletzt gehört** (local list as fallback), **Neu in der Mediathek**, **Am meisten gehört**; offline hint when the server is unreachable. Mac Start shows the same mixes and server history. Apple TV has its own **Start** tab with the same sections as focusable shelves |
 | Personal mixes | `GET /library/mixes`: "Dein Mix 1…n" with genre label plus the listening mixes, collage cover, track count, play button; **Für dich** overview (also on Apple TV) and mix page with play, shuffle, play next, add to queue, **Als Playlist speichern** (needs a connection) and track sorting like the web. Older servers keep the previous local genre shortcuts |
 | Artist page | **Am meisten gehört** from `GET /library/artists/{id}/top-tracks` (5, up to 10 on request); queue actions for the whole artist |
-| Library/search | Existing library artists, albums, tracks, genre filter and authenticated artwork |
+| Library/search | Library artists, albums, tracks, genre filter and authenticated artwork. iPhone search is the system search tab: results while typing as Top-Treffer, Titel, Alben, Künstler, Playlists; recent searches; genres to browse |
 | Favorites/playlists | Native editing, ordering, membership, smart server rules and favorites |
 | Offline music (iOS/iPadOS/macOS) | Track, album, artist, favorites and playlist snapshots; visible collection groups, cached covers, saved playlist order, local search, artist/album/title/date sorting and shuffle |
 | Downloads | Background URLSession on real iOS, progress, pause/retry, Wi-Fi preference, music storage cap, remove local copies |
 | Smart offline storage | Optional played-track cache; favorites and selected collections refresh when the library is refreshed |
-| Player access | Native mini-player above the floating iPhone tab bar, retained inside pushed collections; direct Player toolbar entry; expandable player |
+| Player access | Native mini-player above the floating iPhone tab bar, retained inside pushed collections; tap or swipe up opens the expanded player (no toolbar entry since build 39) |
 | Collection artwork | Up to four distinct album covers on collection headers; shared, bounded previews in mobile Start and Playlists |
 | Mobile collection design | Integrated cover/title/metadata header, equal-width play/shuffle actions with 52-point minimum height; playlist editing/download actions in one menu; stacked actions at accessibility text sizes |
 | Home/Lock Screen widgets (iOS/iPadOS) | Small/medium Home widgets and circular/rectangular/inline Lock Screen widgets open the player; medium Home widgets also link to favorites and playlists. Navigation only, no live song state or playback controls |
@@ -34,6 +34,28 @@ from implemented features and simulator verification.
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## iPhone search, navigation and Start (build 39)
+
+Ships as 0.5.0 (39); the server API is unchanged (Start also asks `GET /history?sort=frequent`).
+
+- **Suche** is the system search tab: the field is always in the tab bar, choosing the tab
+  again puts the cursor in it, scrolling hides the keyboard. Results appear while typing
+  (from two characters, 250 ms pause) as **Top-Treffer**, **Titel**, **Alben**, **Künstler**
+  and **Playlists** (the loaded playlists, searched on the device), each with its count and
+  **Alle anzeigen**. A title plays with the results as its queue. Before typing:
+  **Zuletzt gesucht** (ten per account and server, removable) and **Stöbern**, a genre grid
+  that opens the Bibliothek filtered by that genre. Loading, no results and errors with
+  **Erneut versuchen** have their own states. Offline browsing keeps its local search.
+- **No player button in the bars:** the mini player opens the player (tap or swipe up);
+  without playback Start offers **Weiterhören**. Choosing the shown tab again returns to
+  its first page.
+- **Start:** the title greets by time of day. A grid of up to six entries comes first
+  (Weiterhören for the saved queue, Favoriten, the first mixes, playlists), then shelves
+  **Deine Mixe** (with **Alle**), **Zuletzt gehört**, **Neu in der Mediathek** (with
+  **Alle**) and **Am meisten gehört**. Shelves show placeholders while loading and their own
+  error with retry; at accessibility text sizes the grid uses one column. Künstler and
+  Offline are reached from the Bibliothek.
 
 ## Apple TV sound and queue filter (build 37)
 

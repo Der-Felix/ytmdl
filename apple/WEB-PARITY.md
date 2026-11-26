@@ -1,6 +1,6 @@
 # Web/App-Abgleich: Musik hören und Sammlungen verwalten
 
-Stand: 25. November 2026, native Vorschau 0.4.3 (37). Die Abschnitte zu den Builds 34 bis 37
+Stand: 26. November 2026, native Vorschau 0.5.0 (39). Die Abschnitte zu den Builds 34 bis 37
 beschreiben, was seit Build 32 dazukam; installiert ist auf dem iPhone weiterhin Build 32.
 Dies ist eine Funktionsprüfung, keine Freigabe als vollständiges oder fehlerfreies
 Stable-Release. Downloads vom Provider, Serververwaltung und Bibliothekswartung

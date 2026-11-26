@@ -181,7 +181,7 @@ struct MobileSearchView: View {
             Section {
                 ForEach(shown(results.releases, .releases)) { release in
                     NavigationLink(value: CollectionKind.release(release)) {
-                        ResultRow(title: release.title, detail: (["Album"] + [release.artists.joined(separator: " · ")] + (release.year > 0 ? [String(release.year)] : [])).filter { !$0.isEmpty }.joined(separator: " · ")) {
+                        ResultRow(title: release.title, detail: releaseDetail(release)) {
                             ArtworkView(model: model, kind: "releases", id: release.id, cornerRadius: 8)
                         }
                     }
@@ -249,6 +249,13 @@ struct MobileSearchView: View {
                 }
             }.accessibilityIdentifier("search-top-hit")
         }
+    }
+    private func releaseDetail(_ release: Release) -> String {
+        var parts = ["Album"]
+        let artists = release.artists.joined(separator: " · ")
+        if !artists.isEmpty { parts.append(artists) }
+        if release.year > 0 { parts.append(String(release.year)) }
+        return parts.joined(separator: " · ")
     }
     private func shown<Item>(_ items: [Item], _ group: ResultGroup) -> [Item] {
         expanded.contains(group) ? items : Array(items.prefix(Self.collapsed[group] ?? 5))

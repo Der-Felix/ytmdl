@@ -429,8 +429,8 @@ struct HomeTrackCard: View {
                     if let caption { Text(caption).font(.caption).monospacedDigit().foregroundStyle(.secondary) }
                 }.lineLimit(1)
             }.frame(width: width, alignment: .leading).contentShape(Rectangle())
+        // The button reads its texts as one label ("Title, Artist, when").
         }.buttonStyle(ListenPressStyle())
-            .accessibilityLabel([track.title, track.artistText, caption].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
             .accessibilityHint("Spielt den Titel")
             .contextMenu { TrackQuickActions(model: model, track: track) }
     }
@@ -466,8 +466,8 @@ struct HomeReleaseCard: View {
                     Text(release.artists.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                 }.lineLimit(1)
             }.frame(width: width, alignment: .leading).contentShape(Rectangle())
+        // The button reads its texts as one label ("Title, Artist").
         }.buttonStyle(ListenPressStyle())
-            .accessibilityLabel("\(release.title), \(release.artists.joined(separator: ", "))")
             .accessibilityHint("Öffnet das Album")
     }
 }
