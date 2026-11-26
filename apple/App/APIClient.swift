@@ -124,8 +124,8 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
         let data = try await perform(request(path, method: method, body: body))
         return try decoder.decode(Envelope<T>.self, from: data).data
     }
-    func mutate(_ path: String, method: String, body: [String: String]? = nil) async throws {
-        _ = try await perform(request(path, method: method, body: body))
+    func mutate(_ path: String, method: String, body: [String: String]? = nil, query: [URLQueryItem] = []) async throws {
+        _ = try await perform(request(path, method: method, body: body, query: query))
     }
     // Typed payloads retain booleans, nested rules and arrays; all mutations use
     // the same session validity, origin checks and CSRF protection as sign-in.

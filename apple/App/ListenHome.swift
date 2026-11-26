@@ -91,7 +91,7 @@ extension AppModel {
     func loadListenFeed() async {
         guard !offlineMode, let client, user != nil else { return }
         let token = feed.begin()
-        async let mixes: Result<[PersonalMix], any Error> = Self.fetch(client, "/library/mixes")
+        async let mixes: Result<[PersonalMix], any Error> = Self.fetch(client, "/library/mixes", mixTimeZone)
         async let history: Result<[HistoryTrack], any Error> = Self.fetch(client, "/history", [.init(name: "sort", value: "recent")])
         async let releases: Result<[Release], any Error> = Self.fetch(client, "/library/releases", [
             .init(name: "limit", value: "12"), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc"), .init(name: "in_library", value: "true")])
@@ -105,9 +105,138 @@ extension AppModel {
     }
     func loadPersonalMix(_ id: String) async throws -> PersonalMixDetail {
         guard let client, !offlineMode else { throw CancellationError() }
-        let detail: PersonalMixDetail = try await client.get(try client.server.itemPath("mixes", id: id))
+        let detail: PersonalMixDetail = try await client.get(try client.server.itemPath("mixes", id: id), query: mixTimeZone)
         guard self.client === client else { throw CancellationError() }
         return detail
+    }
+    /// The device's time zone for mixes and statistics (`tz`), sent only to a
+    /// server that reads it: the listener's day decides the daily mixes.
+    var mixTimeZone: [URLQueryItem] {
+        serverFeatures.mixTimeZone ? [Self.timeZoneItem] : []
+    }
+    static var timeZoneItem: URLQueryItem { URLQueryItem(name: "tz", value: TimeZone.current.identifier) }
+
+    // MARK: Statistics (server 1.11, `history.stats`)
+
+    /// "Deine Statistik" for one window; top lists of `limit` entries.
+    func listeningStats(_ period: StatsPeriod, limit: Int = 10) async throws -> ListeningStats {
+        guard let client, !offlineMode, serverFeatures.statistics else { throw CancellationError() }
+        let stats: ListeningStats = try await client.get("/history/stats", query: [
+            .init(name: "period", value: period.rawValue), .init(name: "limit", value: String(limit)), Self.timeZoneItem])
+        guard self.client === client else { throw CancellationError() }
+        if period == .week { weekStats = stats }
+        return stats
+    }
+    /// This week's figures for Start's "Statistik" card; quiet on failure.
+    func loadWeekStats() async {
+        guard serverFeatures.statistics else { return }
+        _ = try? await listeningStats(.week, limit: 1)
+    }
+    /// Plays an album from the statistics: its titles in album order.
+    func playRelease(id: String, title: String) async {
+        guard let client, !offlineMode else { return }
+        let playbackRevision = player.playbackRevision
+        do {
+            let tracks: [Track] = try await client.get("/library/tracks", query: [
+                .init(name: "release_id", value: id), .init(name: "sort", value: "track_number"), .init(name: "order", value: "asc"), .init(name: "limit", value: "200")])
+            guard self.client === client, player.playbackRevision == playbackRevision else { return }
+            guard !tracks.isEmpty else { announce("Dieses Album hat keine Titel mehr", symbol: "square.stack"); return }
+            player.play(tracks, client: client, context: QueueContext(kind: "album", id: id, title: title))
+        } catch { if self.client === client { report(error) } }
+    }
+
+    // MARK: Listening preferences (server 1.11, `listening.preferences`)
+
+    /// Loads the exclusions; a failure leaves the list and says so on the page.
+    func loadPreferences() async {
+        guard let client, !offlineMode, serverFeatures.preferences else { return }
+        if preferences.isEmpty { preferencesPhase = .loading }
+        do {
+            let list: [ListeningPreference] = try await client.get("/listening-preferences")
+            guard self.client === client else { return }
+            // Exclusions on their way to the server stay until it answers them.
+            let pending = preferences.entries.filter { entry in
+                entry.isPending && !list.contains { saved in saved.kind == entry.kind && saved.target == entry.target }
+            }
+            preferences = ListeningPreferences(pending + list); preferencesPhase = .loaded
+        } catch {
+            guard self.client === client else { return }
+            preferencesPhase = ListenFeed.phase(for: error)
+        }
+    }
+    /// The genres the app knows of each artist (by normalized name), to find
+    /// queued titles of an excluded genre.
+    private var knownArtistGenres: [String: [String]] {
+        var result: [String: [String]] = [:]
+        for artist in artists + artistDirectory.artists { if let genres = artist.genres, !genres.isEmpty { result[LibraryMatch.normalized(artist.name)] = genres } }
+        return result
+    }
+    /// The library artist of a title: its id from the server, else the loaded artist of that name.
+    func artistReference(for track: Track) -> (id: String, name: String)? {
+        let name = track.artists.first ?? track.albumArtist ?? ""
+        if let id = track.artistId { return (id, name.isEmpty ? id : name) }
+        if let index = LibraryMatch.index(of: name, in: artists.map(\.name)) { return (artists[index].id, artists[index].name) }
+        return nil
+    }
+    /// "Weniger davon": this recording never again in mixes and radio. From
+    /// the player it also moves on when a mix or radio plays it.
+    func lessOfTrack(_ track: Track, fromPlayer: Bool = false) async {
+        await exclude(.track, target: track.id, name: track.title, artistName: track.artistText, reference: track,
+                      text: "„\(track.title)“ kommt seltener", skipCurrent: fromPlayer)
+    }
+    func excludeArtist(id: String, name: String) async {
+        await exclude(.artist, target: id, name: name, text: "\(name) wird nicht mehr vorgeschlagen")
+    }
+    func excludeGenre(_ genre: String) async {
+        await exclude(.genre, target: genre, name: genre, text: "\(genre) wird nicht mehr vorgeschlagen")
+    }
+    /// Excludes at once (the list, the upcoming suggestions of the queue) and
+    /// confirms with "Rückgängig"; a refusal of the server rolls the list back.
+    private func exclude(_ kind: PreferenceKind, target: String, name: String, artistName: String? = nil, reference: Track? = nil,
+                         text: String, skipCurrent: Bool = false) async {
+        guard let client, !offlineMode, serverFeatures.preferences, !target.isEmpty else { return }
+        guard let pending = preferences.addPending(kind, target: target, name: name, artistName: artistName) else {
+            announce(text, symbol: "hand.thumbsdown"); return
+        }
+        let genres = kind == .genre ? knownArtistGenres : [:]
+        let matches: (Track) -> Bool = { SuggestionFilter.matches($0, kind: kind, target: target, name: name, reference: reference, artistGenres: genres) }
+        player.removeSuggestions(where: matches)
+        if skipCurrent, player.queue.playsSuggestions, let current = player.current, matches(current) { player.next() }
+        announce(text, symbol: "hand.thumbsdown", action: AppNotice.Action(title: "Rückgängig", hint: "Schlägt es wieder vor") { [weak self] in
+            Task { await self?.allow(kind, target: target, name: name) }
+        })
+        do {
+            let saved: ListeningPreference = try await client.send("/listening-preferences", method: "PUT", body: ["kind": kind.rawValue, "target": target])
+            guard self.client === client else { return }
+            if preferences.entries.contains(where: { $0.id == pending.id }) { preferences.confirm(pending.id, with: saved) }
+            else if !preferences.contains(kind, target) {
+                // "Rückgängig" came before the server's answer: its removal may
+                // have reached the server first, so remove the exclusion once more.
+                try? await client.mutate("/listening-preferences", method: "DELETE", query: [.init(name: "kind", value: kind.rawValue), .init(name: "target", value: target)])
+            }
+        } catch {
+            guard self.client === client else { return }
+            preferences.remove(id: pending.id)
+            announce("Konnte nicht gespeichert werden. Bitte erneut versuchen.", symbol: "exclamationmark.triangle")
+        }
+    }
+    /// "Wieder vorschlagen" and "Rückgängig": removes at once, puts the entry
+    /// back when the server refuses.
+    func allow(_ kind: PreferenceKind, target: String, name: String) async {
+        guard let client, !offlineMode, serverFeatures.preferences else { return }
+        let removed = preferences.remove(kind, target)
+        announce("\(name) wird wieder vorgeschlagen", symbol: "hand.thumbsup")
+        do {
+            try await client.mutate("/listening-preferences", method: "DELETE", query: [.init(name: "kind", value: kind.rawValue), .init(name: "target", value: target)])
+        } catch {
+            guard self.client === client else { return }
+            if let removed { preferences.restore(removed.entry, at: removed.index) }
+            announce("Konnte nicht geändert werden. Bitte erneut versuchen.", symbol: "exclamationmark.triangle")
+        }
+    }
+    func allow(_ preference: ListeningPreference) async {
+        guard let kind = preference.preferenceKind else { return }
+        await allow(kind, target: preference.target, name: preference.name)
     }
     /// Plays a mix from its card: loads its tracks, then hands them to the player.
     /// A late answer never replaces something the user started in the meantime.
@@ -179,8 +308,12 @@ struct MixArtwork: View {
     var body: some View {
         let ids = mix.coverTrackIds
         Group {
-            if ids.isEmpty {
-                Image(systemName: "sparkles").font(.system(size: size * 0.3)).foregroundStyle(.tint)
+            if let artist = mix.artistId, mix.kind == "artist" {
+                // An artist mix shows its artist: the picture, else the monogram.
+                ArtworkView(model: model, kind: "artists", id: artist, cornerRadius: 0, monogram: mix.artistName ?? mix.title)
+                    .frame(width: size, height: size)
+            } else if ids.isEmpty {
+                Image(systemName: mix.symbol).font(.system(size: size * 0.3)).foregroundStyle(.tint)
                     .frame(width: size, height: size).background(.tint.opacity(0.12))
             } else if ids.count == 1 {
                 ArtworkView(model: model, kind: "tracks", id: ids[0], cornerRadius: 0).frame(width: size, height: size)
@@ -291,6 +424,8 @@ struct MixDetailView: View {
     @State private var savedPlaylist: Playlist?
     @State private var sort = MixTrackSort.mix
     @State private var descending = false
+    /// The artist of an artist mix, opened from its header.
+    @State private var openedArtist: CollectionKind?
     @Environment(\.dynamicTypeSize) private var textSize
     /// In the chosen order, like the web; playing and saving use this order too.
     private var tracks: [Track] { sort.apply(detail?.tracks ?? [], descending: descending) }
@@ -372,6 +507,7 @@ struct MixDetailView: View {
                 }.accessibilityLabel("Weitere Aktionen").accessibilityIdentifier("mix-page-more")
             }
         }
+        .navigationDestination(item: $openedArtist) { CollectionView(model: model, kind: $0) }
         #endif
         .sheet(isPresented: $savingPlaylist) {
             AddToPlaylistSheet(model: model, tracks: tracks, title: "Mix als Playlist speichern",
@@ -440,6 +576,8 @@ struct MixDetailView: View {
     private var header: some View {
         VStack(spacing: ListenMetrics.shelfGap) {
             CollectionHeader(eyebrow: shown.label, title: shown.title,
+                             link: shown.artistId == nil ? nil : shown.artistName,
+                             openLink: shown.artistId.map { id -> () -> Void in { openedArtist = .artist(Artist(id: id, name: shown.artistName ?? shown.title)) } },
                              detail: "\(detail.map { $0.tracks.count } ?? shown.trackCount) Titel · \(listenDuration(tracks.reduce(0) { $0 + $1.durationMs }))",
                              description: shown.description, canPlay: !tracks.isEmpty, idPrefix: "mix",
                              actions: [

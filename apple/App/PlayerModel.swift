@@ -330,6 +330,14 @@ enum SleepMode: String, CaseIterable, Identifiable {
         cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
         offerUndo(QueueClearUndo(before: before, after: queue), client: client, position: position, resume: wantsPlayback)
     }
+    /// An exclusion ("Weniger davon", an artist or genre): the upcoming titles
+    /// it affects leave what a mix, radio or autoplay suggested; titles the
+    /// listener queued stay.
+    @discardableResult func removeSuggestions(where matches: (Track) -> Bool) -> Int {
+        let removed = queue.removeUpcomingSuggestions(where: matches)
+        if removed > 0 { cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization() }
+        return removed
+    }
     /// The last clear that "Rückgängig" can still undo: only for a few seconds
     /// and only while the queue was not changed since (web: the undo toast).
     var undoOffer: QueueUndoOffer? {

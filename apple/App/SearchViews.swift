@@ -25,11 +25,11 @@ struct MobileSearchView: View {
     @FocusState private var fieldFocused: Bool
     @Environment(\.dynamicTypeSize) private var textSize
 
-    private enum ResultGroup: String, Hashable { case tracks, releases, artists, playlists }
+    private enum ResultGroup: String, Hashable { case tracks, lyrics, releases, artists, playlists }
     private struct SearchKey: Equatable { let text: String; let attempt: Int }
     private static let debounce = Duration.milliseconds(250)
     /// Rows shown per group before "Alle anzeigen".
-    private static let collapsed: [ResultGroup: Int] = [.tracks: 5, .releases: 4, .artists: 3, .playlists: 3]
+    private static let collapsed: [ResultGroup: Int] = [.tracks: 5, .lyrics: 3, .releases: 4, .artists: 3, .playlists: 3]
     /// The server answers at most this many per group.
     private static let serverLimit = 25
 
@@ -45,6 +45,15 @@ struct MobileSearchView: View {
         guard searching else { return [] }
         return model.playlists.filter { SearchMatch.score($0.name, query: text) > 0 }
     }
+    /// The field names the lyrics only where the server searches them (1.11).
+    private var searchPrompt: String { model.serverFeatures.lyrics ? "Titel, Alben, Künstler, Liedtexte" : "Titel, Alben, Künstler" }
+    /// The short hint before typing, below the recent searches or alone.
+    private var lyricsHint: some View {
+        Label("Auch Liedtexte werden durchsucht: Tippe eine Zeile, die du im Ohr hast.", systemImage: "quote.bubble")
+            .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            .listRowSeparator(.hidden)
+            .accessibilityIdentifier("search-lyrics-hint")
+    }
 
     var body: some View {
         List {
@@ -56,7 +65,7 @@ struct MobileSearchView: View {
         // Always visible under the title. The automatic placement hid the
         // field in the bar until the list was pulled down, also in the
         // search tab, which is why search looked broken on the iPhone.
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Titel, Alben, Künstler")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: searchPrompt)
         .searchFocused($fieldFocused)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
@@ -79,6 +88,7 @@ struct MobileSearchView: View {
                 Text("Suche nach Titeln, Alben, Künstlern und Playlists in deiner Bibliothek.")
                     .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     .listRowSeparator(.hidden)
+                if model.serverFeatures.lyrics { lyricsHint }
             }
         } else {
             // Section titles are rows, not headers: in the start colour and
@@ -91,6 +101,7 @@ struct MobileSearchView: View {
                         .accessibilityLabel("Suchverlauf löschen").accessibilityIdentifier("search-recent-clear")
                 }.sectionTitleRow()
                 ForEach(recent.entries, id: \.self) { entry in recentRow(entry).listRowInsets(ListenMetrics.rowInsets) }
+                if model.serverFeatures.lyrics { lyricsHint.listRowInsets(ListenMetrics.rowInsets) }
             }
         }
         if !genres.isEmpty {
@@ -143,7 +154,7 @@ struct MobileSearchView: View {
             }
         } else if let results {
             let playlists = matchingPlaylists
-            if results.tracks.isEmpty && results.releases.isEmpty && results.artists.isEmpty && playlists.isEmpty {
+            if results.tracks.isEmpty && results.lyrics.isEmpty && results.releases.isEmpty && results.artists.isEmpty && playlists.isEmpty {
                 if loading { skeleton } else {
                     Section {
                         ContentUnavailableView {
@@ -176,6 +187,15 @@ struct MobileSearchView: View {
                 header("Titel", count: results.tracks.count, group: .tracks).sectionTitleRow()
                 ForEach(Array(shown(results.tracks, .tracks).enumerated()), id: \.offset) { index, track in
                     TrackRow(model: model, track: track) { play(results.tracks, start: index) }.listRowInsets(ListenMetrics.rowInsets)
+                }
+            }
+        }
+        if !results.lyrics.isEmpty {
+            Section {
+                header("Liedtexte", count: results.lyrics.count, group: .lyrics).sectionTitleRow()
+                ForEach(Array(shown(results.lyrics, .lyrics).enumerated()), id: \.element.id) { index, hit in
+                    LyricsResultRow(model: model, hit: hit, query: resultsQuery) { play(results.lyrics.map(\.track), start: index) }
+                        .listRowInsets(ListenMetrics.rowInsets)
                 }
             }
         }

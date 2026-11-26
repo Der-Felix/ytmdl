@@ -392,6 +392,7 @@ struct MobilePlayerView: View {
                 Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }
                 Button("Wiedergabe übergeben", systemImage: "arrow.up.forward.app") { Task { await model.saveHandoff() } }
             }
+            TrackSteeringItems(model: model, track: track, fromPlayer: true)
         }
         Section(audioDetails(track)) {
             Button("Klang & Wiedergabe", systemImage: "slider.horizontal.3") { tools = true }

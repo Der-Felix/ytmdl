@@ -675,7 +675,10 @@ struct GenreAlbumsView: View {
         .toolbar {
             if genre != "__none__" {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu { PinToStartButton(model: model, pin: .genre(genre)) } label: {
+                    Menu {
+                        PinToStartButton(model: model, pin: .genre(genre))
+                        ExclusionToggleButton(model: model, kind: .genre, target: genre, name: genre)
+                    } label: {
                         Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold))
                             .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                     }.accessibilityLabel("Weitere Aktionen").accessibilityIdentifier("genre-page-more")

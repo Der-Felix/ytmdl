@@ -19,13 +19,22 @@ public struct PersonalMix: Decodable, Identifiable, Hashable, Sendable {
     /// Where "Für dich" shows the mix (`made_for_you`, `discover`, `rewind`);
     /// newer servers send it, older ones leave it out. See `MixGroup`.
     public let group: String?
+    /// Server 1.11: the artist of an artist mix, the decade of a decade mix
+    /// (1990) and the time of day of a daypart mix (`morning` … `night`).
+    public let artistId: String?
+    public let decade: Int?
+    public let daypart: String?
     public init(id: String, kind: String, title: String, description: String = "", genre: String? = nil,
-                trackCount: Int, coverTrackIds: [String] = [], coverReleaseIds: [String] = [], group: String? = nil) {
+                trackCount: Int, coverTrackIds: [String] = [], coverReleaseIds: [String] = [], group: String? = nil,
+                artistId: String? = nil, decade: Int? = nil, daypart: String? = nil) {
         self.id = id; self.kind = kind; self.title = title; self.description = description; self.genre = genre
         self.trackCount = trackCount; self.coverTrackIds = coverTrackIds; self.coverReleaseIds = coverReleaseIds
         self.group = group?.isEmpty == false ? group : nil
+        self.artistId = artistId?.isEmpty == false ? artistId : nil
+        self.decade = decade.flatMap { $0 > 0 ? $0 : nil }
+        self.daypart = daypart?.isEmpty == false ? daypart : nil
     }
-    enum CodingKeys: String, CodingKey { case id, kind, title, description, genre, trackCount, coverTrackIds, coverReleaseIds, group }
+    enum CodingKeys: String, CodingKey { case id, kind, title, description, genre, trackCount, coverTrackIds, coverReleaseIds, group, artistId, decade, daypart }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -41,6 +50,12 @@ public struct PersonalMix: Decodable, Identifiable, Hashable, Sendable {
         // Optional and new: a value the app cannot read never drops the mix.
         let group = (try? c.decodeIfPresent(String.self, forKey: .group)) ?? nil
         self.group = group?.isEmpty == false ? group : nil
+        let artistId = (try? c.decodeIfPresent(String.self, forKey: .artistId)) ?? nil
+        self.artistId = artistId?.isEmpty == false ? artistId : nil
+        let decade = (try? c.decodeIfPresent(Int.self, forKey: .decade)) ?? nil
+        self.decade = decade.flatMap { $0 > 0 ? $0 : nil }
+        let daypart = (try? c.decodeIfPresent(String.self, forKey: .daypart)) ?? nil
+        self.daypart = daypart?.isEmpty == false ? daypart : nil
     }
     public var isGenreMix: Bool { kind == "genre" }
     /// The small line above a mix title: its genre or where it comes from (as on the web).
@@ -51,8 +66,30 @@ public struct PersonalMix: Decodable, Identifiable, Hashable, Sendable {
         case "rediscover": "Aus deinem Verlauf"
         case "unheard": "Entdecken"
         case "new": "Neuzugänge"
+        case "artist": "Künstler-Mix"
+        case "favorites": "Deine Favoriten"
+        case "forgotten_favorites": "Lange nicht gehört"
+        case "decade": decade.map { "\($0)er-Jahre" } ?? "Jahrzehnt"
+        case "daypart": Self.daypartLabel(daypart) ?? "Tageszeit"
         default: "Mix"
         }
+    }
+    /// "Morgens", "Nachmittags", "Abends", "Nachts"; nil for an unknown value.
+    public static func daypartLabel(_ daypart: String?) -> String? {
+        switch daypart {
+        case "morning": "Morgens"
+        case "afternoon": "Nachmittags"
+        case "evening": "Abends"
+        case "night": "Nachts"
+        default: nil
+        }
+    }
+    /// The artist an artist mix is about: the server titles it "Mix: <Künstler>".
+    public var artistName: String? {
+        guard kind == "artist" else { return nil }
+        let name = title.hasPrefix("Mix: ") ? String(title.dropFirst(5)) : title
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
     /// How a mix is shown in the queue: "Weiter aus: {Mix}".
     public var queueContext: QueueContext { QueueContext(kind: "mix", id: id, title: title) }
