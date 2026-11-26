@@ -37,11 +37,14 @@ func TestListeningAtLibraryScale(t *testing.T) {
 		 SELECT 'st'||i,'sr'||(1+i%15000),'sa'||(1+(1+i%15000)%3000),'Song '||i,'st'||i,200000,
 		  CASE WHEN i%3=0 THEN 'available_plain' ELSE 'unknown' END,now(),now() FROM generate_series(1,150000) i`,
 		`INSERT INTO files(id,track_id,path,created_at,updated_at) SELECT 'sf'||i,'st'||i,'s/'||i||'.flac',now()-interval '100 days',now() FROM generate_series(1,150000) i`,
-		`INSERT INTO listening_history(user_id,track_id,play_count,last_played_at) SELECT 'scale_u','st'||(i*30),1+i%7,now()-(i%200)*interval '1 day' FROM generate_series(1,5000) i`,
+		`INSERT INTO listening_history(user_id,track_id,play_count,last_played_at) SELECT 'scale_u','st'||(i*29),1+i%7,now()-(i%200)*interval '1 day' FROM generate_series(1,5000) i`,
 		`INSERT INTO playback_events(user_id,event_id,track_id,played_at)
-		 SELECT 'scale_u','se'||i,'st'||(30*(1+i%5000)),now()-(i%365)*interval '1 day'-(i%24)*interval '1 hour' FROM generate_series(1,30000) i`,
-		`INSERT INTO favorite_tracks(user_id,track_id,created_at) SELECT 'scale_u','st'||(i*60),now()-interval '100 days' FROM generate_series(1,1000) i`,
-		`INSERT INTO track_skips(user_id,track_id,skip_count,last_skipped_at) SELECT 'scale_u','st'||(i*90),2,now()-interval '3 days' FROM generate_series(1,500) i`,
+		 SELECT 'scale_u','se'||i,'st'||(29*(1+i%5000)),now()-(i%365)*interval '1 day'-(i%24)*interval '1 hour' FROM generate_series(1,30000) i`,
+		// A recent favourite rotation, for "In Dauerschleife".
+		`INSERT INTO playback_events(user_id,event_id,track_id,played_at)
+		 SELECT 'scale_u','sx'||i,'st'||(29*(1+i%300)),now()-(i%14)*interval '1 day' FROM generate_series(1,3000) i`,
+		`INSERT INTO favorite_tracks(user_id,track_id,created_at) SELECT 'scale_u','st'||(i*61+3),now()-interval '100 days' FROM generate_series(1,1000) i`,
+		`INSERT INTO track_skips(user_id,track_id,skip_count,last_skipped_at) SELECT 'scale_u','st'||(i*89+5),2,now()-interval '3 days' FROM generate_series(1,500) i`,
 		`INSERT INTO track_lyrics_search(track_id,body,document)
 		 SELECT 'st'||i,b,to_tsvector('simple',lower(b)) FROM generate_series(3,150000,3) i,
 		 LATERAL (SELECT 'zeile '||md5(i::text)||E'\n'||CASE WHEN i%150=0 THEN 'über den wolken muss die freiheit ' ELSE 'la la '||substr(md5((i+1)::text),1,8)||' ' END||md5((i+2)::text) AS b) x`,
@@ -67,7 +70,7 @@ func TestListeningAtLibraryScale(t *testing.T) {
 		t.Helper()
 		t0 := time.Now()
 		if err := fn(); err != nil {
-			t.Fatalf("%s: %v", name, err)
+			t.Errorf("%s: %v", name, err)
 		}
 		d := time.Since(t0)
 		timings = append(timings, fmt.Sprintf("%s=%dms", name, d.Milliseconds()))
@@ -101,7 +104,8 @@ func TestListeningAtLibraryScale(t *testing.T) {
 	}
 	radio("radio_personal", repository.RadioRequest{User: "scale_u", Nonce: "n"})
 	radio("radio_genre_500", repository.RadioRequest{User: "scale_u", Genre: "Rock", Nonce: "n", Limit: 500})
-	radio("radio_track", repository.RadioRequest{User: "scale_u", TrackID: "st31", Nonce: "n"})
+	// st35 belongs to sa37 (Metal); a Schlager seed plays nothing, Schlager is excluded.
+	radio("radio_track", repository.RadioRequest{User: "scale_u", TrackID: "st35", Nonce: "n"})
 	radio("radio_artist_500", repository.RadioRequest{User: "scale_u", ArtistID: "sa31", Nonce: "n", Limit: 500})
 	radio("radio_release", repository.RadioRequest{User: "scale_u", ReleaseID: "sr31", Nonce: "n"})
 	for _, p := range []string{"week", "year", "all"} {
