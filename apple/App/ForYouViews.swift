@@ -226,7 +226,7 @@ struct RecentSourceCard: View {
         case "favorites": QuickSymbol(name: "heart.fill")
         default:
             ZStack {
-                GenreTile.color(for: source.title).gradient
+                Rectangle().fill(GenreTile.color(for: source.title).gradient)
                 Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: width * 0.24, weight: .semibold)).foregroundStyle(.white)
             }.accessibilityHidden(true)
         }
