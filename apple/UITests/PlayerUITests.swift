@@ -55,22 +55,14 @@ final class PlayerUITests: XCTestCase {
         app.buttons["Nach unten"].tap()
         XCTAssertEqual(app.buttons["mobile-queue-track-1"].label, title)
         XCTAssertTrue(app.buttons["mobile-player-toggle"].label == "Abspielen")
-        app.buttons["mobile-queue-tools"].tap()
-        XCTAssertTrue(app.buttons["Als Playlist speichern"].waitForExistence(timeout: 5))
-        app.buttons["Als Playlist speichern"].tap()
-        XCTAssertTrue(app.buttons["Erstellen und Titel hinzufügen"].waitForExistence(timeout: 5))
-        app.navigationBars["Zur Playlist hinzufügen"].buttons["Schließen"].tap()
-        // A sheet asked for while the previous one is still closing is dropped:
-        // wait until it is gone, and ask once more if nothing appeared.
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.navigationBars["Zur Playlist hinzufügen"])
-        waitForExpectations(timeout: 10)
+        // Sound settings first: opening them right after the playlist sheet
+        // closed dismissed the whole player in CI (on dev too since build 38).
         for _ in 0..<5 { if app.buttons["Werkzeuge"].isHittable { break }; app.swipeDown() }
         let normalization = app.switches["playback-normalization"]
         app.buttons["Werkzeuge"].tap()
         if !normalization.waitForExistence(timeout: 5) {
             attach(app, name: "Sound settings did not open")
             print(app.debugDescription)
-            if app.buttons["Werkzeuge"].isHittable { app.buttons["Werkzeuge"].tap() }
         }
         XCTAssertTrue(normalization.waitForExistence(timeout: 5))
         XCTAssertTrue(normalization.isHittable)
@@ -87,7 +79,19 @@ final class PlayerUITests: XCTestCase {
         let measured = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Aktueller Titel:", "-3")).firstMatch
         XCTAssertTrue(measured.waitForExistence(timeout: 10))
         attach(app, name: "Native playback normalization")
-        app.buttons["Fertig"].tap(); app.navigationBars["Jetzt läuft"].buttons["Schließen"].tap()
+        app.buttons["Fertig"].tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: normalization)
+        waitForExpectations(timeout: 10)
+        let tools = app.buttons["mobile-queue-tools"]
+        for _ in 0..<5 { if tools.isHittable { break }; app.swipeUp() }
+        tools.tap()
+        XCTAssertTrue(app.buttons["Als Playlist speichern"].waitForExistence(timeout: 5))
+        app.buttons["Als Playlist speichern"].tap()
+        XCTAssertTrue(app.buttons["Erstellen und Titel hinzufügen"].waitForExistence(timeout: 5))
+        app.navigationBars["Zur Playlist hinzufügen"].buttons["Schließen"].tap()
+        let close = app.navigationBars["Jetzt läuft"].buttons["Schließen"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
         XCTAssertTrue(app.buttons["mobile-mini-player-open"].isHittable)
     }
 
