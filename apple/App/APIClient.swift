@@ -118,7 +118,20 @@ final class OriginSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked 
     }
     func get<T: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
         let data = try await perform(request(path, query: query))
-        return try decoder.decode(Envelope<T>.self, from: data).data
+        guard data.count >= Self.backgroundDecodingThreshold else { return try decoder.decode(Envelope<T>.self, from: data).data }
+        let value: T = try await Self.decodeInBackground(data)
+        try Task.checkCancellation()
+        guard valid else { throw CancellationError() }
+        return value
+    }
+    /// Larger answers (a page of 100 titles, a mix, a long history) are
+    /// decoded off the main thread, so scrolling and playback never wait for JSON.
+    static let backgroundDecodingThreshold = 32 * 1024
+    nonisolated private static func decodeInBackground<T: Decodable & Sendable>(_ data: Data) async throws -> T {
+        try await Task.detached(priority: .userInitiated) {
+            let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(Envelope<T>.self, from: data).data
+        }.value
     }
     func send<T: Decodable & Sendable>(_ path: String, method: String = "POST", body: [String: String]) async throws -> T {
         let data = try await perform(request(path, method: method, body: body))

@@ -992,6 +992,32 @@ final class PlayerUITests: XCTestCase {
         app.staticTexts["Abends unterwegs"].firstMatch.tap()
         XCTAssertTrue(app.buttons["collection-play"].waitForExistence(timeout: 10))
         attach(app, name: "Tablet playlist page")
+        // The genres with their covers, and a confirmation clear of the navigation bar.
+        app.staticTexts["Bibliothek"].firstMatch.tap()
+        let genres = app.buttons["library-shortcut-genres"]
+        XCTAssertTrue(genres.waitForExistence(timeout: 10))
+        genres.tap()
+        let row = app.buttons["genre-row-Ambient"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        settleCovers()
+        attach(app, name: "Tablet library genres")
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["genre-header"].waitForExistence(timeout: 10))
+        settleCovers()
+        attach(app, name: "Tablet genre page")
+        app.buttons["genre-page-more"].tap()
+        let pin = app.buttons["An Start anheften"].firstMatch
+        XCTAssertTrue(pin.waitForExistence(timeout: 5))
+        pin.tap()
+        let notice = app.descendants(matching: .any)["app-notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(notice.frame.minY, app.navigationBars.firstMatch.frame.maxY, "The confirmation never covers the navigation bar.")
+        attach(app, name: "Tablet confirmation on a pushed page")
+        // Unpinned again, so Start keeps its defaults for the other tests.
+        app.buttons["genre-page-more"].tap()
+        let unpin = app.buttons["Von Start lösen"].firstMatch
+        XCTAssertTrue(unpin.waitForExistence(timeout: 5))
+        unpin.tap()
         XCTAssertFalse(app.alerts.firstMatch.exists)
         XCTAssertFalse(app.buttons["Pause"].exists)
     }
@@ -1068,6 +1094,128 @@ final class PlayerUITests: XCTestCase {
         attach(app, name: "Mix page with all actions")
         XCTAssertFalse(app.alerts.firstMatch.exists)
         XCTAssertFalse(app.buttons["Pause"].exists, "Browsing Für dich never starts playback.")
+    }
+    /// Covers load in the background; screenshots wait a moment for them.
+    @MainActor private func settleCovers() { Thread.sleep(forTimeInterval: 1.5) }
+    /// Genre tiles lead with covers of the genre's albums: Suche, the
+    /// library's genres, the genre page, a pinned genre, "Für dich" and
+    /// Start's optional shelf. Confirmations sit above the tab bar on root
+    /// and pushed pages and never cover the back button.
+    @MainActor func testGenreArtworkEverywhereAndConfirmationsClearOfNavigation() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact screens require iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        openHomeEditor(app)
+        app.navigationBars["Start anpassen"].buttons.firstMatch.tap()
+
+        selectTab(app, "Suche")
+        let browse = app.buttons["search-genre-Ambient"]
+        XCTAssertTrue(browse.waitForExistence(timeout: 10), "Every genre of the library can be browsed.")
+        XCTAssertTrue(app.buttons["search-genre-Jazz"].exists, "A genre without albums keeps its colour tile.")
+        settleCovers()
+        attach(app, name: "Genre tiles in Suche")
+
+        selectTab(app, "Bibliothek")
+        app.buttons["library-shortcut-genres"].tap()
+        let row = app.buttons["genre-row-Ambient"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        settleCovers()
+        attach(app, name: "Library genres with covers")
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["genre-header"].waitForExistence(timeout: 10), "The genre page leads with its covers.")
+        XCTAssertTrue(app.buttons["genre-radio"].exists)
+        settleCovers()
+        attach(app, name: "Genre page header")
+
+        // A confirmation on a pushed page stays clear of the back button.
+        app.buttons["genre-page-more"].tap()
+        let pin = app.buttons["An Start anheften"].firstMatch
+        XCTAssertTrue(pin.waitForExistence(timeout: 5))
+        pin.tap()
+        let notice = app.descendants(matching: .any)["app-notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 5), "Pinning confirms briefly.")
+        let bar = app.navigationBars.firstMatch
+        XCTAssertGreaterThan(notice.frame.minY, bar.frame.maxY, "The confirmation never covers the navigation bar.")
+        XCTAssertFalse(notice.frame.intersects(bar.buttons.firstMatch.frame), "The back button stays free.")
+        XCTAssertLessThanOrEqual(notice.frame.maxY, app.tabBars.firstMatch.frame.minY + 1, "It sits above the tab bar.")
+        attach(app, name: "Confirmation on a pushed page")
+
+        // The pinned genre on Start, then the confirmation on a tab's first page.
+        selectTab(app, "Start")
+        selectTab(app, "Start")
+        let tile = app.buttons["home-pin-genre-Ambient"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10), "The pinned genre leads quick access.")
+        settleCovers()
+        attach(app, name: "Start with a pinned genre")
+        tile.press(forDuration: 1.2)
+        let unpin = app.buttons["Von Start lösen"].firstMatch
+        XCTAssertTrue(unpin.waitForExistence(timeout: 5))
+        unpin.tap()
+        XCTAssertTrue(notice.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(notice.frame.maxY, app.tabBars.firstMatch.frame.minY + 1, "Above the tab bar on a root page too.")
+        XCTAssertFalse(notice.frame.intersects(app.buttons["home-settings"].frame), "The settings button stays free.")
+        attach(app, name: "Confirmation on a root tab")
+
+        // "Deine Genres" in "Für dich".
+        let entry = app.buttons["home-quick-foryou"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        entry.tap()
+        let forYouGenre = app.buttons["foryou-genre-Ambient"]
+        reveal(forYouGenre, in: app)
+        XCTAssertTrue(forYouGenre.exists)
+        settleCovers()
+        attach(app, name: "Für dich genre tiles")
+
+        // Start's optional "Deine Genres" shelf.
+        selectTab(app, "Start")
+        selectTab(app, "Start")
+        openHomeEditor(app)
+        let show = app.buttons["home-editor-toggle-genres"]
+        reveal(show, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+        show.tap()
+        app.navigationBars["Start anpassen"].buttons.firstMatch.tap()
+        let shelfTile = app.buttons["home-genre-Ambient"]
+        reveal(shelfTile, in: app)
+        XCTAssertTrue(shelfTile.waitForExistence(timeout: 10), "Start shows the genres once chosen.")
+        settleCovers()
+        attach(app, name: "Start genre shelf")
+        // Back to the defaults for the other tests.
+        openHomeEditor(app)
+        app.navigationBars["Start anpassen"].buttons.firstMatch.tap()
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
+    /// The genre tiles and the album page's action tiles in the light appearance.
+    @MainActor func testLightGenreArtworkAndAlbumActions() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact screens require iPhone.")
+        let app = try app(light: true)
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        selectTab(app, "Suche")
+        XCTAssertTrue(app.buttons["search-genre-Ambient"].waitForExistence(timeout: 10))
+        settleCovers()
+        attach(app, name: "Light genre tiles in Suche")
+        selectTab(app, "Bibliothek")
+        app.buttons["library-shortcut-genres"].tap()
+        let row = app.buttons["genre-row-Pop"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        settleCovers()
+        attach(app, name: "Light library genres")
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["genre-header"].waitForExistence(timeout: 10))
+        settleCovers()
+        attach(app, name: "Light genre page")
+        selectTab(app, "Bibliothek")
+        selectTab(app, "Bibliothek")
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 10))
+        app.staticTexts["Nachtfahrt"].firstMatch.tap()
+        let play = app.buttons["collection-play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: play)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons["collection-offline"].exists)
+        attach(app, name: "Light album action tiles")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
     }
     /// "Radio starten" on a title row and "Künstler-Radio" on the artist page:
     /// each fills the queue behind its seed and shows the radio as the source.

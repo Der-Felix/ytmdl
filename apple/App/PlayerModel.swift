@@ -175,12 +175,45 @@ enum SleepMode: String, CaseIterable, Identifiable {
         equalizer.onEnabledChange = { [weak self] _ in self?.updateEqualizerAttachment() }
         setupCommands()
         #if os(iOS) || os(tvOS)
-        interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.pause() } }
+        interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                // An interruption may announce itself this way first; remember
+                // that playback ran, so its end can still resume it.
+                if self.wantsPlayback { self.inactivePausedAt = Date() }
+                self.pause()
+            }
+        }
         routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
             let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { Task { @MainActor in self?.pause() } }
         }
+        // A call or an alarm: pause, and go on afterwards when the system says so.
+        callObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
+            let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let options = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let began = type == AVAudioSession.InterruptionType.began.rawValue
+            let ended = type == AVAudioSession.InterruptionType.ended.rawValue
+            let resume = AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume)
+            Task { @MainActor in self?.handleInterruption(began: began, ended: ended, shouldResume: resume) }
+        }
         #endif
+    }
+    /// Playback that a call or alarm interrupted, to go on once it ends.
+    @ObservationIgnored private var interruptedPlayback = false
+    @ObservationIgnored private var callObserver: NSObjectProtocol?
+    @ObservationIgnored private var inactivePausedAt: Date?
+    private func handleInterruption(began: Bool, ended: Bool, shouldResume: Bool) {
+        if began {
+            let justPaused = inactivePausedAt.map { Date().timeIntervalSince($0) < 2 } ?? false
+            interruptedPlayback = wantsPlayback || justPaused
+            inactivePausedAt = nil
+            if wantsPlayback { pause() }
+        } else if ended {
+            let resumeNow = interruptedPlayback && shouldResume && current != nil
+            interruptedPlayback = false
+            if resumeNow { resume() }
+        }
     }
     private func configure(_ player: AVPlayer) { player.automaticallyWaitsToMinimizeStalling = !fastStart }
     func setVolume(_ value: Double) {
@@ -533,7 +566,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         artwork = nil; artworkPalette = nil; levelHistory = []; sleepMode = .off; sleepDeadline = nil; startupMilliseconds = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         #if os(iOS) || os(tvOS)
-        AVAudioSession.sharedInstance().deactivate(options: .notifyOthersOnDeactivation) { _, _ in }
+        AudioSessionQueue.deactivate()
         #endif
     }
     func makeItem(_ track: Track, client: APIClient) throws -> AVPlayerItem {
@@ -797,11 +830,12 @@ enum SleepMode: String, CaseIterable, Identifiable {
             } catch { /* Keep the selected theme and the normal artwork placeholder. */ }
         }
     }
+    /// Playback starts only after this returns: the session's category and
+    /// activation run in order on the audio session's own queue, off the main
+    /// thread (they block while the session is active; Xcode warned about it).
     private func activateAudio() async throws {
         #if os(iOS) || os(tvOS)
-        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        let activated = try await AVAudioSession.sharedInstance().activate(options: [])
-        guard activated else { throw PlayerError.badResponse }
+        try await AudioSessionQueue.activate()
         #endif
     }
     private func failPlayback() {
@@ -872,3 +906,40 @@ enum SleepMode: String, CaseIterable, Identifiable {
         }
     }
 }
+
+#if os(iOS) || os(tvOS)
+/// The audio session's category and activation. Both block while the
+/// session is active, so they run on one serial queue instead of the main
+/// thread ("This method can lead to UI unresponsiveness …"). The queue keeps
+/// their order: a stop's deactivation always comes before the next start's
+/// activation, and the caller awaits activation before playback starts.
+private enum AudioSessionQueue {
+    private static let queue = DispatchQueue(label: "org.ytmdl.player.audio-session", qos: .userInitiated)
+    /// Set once the category is `.playback`; read and written on `queue` only.
+    nonisolated(unsafe) private static var categoryReady = false
+
+    static func activate() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            queue.async {
+                let session = AVAudioSession.sharedInstance()
+                do {
+                    if !categoryReady || session.category != .playback {
+                        try session.setCategory(.playback, mode: .default)
+                        categoryReady = true
+                    }
+                    try session.setActive(true)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    /// Lets other apps' audio go on; nothing waits for it.
+    static func deactivate() {
+        queue.async {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
+}
+#endif

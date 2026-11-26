@@ -1,4 +1,4 @@
-# Native listening preview 0.6.1 — build 44
+# Native listening preview 0.6.2 — build 45
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -35,6 +35,36 @@ from implemented features and simulator verification.
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## Genre artwork and stability (build 45)
+
+Ships as 0.6.2 (45). Works with every server version; no new server request.
+
+- **Genre tiles with covers:** every genre tile and row shows covers of the genre's newest
+  albums: Suche → Stöbern, **Deine Genres** in Für dich and on Start, the library's genre list,
+  a pinned genre on Start, the statistics' top genres, the genre rows of Empfehlungen and a new
+  header on the genre page. One cover, a pair or a 2 × 2 mosaic under a dark scrim (white name
+  at 4.5:1 or more); the genre's own colour while covers load and when it has no albums. Fixed
+  proportions, covers fade in (instantly with Reduce Motion).
+- **How they load:** `GET /library/releases?genre=…&limit=4&sort=recent` per genre, only while
+  its tile is on screen, at most four at a time, each genre once per session (again after a pull
+  to refresh), owned by the model so a rebuilt view never cancels it. The genre → album mapping
+  is remembered per account and server (up to 400 genres), so tiles show their covers right away
+  on the next launch; the genre page's first albums also serve its tile.
+- **Covers in general:** every server cover is fetched once per session and decoded off the
+  main thread at the size it is shown (the API session has no URL cache, so covers used to be
+  fetched and decoded again whenever a row scrolled back in). Large JSON answers decode off the
+  main thread too.
+- **Audio session:** category and activation run on their own queue instead of the main thread,
+  in order (a stop's deactivation before the next start, playback only after activation); calls
+  and alarms pause playback and it goes on afterwards when the system says so.
+- **Confirmations** (`app-notice`) sit at the bottom above the mini player and the tab bar (iPad:
+  above the floating mini player), so they never cover the back button of a pushed page.
+- **Light mode:** the secondary buttons and action tiles of album, artist, playlist and mix pages
+  have a visible fill.
+- **Stability:** see HANDOFF.md "Build 45" for the list of fixed races (stuck statistics
+  skeleton, cancelled Start loads read as "Keine Verbindung", radio top-ups overwriting a newer
+  station, lifted exclusions coming back, foreground refresh of the daily mixes).
 
 ## Server 1.11 listening features (build 44)
 

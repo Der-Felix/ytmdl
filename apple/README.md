@@ -1,7 +1,7 @@
 # YTMDL for Apple
 
 Native SwiftUI listening client for iPhone, iPad, Mac and Apple TV. The current
-preview is **0.6.1, build 44** and requires OS 27 and Xcode 27. It is a client of the
+preview is **0.6.2, build 45** and requires OS 27 and Xcode 27. It is a client of the
 existing YTMDL API, not a second downloader or a replacement database.
 It is not in the App Store: [INSTALL.md](INSTALL.md) explains the downloads (unsigned
 `.ipa` for sideloading, un-notarized `.dmg`), and how releases are made.
@@ -64,7 +64,7 @@ The app does not disable certificate verification or enable arbitrary ATS loads.
 - Mobile playlist/favorites headers combine artwork, title, duration and large
   play/shuffle buttons. Playlist download/edit/add/reload/delete live in one menu.
   The iOS app embeds `YTMDLWidgets.appex`; its bundle identifier must remain a child
-  of the app identifier when changing signing settings. Both use the same version, currently 0.6.1 (44).
+  of the app identifier when changing signing settings. Both use the same version, currently 0.6.2 (45).
   Home and Lock Screen widgets link to app views without starting audio or sharing
   authentication. No App Group capability is required.
 - iPad/Mac sidebar navigation and adaptive album grids.
@@ -229,8 +229,11 @@ advertising SDK, analytics SDK or third-party account integration.
 
 Apple's bundled `swiftui-whats-new-27` skill and its AsyncImage and State-macro
 references were read from Xcode 27 before implementation. Authenticated artwork
-uses the new `AsyncImage(request:)` and a custom ephemeral URLSession. No shared
-cookie jar or persistent private artwork cache is used.
+is fetched through the app's ephemeral URLSession (no URL cache) and kept as
+decoded, display-sized images in an in-memory cache for the session
+(`ArtworkImageCache`). No shared cookie jar or persistent private artwork cache
+is used; only the genre → album-ID mapping for genre tiles is remembered per
+account and server.
 
 ## Verification
 

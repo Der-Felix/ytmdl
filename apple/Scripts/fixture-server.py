@@ -52,6 +52,10 @@ TRACKS = [{'id': 't'+str(i), 'title': name, 'artists': ['Mira' if i%2 else 'Nord
 RELEASE_TYPES = ['album','album','album','album','ep','single']
 RELEASES = [{'id':'r'+str(i),'title':t['title'],'artists':t['artists'],'album_artist':t['artists'][0],'year':2020+i,
              'release_type':RELEASE_TYPES[i],'track_count_in_library':1} for i,t in enumerate(TRACKS)]
+# Genres with covers for their tiles: three albums (a pair), four of two
+# artists (a 2 x 2 mosaic) and one genre without albums (its colour only).
+GENRES = ['Elektronisch', 'Pop', 'Ambient', 'Jazz']
+GENRE_RELEASES = {'Elektronisch': ['r0', 'r2', 'r4'], 'Pop': ['r1', 'r3', 'r5'], 'Ambient': ['r0', 'r1', 'r2', 'r3'], 'Jazz': []}
 # Artists without titles fill the A–Z list: an umlaut under O, a number under #.
 ARTISTS = [{'id':'a0','name':'Nordlicht','genres':['Elektronisch'],'track_count':3,'release_count':3},
            {'id':'a1','name':'Mira','genres':['Pop'],'track_count':3,'release_count':3},
@@ -354,7 +358,7 @@ class Handler(BaseHTTPRequestHandler):
             if header:self.send_header('Content-Range',f'bytes {start}-{end}/{len(AUDIO)}')
             self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
         if path.endswith('/lyrics'): return self.response({'state':'available_plain','content':'Durch die Stadt bei Nacht\nAlles wird so leise\nFenster runter, kalter Wind\nGedanken wieder frei'})
-        if path.endswith('/genres'): return self.response(['Elektronisch','Pop'])
+        if path.endswith('/genres'): return self.response(GENRES)
         if path.endswith('/favorites/ids'):
             with STATE_LOCK: return self.response(sorted(FAVORITES))
         if path.endswith('/library/mixes') or '/library/mixes/' in path:
@@ -392,6 +396,11 @@ class Handler(BaseHTTPRequestHandler):
             releases = RELEASES
             if 'artist_id' in query: releases = [r for r in releases if ARTIST_NAMES.get(query['artist_id'][0]) in r['artists']]
             if query.get('q', [''])[0]: releases = [r for r in releases if matches(r['title'] + ' ' + ' '.join(r['artists']), query['q'][0])]
+            # Genre tiles ask for a genre's newest few albums; the genre page for its first page.
+            genre = query.get('genre', [''])[0]
+            if genre: releases = [r for r in releases if r['id'] in GENRE_RELEASES.get(genre, [])]
+            limit = query.get('limit', [''])[0]
+            if limit.isdigit(): releases = releases[:int(limit)]
             return self.response(releases)
         if path.endswith('/library/artists'):
             if int(query.get('offset',['0'])[0]) != 0: return self.response([])

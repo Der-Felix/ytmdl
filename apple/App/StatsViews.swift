@@ -15,7 +15,8 @@ struct StatsView: View {
     /// Answers per window, so switching back shows the last figures at once.
     @State private var answers: [StatsPeriod: ListeningStats] = [:]
     @State private var failures: [StatsPeriod: String] = [:]
-    @State private var loading: Set<StatsPeriod> = []
+    /// The newest request per window wins; an older answer is dropped.
+    @State private var requests = LatestRequests<StatsPeriod>()
     @State private var savingPlaylist = false
     @State private var savedPlaylist: Playlist?
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -43,7 +44,9 @@ struct StatsView: View {
         .navigationTitle("Deine Statistik")
         .navigationBarTitleDisplayMode(.large)
         .refreshable { await load(period, force: true) }
-        .task(id: period) { await load(period) }
+        // Also when the server's features arrive after the page opened (a
+        // pinned tile right after launch): it used to wait on a skeleton forever.
+        .task(id: StatsTaskKey(period: period, available: model.serverFeatures.statistics, user: model.user?.id)) { await load(period) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu { PinToStartButton(model: model, pin: .stats) } label: {
@@ -204,8 +207,7 @@ struct StatsView: View {
             ForEach(Array(stats.topGenres.enumerated()), id: \.offset) { index, entry in
                 NavigationLink(value: LibraryRoute.genre(entry.name)) {
                     StatsRankRow(rank: index + 1, title: entry.name, subtitle: nil, plays: entry.plays, largest: largest) {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous).fill(GenreTile.color(for: entry.name).gradient)
-                            .overlay { Image(systemName: "guitars").font(.subheadline.weight(.semibold)).foregroundStyle(.white) }
+                        GenreThumbnail(model: model, genre: entry.name)
                     }
                 }
                 .buttonStyle(ListenPressStyle())
@@ -228,15 +230,21 @@ struct StatsView: View {
         model.player.play(tracks, start: start, client: client,
                           context: QueueContext(kind: "history", id: "stats-" + period.rawValue, title: "Top-Titel · \(period.title)"))
     }
+    private struct StatsTaskKey: Equatable { let period: StatsPeriod; let available: Bool; let user: String? }
+    /// Switching windows quickly cancels the shown window's request and may
+    /// return to it before that one ended; the newest request answers. (A
+    /// "still loading" guard used to skip the new request and leave the
+    /// skeleton up for good.)
     private func load(_ period: StatsPeriod, force: Bool = false) async {
-        guard model.serverFeatures.statistics, force || answers[period] == nil, !loading.contains(period) else { return }
-        loading.insert(period); defer { loading.remove(period) }
+        guard model.serverFeatures.statistics, force || answers[period] == nil else { return }
+        let ticket = requests.begin(period)
+        defer { requests.end(ticket) }
         do {
             let answer = try await model.listeningStats(period)
+            guard requests.isCurrent(ticket) else { return }
             answers[period] = answer; failures[period] = nil
-        } catch is CancellationError {
         } catch {
-            guard !Task.isCancelled else { return }
+            guard requests.isCurrent(ticket), !ListenFeed.isCancellation(error), !Task.isCancelled else { return }
             failures[period] = ListenFeed.phase(for: error).message ?? "Die Statistik konnte nicht geladen werden."
         }
     }

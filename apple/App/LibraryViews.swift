@@ -15,13 +15,14 @@ import YTMDLCore
     private(set) var failure: String?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var pages = 0
+    @ObservationIgnored private var knownIDs = Set<String>()
     /// The directory owns its loading, so a list that is rebuilt or closed
     /// mid-request (the iPad sidebar does both) never strands it half-loaded.
     @ObservationIgnored private var worker: Task<Void, Never>?
 
     func reset() {
         worker?.cancel(); worker = nil
-        artists = []; sections = []; complete = false; loading = false; failure = nil; pages = 0; generation = UUID()
+        artists = []; sections = []; complete = false; loading = false; failure = nil; pages = 0; knownIDs = []; generation = UUID()
     }
     func retry(_ model: AppModel) async { failure = nil; await load(model) }
     /// Continues where it stopped until every artist is there; returns when
@@ -47,8 +48,9 @@ import YTMDLCore
                     .init(name: "limit", value: String(Self.pageSize)), .init(name: "offset", value: String(artists.count)),
                     .init(name: "sort", value: "name"), .init(name: "order", value: "asc")])
                 guard self.generation == generation, model.client === client else { return }
-                var known = Set(artists.map(\.id))
-                artists += page.filter { known.insert($0.id).inserted }
+                // One set for the whole directory: rebuilding it per page grew
+                // with every page on the main thread (tens of thousands of artists).
+                artists += page.filter { knownIDs.insert($0.id).inserted }
                 pages += 1
                 let finished = page.count < Self.pageSize
                 if finished || pages <= 3 || pages % 5 == 0 { await regroup(generation) }
@@ -613,27 +615,53 @@ struct LibraryTracksView: View {
 
 // MARK: - Genres
 
-/// "Genres": the genres of the library; each opens its albums.
+/// "Genres": the genres of the library, each with covers of its albums; each opens its albums.
 struct LibraryGenresView: View {
     var model: AppModel
     var body: some View {
         List {
             if model.genres.isEmpty {
-                ContentUnavailableView("Keine Genres", systemImage: "guitars", description: Text("Alben mit Genre-Angabe erscheinen hier nach Genre sortiert."))
+                if let message = model.libraryError, !model.connecting {
+                    // The genres come with the library; a failed load says so and can be retried.
+                    ListenSectionFailure(message: message) { Task { await model.loadLibrary() } }
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                } else if model.connecting {
+                    ForEach(0..<8, id: \.self) { _ in TrackRowSkeleton().listRowInsets(ListenMetrics.rowInsets).listRowSeparator(.hidden) }
+                        .accessibilityElement(children: .ignore).accessibilityLabel("Genres werden geladen")
+                } else {
+                    ContentUnavailableView {
+                        Label("Keine Genres", systemImage: "guitars")
+                    } description: {
+                        Text("Alben mit Genre-Angabe erscheinen hier nach Genre sortiert.")
+                    } actions: {
+                        Button("Erneut laden", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
+                            .buttonStyle(.bordered)
+                    }
                     .listRowSeparator(.hidden)
+                }
             }
             ForEach(model.genres, id: \.self) { genre in
                 NavigationLink(value: LibraryRoute.genre(genre)) {
                     HStack(spacing: 12) {
-                        Image(systemName: "guitars").font(.body.weight(.semibold)).foregroundStyle(.tint).frame(width: 28)
-                        Text(genre == "__none__" ? "Ohne Genre" : genre).font(.body)
-                    }.frame(minHeight: 36)
-                }.accessibilityIdentifier("genre-row-" + genre)
+                        if genre == "__none__" {
+                            Image(systemName: "questionmark.square.dashed").font(.title3).foregroundStyle(.secondary)
+                                .frame(width: ListenMetrics.rowArtwork, height: ListenMetrics.rowArtwork)
+                                .background(ListenMetrics.surface, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                .accessibilityHidden(true)
+                        } else {
+                            GenreThumbnail(model: model, genre: genre).frame(width: ListenMetrics.rowArtwork, height: ListenMetrics.rowArtwork)
+                        }
+                        Text(genre == "__none__" ? "Ohne Genre" : genre).font(.body.weight(.semibold)).lineLimit(2)
+                    }
+                }
+                .listRowInsets(ListenMetrics.rowInsets)
+                .accessibilityIdentifier("genre-row-" + genre)
             }
         }
         .listStyle(.plain)
         .modifier(ReadableContentWidth(maxWidth: 760))
         .navigationTitle("Genres")
+        .refreshable { await model.loadLibrary() }
     }
 }
 
@@ -646,10 +674,14 @@ struct GenreAlbumsView: View {
     @State private var busy = false
     @State private var failure: String?
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if genre != "__none__" { radioButton }
+                if genre != "__none__" {
+                    header
+                    radioButton
+                }
                 if releases.isEmpty && busy {
                     LazyVGrid(columns: columns, spacing: 20) { ForEach(0..<6, id: \.self) { _ in AlbumCardSkeleton() } }
                         .accessibilityElement(children: .ignore).accessibilityLabel("Alben werden geladen")
@@ -672,6 +704,9 @@ struct GenreAlbumsView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(genre == "__none__" ? "Ohne Genre" : genre)
+        // The header shows the name large; the bar keeps it small.
+        .navigationBarTitleDisplayMode(genre == "__none__" ? .automatic : .inline)
+        .refreshable { guard !busy else { return }; releases = []; more = true; failure = nil; await load() }
         .toolbar {
             if genre != "__none__" {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -686,6 +721,27 @@ struct GenreAlbumsView: View {
             }
         }
         .task { if releases.isEmpty { await load() } }
+    }
+    /// The genre's covers beside its name: the page's one large element.
+    private var header: some View {
+        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+        return layout {
+            GenreThumbnail(model: model, genre: genre, cornerRadius: ListenMetrics.cardRadius)
+                .frame(width: sizeClass == .regular ? 148 : 112, height: sizeClass == .regular ? 148 : 112)
+                .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Genre").font(.caption.weight(.semibold)).foregroundStyle(.tint).textCase(.uppercase)
+                Text(genre).font(.title2.bold()).lineLimit(3).accessibilityAddTraits(.isHeader)
+                Text(albumSummary).font(.subheadline).monospacedDigit().foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("genre-header")
+    }
+    private var albumSummary: String {
+        if releases.isEmpty { return busy ? "Alben werden geladen" : "Alben und Genre-Radio" }
+        let count = more ? "\(releases.count)+" : "\(releases.count)"
+        return releases.count == 1 && !more ? "1 Album" : "\(count) Alben"
     }
     /// "Genre-Radio": the genre's music from the whole library, not only these albums.
     private var radioButton: some View {
@@ -710,6 +766,8 @@ struct GenreAlbumsView: View {
             try Task.checkCancellation()
             guard model.client === client else { return }
             let known = Set(releases.map(\.id))
+            // The first albums lend the genre's tiles their covers: no extra request.
+            if releases.isEmpty { model.genreArtwork.remember(genre, releases: page) }
             releases += page.filter { !known.contains($0.id) }; more = page.count == 60; failure = nil
         } catch is CancellationError {
         } catch {

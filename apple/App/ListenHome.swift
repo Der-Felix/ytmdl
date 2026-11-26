@@ -28,9 +28,11 @@ import YTMDLCore
     /// The mix whose tracks are being loaded to start playback.
     var playingMixID: String?
     var mixError: String?
+    /// When the server last answered; the app reloads after a while in the background.
+    @ObservationIgnored private(set) var loadedAt: Date?
     @ObservationIgnored private var revision = UUID()
     func clear() {
-        revision = UUID(); mixes = []; history = []; newReleases = []; frequent = []; unreachable = false
+        revision = UUID(); mixes = []; history = []; newReleases = []; frequent = []; unreachable = false; loadedAt = nil
         mixesPhase = .idle; historyPhase = .idle; releasesPhase = .idle; frequentPhase = .idle; playingMixID = nil; mixError = nil
     }
     fileprivate func begin() -> UUID {
@@ -44,26 +46,38 @@ import YTMDLCore
     fileprivate func apply(_ token: UUID, mixes: Result<[PersonalMix], any Error>, history: Result<[HistoryTrack], any Error>, releases: Result<[Release], any Error>,
                            frequent: Result<[HistoryTrack], any Error> = .success([])) {
         guard token == revision else { return }
-        let failures = [mixes.failure, history.failure, releases.failure].compactMap { $0 }
+        // A cancelled request is no answer: it neither fails a shelf nor
+        // reads as "Keine Verbindung" (it used to, when a view's task ended).
+        let failures = [mixes.failure, history.failure, releases.failure].compactMap { $0 }.filter { !Self.isCancellation($0) }
         unreachable = !failures.isEmpty && failures.allSatisfy(Self.isUnreachable)
+        if [mixes.failure, history.failure, releases.failure, frequent.failure].allSatisfy({ $0 == nil }) { loadedAt = Date() }
         switch mixes {
         case .success(let value): self.mixes = PersonalMix.ordered(value); mixesPhase = .loaded
-        case .failure(let error): mixesPhase = Self.phase(for: error); if mixesPhase == .unsupported { self.mixes = [] }
+        case .failure(let error): mixesPhase = settle(mixesPhase, error); if mixesPhase == .unsupported { self.mixes = [] }
         }
         switch history {
         case .success(let value): self.history = value; historyPhase = .loaded
-        case .failure(let error): historyPhase = Self.phase(for: error); if historyPhase == .unsupported { self.history = [] }
+        case .failure(let error): historyPhase = settle(historyPhase, error); if historyPhase == .unsupported { self.history = [] }
         }
         switch releases {
         case .success(let value): newReleases = value; releasesPhase = .loaded
-        case .failure(let error): releasesPhase = Self.phase(for: error)
+        case .failure(let error): releasesPhase = settle(releasesPhase, error)
         }
         switch frequent {
         case .success(let value): self.frequent = value; frequentPhase = .loaded
-        case .failure(let error): frequentPhase = Self.phase(for: error); if frequentPhase == .unsupported { self.frequent = [] }
+        case .failure(let error): frequentPhase = settle(frequentPhase, error); if frequentPhase == .unsupported { self.frequent = [] }
         }
     }
-    static func isUnreachable(_ error: any Error) -> Bool { error is URLError }
+    /// The phase after a failed part: loaded content stays on a cancellation,
+    /// an unfinished one goes back to idle so the next visit loads it.
+    private func settle(_ phase: Phase, _ error: any Error) -> Phase {
+        guard Self.isCancellation(error) else { return Self.phase(for: error) }
+        return phase == .loading ? .idle : phase
+    }
+    static func isCancellation(_ error: any Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+    static func isUnreachable(_ error: any Error) -> Bool { error is URLError && !isCancellation(error) }
     static func phase(for error: any Error) -> Phase {
         if case PlayerError.server(let status, _, _) = error, status == 404 || status == 405 { return .unsupported }
         if isUnreachable(error) { return .failed("Der Server ist gerade nicht erreichbar.") }
@@ -88,7 +102,31 @@ func listenDuration(_ milliseconds: Int) -> String {
 extension AppModel {
     /// Loads the start screen's server sections side by side. Errors stay in
     /// their section: no alert, and a failed part never hides the others.
+    ///
+    /// The model owns the load, not the view that asked: Start and "Für dich"
+    /// both ask from their `.task`, which SwiftUI cancels when it rebuilds a
+    /// view, and a cancelled load used to leave the shelves failed or stuck.
+    /// A call while a load runs waits for that one instead of starting another.
     func loadListenFeed() async {
+        guard !offlineMode, client != nil, user != nil else { return }
+        if let running = feedTask { await running.task.value; return }
+        let id = UUID()
+        let task = Task { [weak self] in
+            await self?.performListenFeedLoad()
+            if self?.feedTask?.id == id { self?.feedTask = nil }
+        }
+        feedTask = (id, task)
+        await task.value
+    }
+    /// After the app was in the background: the daily mixes and the history
+    /// are loaded again once they are old or the day changed.
+    func refreshAfterForeground() async {
+        await refreshServerFeatures()
+        guard !offlineMode, user != nil else { return }
+        if FeedFreshness.needsRefresh(loadedAt: feed.loadedAt, now: Date()) { await loadListenFeed() }
+        await flushListeningHistory()
+    }
+    private func performListenFeedLoad() async {
         guard !offlineMode, let client, user != nil else { return }
         let token = feed.begin()
         async let mixes: Result<[PersonalMix], any Error> = Self.fetch(client, "/library/mixes", mixTimeZone)
@@ -154,11 +192,9 @@ extension AppModel {
         do {
             let list: [ListeningPreference] = try await client.get("/listening-preferences")
             guard self.client === client else { return }
-            // Exclusions on their way to the server stay until it answers them.
-            let pending = preferences.entries.filter { entry in
-                entry.isPending && !list.contains { saved in saved.kind == entry.kind && saved.target == entry.target }
-            }
-            preferences = ListeningPreferences(pending + list); preferencesPhase = .loaded
+            // Exclusions on their way to the server stay until it answers
+            // them; those being lifted stay out although this list still has them.
+            preferences = preferences.merged(with: list); preferencesPhase = .loaded
         } catch {
             guard self.client === client else { return }
             preferencesPhase = ListenFeed.phase(for: error)
@@ -224,12 +260,14 @@ extension AppModel {
     /// back when the server refuses.
     func allow(_ kind: PreferenceKind, target: String, name: String) async {
         guard let client, !offlineMode, serverFeatures.preferences else { return }
-        let removed = preferences.remove(kind, target)
+        let removed = preferences.beginRemoval(kind, target)
         announce("\(name) wird wieder vorgeschlagen", symbol: "hand.thumbsup")
         do {
             try await client.mutate("/listening-preferences", method: "DELETE", query: [.init(name: "kind", value: kind.rawValue), .init(name: "target", value: target)])
+            if self.client === client { preferences.endRemoval(kind, target) }
         } catch {
             guard self.client === client else { return }
+            preferences.endRemoval(kind, target)
             if let removed { preferences.restore(removed.entry, at: removed.index) }
             announce("Konnte nicht geändert werden. Bitte erneut versuchen.", symbol: "exclamationmark.triangle")
         }
@@ -288,6 +326,28 @@ private var listenSurface: Color {
     Color(uiColor: .secondarySystemGroupedBackground)
     #else
     Color.primary.opacity(0.06)
+    #endif
+}
+
+extension EnvironmentValues {
+    /// The page behind buttons and tiles is the plain system background (the
+    /// album, artist, playlist and mix pages), not the grouped one of Start.
+    @Entry var listenPlainBackground = false
+}
+
+/// The surface of secondary buttons and tiles. On grouped pages the grouped
+/// card colour; on plain pages, where that colour is the page itself in light
+/// mode (white on white, the tiles had no visible background), a light fill.
+func actionSurface(plain: Bool) -> Color {
+    #if os(iOS)
+    guard plain else { return listenSurface }
+    return Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.secondarySystemGroupedBackground.resolvedColor(with: traits)
+            : UIColor.secondarySystemFill.resolvedColor(with: traits)
+    })
+    #else
+    return listenSurface
     #endif
 }
 /// The radius of buttons, tiles and boxes: on iPhone and iPad the one of
@@ -747,11 +807,12 @@ struct QueueUndoBar: View {
 struct MixTileStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.listenPlainBackground) private var plainBackground
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.labelStyle(MixTileLabelStyle())
             .padding(.horizontal, 8).padding(.vertical, 10).frame(maxWidth: .infinity, minHeight: 60)
             .foregroundStyle(Color.primary)
-            .background { RoundedRectangle(cornerRadius: listenSurfaceRadius, style: .continuous).fill(listenSurface) }
+            .background { RoundedRectangle(cornerRadius: listenSurfaceRadius, style: .continuous).fill(actionSurface(plain: plainBackground)) }
             .contentShape(RoundedRectangle(cornerRadius: listenSurfaceRadius, style: .continuous))
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .opacity(!enabled ? 0.45 : configuration.isPressed ? 0.75 : 1)
