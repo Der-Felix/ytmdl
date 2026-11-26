@@ -16,6 +16,7 @@ private final class ServerFixtureState: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         self.modern = modern; preferenceStatus = 200; requests = []
     }
+    func refusePreferences() { lock.lock(); defer { lock.unlock() }; preferenceStatus = 500 }
     func snapshot() -> [(method: String, path: String, query: [String: String])] { lock.lock(); defer { lock.unlock() }; return requests }
 }
 
@@ -40,29 +41,38 @@ private final class ServerProtocol: URLProtocol, @unchecked Sendable {
         switch (method, url.path) {
         case (_, "/api/v1/auth/status"):
             headers["Set-Cookie"] = "ytmdl_csrf=fixture-only; Secure; Path=/; Max-Age=3600"
-            result = ["authenticated": false, "setup_required": false]
+            result = ["authenticated": false, "setup_required": false] as [String: Bool]
         case ("GET", "/api/v1/health"):
-            result = state.modern
-                ? ["status": "ok", "version": "1.11.0", "features": ["radio.station", "radio.seeds", "history.stats", "listening.preferences"]] as [String: Any]
-                : ["status": "ok", "version": "1.10.1"]
+            var health: [String: Any] = ["status": "ok", "version": "1.10.1"]
+            if state.modern {
+                health["version"] = "1.11.0"
+                health["features"] = ["radio.station", "radio.seeds", "history.stats", "listening.preferences"] as [String]
+            }
+            result = health
         case ("GET", "/api/v1/library/radio"):
-            result = [track("r1", "Eins"), track("r2", "Zwei")]
+            result = [track("r1", "Eins"), track("r2", "Zwei")] as [[String: Any]]
         case ("GET", "/api/v1/library/radio/station") where state.modern:
-            let cursor = query["cursor"] ?? ""
-            result = cursor.isEmpty
-                ? ["title": "Radio: Fixture (Server)", "seed": ["kind": "artist", "id": "a1", "name": "Fixture"],
-                   "tracks": [track("s1", "Eins"), track("s2", "Zwei"), track("s3", "Drei")], "next_cursor": "c1", "remaining": 2]
-                : ["title": "Radio: Fixture (Server)", "tracks": [track("s3", "Drei"), track("s4", "Vier"), track("s5", "Fünf")], "next_cursor": NSNull(), "remaining": 0]
+            var page: [String: Any] = ["title": "Radio: Fixture (Server)"]
+            if (query["cursor"] ?? "").isEmpty {
+                page["seed"] = ["kind": "artist", "id": "a1", "name": "Fixture"] as [String: String]
+                page["tracks"] = [track("s1", "Eins"), track("s2", "Zwei"), track("s3", "Drei")] as [[String: Any]]
+                page["next_cursor"] = "c1"; page["remaining"] = 2
+            } else {
+                page["tracks"] = [track("s3", "Drei"), track("s4", "Vier"), track("s5", "Fünf")] as [[String: Any]]
+                page["next_cursor"] = NSNull(); page["remaining"] = 0
+            }
+            result = page
         case ("PUT", "/api/v1/listening-preferences") where state.modern:
             status = request.value(forHTTPHeaderField: "X-CSRF-Token") == "fixture-only" ? state.preferenceStatus : 403
-            result = ["id": "p1", "kind": "artist", "target": "a1", "name": "Fixture", "created_at": "2026-11-26T12:00:00Z"]
+            result = ["id": "p1", "kind": "artist", "target": "a1", "name": "Fixture", "created_at": "2026-11-26T12:00:00Z"] as [String: String]
         case ("GET", "/api/v1/listening-preferences") where state.modern:
             result = [] as [Any]
         default:
             // An older server answers an unknown path with 400, not 404.
             status = 400
         }
-        let object: [String: Any] = status >= 400 ? ["error": ["code": "INVALID_REQUEST", "message": "The requested endpoint does not exist."]] : ["data": result]
+        let failure: [String: Any] = ["error": ["code": "INVALID_REQUEST", "message": "The requested endpoint does not exist."] as [String: String]]
+        let object: [String: Any] = status >= 400 ? failure : ["data": result]
         let data = try! JSONSerialization.data(withJSONObject: object)
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -143,7 +153,7 @@ private final class ServerProtocol: URLProtocol, @unchecked Sendable {
     #expect(model.notice?.action?.title == "Rückgängig")
 
     // A refusal rolls the exclusion back.
-    ServerProtocol.state.lock.lock(); ServerProtocol.state.preferenceStatus = 500; ServerProtocol.state.lock.unlock()
+    ServerProtocol.state.refusePreferences()
     await model.excludeGenre("Pop")
     #expect(!model.preferences.contains(.genre, "Pop") && model.preferences.entries.count == 1)
 }
