@@ -31,8 +31,9 @@ public enum MixGroup: String, CaseIterable, Identifiable, Sendable {
     public static func of(_ mix: PersonalMix) -> MixGroup {
         if let group = mix.group, let known = MixGroup(rawValue: group), known != .more { return known }
         switch mix.kind {
-        case "genre", "on_repeat": return .madeForYou
+        case "genre", "on_repeat", "artist", "favorites", "daypart": return .madeForYou
         case "rediscover", "unheard", "new": return .discover
+        case "forgotten_favorites", "decade": return .rewind
         default: return .more
         }
     }
@@ -62,6 +63,18 @@ extension PersonalMix {
         case "rediscover": "clock.arrow.circlepath"
         case "unheard": "sparkle.magnifyingglass"
         case "new": "sparkles"
+        case "artist": "person.crop.circle"
+        case "favorites": "heart.fill"
+        case "forgotten_favorites": "heart.text.square"
+        case "decade": "calendar"
+        case "daypart":
+            switch daypart {
+            case "morning": "sunrise"
+            case "afternoon": "sun.max"
+            case "evening": "sunset"
+            case "night": "moon.stars"
+            default: "clock"
+            }
         default: "music.note.list"
         }
     }
@@ -149,6 +162,32 @@ public struct RadioStation: Hashable, Sendable {
         case "album": let (album, seed) = split(); guard !album.isEmpty else { return nil }; self.init(.album(id: album, title: name), seedTrackID: seed)
         default: return nil
         }
+    }
+    /// The station of a server with `radio.station` (1.11): the server seeds
+    /// every kind itself, titles it and serves it in batches without repeats.
+    /// `cursor` continues where the previous batch ended; `exclude` (at most
+    /// 500 ids) keeps out the queue and what this session played. The seed
+    /// parameters are sent with every batch, so an expired station is rebuilt.
+    public func stationQuery(nonce: String, limit: Int, cursor: String? = nil, exclude: [String] = []) -> [URLQueryItem] {
+        var items: [URLQueryItem]
+        switch seed {
+        case .track(let id, _): items = [.init(name: "seed", value: id)]
+        case .artist(let id, _): items = [.init(name: "artist", value: id)]
+        case .album(let id, _): items = [.init(name: "release", value: id)]
+        case .genre(let genre): items = [.init(name: "genre", value: genre)]
+        }
+        items += [.init(name: "nonce", value: nonce), .init(name: "limit", value: String(min(100, max(1, limit))))]
+        if let cursor, !cursor.isEmpty { items.append(.init(name: "cursor", value: cursor)) }
+        let excluded = Array(exclude.filter { !$0.isEmpty }.prefix(500))
+        if !excluded.isEmpty { items.append(.init(name: "exclude", value: excluded.joined(separator: ","))) }
+        return items
+    }
+    /// The queue context of a server station, named as the server titles it
+    /// ("Radio: Daft Punk"); the station's own title when the server sends none.
+    public func context(serverTitle: String) -> QueueContext {
+        let base = context
+        let title = serverTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return QueueContext(kind: base.kind, id: base.id, title: title.isEmpty ? base.title : title)
     }
     /// The query of the first batch; nil while an artist or album radio has no seed track yet.
     public func query(nonce: String) -> [URLQueryItem]? {
@@ -243,6 +282,8 @@ public enum HomeShelf: String, CaseIterable, Codable, Identifiable, Sendable {
     case genres
     case favorites
     case playlists
+    /// "Statistik": this week's plays and top artist (server 1.11, `history.stats`).
+    case stats
     public var id: String { rawValue }
     public var title: String {
         switch self {
@@ -257,6 +298,7 @@ public enum HomeShelf: String, CaseIterable, Codable, Identifiable, Sendable {
         case .genres: "Deine Genres"
         case .favorites: "Favoriten"
         case .playlists: "Playlists"
+        case .stats: "Statistik"
         }
     }
     public var subtitle: String {
@@ -272,6 +314,7 @@ public enum HomeShelf: String, CaseIterable, Codable, Identifiable, Sendable {
         case .genres: "Alben und Radio nach Genre"
         case .favorites: "Deine Lieblingstitel"
         case .playlists: "Deine Playlists"
+        case .stats: "Was du diese Woche gehört hast"
         }
     }
     public var symbol: String {
@@ -287,20 +330,26 @@ public enum HomeShelf: String, CaseIterable, Codable, Identifiable, Sendable {
         case .genres: "guitars"
         case .favorites: "heart"
         case .playlists: "music.note.list"
+        case .stats: "chart.bar.xaxis"
         }
     }
     /// Shown on a new Start; the optional shelves wait in "Start anpassen".
     public var visibleByDefault: Bool {
         switch self {
         case .quickAccess, .mixes, .jumpBackIn, .recent, .newReleases, .frequent: true
-        case .discover, .topArtists, .genres, .favorites, .playlists: false
+        case .discover, .topArtists, .genres, .favorites, .playlists, .stats: false
         }
+    }
+    /// Shelves that need a capability of the server; without it the shelf is
+    /// not shown on Start nor offered in "Start anpassen".
+    public static func unavailable(on features: ServerFeatures) -> Set<HomeShelf> {
+        features.statistics ? [] : [.stats]
     }
 }
 
 /// Something pinned to Start's quick access ("An Start anheften").
 public struct HomePin: Codable, Hashable, Identifiable, Sendable {
-    public enum Kind: String, Codable, CaseIterable, Sendable { case playlist, album, artist, mix, genre, favorites }
+    public enum Kind: String, Codable, CaseIterable, Sendable { case playlist, album, artist, mix, genre, favorites, stats }
     public let kind: Kind
     /// The playlist, album, artist or mix ID; the name of a genre.
     public let itemID: String
@@ -356,18 +405,23 @@ public struct HomeLayout: Equatable, Sendable {
         entries.swapAt(index, target)
         return true
     }
+    /// The shown shelves without those the server cannot fill (`excluding`).
+    public func visibleShelves(excluding unavailable: Set<HomeShelf>) -> [HomeShelf] {
+        visibleShelves.filter { !unavailable.contains($0) }
+    }
     /// A drag among the shown shelves only (the editor lists hidden ones
-    /// apart): the hidden shelves keep their places in between.
-    public mutating func moveVisible(fromOffsets source: IndexSet, toOffset destination: Int) {
-        let slots = entries.indices.filter { entries[$0].visible }
+    /// apart): the hidden shelves, and the shown ones left out of the editor
+    /// (`excluding`), keep their places in between.
+    public mutating func moveVisible(fromOffsets source: IndexSet, toOffset destination: Int, excluding unavailable: Set<HomeShelf> = []) {
+        let slots = entries.indices.filter { entries[$0].visible && !unavailable.contains(entries[$0].shelf) }
         let reordered = Self.moved(slots.map { entries[$0] }, source, destination)
         for (slot, entry) in zip(slots, reordered) { entries[slot] = entry }
     }
     /// One step up (-1) or down (+1) among the shown shelves, for VoiceOver.
-    @discardableResult public mutating func moveVisible(_ shelf: HomeShelf, by step: Int) -> Bool {
-        let shown = visibleShelves
+    @discardableResult public mutating func moveVisible(_ shelf: HomeShelf, by step: Int, excluding unavailable: Set<HomeShelf> = []) -> Bool {
+        let shown = visibleShelves(excluding: unavailable)
         guard let index = shown.firstIndex(of: shelf), shown.indices.contains(index + step), step != 0 else { return false }
-        moveVisible(fromOffsets: IndexSet(integer: index), toOffset: step > 0 ? index + step + 1 : index + step)
+        moveVisible(fromOffsets: IndexSet(integer: index), toOffset: step > 0 ? index + step + 1 : index + step, excluding: unavailable)
         return true
     }
     public func isPinned(_ kind: HomePin.Kind, _ itemID: String) -> Bool { pins.contains { $0.kind == kind && $0.itemID == itemID } }

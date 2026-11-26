@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.6.0, build 43
+# Apple app handoff — preview 0.6.1, build 44
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,23 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 44: server 1.11 listening features (CI only, not installed)
+
+Builds on build 43; see FEATURES.md "Server 1.11 listening features (build 44)".
+New files: `App/StatsViews.swift` and `App/ListeningServerViews.swift` (both registered like
+`ForYouViews.swift`: file reference, three build files, the three source phases and the App
+group), `Sources/YTMDLCore/ListeningServer.swift`, `Tests/YTMDLCoreTests/ListeningServerTests.swift`
+and `Tests/YTMDLAppleSupportTests/ListeningServerModelTests.swift`.
+
+- **Core:** `ServerFeatures`/`ServerHealth` (lenient `/health`), `RadioStationPage` and
+  `StationPaging`, `ListeningStats` with `StatsPeriod` and `StatsFormat`, `LyricsHit` and
+  `LyricsHighlight`, `ListeningPreference(s)` with pending entries, `SuggestionFilter`,
+  `PlaybackQueue.removeUpcomingSuggestions`, the new mix kinds and the `stats` Start shelf/pin.
+- **Gating:** never probe; an older server answers unknown paths with 400, so every new request
+  is behind `AppModel.serverFeatures`.
+- **Fixture:** `apple/Scripts/fixture-server.py` answers like 1.11 on `--port` and like 1.10.1
+  on `--port + 1` (or only like 1.10.1 with `--old-server`).
 
 ## Build 43: Für dich, radio everywhere and Start anpassen (CI only, not installed)
 

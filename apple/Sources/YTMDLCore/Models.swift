@@ -84,15 +84,22 @@ public struct Track: Codable, Identifiable, Equatable, Sendable {
     public let trackNumber: Int?
     /// The disc of a multi-disc album; nil or 1 for most tracks.
     public let discNumber: Int?
+    /// The library's artist and album of the title (`artist_id`, `release_id`);
+    /// nil from older servers and in queues saved by older app versions.
+    public let artistId: String?
+    public let releaseId: String?
     public var artistText: String { artists.joined(separator: " · ") }
     public var duration: Double { Double(durationMs) / 1000 }
     public init(id: String, title: String, artists: [String], album: String, durationMs: Int, codec: String? = nil,
-                albumArtist: String? = nil, trackNumber: Int? = nil, discNumber: Int? = nil) {
+                albumArtist: String? = nil, trackNumber: Int? = nil, discNumber: Int? = nil,
+                artistId: String? = nil, releaseId: String? = nil) {
         self.id = id; self.title = title; self.artists = artists
         self.album = album; self.durationMs = durationMs; self.codec = codec
         self.albumArtist = albumArtist; self.trackNumber = trackNumber; self.discNumber = discNumber
+        self.artistId = artistId?.isEmpty == false ? artistId : nil
+        self.releaseId = releaseId?.isEmpty == false ? releaseId : nil
     }
-    enum CodingKeys: String, CodingKey { case id, title, artists, album, durationMs, codec, albumArtist, trackNumber, discNumber }
+    enum CodingKeys: String, CodingKey { case id, title, artists, album, durationMs, codec, albumArtist, trackNumber, discNumber, artistId, releaseId }
     // The server serializes a track without artist tags as `"artists": null`.
     // One such row must not make a whole page of tracks undecodable.
     public init(from decoder: any Decoder) throws {
@@ -107,7 +114,32 @@ public struct Track: Codable, Identifiable, Equatable, Sendable {
         albumArtist = (try? c.decodeIfPresent(String.self, forKey: .albumArtist)) ?? nil
         trackNumber = (try? c.decodeIfPresent(Int.self, forKey: .trackNumber)) ?? nil
         discNumber = (try? c.decodeIfPresent(Int.self, forKey: .discNumber)) ?? nil
+        let artistId = (try? c.decodeIfPresent(String.self, forKey: .artistId)) ?? nil
+        self.artistId = artistId?.isEmpty == false ? artistId : nil
+        let releaseId = (try? c.decodeIfPresent(String.self, forKey: .releaseId)) ?? nil
+        self.releaseId = releaseId?.isEmpty == false ? releaseId : nil
     }
+    /// A track inside a newer answer (statistics, lyrics hits, stations):
+    /// read like any track, but a missing duration or title never drops the
+    /// row; only the id is required.
+    public static func lenient(from decoder: any Decoder) throws -> Track {
+        if let track = try? Track(from: decoder) { return track }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try c.decode(String.self, forKey: .id)
+        let title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? nil
+        let artists = (try? c.decodeIfPresent([String].self, forKey: .artists)) ?? nil
+        let album = (try? c.decodeIfPresent(String.self, forKey: .album)) ?? nil
+        let duration = (try? c.decodeIfPresent(Int.self, forKey: .durationMs)) ?? nil
+        let artistId = (try? c.decodeIfPresent(String.self, forKey: .artistId)) ?? nil
+        let releaseId = (try? c.decodeIfPresent(String.self, forKey: .releaseId)) ?? nil
+        return Track(id: id, title: title ?? "", artists: artists ?? [], album: album ?? "", durationMs: duration ?? 0,
+                     artistId: artistId, releaseId: releaseId)
+    }
+}
+/// One element of a track list that is read with `Track.lenient`.
+struct LenientTrack: Decodable, Sendable {
+    let track: Track
+    init(from decoder: any Decoder) throws { track = try Track.lenient(from: decoder) }
 }
 public struct SmartPlaylistRules: Codable, Equatable, Sendable {
     public var genre: String?
@@ -177,6 +209,22 @@ public struct SearchResults: Decodable, Sendable {
     public let artists: [Artist]
     public let releases: [Release]
     public let tracks: [Track]
+    /// Hits in stored lyrics (server 1.11, `search.lyrics`); empty from older servers.
+    public let lyrics: [LyricsHit]
+    public init(artists: [Artist], releases: [Release], tracks: [Track], lyrics: [LyricsHit] = []) {
+        self.artists = artists; self.releases = releases; self.tracks = tracks; self.lyrics = lyrics
+    }
+    enum CodingKeys: String, CodingKey { case artists, releases, tracks, lyrics }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Go writes an empty group as null.
+        artists = try c.decodeIfPresent([Artist].self, forKey: .artists) ?? []
+        releases = try c.decodeIfPresent([Release].self, forKey: .releases) ?? []
+        tracks = try c.decodeIfPresent([Track].self, forKey: .tracks) ?? []
+        // Optional and new: an unreadable lyrics group only hides those hits.
+        let lyrics = (try? c.decodeIfPresent([LyricsHit].self, forKey: .lyrics)) ?? nil
+        self.lyrics = lyrics ?? []
+    }
 }
 public struct Lyrics: Decodable, Sendable { public let state: String; public let content: String? }
 public struct DeviceStart: Decodable, Sendable {
@@ -390,6 +438,31 @@ public struct PlaybackQueue: Equatable, Sendable {
         alignOrigins()
         tracks.removeSubrange((index + 1)...); origins.removeSubrange((index + 1)...)
         return true
+    }
+    /// Whether the started context was chosen by the server for the listener
+    /// (a mix or a radio) rather than by the listener (an album, a playlist …).
+    public var playsSuggestions: Bool { ["mix", "radio"].contains(context?.kind ?? "") }
+    /// "Weniger davon" and the exclusions of artists and genres: removes the
+    /// upcoming entries that `matches` from what was suggested, that is the
+    /// similar titles autoplay appended and, in a mix or radio, the rest of
+    /// the started context. Titles the listener queued, the current one and
+    /// those already played stay. Returns how many entries were removed.
+    @discardableResult public mutating func removeUpcomingSuggestions(where matches: (Track) -> Bool) -> Int {
+        guard index + 1 < tracks.count else { return 0 }
+        alignOrigins()
+        let suggestions = playsSuggestions
+        var removed = 0
+        for position in stride(from: tracks.count - 1, to: index, by: -1) {
+            let origin = origins[position]
+            guard origin == .autoplay || (origin == .context && suggestions), matches(tracks[position]) else { continue }
+            tracks.remove(at: position); origins.remove(at: position)
+            removed += 1
+        }
+        if removed > 0, isShuffled {
+            let kept = Set(tracks.map(\.id))
+            unshuffledOrder = unshuffledOrder.filter { kept.contains($0) }
+        }
+        return removed
     }
     public mutating func next(repeatAll: Bool) -> Bool {
         if index + 1 < tracks.count { index += 1; return true }

@@ -52,6 +52,7 @@ struct RootView: View {
     @State private var playerOverlayOpen = false
     #endif
     @AppStorage("appearance") private var appearance = "dark"
+    @Environment(\.scenePhase) private var scenePhase
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
@@ -142,6 +143,9 @@ struct RootView: View {
         .onChange(of: searchFocused) { if searchFocused && destination != .search { selectDestination(.search) } }
         #endif
         .onChange(of: destination) { if !detailPath.isEmpty { detailPath = NavigationPath() } }
+        // The server may have been updated while the app was away: ask again
+        // what it offers (statistics, lyrics search, stations, exclusions).
+        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.refreshServerFeatures() } } }
         .onChange(of: model.user?.id) { old, _ in
             detailPath = NavigationPath(); detailVisit = UUID()
             #if os(iOS)
@@ -309,6 +313,12 @@ struct RootView: View {
                 case .tracks: LibraryTracksView(model: model)
                 case .genres: LibraryGenresView(model: model)
                 case .genre(let genre): GenreAlbumsView(model: model, genre: genre)
+                }
+            }
+            .navigationDestination(for: ListeningRoute.self) { route in
+                switch route {
+                case .stats: StatsView(model: model)
+                case .preferences: PreferencesView(model: model)
                 }
             }
             #endif
@@ -1004,6 +1014,7 @@ struct CollectionView: View {
                 Task { await model.startArtistRadio(artist, preferred: topTracks.map(\.track), tracks: tracks) }
             }.disabled(model.offlineMode || model.listeningBusy)
             PinToStartButton(model: model, pin: .artist(artist))
+            ExclusionToggleButton(model: model, kind: .artist, target: artist.id, name: artist.name)
         case .favorites: PinToStartButton(model: model, pin: .favorites)
         case .playlist(let value): PinToStartButton(model: model, pin: .playlist(playlist ?? value))
         }
@@ -1530,6 +1541,7 @@ struct TrackRow: View {
             .disabled(model.offlineMode || model.pendingFavorites.contains(track.id))
         Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }.disabled(model.offlineMode)
         Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }.disabled(model.offlineMode)
+        TrackSteeringItems(model: model, track: track)
         playlistMenuItems
     }
     @ViewBuilder private var leading: some View {

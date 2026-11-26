@@ -18,6 +18,7 @@ extension HomePin {
     static func mix(_ mix: PersonalMix) -> HomePin { HomePin(kind: .mix, itemID: mix.id, title: mix.title, subtitle: mix.label) }
     static func genre(_ genre: String) -> HomePin { HomePin(kind: .genre, itemID: genre, title: genre) }
     static var favorites: HomePin { HomePin(kind: .favorites, itemID: "favorites", title: "Lieblingstitel") }
+    static var stats: HomePin { HomePin(kind: .stats, itemID: "stats", title: "Statistik") }
 }
 
 extension AppModel {
@@ -369,6 +370,7 @@ struct ForYouHubView: View {
                 mixSections
                 genreSection
                 artistSection
+                ListeningLinksSection(model: model)
             }
             .padding(.top, 4).padding(.bottom, 32)
             .frame(maxWidth: 1000, alignment: .leading).frame(maxWidth: .infinity)
@@ -481,13 +483,18 @@ struct HomeEditorView: View {
     var model: AppModel
     @State private var confirmingReset = false
     private var layout: HomeLayout { model.homeLayout }
-    private var hidden: [HomeShelf] { layout.shelves.filter { !layout.isVisible($0) } }
+    /// Shelves the server cannot fill (an older server: "Statistik") are not offered.
+    private var unavailable: Set<HomeShelf> { HomeShelf.unavailable(on: model.serverFeatures) }
+    private var hidden: [HomeShelf] { layout.shelves.filter { !layout.isVisible($0) && !unavailable.contains($0) } }
 
     var body: some View {
         List {
             Section {
-                ForEach(layout.visibleShelves) { shelf in row(shelf, shown: true) }
-                    .onMove { source, destination in model.updateHomeLayout { $0.moveVisible(fromOffsets: source, toOffset: destination) } }
+                ForEach(layout.visibleShelves(excluding: unavailable)) { shelf in row(shelf, shown: true) }
+                    .onMove { source, destination in
+                        let unavailable = self.unavailable
+                        model.updateHomeLayout { $0.moveVisible(fromOffsets: source, toOffset: destination, excluding: unavailable) }
+                    }
             } header: {
                 Text("Auf Start")
             } footer: {
@@ -556,8 +563,9 @@ struct HomeEditorView: View {
         .padding(.vertical, 2)
         .accessibilityActions {
             if shown {
-                Button("Nach oben") { model.updateHomeLayout { $0.moveVisible(shelf, by: -1) } }
-                Button("Nach unten") { model.updateHomeLayout { $0.moveVisible(shelf, by: 1) } }
+                let unavailable = self.unavailable
+                Button("Nach oben") { model.updateHomeLayout { $0.moveVisible(shelf, by: -1, excluding: unavailable) } }
+                Button("Nach unten") { model.updateHomeLayout { $0.moveVisible(shelf, by: 1, excluding: unavailable) } }
             }
         }
     }
@@ -587,6 +595,7 @@ struct HomeEditorView: View {
         case .mix: "sparkles"
         case .genre: "guitars"
         case .favorites: "heart"
+        case .stats: "chart.bar.xaxis"
         }
     }
     static func kindLabel(_ kind: HomePin.Kind) -> String {
@@ -597,6 +606,7 @@ struct HomeEditorView: View {
         case .mix: "Mix"
         case .genre: "Genre"
         case .favorites: "Lieblingstitel"
+        case .stats: "Deine Statistik"
         }
     }
 }

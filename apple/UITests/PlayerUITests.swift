@@ -5,9 +5,14 @@ import UIKit
 #endif
 
 final class PlayerUITests: XCTestCase {
-    @MainActor private func app(player: Bool = false, pausedPlayer: Bool = false, largeText: Bool = false, light: Bool = false) throws -> XCUIApplication {
-        let server = ProcessInfo.processInfo.environment["YTMDL_FIXTURE_URL"] ?? "http://127.0.0.1:59583"
+    /// `oldServer`: the fixture's second port, which answers like server 1.10 (no `features`).
+    @MainActor private func app(player: Bool = false, pausedPlayer: Bool = false, largeText: Bool = false, light: Bool = false, oldServer: Bool = false) throws -> XCUIApplication {
+        var server = ProcessInfo.processInfo.environment["YTMDL_FIXTURE_URL"] ?? "http://127.0.0.1:59583"
         guard let host = URL(string: server)?.host, ["127.0.0.1", "localhost"].contains(host) else { throw NSError(domain: "Loopback fixture required", code: 1) }
+        if oldServer, var parts = URLComponents(string: server), let port = parts.port {
+            parts.port = port + 1
+            server = parts.string ?? server
+        }
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-server", server]
         if player { app.launchArguments.append("--fixture-player") }
@@ -1250,11 +1255,176 @@ final class PlayerUITests: XCTestCase {
         let artists = app.staticTexts["Deine Top-Künstler"].firstMatch
         reveal(artists, in: app)
         attach(app, name: "Tablet Für dich genres and artists")
+        // "Deine Statistik" puts its top lists side by side.
+        let stats = app.buttons["foryou-stats"]
+        reveal(stats, in: app)
+        XCTAssertTrue(stats.waitForExistence(timeout: 5))
+        stats.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["stats-plays"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["stats-track-0"].waitForExistence(timeout: 5))
+        attach(app, name: "Tablet Deine Statistik")
+        app.navigationBars["Deine Statistik"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Für dich"].waitForExistence(timeout: 10))
         app.navigationBars["Für dich"].buttons.firstMatch.tap()
         openHomeEditor(app)
         attach(app, name: "Tablet Start editor")
         XCTAssertFalse(app.alerts.firstMatch.exists)
         XCTAssertFalse(app.buttons["Pause"].exists)
+    }
+
+    // MARK: Server 1.11 listening features
+
+    /// "Deine Statistik" from "Für dich": a full week, a month that starts with
+    /// the history, an empty year and all time with untimed plays.
+    @MainActor func testListeningStatsSwitchPeriods() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact statistics require iPhone.")
+        let app = try app()
+        let entry = app.buttons["home-quick-foryou"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 20))
+        entry.tap()
+        XCTAssertTrue(app.navigationBars["Für dich"].waitForExistence(timeout: 10))
+        let link = app.buttons["foryou-stats"]
+        reveal(link, in: app)
+        XCTAssertTrue(link.waitForExistence(timeout: 5), "Für dich leads to the statistics.")
+        attach(app, name: "Für dich with Dein Hören")
+        link.tap()
+        XCTAssertTrue(app.navigationBars["Deine Statistik"].waitForExistence(timeout: 10))
+        let any = app.descendants(matching: .any)
+        let plays = any["stats-plays"]
+        XCTAssertTrue(plays.waitForExistence(timeout: 15))
+        XCTAssertTrue(any["stats-chart"].exists, "The activity chart shows the week.")
+        XCTAssertTrue(app.buttons["stats-play-top"].exists)
+        attach(app, name: "Statistik Woche")
+        let track = any["stats-track-0"]
+        reveal(track, in: app)
+        XCTAssertTrue(track.exists, "The top titles follow the totals.")
+        attach(app, name: "Statistik Top-Listen")
+        app.swipeDown(); app.swipeDown()
+        func choose(_ period: String) {
+            let segment = app.buttons[period].firstMatch
+            reveal(segment, in: app, up: false)
+            segment.tap()
+        }
+        choose("Monat")
+        let note = any["stats-note"]
+        XCTAssertTrue(note.waitForExistence(timeout: 10))
+        XCTAssertTrue(note.label.contains("Dein Verlauf beginnt am"), note.label)
+        attach(app, name: "Statistik Monat unvollständig")
+        choose("Jahr")
+        XCTAssertTrue(any["stats-empty"].waitForExistence(timeout: 10), "An empty window says so.")
+        XCTAssertFalse(app.buttons["stats-play-top"].exists)
+        attach(app, name: "Statistik Jahr leer")
+        choose("Gesamt")
+        XCTAssertTrue(any["stats-note"].waitForExistence(timeout: 10), "Untimed plays are explained.")
+        attach(app, name: "Statistik Gesamt")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists, "Statistics never start playback.")
+    }
+    /// A lyrics hit in Suche plays its title; "Weniger davon" confirms with
+    /// "Rückgängig", and "Empfehlungen" lists and lifts the exclusion.
+    @MainActor func testLyricsHitAndLessOfThisWithUndoAndPreferences() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact flow requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        selectTab(app, "Suche")
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["search-lyrics-hint"].waitForExistence(timeout: 5), "The server searches lyrics, so Suche says so.")
+        search.tap(); search.typeText("kalter")
+        let hit = app.buttons["search-lyrics-t2"]
+        // The group may sit below the fold of the lazy list.
+        if !hit.waitForExistence(timeout: 8) || !hit.isHittable { reveal(hit, in: app) }
+        XCTAssertTrue(hit.waitForExistence(timeout: 5), "Lyrics hits have their own group.")
+        if !hit.exists { print(app.debugDescription) }
+        attach(app, name: "Suche mit Liedtext-Treffern")
+        hit.tap()
+        let mini = app.buttons["mobile-mini-player-open"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 15), "A lyrics hit plays its title.")
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "Fernweh"), evaluatedWith: mini)
+        waitForExpectations(timeout: 10)
+        app.buttons["mobile-mini-player-toggle"].tap()
+
+        // "Weniger davon" on a title row, then "Rückgängig".
+        selectTab(app, "Bibliothek")
+        selectTab(app, "Bibliothek")
+        let tracks = app.buttons["library-shortcut-tracks"]
+        XCTAssertTrue(tracks.waitForExistence(timeout: 10))
+        tracks.tap()
+        let actions = app.buttons["Aktionen für Zeitlos"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 10))
+        actions.tap()
+        let less = app.buttons["Weniger davon"].firstMatch
+        XCTAssertTrue(less.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Künstler nicht mehr vorschlagen"].firstMatch.exists)
+        attach(app, name: "Titelmenü mit Weniger davon")
+        less.tap()
+        let undo = app.buttons["app-notice-action"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "The confirmation offers Rückgängig.")
+        attach(app, name: "Weniger davon mit Rückgängig")
+        undo.tap()
+        let notice = app.descendants(matching: .any)["app-notice-text"]
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "wieder vorgeschlagen"), evaluatedWith: notice)
+        waitForExpectations(timeout: 10)
+        // Again, and this time it stays.
+        actions.tap()
+        XCTAssertTrue(less.waitForExistence(timeout: 5), "After Rückgängig the title can be excluded again.")
+        less.tap()
+        XCTAssertTrue(undo.waitForExistence(timeout: 5))
+
+        // "Empfehlungen" lists it and lifts it.
+        openSettings(app)
+        let preferences = app.buttons["settings-preferences"]
+        reveal(preferences, in: app)
+        XCTAssertTrue(preferences.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["settings-stats"].exists)
+        preferences.tap()
+        XCTAssertTrue(app.navigationBars["Empfehlungen"].waitForExistence(timeout: 10))
+        let row = app.descendants(matching: .any)["preferences-row-track-t1"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "The excluded title is listed.")
+        attach(app, name: "Empfehlungen mit Ausschluss")
+        let allow = app.buttons["preferences-allow-track-t1"]
+        XCTAssertTrue(allow.exists)
+        allow.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["preferences-empty"].waitForExistence(timeout: 10), "Lifting the last exclusion empties the page.")
+        attach(app, name: "Empfehlungen leer")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
+    /// Server 1.10: no statistics, lyrics search or exclusions anywhere, one
+    /// quiet hint in Einstellungen, and the radio works as before.
+    @MainActor func testOlderServerHidesListeningFeaturesAndKeepsRadio() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact flow requires iPhone.")
+        let app = try app(oldServer: true)
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.descendants(matching: .any)["home-stats"].exists)
+        openSettings(app)
+        let hint = app.descendants(matching: .any)["settings-server-hint"]
+        reveal(hint, in: app)
+        XCTAssertTrue(hint.waitForExistence(timeout: 10), "Einstellungen explains what needs a newer server.")
+        XCTAssertTrue(app.descendants(matching: .any)["settings-server-version"].label.contains("1.10.1"))
+        XCTAssertFalse(app.buttons["settings-stats"].exists)
+        XCTAssertFalse(app.buttons["settings-preferences"].exists)
+        attach(app, name: "Einstellungen mit älterem Server")
+        selectTab(app, "Suche")
+        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["search-lyrics-hint"].exists)
+        selectTab(app, "Bibliothek")
+        selectTab(app, "Bibliothek")
+        let tracks = app.buttons["library-shortcut-tracks"]
+        XCTAssertTrue(tracks.waitForExistence(timeout: 10))
+        tracks.tap()
+        let actions = app.buttons["Aktionen für Zeitlos"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 10))
+        actions.tap()
+        let radio = app.buttons["Radio starten"].firstMatch
+        XCTAssertTrue(radio.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Weniger davon"].exists, "No exclusions without the server feature.")
+        radio.tap()
+        let mini = app.buttons["mobile-mini-player-open"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 15), "The radio starts as with 0.6.0.")
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "Radio: Zeitlos"), evaluatedWith: mini)
+        waitForExpectations(timeout: 10)
+        attach(app, name: "Radio mit älterem Server")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
     }
     #endif
     #if os(tvOS)

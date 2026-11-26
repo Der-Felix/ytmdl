@@ -70,11 +70,34 @@ struct SettingsView: View {
                         Button("Wiedergabe hier fortsetzen") { model.acceptHandoff() }
                     }
                 }
+                if model.serverFeatures.statistics || model.serverFeatures.preferences {
+                    Section("Dein Hören") {
+                        if model.serverFeatures.statistics {
+                            NavigationLink(value: ListeningRoute.stats) { Label("Deine Statistik", systemImage: "chart.bar.xaxis") }
+                                .accessibilityIdentifier("settings-stats")
+                        }
+                        if model.serverFeatures.preferences {
+                            NavigationLink(value: ListeningRoute.preferences) { Label("Empfehlungen", systemImage: "hand.thumbsdown") }
+                                .accessibilityIdentifier("settings-preferences")
+                        }
+                    }
+                }
                 DownloadPreferences(model: model)
                 Section("Theme") { Picker("Akzentfarbe", selection: $mobileAccent) { ForEach(DesktopTheme.allCases) { Text($0.name).tag($0.rawValue) } } }
                 #endif
                 Section("Verbindung") {
                     LabeledContent("Server", value: model.client?.server.url.absoluteString ?? "")
+                    #if os(iOS)
+                    if let version = model.serverVersion {
+                        LabeledContent("Server-Version", value: version).accessibilityIdentifier("settings-server-version")
+                    }
+                    // Only where someone would look for what is missing: no alert, no badge.
+                    if model.serverHealthKnown && !model.serverFeatures.announced {
+                        Text("Statistik, Liedtext-Suche und Empfehlungssteuerung brauchen Server 1.11 oder neuer.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("settings-server-hint")
+                    }
+                    #endif
                     LabeledContent("Konto", value: model.user?.displayName ?? "")
                     if model.client?.server.isSecure == false { Text("Entwicklungsmodus: lokale HTTP-Verbindung ohne Verschlüsselung.").foregroundStyle(.orange) }
                     Button("Bibliothek aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }

@@ -6,9 +6,19 @@ import YTMDLCore
 struct AppNotice: Identifiable, Equatable, Sendable {
     /// How long a confirmation stays on screen.
     static let seconds = 4.0
+    /// A confirmation with an action ("Rückgängig") stays longer, so it can be reached.
+    static let actionSeconds = 7.0
+    /// One optional action of the banner, such as "Rückgängig".
+    struct Action: Sendable {
+        let title: String
+        let hint: String
+        let run: @MainActor @Sendable () -> Void
+    }
     let id = UUID()
     let text: String
     let symbol: String
+    var action: Action? = nil
+    static func == (lhs: AppNotice, rhs: AppNotice) -> Bool { lhs.id == rhs.id }
 }
 
 @MainActor @Observable final class AppModel {
@@ -51,18 +61,36 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     private(set) var favoriteConfirmations = 0
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     /// Shows `text` briefly; a newer confirmation replaces the shown one.
-    func announce(_ text: String, symbol: String) {
-        let shown = AppNotice(text: text, symbol: symbol)
+    func announce(_ text: String, symbol: String, action: AppNotice.Action? = nil) {
+        let shown = AppNotice(text: text, symbol: symbol, action: action)
         notice = shown
         noticeTask?.cancel()
         noticeTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(AppNotice.seconds))
+            try? await Task.sleep(for: .seconds(action == nil ? AppNotice.seconds : AppNotice.actionSeconds))
             guard !Task.isCancelled, let self, self.notice?.id == shown.id else { return }
             self.notice = nil
         }
     }
     var syncHistory = UserDefaults.standard.object(forKey: "syncListeningHistory") as? Bool ?? true
     private var persistsSession = true
+
+    // MARK: Server 1.11 listening features
+
+    /// What the connected server offers (`GET /health`'s `features`); none
+    /// until it answered and on servers older than 1.11.
+    var serverFeatures = ServerFeatures.none
+    /// The server's version as it reports it; nil until it answered.
+    private(set) var serverVersion: String?
+    /// The server answered `/health` at least once in this session.
+    private(set) var serverHealthKnown = false
+    /// Where the running server station continues (`radio.station`).
+    @ObservationIgnored var stationPaging: StationPaging?
+    /// The listener's exclusions ("Empfehlungen"), with `listening.preferences`.
+    var preferences = ListeningPreferences()
+    var preferencesPhase = ListenFeed.Phase.idle
+    /// This week's statistics for Start's "Statistik" card.
+    var weekStats: ListeningStats?
+
     init(offlineLibrary: OfflineLibrary? = nil) {
         offline = offlineLibrary ?? OfflineLibrary.shared
         player.offlineLibrary = offline
@@ -95,6 +123,26 @@ struct AppNotice: Identifiable, Equatable, Sendable {
         loadHomePreferences()
         guard let user, let client else { player.setSessionScope(nil); return }
         player.setSessionScope(client.server.url.absoluteString.lowercased() + "\n" + user.id)
+    }
+
+    /// Takes over what `/health` says the server offers. Exclusions load once
+    /// the server offers them; a server that lost a feature drops its state.
+    func applyServerHealth(_ health: ServerHealth) {
+        let before = serverFeatures
+        serverFeatures = health.features; serverVersion = health.version; serverHealthKnown = true
+        if !health.features.stations { stationPaging = nil }
+        if !health.features.statistics { weekStats = nil }
+        if !health.features.preferences { preferences = ListeningPreferences(); preferencesPhase = .idle }
+        else if !before.preferences || preferencesPhase == .idle { Task { await loadPreferences() } }
+    }
+    /// Asks `/health` again (the app came to the foreground, the server may
+    /// have been updated meanwhile). A failure keeps what was known.
+    func refreshServerFeatures() async {
+        guard !offlineMode, let client, user != nil else { return }
+        let generation = generation
+        guard let health: ServerHealth = try? await client.get("/health"),
+              self.generation == generation, self.client === client else { return }
+        applyServerHealth(health)
     }
 
     // MARK: Start layout and recently started sources
@@ -279,8 +327,12 @@ struct AppNotice: Identifiable, Equatable, Sendable {
         async let playlistPage: Result<[Playlist], any Error> = fetch(client, "/playlists")
         async let favoritePage: Result<[String], any Error> = fetch(client, "/favorites/ids")
         async let genrePage: Result<[String], any Error> = fetch(client, "/library/genres")
+        // What the server offers (1.11 `features`); never an error of its own.
+        async let healthPage: Result<ServerHealth, any Error> = fetch(client, "/health")
         let (releaseResult, artistResult, playlistResult, favoriteResult, genreResult) = await (releasePage, artistPage, playlistPage, favoritePage, genrePage)
+        let healthResult = await healthPage
         guard self.generation == generation, self.client === client else { return }
+        if case .success(let health) = healthResult { applyServerHealth(health) }
         var failures: [any Error] = []
         // A genre filter chosen meanwhile owns the album list; only the albums
         // depend on it, the other parts still apply.
@@ -484,6 +536,8 @@ struct AppNotice: Identifiable, Equatable, Sendable {
         playlistBusy = false; playlistRevision = UUID(); catalogGeneration = UUID(); favoriteRevision = UUID()
         connecting = false; listeningBusy = false; handoff = nil; error = nil; pendingFavorites = []
         genres = []; genre = ""; releaseOffset = 0; moreReleases = false; libraryError = nil; releasesLoaded = false
+        serverFeatures = .none; serverVersion = nil; serverHealthKnown = false; stationPaging = nil
+        preferences = ListeningPreferences(); preferencesPhase = .idle; weekStats = nil
         artistDirectory.reset()
         listeningHistory.configure(server: nil, userID: nil, persist: false)
         feed.clear()
@@ -625,6 +679,8 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     /// random one of `tracks`; without either it asks the server for them.
     func startArtistRadio(_ artist: Artist, preferred: [Track] = [], tracks: [Track] = []) async {
         guard !offlineMode, let client, !listeningBusy else { return }
+        // A server with stations seeds the artist radio itself.
+        if serverFeatures.stations { await startRadio(RadioStation(.artist(id: artist.id, name: artist.name)), seed: nil); return }
         var preferred = preferred, tracks = tracks
         if preferred.isEmpty { preferred = ((try? await artistTopTracks(artist.id, limit: 5)) ?? []).map(\.track) }
         if preferred.isEmpty && tracks.isEmpty { tracks = await radioCandidates(client, [.init(name: "artist_id", value: artist.id)]) }
@@ -637,6 +693,7 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     /// "Album-Radio": seeded with a random title of the album.
     func startAlbumRadio(_ release: Release, tracks: [Track] = []) async {
         guard !offlineMode, let client, !listeningBusy else { return }
+        if serverFeatures.stations { await startRadio(RadioStation(.album(id: release.id, title: release.title)), seed: nil); return }
         var tracks = tracks
         if tracks.isEmpty { tracks = await radioCandidates(client, [.init(name: "release_id", value: release.id)]) }
         guard self.client === client else { return }
@@ -657,6 +714,7 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     /// what was played in this session. Later batches follow when the queue
     /// runs low (`extendAutoplay`), also with autoplay off.
     func startRadio(_ station: RadioStation, seed: Track?) async {
+        if serverFeatures.stations { await startServerStation(station, seed: seed); return }
         guard !offlineMode, let client, !listeningBusy, let query = station.query(nonce: UUID().uuidString) else { return }
         let playbackRevision = player.playbackRevision
         listeningBusy = true; defer { if self.client === client { listeningBusy = false } }
@@ -671,6 +729,55 @@ struct AppNotice: Identifiable, Equatable, Sendable {
             announce("\(station.kindLabel) gestartet", symbol: "dot.radiowaves.left.and.right")
         } catch { if self.client === client { report(error) } }
     }
+    /// Batch size of a station's first answer and of its top-ups.
+    static let stationStartBatch = 50
+    /// Server 1.11 (`radio.station`): the server seeds every kind, names the
+    /// station and serves it in batches without repeats. A song radio still
+    /// starts with its seed title; the cursor is kept for the top-ups.
+    private func startServerStation(_ station: RadioStation, seed: Track?) async {
+        guard !offlineMode, let client, !listeningBusy else { return }
+        let playbackRevision = player.playbackRevision
+        listeningBusy = true; defer { if self.client === client { listeningBusy = false } }
+        var paging = StationPaging(key: station.context.id ?? "", nonce: UUID().uuidString)
+        let exclude = StationPaging.exclusions(queue: [], played: player.sessionPlayedIDs)
+        do {
+            let page: RadioStationPage = try await client.get("/library/radio/station",
+                query: station.stationQuery(nonce: paging.nonce, limit: Self.stationStartBatch, exclude: exclude))
+            guard self.client === client, player.playbackRevision == playbackRevision else { return }
+            paging.advance(page)
+            let tracks = RadioStation.startQueue(seed: seed, results: page.tracks, excluding: player.sessionPlayedIDs)
+            guard !tracks.isEmpty else {
+                announce("Für dieses Radio gibt es gerade keine neuen Titel", symbol: "dot.radiowaves.left.and.right"); return
+            }
+            stationPaging = paging
+            player.play(tracks, client: client, context: station.context(serverTitle: page.title))
+            announce("\(station.kindLabel) gestartet", symbol: "dot.radiowaves.left.and.right")
+        } catch { if self.client === client { report(error) } }
+    }
+    /// The next titles of a running server station, at most `limit`, never one
+    /// already queued or played in this session. A queue restored after a
+    /// relaunch (no cursor) starts the station again. Nil on failure; empty
+    /// once the station is used up.
+    private func nextStationBatch(_ station: RadioStation, client: APIClient, limit: Int) async -> [Track]? {
+        let key = station.context.id ?? ""
+        var paging = stationPaging?.key == key ? stationPaging! : StationPaging(key: key, nonce: UUID().uuidString)
+        guard !paging.exhausted else { return [] }
+        let exclude = StationPaging.exclusions(queue: player.queue.tracks.map(\.id), played: player.sessionPlayedIDs)
+        do {
+            let page: RadioStationPage = try await client.get("/library/radio/station",
+                query: station.stationQuery(nonce: paging.nonce, limit: limit, cursor: paging.cursor, exclude: exclude))
+            guard self.client === client else { return nil }
+            paging.advance(page)
+            stationPaging = paging
+            let known = Set(exclude)
+            return page.tracks.filter { !known.contains($0.id) }
+        } catch {
+            // A cursor the server no longer reads (400): the next top-up starts
+            // the station anew; `exclude` keeps out what is already queued.
+            if case PlayerError.server(400, _, _) = error, self.client === client, stationPaging?.key == key { stationPaging = nil }
+            return nil
+        }
+    }
     func continueRadio(after track: Track) async {
         let station = player.radioStation
         guard player.autoplay || station != nil, !player.isPlaybackRequested, player.current?.id == track.id, let client else { return }
@@ -679,6 +786,13 @@ struct AppNotice: Identifiable, Equatable, Sendable {
             if !candidates.isEmpty { player.play(candidates, client: client) }; return
         }
         let playbackRevision = player.playbackRevision
+        if let station, serverFeatures.stations {
+            guard let batch = await nextStationBatch(station, client: client, limit: PlaybackQueue.autoplayBatch) else { return }
+            guard self.client === client, player.playbackRevision == playbackRevision, !player.isPlaybackRequested,
+                  player.current?.id == track.id, !batch.isEmpty else { return }
+            player.play(Array(batch.prefix(PlaybackQueue.autoplayBatch)), client: client, context: player.queue.context ?? station.context)
+            return
+        }
         let nonce = UUID().uuidString
         let queries = station?.refillQueries(lastTrackID: track.id, nonce: nonce) ?? [[.init(name: "seed", value: track.id), .init(name: "nonce", value: nonce)]]
         let context = station?.context ?? RadioStation(.track(id: track.id, title: track.title)).context
@@ -742,6 +856,12 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     /// from the queue's last title when the seed has nothing new left.
     func extendAutoplay(seed: Track, expectedCount: Int, lastID: String) async {
         guard !offlineMode, let client else { return }
+        if let station = player.radioStation, serverFeatures.stations {
+            // The station continues at its cursor; nothing repeats.
+            guard let batch = await nextStationBatch(station, client: client, limit: PlaybackQueue.autoplayBatch), !batch.isEmpty else { return }
+            player.appendAutoplay(batch, expectedCount: expectedCount, lastID: lastID)
+            return
+        }
         if let station = player.radioStation {
             for query in station.refillQueries(lastTrackID: lastID, nonce: UUID().uuidString) {
                 do {

@@ -1,4 +1,4 @@
-# Native listening preview 0.6.0 — build 43
+# Native listening preview 0.6.1 — build 44
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -35,6 +35,35 @@ from implemented features and simulator verification.
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## Server 1.11 listening features (build 44)
+
+Ships as 0.6.1 (44). Uses the server 1.11 contract in `docs/features/listening.md` and only
+what `GET /health` lists under `features`; read on connect and on every return to the
+foreground. A server without `features` (1.10.1) keeps the build 43 behaviour, never gets the
+new requests and shows one hint under Einstellungen → Verbindung. Apple TV and Mac are unchanged
+apart from the server radio stations and mixes they share with iPhone.
+
+- **Radio (`radio.station`):** song, artist, album and genre radio and the top-ups come from
+  `GET /library/radio/station` (50 titles to start, 12 per top-up, the cursor and nonce of the
+  station, `exclude` with what is queued and was played). The server names the station. Without
+  the feature: as in build 43.
+- **Mixes (`mixes.*`):** `tz` with the device's time zone; artist mixes show the artist's picture
+  (or monogram) and link to the artist; decade and time-of-day eyebrows; **Favoriten-Mix** and
+  **Vergessene Favoriten**; sections follow the server's `group`.
+- **Deine Statistik (`history.stats`):** from Für dich ("Dein Hören"), Einstellungen → Dein Hören,
+  and as the optional Start section or pin **Statistik**. Woche/Monat/Jahr/Gesamt; totals with
+  "ca." listening time; Swift Charts plays per day or month; top titles, artists, albums and
+  genres with proportional bars (two columns on iPad); **Top-Titel abspielen**, **Als Playlist
+  speichern**; a note when the history begins inside the window or plays have no time; loading,
+  empty and "Erneut laden" states.
+- **Lyrics search (`search.lyrics`):** a **Liedtexte** group in Suche (three rows, "Alle
+  anzeigen"), the matching words bold; tapping plays the title, the menu is that of a title row.
+- **Empfehlungen steuern (`listening.preferences`):** **Weniger davon** (title menus, player;
+  in the player a mix or radio skips the title), **Künstler/Genre nicht mehr vorschlagen** (title,
+  artist and genre menus). Optimistic with **Rückgängig** in the banner and rollback when the
+  server refuses; upcoming mix, radio and autoplay titles that match leave the queue, titles the
+  listener queued stay. The **Empfehlungen** page lists and lifts exclusions.
 
 ## Für dich, radio everywhere and Start anpassen (build 43)
 

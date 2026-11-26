@@ -94,18 +94,44 @@ struct NoticeBanner: View {
     var body: some View {
         VStack {
             if let notice = model.notice {
-                HStack(spacing: 10) {
-                    Image(systemName: notice.symbol).foregroundStyle(.tint).accessibilityHidden(true)
-                    Text(notice.text).font(.subheadline.weight(.semibold)).lineLimit(2)
+                if let action = notice.action {
+                    // With one action ("Rückgängig"): the text and a real button,
+                    // each reachable on its own.
+                    HStack(spacing: 10) {
+                        Image(systemName: notice.symbol).foregroundStyle(.tint).accessibilityHidden(true)
+                        Text(notice.text).font(.subheadline.weight(.semibold)).lineLimit(2)
+                            .accessibilityIdentifier("app-notice-text")
+                        Button {
+                            model.notice = nil
+                            action.run()
+                        } label: {
+                            Text(action.title).font(.subheadline.weight(.semibold)).padding(.horizontal, 6).frame(minHeight: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityHint(action.hint)
+                        .accessibilityIdentifier("app-notice-action")
+                    }
+                    .padding(.leading, 16).padding(.trailing, 10).padding(.vertical, 2)
+                    .background(.regularMaterial, in: Capsule())
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .padding(.horizontal, ListenMetrics.pageMargin).padding(.top, 4)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("app-notice")
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                } else {
+                    HStack(spacing: 10) {
+                        Image(systemName: notice.symbol).foregroundStyle(.tint).accessibilityHidden(true)
+                        Text(notice.text).font(.subheadline.weight(.semibold)).lineLimit(2)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .padding(.horizontal, ListenMetrics.pageMargin).padding(.top, 4)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("app-notice")
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    .onTapGesture { model.notice = nil }
                 }
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(.regularMaterial, in: Capsule())
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-                .padding(.horizontal, ListenMetrics.pageMargin).padding(.top, 4)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("app-notice")
-                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
-                .onTapGesture { model.notice = nil }
             }
         }
         .frame(maxWidth: .infinity)
@@ -158,6 +184,9 @@ struct MobileHomeView: View {
                 guard layout.isVisible(.favorites) else { return }
                 favoriteTracks = await model.favoriteShelfTracks()
             }
+            .task(id: StatsKey(wanted: statsWanted, user: model.user?.id)) {
+                if statsWanted { await model.loadWeekStats() }
+            }
             .alert("Nicht gefunden", isPresented: Binding(get: { missingArtist != nil }, set: { if !$0 { missingArtist = nil } })) {
                 Button("OK") { missingArtist = nil }
             } message: { Text("„\(missingArtist ?? "")“ ist in deiner Bibliothek nicht als Künstler zu finden.") }
@@ -176,7 +205,15 @@ struct MobileHomeView: View {
         case .genres: genreShelf
         case .favorites: favoritesShelf
         case .playlists: playlistShelf
+        case .stats: statsShelf
         }
+    }
+    /// Shelves the server cannot fill stay off Start ("Statistik" before 1.11).
+    private var shownShelves: [HomeShelf] { layout.visibleShelves(excluding: HomeShelf.unavailable(on: model.serverFeatures)) }
+    private struct StatsKey: Equatable { let wanted: Bool; let user: String? }
+    /// The week's figures, loaded only while the card or its tile is on Start.
+    private var statsWanted: Bool {
+        model.serverFeatures.statistics && (layout.isVisible(.stats) || layout.isPinned(.stats, HomePin.stats.itemID))
     }
 
     /// The way into "Start anpassen", after the last shelf.
@@ -212,7 +249,7 @@ struct MobileHomeView: View {
                 }
                 if feed.unreachable { offlineHint.padding(.horizontal, ListenMetrics.pageMargin) }
                 ResumeCard(model: model).padding(.horizontal, ListenMetrics.pageMargin)
-                ForEach(layout.visibleShelves) { shelf($0) }
+                ForEach(shownShelves) { shelf($0) }
                 customizeButton
             }
             .padding(.top, 4).padding(.bottom, 32)
@@ -220,7 +257,7 @@ struct MobileHomeView: View {
             // A shelf that finishes loading fades from its skeleton (same
             // size, so nothing jumps); with Reduce Motion it just switches.
             .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: [feed.mixesPhase, feed.historyPhase, feed.releasesPhase, feed.frequentPhase])
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: layout.visibleShelves)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: shownShelves)
         }
         .background(Color(uiColor: .systemGroupedBackground))
         // Content scrolling under the floating tab bar and mini player gets a
@@ -256,6 +293,7 @@ struct MobileHomeView: View {
         switch pin.kind {
         case .playlist: return model.playlists.isEmpty || model.playlists.contains { $0.id == pin.itemID }
         case .mix: return feed.mixesPhase != .loaded || feed.mixes.contains { $0.id == pin.itemID }
+        case .stats: return model.serverFeatures.statistics
         default: return true
         }
     }
@@ -380,6 +418,11 @@ struct MobileHomeView: View {
                 NavigationLink(value: CollectionKind.favorites) {
                     QuickTile(title: "Favoriten") { QuickSymbol(name: "heart.fill") }
                 }.accessibilityLabel("Favoriten").accessibilityHint("Öffnet deine Lieblingstitel")
+            case .stats:
+                let plays = model.weekStats.map { StatsFormat.plays($0.totals.plays) + " · Woche" }
+                NavigationLink(value: ListeningRoute.stats) {
+                    QuickTile(title: "Statistik", subtitle: plays) { QuickSymbol(name: "chart.bar.xaxis") }
+                }.accessibilityLabel(plays.map { "Statistik, \($0)" } ?? "Statistik").accessibilityHint("Öffnet deine Statistik")
             }
         }
         .buttonStyle(ListenPressStyle())
@@ -624,6 +667,15 @@ struct MobileHomeView: View {
             }
         }
     }
+    /// Optional (server 1.11): this week's plays and top artist; opens "Deine Statistik".
+    @ViewBuilder private var statsShelf: some View {
+        if model.serverFeatures.statistics {
+            ListenSection {
+                ListenSectionHeader(title: HomeShelf.stats.title, subtitle: HomeShelf.stats.subtitle)
+                StatsHomeCard(model: model).padding(.horizontal, ListenMetrics.pageMargin)
+            }
+        }
+    }
     private var skeletonShelf: some View {
         ListenShelf {
             ForEach(0..<4, id: \.self) { _ in CardSkeleton(width: cardWidth) }
@@ -785,6 +837,7 @@ struct TrackQuickActions: View {
         let favorite = model.favoriteIDs.contains(track.id)
         Button(favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", systemImage: favorite ? "heart.slash" : "heart") { Task { await model.toggleFavorite(track) } }
             .disabled(model.offlineMode || model.pendingFavorites.contains(track.id))
+        TrackSteeringItems(model: model, track: track)
     }
 }
 
