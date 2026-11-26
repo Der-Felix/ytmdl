@@ -773,7 +773,7 @@ struct DesktopListeningView: View {
                 Text("Der Visualizer unterstützt dieses Ausgabeformat nicht. Die Musik läuft weiter.").desktopScaledFont(13).foregroundStyle(.secondary)
             }
             if let deadline = model.player.sleepDeadline {
-                Text("Stoppt um \(deadline.formatted(date: .omitted, time: .shortened))").desktopScaledFont(13).foregroundStyle(.secondary)
+                Text("Stoppt um \(GermanDates.time(deadline))").desktopScaledFont(13).foregroundStyle(.secondary)
             }
         }.desktopScaledFont(15).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
     }

@@ -21,9 +21,14 @@ public struct Artist: Decodable, Identifiable, Sendable {
     public let name: String
     public let genres: [String]?
     public let trackCount: Int?
+    /// Albums with titles in the library; nil from older servers.
+    public let releaseCount: Int?
+    public init(id: String, name: String, genres: [String]? = nil, trackCount: Int? = nil, releaseCount: Int? = nil) {
+        self.id = id; self.name = name; self.genres = genres; self.trackCount = trackCount; self.releaseCount = releaseCount
+    }
 }
 extension Artist {
-    private enum CodingKeys: String, CodingKey { case id, name, genres, trackCount }
+    private enum CodingKeys: String, CodingKey { case id, name, genres, trackCount, releaseCount }
     // Genres and counts are display details: an artist without genres (the
     // server leaves the key out) or an odd count must not drop the whole page.
     public init(from decoder: any Decoder) throws {
@@ -32,6 +37,7 @@ extension Artist {
         name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
         genres = (try? c.decodeIfPresent([String].self, forKey: .genres)) ?? nil
         trackCount = (try? c.decodeIfPresent(Int.self, forKey: .trackCount)) ?? nil
+        releaseCount = (try? c.decodeIfPresent(Int.self, forKey: .releaseCount)) ?? nil
     }
 }
 public struct Release: Decodable, Identifiable, Sendable {
@@ -40,9 +46,17 @@ public struct Release: Decodable, Identifiable, Sendable {
     public let artists: [String]
     public let year: Int
     public let trackCountInLibrary: Int?
+    /// "album", "single", "ep", "live", "compilation" or "remix"; nil when unknown.
+    public let releaseType: String?
+    public let albumArtist: String?
+    public init(id: String, title: String, artists: [String], year: Int = 0, trackCountInLibrary: Int? = nil,
+                releaseType: String? = nil, albumArtist: String? = nil) {
+        self.id = id; self.title = title; self.artists = artists; self.year = year
+        self.trackCountInLibrary = trackCountInLibrary; self.releaseType = releaseType; self.albumArtist = albumArtist
+    }
 }
 extension Release {
-    private enum CodingKeys: String, CodingKey { case id, title, artists, year, trackCountInLibrary }
+    private enum CodingKeys: String, CodingKey { case id, title, artists, year, trackCountInLibrary, releaseType, albumArtist }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -52,6 +66,10 @@ extension Release {
         // key reads the same, so one such album cannot empty the library page.
         year = (try? c.decodeIfPresent(Int.self, forKey: .year)) ?? 0
         trackCountInLibrary = (try? c.decodeIfPresent(Int.self, forKey: .trackCountInLibrary)) ?? nil
+        let type = (try? c.decodeIfPresent(String.self, forKey: .releaseType)) ?? nil
+        releaseType = type?.isEmpty == false ? type : nil
+        let albumArtist = (try? c.decodeIfPresent(String.self, forKey: .albumArtist)) ?? nil
+        self.albumArtist = albumArtist?.isEmpty == false ? albumArtist : nil
     }
 }
 public struct Track: Codable, Identifiable, Equatable, Sendable {
@@ -64,15 +82,17 @@ public struct Track: Codable, Identifiable, Equatable, Sendable {
     /// Optional library details; only sorting uses them. Older saved queues lack both.
     public let albumArtist: String?
     public let trackNumber: Int?
+    /// The disc of a multi-disc album; nil or 1 for most tracks.
+    public let discNumber: Int?
     public var artistText: String { artists.joined(separator: " · ") }
     public var duration: Double { Double(durationMs) / 1000 }
     public init(id: String, title: String, artists: [String], album: String, durationMs: Int, codec: String? = nil,
-                albumArtist: String? = nil, trackNumber: Int? = nil) {
+                albumArtist: String? = nil, trackNumber: Int? = nil, discNumber: Int? = nil) {
         self.id = id; self.title = title; self.artists = artists
         self.album = album; self.durationMs = durationMs; self.codec = codec
-        self.albumArtist = albumArtist; self.trackNumber = trackNumber
+        self.albumArtist = albumArtist; self.trackNumber = trackNumber; self.discNumber = discNumber
     }
-    enum CodingKeys: String, CodingKey { case id, title, artists, album, durationMs, codec, albumArtist, trackNumber }
+    enum CodingKeys: String, CodingKey { case id, title, artists, album, durationMs, codec, albumArtist, trackNumber, discNumber }
     // The server serializes a track without artist tags as `"artists": null`.
     // One such row must not make a whole page of tracks undecodable.
     public init(from decoder: any Decoder) throws {
@@ -86,6 +106,7 @@ public struct Track: Codable, Identifiable, Equatable, Sendable {
         // Details only used for sorting: a value the app cannot read never drops the track.
         albumArtist = (try? c.decodeIfPresent(String.self, forKey: .albumArtist)) ?? nil
         trackNumber = (try? c.decodeIfPresent(Int.self, forKey: .trackNumber)) ?? nil
+        discNumber = (try? c.decodeIfPresent(Int.self, forKey: .discNumber)) ?? nil
     }
 }
 public struct SmartPlaylistRules: Codable, Equatable, Sendable {

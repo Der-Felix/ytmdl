@@ -292,6 +292,15 @@ struct RootView: View {
             .navigationDestination(for: CollectionKind.self) { kind in CollectionView(model: model, kind: kind) }
             .navigationDestination(for: Destination.self) { item in content(item) }
             .navigationDestination(for: PersonalMix.self) { mix in MixDetailView(model: model, mix: mix) }
+            #if os(iOS)
+            .navigationDestination(for: LibraryRoute.self) { route in
+                switch route {
+                case .tracks: LibraryTracksView(model: model)
+                case .genres: LibraryGenresView(model: model)
+                case .genre(let genre): GenreAlbumsView(model: model, genre: genre)
+                }
+            }
+            #endif
             .navigationDestination(for: ForYouRoute.self) { _ in
                 #if os(tvOS)
                 TVForYouView(model: model) { selectDestination(.player) }
@@ -312,8 +321,13 @@ struct RootView: View {
             TVHomeView(model: model) { selectDestination(.player) }
             #endif
             #endif
+        #if os(iOS)
+        case .library: MobileLibraryView(model: model)
+        case .artists: MobileArtistListView(model: model)
+        #else
         case .library: LibraryView(model: model)
         case .artists: ArtistListView(model: model)
+        #endif
         case .search:
             #if os(iOS)
             MobileSearchView(model: model, focusRequest: searchFocusRequest, openGenre: openGenre)
@@ -514,6 +528,8 @@ struct ArtworkView: View {
     var kind: String
     var id: String
     var cornerRadius: CGFloat = 12
+    /// A name for a generated monogram in place of the generic symbol (artists).
+    var monogram: String? = nil
     var body: some View {
         Group {
             if kind == "tracks", model.player.current?.id == id, let image = model.player.artwork {
@@ -529,9 +545,12 @@ struct ArtworkView: View {
                 .asyncImageURLSession(client.session)
         } else { placeholder }
     }
-    private var placeholder: some View {
-        RoundedRectangle(cornerRadius: 12).fill(.quaternary)
-            .overlay { Image(systemName: kind == "artists" ? "person.crop.circle" : "music.note").font(.largeTitle).foregroundStyle(.secondary) }
+    @ViewBuilder private var placeholder: some View {
+        if let monogram { MonogramView(name: monogram) }
+        else {
+            RoundedRectangle(cornerRadius: 12).fill(.quaternary)
+                .overlay { Image(systemName: kind == "artists" ? "person.crop.circle" : "music.note").font(.largeTitle).foregroundStyle(.secondary) }
+        }
     }
 }
 
@@ -767,6 +786,20 @@ struct CollectionView: View {
     @State private var failure: String?
     @State private var loadFailure: String?
     @State private var topTracks: [HistoryTrack] = []
+    #if os(iOS)
+    /// The header's large title is on screen; the bar shows the title otherwise.
+    @State private var headerTitleVisible = true
+    /// The album with its type and linked artist; nil hides the artist link.
+    @State private var releaseDetail: ReleaseDetailResponse?
+    /// "Mehr von …" on an album, the albums of an artist.
+    @State private var related: [Release] = []
+    @State private var artistAlbumSort = ArtistAlbumSort.newest
+    @State private var popularExpanded = false
+    @State private var addingAllToPlaylist = false
+    @State private var favoritingAll = false
+    /// An album or artist opened from this page (shelf card, artist link).
+    @State private var pushed: CollectionKind?
+    #endif
     @Environment(\.dismiss) private var dismiss
     /// What a queue started here is shown as: "Weiter aus: …".
     private var queueContext: QueueContext {
@@ -778,9 +811,9 @@ struct CollectionView: View {
         }
     }
     @ViewBuilder private var queueMenuItems: some View {
-        Button("Als Nächstes abspielen", systemImage: "text.insert") { model.enqueue(tracks, next: true) }
+        Button("Als Nächstes spielen", systemImage: "text.insert") { model.enqueue(tracks, next: true) }
             .disabled(tracks.isEmpty || model.player.queue.tracks.count >= PlaybackQueue.limit)
-        Button("Zur Warteschlange hinzufügen", systemImage: "text.badge.plus") { model.enqueue(tracks, next: false) }
+        Button("Zur Warteschlange", systemImage: "text.badge.plus") { model.enqueue(tracks, next: false) }
             .disabled(tracks.isEmpty || model.player.queue.tracks.count >= PlaybackQueue.limit)
     }
     private var playlist: Playlist? {
@@ -797,6 +830,8 @@ struct CollectionView: View {
             #if os(macOS)
             if isListeningCollection { desktopCollection }
             else { standardCollection }
+            #elseif os(iOS)
+            mobileCollection
             #else
             standardCollection
             #endif
@@ -809,14 +844,25 @@ struct CollectionView: View {
         }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .task { await loadRelated() }
         #endif
         .toolbar {
-            #if !os(tvOS)
+            #if os(iOS)
+            // The large title of the header moves into the bar once it scrolled away.
+            ToolbarItem(placement: .principal) {
+                Text(collectionTitle).font(.headline).lineLimit(1)
+                    .opacity(headerTitleVisible ? 0 : 1)
+                    .animation(.easeOut(duration: 0.2), value: headerTitleVisible)
+                    .accessibilityHidden(headerTitleVisible)
+            }
+            #endif
+            #if os(macOS)
             if playlist == nil { ToolbarItem {
                 Button("Offline speichern", systemImage: "arrow.down.circle") { Task { await model.downloadCollection(kind) } }
                     .disabled(busy || model.offlineMode)
             } }
             #endif
+            #if !os(iOS)
             if playlist == nil {
                 ToolbarItem {
                     Menu { queueMenuItems } label: {
@@ -824,12 +870,16 @@ struct CollectionView: View {
                     }.accessibilityLabel("Zur Warteschlange").accessibilityIdentifier("collection-queue-options")
                 }
             }
+            #endif
             if let playlist {
                 ToolbarItem {
                     Menu {
+                        // iPhone and iPad: queue and offline are in the header's action row.
+                        #if !os(iOS)
                         queueMenuItems
                         Divider()
-                        #if !os(tvOS)
+                        #endif
+                        #if os(macOS)
                         Button("Offline speichern", systemImage: "arrow.down.circle") { Task { await model.downloadCollection(kind) } }
                             .disabled(model.offlineMode)
                         Divider()
@@ -880,6 +930,289 @@ struct CollectionView: View {
             else { tracks = []; offset = 0; more = true; await load() }
         }
     }
+    #if os(iOS)
+    // MARK: iPhone and iPad collection pages
+
+    private var totalDuration: Int { tracks.reduce(0) { $0 + $1.durationMs } }
+    private var savedOffline: Bool {
+        let type: String, source: String
+        switch kind {
+        case .favorites: type = "favorites"; source = ""
+        case .playlist(let value): type = "playlist"; source = value.id
+        case .artist(let value): type = "artist"; source = value.id
+        case .release(let value): type = "release"; source = value.id
+        }
+        return model.offline.currentCollections.contains { $0.kind == type && $0.sourceID == source }
+    }
+    private var allFavorite: Bool { !tracks.isEmpty && tracks.allSatisfy { model.favoriteIDs.contains($0.id) } }
+    private var offlineAction: CollectionAction {
+        CollectionAction(id: "collection-offline", title: savedOffline ? "Gespeichert" : "Offline", label: "Offline speichern",
+            symbol: savedOffline ? "checkmark.circle.fill" : "arrow.down.circle",
+            hint: savedOffline ? "Ist auf diesem Gerät gespeichert; lädt neue Titel nach" : "Speichert die Titel auf diesem Gerät",
+            enabled: !busy && !model.offlineMode, selected: savedOffline,
+            kind: .button({ Task { await model.downloadCollection(kind) } }))
+    }
+    private var favoriteAction: CollectionAction {
+        CollectionAction(id: "collection-favorite", title: "Favorit", label: allFavorite ? "Aus Favoriten entfernen" : "Alle zu Favoriten hinzufügen",
+            symbol: allFavorite ? "heart.fill" : "heart", enabled: !tracks.isEmpty && !model.offlineMode && !favoritingAll, selected: allFavorite,
+            kind: .button({ Task { await favoriteAll() } }))
+    }
+    private var playlistAction: CollectionAction {
+        CollectionAction(id: "collection-add-to-playlist", title: "Playlist", label: "Zur Playlist hinzufügen", symbol: "music.note.list",
+            enabled: !tracks.isEmpty && !model.offlineMode, kind: .button({ addingAllToPlaylist = true }))
+    }
+    private func releaseCaption(_ release: Release) -> String {
+        release.year > 0 ? "\(release.year) · \(release.kindLabel)" : release.kindLabel
+    }
+    private var trackSummary: String {
+        CollectionSummary.line(trackCount: tracks.count, durationMs: totalDuration, partial: more && !tracks.isEmpty && playlist == nil)
+    }
+    /// "2 Alben · 14 Titel"; the albums count without singles and EPs.
+    private func artistSummary(_ artist: Artist) -> String {
+        var parts: [String] = []
+        let albums = related.filter { !$0.isSingleOrEP }.count
+        if albums > 0 { parts.append(albums == 1 ? "1 Album" : "\(albums) Alben") }
+        let titles = artist.trackCount ?? tracks.count
+        if titles > 0 { parts.append(CollectionSummary.tracks(titles)) }
+        return parts.isEmpty ? " " : parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder private var mobileHeader: some View {
+        switch kind {
+        case .release(let release):
+            let shown = releaseDetail?.release ?? release
+            let artist = releaseDetail?.artist
+            let count = tracks.isEmpty ? (shown.trackCountInLibrary ?? 0) : tracks.count
+            CollectionHeader(title: shown.title, link: shown.artists.joined(separator: " · "),
+                             openLink: artist.map { value in { pushed = .artist(value) } },
+                             detail: shown.kindLabel + " · " + CollectionSummary.line(year: shown.year, trackCount: count, durationMs: totalDuration, partial: more && !tracks.isEmpty),
+                             canPlay: !tracks.isEmpty,
+                             actions: [favoriteAction, offlineAction, queueCollectionAction(model, tracks: tracks, id: "collection-queue"), playlistAction],
+                             play: { play(tracks) }, shuffle: { play(tracks.shuffled()) },
+                             titleVisibility: { headerTitleVisible = $0 }) { _ in
+                ArtworkView(model: model, kind: "releases", id: release.id, cornerRadius: 0)
+            }
+        case .artist(let artist):
+            CollectionHeader(title: artist.name, detail: artistSummary(artist),
+                             canPlay: !tracks.isEmpty, round: true,
+                             actions: [offlineAction, queueCollectionAction(model, tracks: tracks, id: "collection-queue")],
+                             play: { play(tracks) }, shuffle: { play(tracks.shuffled()) },
+                             titleVisibility: { headerTitleVisible = $0 }) { _ in
+                ArtworkView(model: model, kind: "artists", id: artist.id, cornerRadius: 0, monogram: artist.name)
+            }
+        case .playlist:
+            let smart = playlist?.smartRules != nil
+            CollectionHeader(eyebrow: smart ? "Intelligente Playlist" : "Playlist", title: collectionTitle, detail: trackSummary,
+                             description: playlist?.description, canPlay: !tracks.isEmpty,
+                             actions: [offlineAction, queueCollectionAction(model, tracks: tracks, id: "collection-queue"),
+                                       CollectionAction(id: "collection-edit", title: "Bearbeiten", label: smart ? "Regeln bearbeiten" : "Playlist bearbeiten",
+                                                        symbol: smart ? "slider.horizontal.3" : "pencil",
+                                                        enabled: !busy && !model.playlistBusy && !model.offlineMode, kind: .button({ editor = true }))],
+                             play: { play(tracks) }, shuffle: { play(tracks.shuffled()) },
+                             titleVisibility: { headerTitleVisible = $0 }) { size in
+                MobileCollectionArtwork(model: model, tracks: tracks, size: size)
+            }
+        case .favorites:
+            CollectionHeader(title: collectionTitle, detail: trackSummary, canPlay: !tracks.isEmpty,
+                             actions: [offlineAction, queueCollectionAction(model, tracks: tracks, id: "collection-queue")],
+                             play: { play(tracks) }, shuffle: { play(tracks.shuffled()) },
+                             titleVisibility: { headerTitleVisible = $0 }) { size in
+                Image(systemName: "heart.fill").font(.system(size: size * 0.32, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: size, height: size).background(Color.accentColor.gradient)
+            }
+        }
+    }
+
+    private var mobileCollection: some View {
+        List {
+            Section {
+                mobileHeader
+                    .listRowInsets(EdgeInsets(top: 8, leading: ListenMetrics.pageMargin, bottom: 24, trailing: ListenMetrics.pageMargin))
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
+            }
+            switch kind {
+            case .release(let release): albumSections(release)
+            case .artist(let artist): artistSections(artist)
+            default:
+                Section {
+                    ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
+                        TrackRow(model: model, track: track, playlistEdit: playlistEdit(track, index: index)) { play(tracks, index: index) }
+                            .listRowInsets(CollectionMetrics.rowInsets)
+                            .onAppear { loadMoreIfNeeded(index) }
+                    }
+                    loadState(numbered: false)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .modifier(ReadableContentWidth())
+        .navigationDestination(item: $pushed) { CollectionView(model: model, kind: $0) }
+        .sheet(isPresented: $addingAllToPlaylist) { AddToPlaylistSheet(model: model, tracks: tracks) }
+    }
+
+    /// Skeleton rows on the first load, the error with "Titel erneut laden",
+    /// the empty state and the button for more.
+    @ViewBuilder private func loadState(numbered: Bool) -> some View {
+        if busy && tracks.isEmpty {
+            ForEach(0..<6, id: \.self) { _ in
+                TrackRowSkeleton(numbered: numbered).listRowInsets(CollectionMetrics.rowInsets).listRowSeparator(.hidden)
+            }.accessibilityElement(children: .ignore).accessibilityLabel("Titel werden geladen")
+        } else if busy {
+            ProgressView("Titel werden geladen …").frame(maxWidth: .infinity).listRowSeparator(.hidden)
+        } else if let loadFailure {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(loadFailure, systemImage: "exclamationmark.triangle").font(.subheadline).foregroundStyle(.secondary)
+                Button("Titel erneut laden", systemImage: "arrow.clockwise") { Task { await load() } }
+                    .buttonStyle(.bordered)
+            }.padding(.vertical, 8).listRowInsets(CollectionMetrics.rowInsets).listRowSeparator(.hidden)
+        } else if tracks.isEmpty {
+            ContentUnavailableView(isFavorites ? "Noch keine Lieblingstitel" : "Noch keine Titel",
+                                   systemImage: isFavorites ? "heart" : "music.note",
+                                   description: Text(isFavorites ? "Markiere Titel mit dem Herz. Sie erscheinen dann hier."
+                                                     : playlist?.smartRules != nil ? "Keine Titel passen zu den Regeln dieser Playlist."
+                                                     : playlist != nil ? "Füge über „…“ Titel hinzu." : "Auf dem Server sind hierzu keine Titel gespeichert."))
+                .listRowSeparator(.hidden)
+        }
+        if more && !tracks.isEmpty && !busy {
+            Button("Weitere Titel laden") { Task { await load() } }.listRowSeparator(.hidden)
+        }
+    }
+    private func loadMoreIfNeeded(_ index: Int) {
+        guard index >= tracks.count - 1, more, !busy, loadFailure == nil, playlist == nil else { return }
+        Task { await load() }
+    }
+
+    @ViewBuilder private func albumSections(_ release: Release) -> some View {
+        let groups = DiscGroup.groups(tracks)
+        let albumArtists = Set(release.artists)
+        ForEach(groups) { group in
+            Section {
+                ForEach(group.positions, id: \.self) { position in
+                    let track = tracks[position]
+                    TrackRow(model: model, track: track, number: track.trackNumber ?? position + 1,
+                             showsArtist: albumArtists.isEmpty || !Set(track.artists).isSubset(of: albumArtists)) { play(tracks, index: position) }
+                        .listRowInsets(CollectionMetrics.rowInsets)
+                        .onAppear { loadMoreIfNeeded(position) }
+                }
+            } header: {
+                if groups.count > 1 {
+                    Text("CD \(group.disc)").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).textCase(nil)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
+        }
+        Section { loadState(numbered: true) }
+        if !related.isEmpty, let artist = releaseDetail?.artist {
+            Section {
+                shelf(related)
+            } header: { CollectionSectionTitle(title: "Mehr von \(artist.name)") }
+        }
+    }
+
+    private func shelf(_ releases: [Release]) -> some View {
+        ListenShelf {
+            ForEach(releases) { release in
+                ShelfReleaseCard(model: model, release: release, caption: releaseCaption(release)) { pushed = .release(release) }
+            }
+        }
+        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 20, trailing: 0))
+        .listRowSeparator(.hidden).listRowBackground(Color.clear)
+    }
+
+    /// From the play history when there is one, else the first titles.
+    private var popularTracks: [(track: Track, plays: Int?)] {
+        if !topTracks.isEmpty { return topTracks.map { ($0.track, Optional($0.playCount)) } }
+        return tracks.prefix(10).map { ($0, nil) }
+    }
+
+    @ViewBuilder private func artistSections(_ artist: Artist) -> some View {
+        let popular = popularTracks
+        if !popular.isEmpty {
+            Section {
+                ForEach(Array(popular.prefix(popularExpanded ? 10 : 5).enumerated()), id: \.offset) { index, entry in
+                    TrackRow(model: model, track: entry.track, detail: entry.plays.map { "\($0)× gehört" }, number: index + 1, showsArtist: false) {
+                        if topTracks.isEmpty { play(tracks, index: index) }
+                        else if let client = model.client {
+                            model.player.play(popular.map { $0.track }, start: index, client: client,
+                                              context: QueueContext(kind: "history", id: "artist-top:" + artist.id, title: "Beliebte Titel · \(artist.name)"))
+                        }
+                    }.listRowInsets(CollectionMetrics.rowInsets)
+                }
+                if popular.count > 5 {
+                    Button(popularExpanded ? "Weniger anzeigen" : "Mehr anzeigen") { popularExpanded.toggle() }
+                        .font(.subheadline.weight(.semibold)).listRowInsets(CollectionMetrics.rowInsets).listRowSeparator(.hidden)
+                        .accessibilityIdentifier("artist-popular-more")
+                }
+            } header: { CollectionSectionTitle(title: "Beliebte Titel") }
+        }
+        let albums = artistAlbumSort.apply(related.filter { !$0.isSingleOrEP })
+        if !albums.isEmpty {
+            Section { shelf(albums) } header: {
+                CollectionSectionTitle(title: "Alben") {
+                    Menu {
+                        Picker("Alben sortieren", selection: $artistAlbumSort) {
+                            ForEach(ArtistAlbumSort.allCases) { Text($0.label).tag($0) }
+                        }
+                    } label: {
+                        HStack(spacing: 4) { Text(artistAlbumSort.label); Image(systemName: "chevron.up.chevron.down").imageScale(.small) }
+                            .font(.subheadline).frame(minHeight: 44).contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Alben sortieren").accessibilityValue(artistAlbumSort.label)
+                    .accessibilityIdentifier("artist-album-sort")
+                }
+            }
+        }
+        let singles = artistAlbumSort.apply(related.filter(\.isSingleOrEP))
+        if !singles.isEmpty {
+            Section { shelf(singles) } header: { CollectionSectionTitle(title: "Singles & EPs") }
+        }
+        Section {
+            ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
+                TrackRow(model: model, track: track, detail: track.album.isEmpty ? nil : track.album, showsArtist: false) { play(tracks, index: index) }
+                    .listRowInsets(CollectionMetrics.rowInsets)
+                    .onAppear { loadMoreIfNeeded(index) }
+            }
+            loadState(numbered: false)
+        } header: { CollectionSectionTitle(title: "Alle Titel") }
+    }
+
+    /// Adds the missing titles to the favorites; when all are favorites, removes them.
+    private func favoriteAll() async {
+        favoritingAll = true; defer { favoritingAll = false }
+        let removing = allFavorite
+        for track in tracks where model.favoriteIDs.contains(track.id) == removing {
+            await model.toggleFavorite(track)
+        }
+    }
+
+    /// The optional parts of album and artist pages; a failure or an older
+    /// server only leaves them out.
+    private func loadRelated() async {
+        guard related.isEmpty, releaseDetail == nil, !model.offlineMode, let client = model.client else { return }
+        do {
+            switch kind {
+            case .release(let release):
+                let detail: ReleaseDetailResponse = try await client.get(try client.server.itemPath("releases", id: release.id))
+                guard model.client === client else { return }
+                releaseDetail = detail
+                guard let artist = detail.artist else { return }
+                let others: [Release] = try await client.get("/library/releases", query: [
+                    .init(name: "artist_id", value: artist.id), .init(name: "in_library", value: "true"),
+                    .init(name: "sort", value: "year"), .init(name: "order", value: "desc"), .init(name: "limit", value: "24")])
+                guard model.client === client else { return }
+                related = others.filter { $0.id != release.id }
+            case .artist(let artist):
+                let releases: [Release] = try await client.get("/library/releases", query: [
+                    .init(name: "artist_id", value: artist.id), .init(name: "in_library", value: "true"),
+                    .init(name: "sort", value: "year"), .init(name: "order", value: "desc"), .init(name: "limit", value: "120")])
+                guard model.client === client else { return }
+                related = releases
+            default: return
+            }
+        } catch {}
+    }
+    #endif
+
     private var standardCollection: some View {
         List {
             Section {
@@ -1100,18 +1433,112 @@ struct TrackRow: View {
     /// Optional text after the artist (for example when it was played); the
     /// row then leaves out the duration so the title keeps its room.
     var detail: String? = nil
+    /// iPhone and iPad: a track or chart number in place of the cover (album
+    /// pages, "Beliebte Titel").
+    var number: Int? = nil
+    /// iPhone and iPad: the artist line; album pages leave it out when the
+    /// title is by the album's artist.
+    var showsArtist = true
     var action: () -> Void
     @State private var addingToPlaylist = false
     var body: some View {
         Group {
             #if os(macOS)
             desktopRow
+            #elseif os(iOS)
+            mobileRow
             #else
             standardRow
             #endif
         }
         .sheet(isPresented: $addingToPlaylist) { AddToPlaylistSheet(model: model, tracks: [track]) }
     }
+    #if os(iOS)
+    @Environment(\.dynamicTypeSize) private var textSize
+    private var isCurrent: Bool { model.player.current?.id == track.id }
+    private var queueFull: Bool { model.player.queue.tracks.count >= PlaybackQueue.limit }
+    private func playNext() { if let client = model.client { model.player.insertNext(track, client: client) } }
+    private func enqueue() { if let client = model.client { model.player.append(track, client: client) } }
+    /// The same actions in the "…" menu and the context menu, with the labels
+    /// of the queue: "Als Nächstes spielen", "Zur Warteschlange".
+    @ViewBuilder private var mobileMenuItems: some View {
+        Button("Als Nächstes spielen", systemImage: "text.insert", action: playNext).disabled(queueFull)
+        Button("Zur Warteschlange", systemImage: "text.badge.plus", action: enqueue).disabled(queueFull)
+        Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
+            .disabled(model.offlineMode || model.listeningBusy)
+        Divider()
+        let favorite = model.favoriteIDs.contains(track.id)
+        Button(favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", systemImage: favorite ? "heart.slash" : "heart") { Task { await model.toggleFavorite(track) } }
+            .disabled(model.offlineMode || model.pendingFavorites.contains(track.id))
+        Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { addingToPlaylist = true }.disabled(model.offlineMode)
+        Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }.disabled(model.offlineMode)
+        playlistMenuItems
+    }
+    @ViewBuilder private var leading: some View {
+        if let number {
+            Group {
+                if isCurrent { PlayingIndicator(playing: model.player.isPlaying, color: .accentColor) }
+                else { Text("\(number)").font(.subheadline).monospacedDigit().foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7) }
+            }.frame(width: CollectionMetrics.numberColumn)
+        } else {
+            ArtworkView(model: model, kind: "tracks", id: track.id, cornerRadius: 6)
+                .frame(width: CollectionMetrics.rowArtwork, height: CollectionMetrics.rowArtwork)
+                .overlay {
+                    if isCurrent {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.black.opacity(0.4))
+                            PlayingIndicator(playing: model.player.isPlaying)
+                        }
+                    }
+                }
+        }
+    }
+    private var mobileRow: some View {
+        HStack(spacing: 12) {
+            Button(action: action) {
+                HStack(spacing: 12) {
+                    leading
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.title).font(.body.weight(isCurrent ? .semibold : .regular))
+                            .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                            .lineLimit(textSize.isAccessibilitySize ? 3 : 1)
+                        if showsArtist || detail != nil {
+                            HStack(spacing: 4) {
+                                if showsArtist {
+                                    Text(track.artistText).lineLimit(1)
+                                    // A short detail ("7× gehört") keeps its width beside the artist.
+                                    if let detail {
+                                        Text("·").accessibilityHidden(true)
+                                        Text(detail).monospacedDigit().lineLimit(1).fixedSize()
+                                    }
+                                } else if let detail { Text(detail).lineLimit(1) }
+                            }.font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    if detail == nil && !textSize.isAccessibilitySize {
+                        Text(formatTime(track.duration)).font(.subheadline).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }.frame(minHeight: number == nil ? CollectionMetrics.rowArtwork : 44).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+                .accessibilityLabel(rowLabel)
+                .accessibilityValue(isCurrent ? "Läuft gerade" : "")
+                .accessibilityHint("Spielt den Titel")
+            Menu { mobileMenuItems } label: {
+                Image(systemName: "ellipsis").foregroundStyle(.secondary).frame(width: 44, height: 44).contentShape(Rectangle())
+            }.accessibilityLabel("Aktionen für \(track.title)")
+        }
+        .contextMenu { mobileMenuItems }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button(action: playNext) { Label("Als Nächstes", systemImage: "text.insert") }.tint(.indigo).disabled(queueFull)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: playlistEdit == nil) {
+            if let edit = playlistEdit {
+                Button(role: .destructive, action: edit.remove) { Label("Entfernen", systemImage: "minus.circle") }
+            }
+            Button(action: enqueue) { Label("Warteschlange", systemImage: "text.badge.plus") }.tint(.orange).disabled(queueFull)
+        }
+    }
+    #endif
     @ViewBuilder private var playlistMenuItems: some View {
         if let edit = playlistEdit {
             Divider()
@@ -1378,23 +1805,22 @@ struct PlaylistListView: View {
             .sheet(isPresented: $creating) { PlaylistEditor(model: model) }
     }
     #if os(iOS)
+    /// The playlists as one calm list: filter and order on top, "Neue
+    /// Playlist" as the first row, then each playlist with its cover mosaic.
     private var mobilePlaylists: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Deine Musik für jeden Moment.").font(.subheadline).foregroundStyle(.secondary)
-                Button { creating = true } label: { Label("Neue Playlist", systemImage: "plus") }
-                    .buttonStyle(MobileActionStyle(prominent: true)).disabled(model.playlistBusy)
-                HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: ListenMetrics.headerGap) {
+                HStack(spacing: 8) {
                     HStack(spacing: 10) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary).accessibilityHidden(true)
                         TextField("Playlists filtern", text: $playlistQuery).textInputAutocapitalization(.never).autocorrectionDisabled()
                             .accessibilityIdentifier("mobile-playlist-filter")
                         if !playlistQuery.isEmpty {
                             Button { playlistQuery = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44) }
                                 .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Playlist-Filter leeren")
                         }
-                    }.padding(.leading, 14).padding(.trailing, playlistQuery.isEmpty ? 14 : 0).frame(minHeight: 52)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                    }.padding(.leading, 14).padding(.trailing, playlistQuery.isEmpty ? 14 : 0).frame(minHeight: 44)
+                        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     Menu {
                         Picker("Sortierung", selection: $alphabetical) {
                             Text("Reihenfolge der Sammlung").tag(false)
@@ -1402,31 +1828,46 @@ struct PlaylistListView: View {
                         }
                         Button("Aktualisieren", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
                             .disabled(model.connecting || model.playlistBusy)
-                    } label: { Image(systemName: "arrow.up.arrow.down").frame(width: 52, height: 52) }
-                        .buttonStyle(.plain).foregroundStyle(.primary)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                        .accessibilityLabel("Playlists sortieren und aktualisieren")
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down").font(.body.weight(.semibold)).frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .foregroundStyle(.tint)
+                    .accessibilityLabel("Playlists sortieren und aktualisieren")
                 }
-                Text("\(visiblePlaylists.count) \(visiblePlaylists.count == 1 ? "Playlist" : "Playlists")")
-                    .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                if model.playlists.isEmpty { emptyPlaylists }
+                VStack(spacing: 0) {
+                    Button { creating = true } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "plus").font(.system(size: 22, weight: .semibold)).foregroundStyle(.tint)
+                                .frame(width: 60, height: 60)
+                                .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            Text("Neue Playlist").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }.padding(.horizontal, 16).padding(.vertical, 10).contentShape(Rectangle())
+                    }
+                    .buttonStyle(ListenPressStyle()).disabled(model.playlistBusy)
+                    .accessibilityLabel("Neue Playlist").accessibilityHint("Mit eigenen Titeln oder intelligenten Regeln")
+                    if !visiblePlaylists.isEmpty {
+                        Divider().padding(.leading, 16 + 60 + 12)
+                        LazyVStack(spacing: 0) {
+                            ForEach(visiblePlaylists) { playlist in
+                                NavigationLink(value: CollectionKind.playlist(playlist)) { MobilePlaylistRow(model: model, playlist: playlist) }
+                                    .buttonStyle(ListenPressStyle())
+                                    .task(id: model.playlistRevision) { await model.loadPlaylistPreviews([playlist]) }
+                                if playlist.id != visiblePlaylists.last?.id { Divider().padding(.leading, 16 + 60 + 12) }
+                            }
+                        }
+                    }
+                }.background(ListenMetrics.surface, in: RoundedRectangle(cornerRadius: ListenMetrics.cardRadius, style: .continuous))
+                if model.playlists.isEmpty { emptyPlaylists.padding(.top, 12) }
                 else if visiblePlaylists.isEmpty {
                     ContentUnavailableView("Keine passende Playlist", systemImage: "magnifyingglass", description: Text("Versuche einen anderen Namen."))
-                } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(visiblePlaylists) { playlist in
-                            NavigationLink(value: CollectionKind.playlist(playlist)) { MobilePlaylistRow(model: model, playlist: playlist) }
-                                .buttonStyle(.plain)
-                            if playlist.id != visiblePlaylists.last?.id { Divider().padding(.leading, 104) }
-                        }
-                    }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
                 }
-            }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 32)
+            }.padding(.horizontal, ListenMetrics.pageMargin).padding(.top, 8).padding(.bottom, 32)
                 .frame(maxWidth: 760).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground))
+            .scrollEdgeEffectStyle(.hard, for: .bottom)
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await model.loadLibrary() }
-            .task(id: model.playlistRevision) { await model.loadPlaylistPreviews(model.playlists) }
     }
     #endif
     private var emptyPlaylists: some View {

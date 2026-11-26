@@ -43,9 +43,24 @@ with wave.open(audio, 'wb') as wav:
 AUDIO = audio.getvalue()
 MIME = 'audio/wav'
 TRACKS = [{'id': 't'+str(i), 'title': name, 'artists': ['Mira' if i%2 else 'Nordlicht'], 'album': name,
-           'duration_ms': FIXTURE_SECONDS * 1000, 'codec': 'pcm_s16le'} for i,name in enumerate(['Nachtfahrt','Zeitlos','Fernweh','Blaue Stunde','Horizont','Lichtblick'])]
-RELEASES = [{'id':'r'+str(i),'title':t['title'],'artists':t['artists'],'year':2026,'track_count_in_library':1} for i,t in enumerate(TRACKS)]
-ARTISTS = [{'id':'a0','name':'Nordlicht','genres':['Elektronisch'],'track_count':3},{'id':'a1','name':'Mira','genres':['Pop'],'track_count':3}]
+           'duration_ms': FIXTURE_SECONDS * 1000, 'codec': 'pcm_s16le', 'track_number': 1, 'disc_number': 1}
+          for i,name in enumerate(['Nachtfahrt','Zeitlos','Fernweh','Blaue Stunde','Horizont','Lichtblick'])]
+# Albums from different years; the last two are an EP and a single, so the
+# artist page shows "Singles & EPs" apart from the albums.
+RELEASE_TYPES = ['album','album','album','album','ep','single']
+RELEASES = [{'id':'r'+str(i),'title':t['title'],'artists':t['artists'],'album_artist':t['artists'][0],'year':2020+i,
+             'release_type':RELEASE_TYPES[i],'track_count_in_library':1} for i,t in enumerate(TRACKS)]
+# Artists without titles fill the A–Z list: an umlaut under O, a number under #.
+ARTISTS = [{'id':'a0','name':'Nordlicht','genres':['Elektronisch'],'track_count':3,'release_count':3},
+           {'id':'a1','name':'Mira','genres':['Pop'],'track_count':3,'release_count':3},
+           {'id':'a2','name':'Ankerplatz','genres':['Pop'],'track_count':0,'release_count':0},
+           {'id':'a3','name':'Östlich','genres':['Elektronisch'],'track_count':0,'release_count':0},
+           {'id':'a4','name':'42 Grad','genres':['Pop'],'track_count':0,'release_count':0}]
+ARTIST_NAMES = {a['id']: a['name'] for a in ARTISTS}
+
+
+def matches(text, query):
+    return query.casefold() in text.casefold()
 USER = {'id':'fixture','username':'fixture_user','display_name':'Design-Vorschau','role':'user'}
 # Personal mixes and history as GET /library/mixes and GET /history answer
 # them. History avoids the first titles: UI tests open albums by those names.
@@ -138,11 +153,25 @@ class Handler(BaseHTTPRequestHandler):
             return self.response(mix_summary(mix) | {'tracks':[t for i in mix['track_ids'] for t in TRACKS if t['id'] == i]})
         if path.endswith('/history'): return self.response([history_entry(*entry) for entry in HISTORY])
         if path.endswith('/top-tracks'):
-            artist = 'Nordlicht' if path.split('/')[-2] == 'a0' else 'Mira'
+            artist = ARTIST_NAMES.get(path.split('/')[-2], '')
             return self.response([t | {'play_count':9-i, 'last_played_at':'2026-11-20T10:00:00Z'} for i,t in enumerate(t for t in TRACKS if artist in t['artists'])])
-        if path.endswith('/library/search'): return self.response({'artists':ARTISTS,'releases':RELEASES[:2],'tracks':TRACKS[:2]})
-        if path.endswith('/library/releases'): return self.response(RELEASES if int(query.get('offset',['0'])[0])==0 else [])
-        if path.endswith('/library/artists'): return self.response(ARTISTS if int(query.get('offset',['0'])[0])==0 else [])
+        if path.endswith('/library/search'): return self.response({'artists':ARTISTS[:2],'releases':RELEASES[:2],'tracks':TRACKS[:2]})
+        if '/library/releases/' in path:
+            release = next((r for r in RELEASES if r['id'] == path.rsplit('/',1)[1]), None)
+            if release is None: return self.response({'error':{'code':'NOT_FOUND','message':'Album not found'}},404)
+            artist = next((a for a in ARTISTS if a['name'] == release['album_artist']), None)
+            return self.response({'release':release, 'artist':artist, 'tracks':[t for t in TRACKS if t['title'] == release['title']]})
+        if path.endswith('/library/releases'):
+            if int(query.get('offset',['0'])[0]) != 0: return self.response([])
+            releases = RELEASES
+            if 'artist_id' in query: releases = [r for r in releases if ARTIST_NAMES.get(query['artist_id'][0]) in r['artists']]
+            if query.get('q', [''])[0]: releases = [r for r in releases if matches(r['title'] + ' ' + ' '.join(r['artists']), query['q'][0])]
+            return self.response(releases)
+        if path.endswith('/library/artists'):
+            if int(query.get('offset',['0'])[0]) != 0: return self.response([])
+            artists = ARTISTS
+            if query.get('q', [''])[0]: artists = [a for a in artists if matches(a['name'], query['q'][0])]
+            return self.response(artists)
         if path.endswith('/library/tracks'):
             if AUDIT_FAILURES and query.get('release_id') == ['r5'] and 'r5' not in FAILED_COLLECTIONS:
                 FAILED_COLLECTIONS.add('r5')
@@ -151,7 +180,7 @@ class Handler(BaseHTTPRequestHandler):
             if query.get('favorite', ['false'])[0] == 'true': tracks = [t for t in tracks if t['id'] in FAVORITES]
             if 'release_id' in query: tracks = [t for t in tracks if 'r'+t['id'][1:] == query['release_id'][0]]
             if 'artist_id' in query:
-                artist = 'Nordlicht' if query['artist_id'][0] == 'a0' else 'Mira'
+                artist = ARTIST_NAMES.get(query['artist_id'][0], '')
                 tracks = [t for t in tracks if artist in t['artists']]
             offset = int(query.get('offset', ['0'])[0]); limit = int(query.get('limit', ['100'])[0])
             return self.response(tracks[offset:offset+limit])

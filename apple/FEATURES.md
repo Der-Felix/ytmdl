@@ -1,4 +1,4 @@
-# Native listening preview 0.5.1 — build 40
+# Native listening preview 0.5.2 — build 41
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -21,7 +21,8 @@ from implemented features and simulator verification.
 | Smart offline storage | Optional played-track cache; favorites and selected collections refresh when the library is refreshed |
 | Player access | Native mini-player above the floating iPhone tab bar, retained inside pushed collections; tap or swipe up opens the expanded player (no toolbar entry since build 39) |
 | Collection artwork | Up to four distinct album covers on collection headers; shared, bounded previews in mobile Start and Playlists |
-| Mobile collection design | Integrated cover/title/metadata header, equal-width play/shuffle actions with 52-point minimum height; playlist editing/download actions in one menu; stacked actions at accessibility text sizes |
+| Mobile collection design | One header for album, artist, playlist, favorites and mix pages (build 41): large cover, title, artist link, summary line, equal-width play/shuffle actions with 52-point minimum height and a row of secondary actions (one menu at accessibility text sizes); one track row with the playing indicator, swipe actions and the queue's menu labels |
+| iPhone/iPad Bibliothek (build 41) | Shortcut tiles (Favoriten, Künstler, Titel, Genres, Offline, Playlists), albums sorted by the server (Zuletzt hinzugefügt, Titel, Künstler, Jahr) as grid or list, both remembered; server-side filter field, genre chips, loading skeletons, empty and error states; Künstler A–Z with section index and filter |
 | Home/Lock Screen widgets (iOS/iPadOS) | Small/medium Home widgets and circular/rectangular/inline Lock Screen widgets open the player; medium Home widgets also link to favorites and playlists. Navigation only, no live song state or playback controls |
 | Mobile transport | Scrubber with remaining time, previous/next, shuffle mode, repeat queue/track, native device volume and AirPlay, haptics (build 40) |
 | System artwork | Now Playing artwork published after authenticated/local loading, retained across progress updates, cleared on title change or stop; actual lock-screen review remains required |
@@ -34,6 +35,38 @@ from implemented features and simulator verification.
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## iPhone and iPad library, album, artist and playlist pages (build 41)
+
+Ships as 0.5.2 (41); the server API is unchanged (the album page also asks
+`GET /library/releases/{id}` for its type and artist, and `GET /library/releases?artist_id=…`).
+Apple TV and Mac keep their pages.
+
+- **Bibliothek** starts with six tiles (Favoriten, Künstler, Titel, Genres, Offline, Playlists),
+  then **Alben**: sort (Zuletzt hinzugefügt, Titel, Künstler, Jahr; the server sorts, so it
+  holds for the whole library) and grid/list are remembered on the device. A filter field asks
+  the server (title and artist), genre chips filter in place. While the first page loads the
+  grid shows placeholders; a failed load keeps **Erneut laden**. More albums load as you
+  reach the end. Margins are 16 pt like Start.
+- **Album page:** the cover is the page's one large element, then title, the artist as a link,
+  type · year · titles · length, **Abspielen** and **Zufall**, and one row with **Favorit**
+  (all titles), **Offline**, **Einreihen** (Als Nächstes spielen / Zur Warteschlange) and
+  **Playlist**. Titles are numbered (by disc when there are several), the playing one shows the
+  moving indicator. **Mehr von …** at the end. The title moves into the bar once it scrolls away.
+- **Artist page:** round picture (or a monogram on a colour of the name), play and shuffle,
+  **Beliebte Titel** (play history, else the first titles), **Alben** by year with a sort
+  menu, **Singles & EPs** apart, then all titles.
+- **Künstler:** all artists A–Z in sections with the system's index, round pictures, a filter
+  that asks the server. Pages of 120 load in the background while the list is shown.
+- **Titel** (all titles, sortable) and **Genres** (each opens its albums) are new.
+- **Playlists:** no slogan; filter and order on top, **Neue Playlist** as the first row, then
+  each playlist with its cover mosaic, count and length; a smart playlist gets a small sparkle.
+  The playlist page uses the album header; queue and offline moved from "…" into its action row.
+- **Track rows** everywhere on iPhone and iPad: swipe right for **Als Nächstes**, left for
+  **Warteschlange** (and **Entfernen** in a manual playlist); the context menu and "…" use the
+  queue's labels.
+- Relative dates and times are German whatever the device language ("vor 3 Tagen", "15:04").
+- iPad: pages stop at a readable width and centre; the header puts the cover beside the text.
 
 ## iPhone and iPad player and queue (build 40)
 

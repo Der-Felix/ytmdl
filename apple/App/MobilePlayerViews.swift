@@ -349,7 +349,7 @@ struct MobilePlayerView: View {
     }
     private var sleepValue: String {
         guard let deadline = model.player.sleepDeadline else { return model.player.sleepMode.name }
-        return "Endet um " + deadline.formatted(date: .omitted, time: .shortened)
+        return "Endet um " + GermanDates.time(deadline)
     }
 
     @ViewBuilder private func moreMenu(_ track: Track) -> some View {
@@ -831,6 +831,8 @@ private struct QueueModeChip: View {
 /// Reduce Motion.
 struct PlayingIndicator: View {
     var playing: Bool
+    /// White on a cover; the tint in place of a track number.
+    var color: Color = .white
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private static let resting: [CGFloat] = [0.55, 1, 0.75]
     var body: some View {
@@ -843,7 +845,7 @@ struct PlayingIndicator: View {
                 }
             }.frame(width: 14, height: 14, alignment: .bottom)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(color)
         .accessibilityHidden(true)
     }
 }

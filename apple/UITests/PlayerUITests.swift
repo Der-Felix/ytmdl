@@ -499,7 +499,10 @@ final class PlayerUITests: XCTestCase {
         let app = try app()
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
         selectTab(app, "Bibliothek")
-        app.staticTexts["Lichtblick"].firstMatch.tap()
+        // The sixth album sits below the shortcuts and the first rows.
+        let album = app.staticTexts["Lichtblick"].firstMatch
+        for _ in 0..<5 where !(album.exists && album.isHittable) { app.swipeUp() }
+        album.tap()
         let retry = app.buttons["Titel erneut laden"]
         XCTAssertTrue(retry.waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Noch keine Titel"].exists, "A network failure must not claim the collection is empty.")
@@ -554,8 +557,11 @@ final class PlayerUITests: XCTestCase {
             XCTAssertGreaterThanOrEqual(control.frame.height, 52)
             XCTAssertGreaterThanOrEqual(control.frame.width, 120)
         }
+        // Queue and offline sit in the header's action row; "…" keeps editing.
+        XCTAssertTrue(app.buttons["collection-offline"].isHittable)
+        XCTAssertTrue(app.buttons["collection-queue"].isHittable)
         app.buttons["playlist-collection-options"].tap()
-        XCTAssertTrue(app.buttons["Offline speichern"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Bearbeiten"].firstMatch.waitForExistence(timeout: 10))
         app.navigationBars.firstMatch.tap()
         XCTAssertTrue(mini.isHittable, "Player must stay above tabs inside a pushed collection.")
         attach(app, name: "Playlist with anchored paused mini player")
@@ -604,8 +610,11 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
         selectTab(app, "Playlists")
         app.staticTexts["Abends unterwegs"].firstMatch.tap()
-        app.buttons["playlist-collection-options"].tap()
-        app.buttons["Offline speichern"].firstMatch.tap()
+        let save = app.buttons["collection-offline"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: save)
+        waitForExpectations(timeout: 10)
+        save.tap()
         selectTab(app, "Bibliothek")
         app.buttons["Offline"].firstMatch.tap()
         XCTAssertTrue(app.buttons["offline-collection-p0"].waitForExistence(timeout: 10))
@@ -717,6 +726,212 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Abspielen"].firstMatch.exists, "Collection drilldown must be discarded on section change.")
         XCTAssertFalse(app.alerts.firstMatch.exists)
         attach(app, name: "Sidebar returns to library without playback")
+    }
+    /// Bibliothek: shortcuts, sort that survives a relaunch, list layout,
+    /// the filter and the genre chips.
+    @MainActor func testMobileLibrarySortPersistsAndFiltersWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact library requires iPhone.")
+        var app = try app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        selectTab(app, "Bibliothek")
+        for id in ["favorites", "artists", "tracks", "genres", "offline", "playlists"] {
+            let tile = app.buttons["library-shortcut-" + id]
+            XCTAssertTrue(tile.waitForExistence(timeout: 10), id)
+            XCTAssertTrue(tile.isHittable, id)
+            XCTAssertGreaterThanOrEqual(tile.frame.height, 44, id)
+        }
+        // The labels of a row of tiles share one baseline ("Offline" sat lower).
+        let favorites = app.buttons["library-shortcut-favorites"].frame, artists = app.buttons["library-shortcut-artists"].frame
+        XCTAssertEqual(favorites.midY, artists.midY, accuracy: 1)
+        XCTAssertEqual(app.buttons["library-shortcut-offline"].frame.height, app.buttons["library-shortcut-genres"].frame.height, accuracy: 1)
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 10))
+        attach(app, name: "Library top")
+        // Sort by year; the choice is remembered across launches.
+        let sort = app.buttons["library-sort"]
+        XCTAssertEqual(sort.value as? String, "Zuletzt hinzugefügt")
+        sort.tap()
+        let year = app.buttons["Jahr"].firstMatch
+        XCTAssertTrue(year.waitForExistence(timeout: 5))
+        year.tap()
+        expectation(for: NSPredicate(format: "value == %@", "Jahr"), evaluatedWith: sort)
+        waitForExpectations(timeout: 10)
+        app.terminate()
+        app = try self.app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        selectTab(app, "Bibliothek")
+        XCTAssertTrue(app.buttons["library-sort"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.buttons["library-sort"].value as? String, "Jahr", "The album order survives a relaunch.")
+        // The list layout, also remembered.
+        let layout = app.buttons["library-layout"]
+        XCTAssertEqual(layout.label, "Als Liste anzeigen")
+        layout.tap()
+        XCTAssertEqual(layout.label, "Als Raster anzeigen")
+        XCTAssertTrue(app.staticTexts["Zeitlos"].firstMatch.waitForExistence(timeout: 10))
+        attach(app, name: "Library as list")
+        // The filter asks the server and shows only matching albums.
+        let filter = app.textFields["library-filter"]
+        filter.tap(); filter.typeText("Zeit")
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.staticTexts["Nachtfahrt"].firstMatch)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.staticTexts["Zeitlos"].firstMatch.exists)
+        attach(app, name: "Library filtered")
+        app.buttons["Filter leeren"].tap()
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 10))
+        // Genre chips filter in place and say which one is chosen.
+        let pop = app.buttons["library-genre-Pop"]
+        XCTAssertTrue(pop.waitForExistence(timeout: 10))
+        pop.tap()
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: pop)
+        waitForExpectations(timeout: 10)
+        attach(app, name: "Library genre chip")
+        app.buttons["library-genre-all"].tap()
+        // Back to the defaults for the other tests.
+        layout.tap()
+        app.buttons["library-sort"].tap()
+        app.buttons["Zuletzt hinzugefügt"].firstMatch.tap()
+        expectation(for: NSPredicate(format: "value == %@", "Zuletzt hinzugefügt"), evaluatedWith: app.buttons["library-sort"])
+        waitForExpectations(timeout: 10)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
+    /// The album page: header, artist link, numbered titles, the action row
+    /// and "Mehr von …"; then the artist page with its sections.
+    @MainActor func testMobileAlbumAndArtistPagesWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact pages require iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        selectTab(app, "Bibliothek")
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 10))
+        app.staticTexts["Nachtfahrt"].firstMatch.tap()
+        let play = app.buttons["collection-play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: play)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons["collection-shuffle"].isHittable)
+        for id in ["collection-favorite", "collection-offline", "collection-queue", "collection-add-to-playlist"] {
+            let action = app.buttons[id]
+            XCTAssertTrue(action.exists, id)
+            XCTAssertGreaterThanOrEqual(action.frame.height, 44, id)
+        }
+        XCTAssertEqual(app.buttons["collection-offline"].label, "Offline speichern")
+        let artist = app.buttons["collection-artist"]
+        XCTAssertTrue(artist.waitForExistence(timeout: 10), "The album links its artist.")
+        XCTAssertEqual(artist.label, "Künstler: Nordlicht")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Album · 2020")).firstMatch.exists)
+        XCTAssertTrue(app.buttons["Aktionen für Nachtfahrt"].exists)
+        attach(app, name: "Album page")
+        // Every title of the album is a favorite in the fixture: the heart says so and toggles all.
+        let favorite = app.buttons["collection-favorite"]
+        XCTAssertEqual(favorite.label, "Aus Favoriten entfernen")
+        favorite.tap()
+        expectation(for: NSPredicate(format: "label == %@", "Alle zu Favoriten hinzufügen"), evaluatedWith: favorite)
+        waitForExpectations(timeout: 10)
+        favorite.tap()
+        expectation(for: NSPredicate(format: "label == %@", "Aus Favoriten entfernen"), evaluatedWith: favorite)
+        waitForExpectations(timeout: 10)
+        // The queue menu offers both ways in, with the queue's labels.
+        app.buttons["collection-queue"].tap()
+        XCTAssertTrue(app.buttons["Als Nächstes spielen"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Zur Warteschlange"].firstMatch.exists)
+        attach(app, name: "Album queue menu")
+        app.navigationBars.firstMatch.tap()
+        // More by the artist at the end of the page.
+        let more = app.staticTexts["Mehr von Nordlicht"]
+        for _ in 0..<4 where !more.exists { app.swipeUp() }
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["release-card-r2"].exists)
+        attach(app, name: "Album page end")
+        for _ in 0..<4 where !artist.isHittable { app.swipeDown() }
+        artist.tap()
+        XCTAssertTrue(app.navigationBars["Nordlicht"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Beliebte Titel"].waitForExistence(timeout: 10))
+        attach(app, name: "Artist page")
+        let albums = app.staticTexts["Alben"].firstMatch
+        for _ in 0..<4 where !(albums.exists && albums.isHittable) { app.swipeUp() }
+        XCTAssertTrue(albums.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Singles & EPs"].firstMatch.waitForExistence(timeout: 10), "The EP is listed apart from the albums.")
+        XCTAssertTrue(app.buttons["release-card-r4"].exists)
+        let order = app.buttons["artist-album-sort"]
+        XCTAssertEqual(order.value as? String, "Neueste zuerst")
+        attach(app, name: "Artist albums")
+        order.tap()
+        app.buttons["Älteste zuerst"].firstMatch.tap()
+        expectation(for: NSPredicate(format: "value == %@", "Älteste zuerst"), evaluatedWith: order)
+        waitForExpectations(timeout: 10)
+        XCTAssertLessThan(app.buttons["release-card-r0"].frame.minX, app.buttons["release-card-r2"].frame.minX, "Oldest album first.")
+        for _ in 0..<3 { app.swipeUp() }
+        attach(app, name: "Artist all titles")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
+    /// Künstler A–Z with sections and the filter; Titel and Genres open.
+    @MainActor func testMobileArtistListTitlesAndGenresWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact library requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        selectTab(app, "Bibliothek")
+        app.buttons["library-shortcut-artists"].tap()
+        XCTAssertTrue(app.navigationBars["Künstler"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["artist-row-a0"].waitForExistence(timeout: 10))
+        for letter in ["A", "M", "N", "O", "#"] {
+            XCTAssertTrue(app.staticTexts[letter].firstMatch.exists, "Section " + letter)
+        }
+        XCTAssertLessThan(app.buttons["artist-row-a2"].frame.minY, app.buttons["artist-row-a1"].frame.minY, "A before M.")
+        attach(app, name: "Artists A to Z")
+        let filter = app.textFields["artist-filter"]
+        filter.tap(); filter.typeText("Mir")
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["artist-row-a0"])
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons["artist-row-a1"].exists)
+        attach(app, name: "Artists filtered")
+        app.buttons["Filter leeren"].tap()
+        app.buttons["artist-row-a1"].tap()
+        XCTAssertTrue(app.navigationBars["Mira"].waitForExistence(timeout: 10))
+        attach(app, name: "Artist page from the list")
+        selectTab(app, "Bibliothek")
+        app.buttons["library-shortcut-tracks"].tap()
+        XCTAssertTrue(app.navigationBars["Titel"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Aktionen für Nachtfahrt"].waitForExistence(timeout: 10))
+        attach(app, name: "All titles")
+        selectTab(app, "Bibliothek")
+        app.buttons["library-shortcut-genres"].tap()
+        XCTAssertTrue(app.buttons["genre-row-Pop"].waitForExistence(timeout: 10))
+        app.buttons["genre-row-Pop"].tap()
+        XCTAssertTrue(app.navigationBars["Pop"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Zeitlos"].firstMatch.waitForExistence(timeout: 10))
+        attach(app, name: "Genre albums")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
+    /// iPad: the library, an album and its artist use the width on purpose.
+    @MainActor func testTabletLibraryAlbumAndArtistPagesWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tablet layout requires iPad.")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = try app()
+        XCTAssertTrue(app.staticTexts["Bibliothek"].firstMatch.waitForExistence(timeout: 20))
+        app.staticTexts["Bibliothek"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["library-shortcut-artists"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Zeitlos"].firstMatch.waitForExistence(timeout: 10))
+        attach(app, name: "Tablet library")
+        app.staticTexts["Nachtfahrt"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["collection-play"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["collection-artist"].waitForExistence(timeout: 10))
+        attach(app, name: "Tablet album page")
+        app.buttons["collection-artist"].tap()
+        XCTAssertTrue(app.staticTexts["Beliebte Titel"].waitForExistence(timeout: 10))
+        attach(app, name: "Tablet artist page")
+        app.staticTexts["Künstler"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["artist-row-a0"].waitForExistence(timeout: 10))
+        attach(app, name: "Tablet artists")
+        app.staticTexts["Playlists"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Abends unterwegs"].firstMatch.waitForExistence(timeout: 10))
+        attach(app, name: "Tablet playlists")
+        app.staticTexts["Abends unterwegs"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["collection-play"].waitForExistence(timeout: 10))
+        attach(app, name: "Tablet playlist page")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
     }
     #endif
     #if os(tvOS)
