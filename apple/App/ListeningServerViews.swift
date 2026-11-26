@@ -121,19 +121,21 @@ private struct ListeningLinkTile: View {
     var detail: String
     var symbol: String
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol).font(.title3.weight(.semibold)).foregroundStyle(.tint)
-                .frame(width: 44, height: 44).background(.tint.opacity(0.14), in: Circle())
+        // Symbol above the text: half the phone's width stays for the words,
+        // so "Empfehlungen" is never hyphenated.
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: symbol).font(.body.weight(.semibold)).foregroundStyle(.tint)
+                .frame(width: 36, height: 36).background(.tint.opacity(0.14), in: Circle())
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                Text(detail).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
+                Text(detail).font(.caption).monospacedDigit().foregroundStyle(.secondary).lineLimit(2)
             }
-            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 68, alignment: .topLeading)
         .background(ListenMetrics.surface, in: RoundedRectangle(cornerRadius: ListenMetrics.cardRadius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: ListenMetrics.cardRadius, style: .continuous))
     }

@@ -1326,26 +1326,8 @@ final class PlayerUITests: XCTestCase {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact flow requires iPhone.")
         let app = try app()
         XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
-        selectTab(app, "Suche")
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.descendants(matching: .any)["search-lyrics-hint"].waitForExistence(timeout: 5), "The server searches lyrics, so Suche says so.")
-        search.tap(); search.typeText("kalter")
-        let hit = app.buttons["search-lyrics-t2"]
-        // The group may sit below the fold of the lazy list.
-        if !hit.waitForExistence(timeout: 8) || !hit.isHittable { reveal(hit, in: app) }
-        XCTAssertTrue(hit.waitForExistence(timeout: 5), "Lyrics hits have their own group.")
-        if !hit.exists { print(app.debugDescription) }
-        attach(app, name: "Suche mit Liedtext-Treffern")
-        hit.tap()
-        let mini = app.buttons["mobile-mini-player-open"]
-        XCTAssertTrue(mini.waitForExistence(timeout: 15), "A lyrics hit plays its title.")
-        expectation(for: NSPredicate(format: "label CONTAINS %@", "Fernweh"), evaluatedWith: mini)
-        waitForExpectations(timeout: 10)
-        app.buttons["mobile-mini-player-toggle"].tap()
 
         // "Weniger davon" on a title row, then "Rückgängig".
-        selectTab(app, "Bibliothek")
         selectTab(app, "Bibliothek")
         let tracks = app.buttons["library-shortcut-tracks"]
         XCTAssertTrue(tracks.waitForExistence(timeout: 10))
@@ -1387,6 +1369,29 @@ final class PlayerUITests: XCTestCase {
         allow.tap()
         XCTAssertTrue(app.descendants(matching: .any)["preferences-empty"].waitForExistence(timeout: 10), "Lifting the last exclusion empties the page.")
         attach(app, name: "Empfehlungen leer")
+
+        // Suche finds a title by a line of its lyrics and plays it.
+        selectTab(app, "Suche")
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["search-lyrics-hint"].waitForExistence(timeout: 5), "The server searches lyrics, so Suche says so.")
+        search.tap(); search.typeText("kalter")
+        let hit = app.buttons["search-lyrics-t2"]
+        // The group may sit below the fold of the lazy list.
+        if !hit.waitForExistence(timeout: 8) || !hit.isHittable { reveal(hit, in: app) }
+        XCTAssertTrue(hit.waitForExistence(timeout: 5), "Lyrics hits have their own group.")
+        if !hit.exists { print(app.debugDescription) }
+        // A short drag puts the keyboard away so the snippet shows.
+        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        from.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)))
+        if !hit.isHittable { reveal(hit, in: app) }
+        attach(app, name: "Suche mit Liedtext-Treffern")
+        hit.tap()
+        let mini = app.buttons["mobile-mini-player-open"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 15), "A lyrics hit plays its title.")
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "Fernweh"), evaluatedWith: mini)
+        waitForExpectations(timeout: 10)
+        attach(app, name: "Liedtext-Treffer spielt")
         XCTAssertFalse(app.alerts.firstMatch.exists)
     }
     /// Server 1.10: no statistics, lyrics search or exclusions anywhere, one

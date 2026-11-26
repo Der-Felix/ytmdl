@@ -83,11 +83,12 @@ MIXES_CURRENT = [
     {'id':'daypart-evening','kind':'daypart','title':'Dein Abend-Mix','description':'Was du abends gern hörst','group':'made_for_you','daypart':'evening','track_ids':['t1','t3','t5']},
     {'id':'artist-a0','kind':'artist','title':'Mix: Nordlicht','description':'Nordlicht und ähnliche Künstler','group':'made_for_you','artist_id':'a0','track_ids':['t0','t2','t4','t1']},
     {'id':'favorites','kind':'favorites','title':'Favoriten-Mix','description':'Deine Favoriten, lange nicht Gehörtes zuerst','group':'made_for_you','track_ids':['t0','t1']},
-    MIXES[2] | {'group':'rewind'},
+    MIXES[2] | {'group':'discover'},
+    # The unknown kind leads Rückblick, where the hub test finds it on screen.
+    MIXES[4],
     {'id':'forgotten_favorites','kind':'forgotten_favorites','title':'Vergessene Favoriten','description':'Favoriten, die du seit Monaten nicht gehört hast','group':'rewind','track_ids':['t1','t0']},
     {'id':'decade-2020','kind':'decade','title':'Deine 2020er','description':'Deine Titel aus den 2020er-Jahren und mehr aus dem Jahrzehnt','group':'rewind','decade':2020,'track_ids':['t2','t3','t4']},
     MIXES[3] | {'group':'discover'},
-    MIXES[4],
 ]
 FEATURES = ['mixes.groups','mixes.artist','mixes.decade','mixes.favorites','mixes.daypart',
             'radio.seeds','radio.station','history.stats','search.lyrics','listening.preferences']

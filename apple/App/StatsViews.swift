@@ -285,7 +285,9 @@ private struct StatsTotalsCard: View {
     }
     private func figure(value: String, label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.title3.bold()).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            // "ca. 2 Std. 16 Min." wraps rather than losing its minutes.
+            Text(value).font(.title3.bold()).monospacedDigit().lineLimit(2).minimumScaleFactor(0.8)
+                .fixedSize(horizontal: false, vertical: true)
             Text(label).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
