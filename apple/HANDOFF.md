@@ -45,7 +45,7 @@ Builds on build 38; see FEATURES.md "iPhone search, navigation and Start (build 
   pages, and the shelf, card and tile views). Both are registered for the three app targets
   like `TVSoundSettings.swift`. Core: `Sources/YTMDLCore/SearchAndHome.swift` (`SearchMatch`
   top hit, `RecentSearches`, `HomeGreeting`) with `SearchAndHomeTests`.
-- **Root:** the compact `TabView` uses the `Tab` API; Search is `Tab(role: .search)`. The
+- **Root:** the compact `TabView` uses the `Tab` API; Search is `Tab(role: .search)`; its field uses `.navigationBarDrawer(displayMode: .always)` because the automatic placement stayed hidden until pulled down (seen in the CI screenshots). The
   `open-mobile-player` toolbar item is gone; the mini player (`mobile-mini-player-open`)
   opens the player, also by swiping up. `mobileSelection` returns a re-chosen tab to its
   first page and raises `searchFocusRequest` for Search. `openGenre` sets the library's
