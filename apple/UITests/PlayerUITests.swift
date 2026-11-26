@@ -990,6 +990,267 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.alerts.firstMatch.exists)
         XCTAssertFalse(app.buttons["Pause"].exists)
     }
+
+    // MARK: Für dich, radio and Start anpassen
+
+    /// Scrolls the page until `element` can be tapped.
+    @MainActor private func reveal(_ element: XCUIElement, in app: XCUIApplication, up: Bool = true) {
+        for _ in 0..<8 where !(element.exists && element.isHittable) { up ? app.swipeUp() : app.swipeDown() }
+    }
+    /// Opens "Start anpassen" from the end of Start and puts Start back to its defaults.
+    @MainActor private func openHomeEditor(_ app: XCUIApplication, reset: Bool = true) {
+        let customize = app.buttons["home-customize"]
+        reveal(customize, in: app)
+        XCTAssertTrue(customize.waitForExistence(timeout: 10))
+        customize.tap()
+        XCTAssertTrue(app.navigationBars["Start anpassen"].waitForExistence(timeout: 10))
+        let resetButton = app.buttons["home-editor-reset"]
+        if reset, resetButton.waitForExistence(timeout: 5) {
+            reveal(resetButton, in: app)
+            if resetButton.isEnabled {
+                resetButton.tap()
+                let confirm = app.buttons["Zurücksetzen"].firstMatch
+                XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+                confirm.tap()
+                expectation(for: NSPredicate(format: "enabled == false"), evaluatedWith: resetButton)
+                waitForExpectations(timeout: 5)
+            }
+            reveal(app.buttons["home-editor-toggle-quick_access"], in: app, up: false)
+        }
+    }
+    /// "Für dich": its sections, a genre with its radio and a mix page with all actions.
+    @MainActor func testForYouHubShowsSectionsAndOpensAMix() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact hub requires iPhone.")
+        let app = try app()
+        let entry = app.buttons["home-quick-foryou"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 20), "Start has its own way into Für dich.")
+        entry.tap()
+        XCTAssertTrue(app.navigationBars["Für dich"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["foryou-featured-genre-0a1b2c3d4e5f"].waitForExistence(timeout: 10), "The first mix is the large one.")
+        for title in ["Für dich gemacht", "Entdecken", "Rückblick"] {
+            XCTAssertTrue(app.staticTexts[title].firstMatch.waitForExistence(timeout: 10), title)
+        }
+        attach(app, name: "Für dich")
+        let unknownKind = app.buttons["mix-card-time_capsule"]
+        reveal(unknownKind, in: app)
+        XCTAssertTrue(unknownKind.waitForExistence(timeout: 5), "A mix kind the app does not know still appears.")
+        let genres = app.staticTexts["Deine Genres"].firstMatch
+        reveal(genres, in: app)
+        XCTAssertTrue(genres.exists)
+        let artists = app.staticTexts["Deine Top-Künstler"].firstMatch
+        reveal(artists, in: app)
+        XCTAssertTrue(artists.exists, "Top artists come from the most played titles.")
+        XCTAssertTrue(app.buttons["foryou-artist-radio-Mira"].exists)
+        attach(app, name: "Für dich genres and top artists")
+        let pop = app.buttons["foryou-genre-Pop"]
+        reveal(pop, in: app, up: false)
+        pop.tap()
+        XCTAssertTrue(app.navigationBars["Pop"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["genre-radio"].waitForExistence(timeout: 10))
+        attach(app, name: "Genre page with radio")
+        app.navigationBars["Pop"].buttons.firstMatch.tap()
+        let card = app.buttons["mix-card-rediscover"]
+        reveal(card, in: app, up: false)
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        card.tap()
+        let play = app.buttons["mix-play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: play)
+        waitForExpectations(timeout: 10)
+        for id in ["mix-shuffle", "mix-enqueue", "mix-save-playlist", "mix-offline"] {
+            XCTAssertTrue(app.buttons[id].exists, id)
+        }
+        attach(app, name: "Mix page with all actions")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists, "Browsing Für dich never starts playback.")
+    }
+    /// "Radio starten" on a title row and "Künstler-Radio" on the artist page:
+    /// each fills the queue behind its seed and shows the radio as the source.
+    @MainActor func testRadioFromTrackRowAndArtistPageFillsTheQueue() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact radio flow requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        selectTab(app, "Bibliothek")
+        app.buttons["library-shortcut-tracks"].tap()
+        let actions = app.buttons["Aktionen für Zeitlos"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 10))
+        actions.tap()
+        let radio = app.buttons["Radio starten"].firstMatch
+        XCTAssertTrue(radio.waitForExistence(timeout: 5))
+        radio.tap()
+        let mini = app.buttons["mobile-mini-player-open"]
+        XCTAssertTrue(mini.waitForExistence(timeout: 15), "The radio starts a queue.")
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "Radio: Zeitlos"), evaluatedWith: mini)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(mini.label.contains("Zeitlos"), "The seed plays first.")
+        attach(app, name: "Song radio confirmed")
+        app.buttons["mobile-mini-player-toggle"].tap()
+        mini.tap()
+        let source = app.descendants(matching: .any)["mobile-player-source"]
+        XCTAssertTrue(source.waitForExistence(timeout: 10))
+        XCTAssertTrue(source.label.contains("Radio: Zeitlos"))
+        attach(app, name: "Player playing from a radio")
+        openQueue(app)
+        let queueSource = app.descendants(matching: .any)["mobile-queue-source"]
+        XCTAssertTrue(queueSource.waitForExistence(timeout: 5))
+        XCTAssertTrue(queueSource.label.contains("Radio: Zeitlos"))
+        XCTAssertTrue(app.buttons["mobile-queue-track-2"].exists, "The radio's titles follow the seed.")
+        attach(app, name: "Radio queue")
+        app.buttons["mobile-queue-done"].tap()
+        let close = app.navigationBars["Jetzt läuft"].buttons["Schließen"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
+
+        // The artist page's radio.
+        selectTab(app, "Bibliothek")
+        selectTab(app, "Bibliothek")
+        let artists = app.buttons["library-shortcut-artists"]
+        XCTAssertTrue(artists.waitForExistence(timeout: 10))
+        artists.tap()
+        XCTAssertTrue(app.buttons["artist-row-a0"].waitForExistence(timeout: 10))
+        app.buttons["artist-row-a0"].tap()
+        let artistRadio = app.buttons["collection-radio"]
+        XCTAssertTrue(artistRadio.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: artistRadio)
+        waitForExpectations(timeout: 10)
+        attach(app, name: "Artist page with radio")
+        artistRadio.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "Radio: Nordlicht"), evaluatedWith: mini)
+        waitForExpectations(timeout: 15)
+        app.buttons["mobile-mini-player-toggle"].tap()
+        mini.tap()
+        openQueue(app)
+        XCTAssertTrue(app.descendants(matching: .any)["mobile-queue-source"].label.contains("Radio: Nordlicht"))
+        attach(app, name: "Artist radio queue")
+        app.buttons["mobile-queue-done"].tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
+
+        // Start offers to go on and remembers both radios.
+        selectTab(app, "Start")
+        let resume = app.buttons["home-resume"]
+        XCTAssertTrue(resume.waitForExistence(timeout: 10), "A paused queue offers Weiterhören.")
+        let recent = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home-recent-radio:artist:a0")).firstMatch
+        reveal(recent, in: app)
+        XCTAssertTrue(recent.exists, "Wieder einsteigen remembers the radio.")
+        attach(app, name: "Start with Weiterhören and Wieder einsteigen")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
+    /// "Start anpassen": hiding and moving a shelf survives a relaunch; "Zurücksetzen" restores Start.
+    @MainActor func testStartEditorHidesAndReordersShelvesAcrossRelaunch() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact Start requires iPhone.")
+        var app = try app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Zuletzt gehört"].waitForExistence(timeout: 10))
+        openHomeEditor(app)
+        attach(app, name: "Start editor")
+        let hide = app.buttons["home-editor-toggle-recent"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5))
+        XCTAssertEqual(hide.label, "Zuletzt gehört ausblenden")
+        hide.tap()
+        expectation(for: NSPredicate(format: "label == %@", "Zuletzt gehört einblenden"), evaluatedWith: app.buttons["home-editor-toggle-recent"])
+        waitForExpectations(timeout: 5)
+        // Drag "Neu in der Mediathek" by its handle above "Deine Mixe".
+        let moving = app.buttons["home-editor-toggle-new_releases"], target = app.buttons["home-editor-toggle-mixes"]
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let handleX = app.frame.width - 40
+        origin.withOffset(CGVector(dx: handleX, dy: moving.frame.midY))
+            .press(forDuration: 0.8, thenDragTo: origin.withOffset(CGVector(dx: handleX, dy: target.frame.minY)), withVelocity: .slow, thenHoldForDuration: 0.6)
+        var moved = false
+        for _ in 0..<10 where !moved {
+            moved = app.buttons["home-editor-toggle-new_releases"].frame.minY < app.buttons["home-editor-toggle-mixes"].frame.minY
+            if !moved { Thread.sleep(forTimeInterval: 0.3) }
+        }
+        if !moved { print(app.debugDescription) }
+        XCTAssertTrue(moved, "Dragging the handle moves the shelf.")
+        attach(app, name: "Start editor changed")
+        app.navigationBars["Start anpassen"].buttons.firstMatch.tap()
+        func checkStart(_ app: XCUIApplication) {
+            let releases = app.staticTexts["Neu in der Mediathek"].firstMatch, mixes = app.staticTexts["Deine Mixe"].firstMatch
+            XCTAssertTrue(releases.waitForExistence(timeout: 15))
+            XCTAssertTrue(mixes.waitForExistence(timeout: 15))
+            XCTAssertLessThan(releases.frame.minY, mixes.frame.minY, "The moved shelf comes first.")
+            XCTAssertFalse(app.staticTexts["Zuletzt gehört"].exists, "The hidden shelf stays hidden.")
+        }
+        checkStart(app)
+        attach(app, name: "Start customized")
+        app.terminate()
+        app = try self.app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        checkStart(app)
+        // Settings lead there too; "Zurücksetzen" brings everything back.
+        openSettings(app)
+        let entry = app.buttons["settings-customize-home"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        entry.tap()
+        XCTAssertTrue(app.navigationBars["Start anpassen"].waitForExistence(timeout: 10))
+        let reset = app.buttons["home-editor-reset"]
+        reveal(reset, in: app)
+        XCTAssertTrue(reset.isEnabled)
+        reset.tap()
+        XCTAssertTrue(app.buttons["Zurücksetzen"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["Zurücksetzen"].firstMatch.tap()
+        selectTab(app, "Start")
+        selectTab(app, "Start")
+        XCTAssertTrue(app.staticTexts["Zuletzt gehört"].waitForExistence(timeout: 10), "Zurücksetzen shows every default shelf again.")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
+    /// "An Start anheften" puts a playlist into quick access; "Von Start lösen" takes it out.
+    @MainActor func testPinAndUnpinAQuickAccessTile() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact Start requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        openHomeEditor(app)
+        app.navigationBars["Start anpassen"].buttons.firstMatch.tap()
+        selectTab(app, "Playlists")
+        app.staticTexts["Abends unterwegs"].firstMatch.tap()
+        let options = app.buttons["playlist-collection-options"]
+        XCTAssertTrue(options.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: options)
+        waitForExpectations(timeout: 10)
+        options.tap()
+        let pin = app.buttons["An Start anheften"].firstMatch
+        XCTAssertTrue(pin.waitForExistence(timeout: 5))
+        pin.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["app-notice"].waitForExistence(timeout: 5), "Pinning confirms briefly.")
+        selectTab(app, "Start")
+        let tile = app.buttons["home-pin-playlist-p0"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10), "The pinned playlist leads quick access.")
+        XCTAssertFalse(app.buttons["home-quick-playlist-p0"].exists, "A pinned playlist is not shown twice.")
+        XCTAssertTrue(app.buttons["home-quick-favorites"].exists, "Defaults fill the free places.")
+        attach(app, name: "Start with a pinned playlist")
+        tile.press(forDuration: 1.2)
+        let unpin = app.buttons["Von Start lösen"].firstMatch
+        XCTAssertTrue(unpin.waitForExistence(timeout: 5))
+        unpin.tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: tile)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons["home-quick-favorites"].exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
+    /// iPad: "Für dich" and "Start anpassen" use the width on purpose.
+    @MainActor func testTabletForYouAndStartEditor() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tablet layout requires iPad.")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = try app()
+        let entry = app.buttons["home-quick-foryou"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 20))
+        attach(app, name: "Tablet Start")
+        entry.tap()
+        XCTAssertTrue(app.buttons["foryou-featured-genre-0a1b2c3d4e5f"].waitForExistence(timeout: 10))
+        attach(app, name: "Tablet Für dich")
+        let artists = app.staticTexts["Deine Top-Künstler"].firstMatch
+        reveal(artists, in: app)
+        attach(app, name: "Tablet Für dich genres and artists")
+        app.navigationBars["Für dich"].buttons.firstMatch.tap()
+        openHomeEditor(app)
+        attach(app, name: "Tablet Start editor")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
     #endif
     #if os(tvOS)
     @MainActor func testTVHomeShowsFocusableMixes() throws {

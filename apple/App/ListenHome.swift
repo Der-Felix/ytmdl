@@ -363,6 +363,16 @@ struct MixDetailView: View {
         #if !os(tvOS)
         .toolbar { if tracks.count > 1 { ToolbarItem(placement: .primaryAction) { sortMenu } } }
         #endif
+        #if os(iOS)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu { PinToStartButton(model: model, pin: .mix(shown)) } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold))
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }.accessibilityLabel("Weitere Aktionen").accessibilityIdentifier("mix-page-more")
+            }
+        }
+        #endif
         .sheet(isPresented: $savingPlaylist) {
             AddToPlaylistSheet(model: model, tracks: tracks, title: "Mix als Playlist speichern",
                                suggestedName: PersonalMix.playlistName(shown.title, date: .now),
@@ -437,7 +447,14 @@ struct MixDetailView: View {
                                 CollectionAction(id: "mix-save-playlist", title: "Als Playlist", label: "Als Playlist speichern", symbol: "music.note.list",
                                                  hint: saveUnavailable ? "Braucht eine Verbindung zum Server" : "Legt eine Playlist mit den Titeln dieses Mixes an",
                                                  enabled: !tracks.isEmpty && !saveUnavailable,
-                                                 kind: .button({ savedPlaylist = nil; savingPlaylist = true }))
+                                                 kind: .button({ savedPlaylist = nil; savingPlaylist = true })),
+                                CollectionAction(id: "mix-offline", title: "Offline", label: "Offline speichern", symbol: "arrow.down.circle",
+                                                 hint: "Speichert die Titel dieses Mixes auf diesem Gerät",
+                                                 enabled: !tracks.isEmpty && !model.offlineMode,
+                                                 kind: .button({
+                                                     model.offline.enqueue(tracks)
+                                                     model.announce(tracks.count == 1 ? "1 Titel wird offline gespeichert" : "\(tracks.count) Titel werden offline gespeichert", symbol: "arrow.down.circle")
+                                                 }))
                              ],
                              play: { play(start: 0) }, shuffle: { play(start: 0, shuffle: true) }) { size in
                 MixArtwork(model: model, mix: shown, size: size)

@@ -315,6 +315,8 @@ struct RootView: View {
             .navigationDestination(for: ForYouRoute.self) { _ in
                 #if os(tvOS)
                 TVForYouView(model: model) { selectDestination(.player) }
+                #elseif os(iOS)
+                ForYouHubView(model: model)
                 #else
                 ForYouView(model: model)
                 #endif
@@ -866,6 +868,14 @@ struct CollectionView: View {
                     .animation(.easeOut(duration: 0.2), value: headerTitleVisible)
                     .accessibilityHidden(headerTitleVisible)
             }
+            if playlist == nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu { pageMenuItems } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold))
+                            .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }.accessibilityLabel("Weitere Aktionen").accessibilityIdentifier("collection-page-more")
+                }
+            }
             #endif
             #if os(macOS)
             if playlist == nil { ToolbarItem {
@@ -900,6 +910,9 @@ struct CollectionView: View {
                             Button("Titel hinzufügen", systemImage: "plus") { adding = true }
                         }
                         Button("Neu laden", systemImage: "arrow.clockwise") { Task { await reloadPlaylist() } }
+                        #if os(iOS)
+                        PinToStartButton(model: model, pin: .playlist(playlist))
+                        #endif
                         Divider()
                         Button("Playlist löschen", systemImage: "trash", role: .destructive) { deleting = true }
                     } label: {
@@ -972,6 +985,29 @@ struct CollectionView: View {
         CollectionAction(id: "collection-add-to-playlist", title: "Playlist", label: "Zur Playlist hinzufügen", symbol: "music.note.list",
             enabled: !tracks.isEmpty && !model.offlineMode, kind: .button({ addingAllToPlaylist = true }))
     }
+    /// "Künstler-Radio": seeded with the listener's most played title of the artist.
+    private func artistRadioAction(_ artist: Artist) -> CollectionAction {
+        CollectionAction(id: "collection-radio", title: "Radio", label: "Künstler-Radio starten", symbol: "dot.radiowaves.left.and.right",
+            hint: "Spielt Titel dieses Künstlers und ähnliche aus deiner Mediathek", enabled: !model.offlineMode && !model.listeningBusy,
+            kind: .button({ Task { await model.startArtistRadio(artist, preferred: topTracks.map(\.track), tracks: tracks) } }))
+    }
+    /// The page's "…" menu: radio and "An Start anheften" (playlists have their own menu).
+    @ViewBuilder private var pageMenuItems: some View {
+        switch kind {
+        case .release(let release):
+            Button("Album-Radio starten", systemImage: "dot.radiowaves.left.and.right") {
+                Task { await model.startAlbumRadio(releaseDetail?.release ?? release, tracks: tracks) }
+            }.disabled(model.offlineMode || model.listeningBusy)
+            PinToStartButton(model: model, pin: .album(releaseDetail?.release ?? release))
+        case .artist(let artist):
+            Button("Künstler-Radio starten", systemImage: "dot.radiowaves.left.and.right") {
+                Task { await model.startArtistRadio(artist, preferred: topTracks.map(\.track), tracks: tracks) }
+            }.disabled(model.offlineMode || model.listeningBusy)
+            PinToStartButton(model: model, pin: .artist(artist))
+        case .favorites: PinToStartButton(model: model, pin: .favorites)
+        case .playlist(let value): PinToStartButton(model: model, pin: .playlist(playlist ?? value))
+        }
+    }
     private func releaseCaption(_ release: Release) -> String {
         release.year > 0 ? "\(release.year) · \(release.kindLabel)" : release.kindLabel
     }
@@ -1006,7 +1042,7 @@ struct CollectionView: View {
         case .artist(let artist):
             CollectionHeader(title: artist.name, detail: artistSummary(artist),
                              canPlay: !tracks.isEmpty, round: true,
-                             actions: [offlineAction, queueCollectionAction(model, tracks: tracks, id: "collection-queue")],
+                             actions: [offlineAction, queueCollectionAction(model, tracks: tracks, id: "collection-queue"), artistRadioAction(artist)],
                              play: { play(tracks) }, shuffle: { play(tracks.shuffled()) },
                              titleVisibility: { headerTitleVisible = $0 }) { _ in
                 ArtworkView(model: model, kind: "artists", id: artist.id, cornerRadius: 0, monogram: artist.name)
@@ -1486,7 +1522,7 @@ struct TrackRow: View {
     @ViewBuilder private var mobileMenuItems: some View {
         Button("Als Nächstes spielen", systemImage: "text.insert", action: playNext).disabled(queueFull)
         Button("Zur Warteschlange", systemImage: "text.badge.plus", action: enqueue).disabled(queueFull)
-        Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
+        Button("Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
             .disabled(model.offlineMode || model.listeningBusy)
         Divider()
         let favorite = model.favoriteIDs.contains(track.id)

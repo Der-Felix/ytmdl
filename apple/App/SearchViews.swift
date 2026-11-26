@@ -367,22 +367,6 @@ private struct ResultRow<Artwork: View>: View {
     }
 }
 
-/// A genre to browse: a deep color derived from its name (stable across
-/// launches), white text with at least 4.5:1 contrast.
-private struct GenreTile: View {
-    var name: String
-    var body: some View {
-        Text(name).font(.headline).foregroundStyle(.white).lineLimit(2).multilineTextAlignment(.leading)
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .bottomLeading)
-            .background(Self.color(for: name).gradient, in: RoundedRectangle(cornerRadius: ListenMetrics.cardRadius, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: ListenMetrics.cardRadius, style: .continuous))
-    }
-    static func color(for name: String) -> Color {
-        var hash: UInt32 = 2_166_136_261
-        for byte in name.lowercased().utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
-        return Color(hue: Double(hash % 360) / 360, saturation: 0.6, brightness: 0.42)
-    }
-}
+// `GenreTile` lives in ForYouViews.swift; Start and "Für dich" use it too.
 
 #endif

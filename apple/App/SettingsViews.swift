@@ -31,6 +31,11 @@ struct SettingsView: View {
             Form {
                 Section("Darstellung") {
                     Picker("Erscheinungsbild", selection: $appearance) { Text("System").tag("system"); Text("Dunkel").tag("dark"); Text("Hell").tag("light") }
+                    #if os(iOS)
+                    NavigationLink { HomeEditorView(model: model) } label: {
+                        Label("Start anpassen", systemImage: "slider.horizontal.3")
+                    }.accessibilityIdentifier("settings-customize-home")
+                    #endif
                 }
                 #if os(tvOS)
                 Section("Klang") {

@@ -86,12 +86,62 @@ struct AppNotice: Identifiable, Equatable, Sendable {
             self?.offline.protectedTrackIDs = Set([queue.current?.id, self?.player.preparedTrackID].compactMap { $0 })
         }
         player.onQueueEnded = { [weak self] track in Task { await self?.continueRadio(after: track) } }
+        player.onQueueStarted = { [weak self] context in self?.rememberSource(context) }
     }
     /// Binds the player's listening session (what autoplay leaves out) to this
-    /// account on this server; a change of either starts a new session.
+    /// account on this server; a change of either starts a new session. The
+    /// account's Start layout and recently started sources load with it.
     private func scopeListeningSession() {
+        loadHomePreferences()
         guard let user, let client else { player.setSessionScope(nil); return }
         player.setSessionScope(client.server.url.absoluteString.lowercased() + "\n" + user.id)
+    }
+
+    // MARK: Start layout and recently started sources
+
+    /// The order and visibility of Start's shelves and its pinned tiles, per account and server.
+    private(set) var homeLayout = HomeLayout.standard
+    /// "Wieder einsteigen": what this account started last on this device.
+    private(set) var recentSources = RecentSources()
+    @ObservationIgnored private var homeScope: (layout: String, sources: String)?
+    private func loadHomePreferences() {
+        guard let user, let client else { homeScope = nil; homeLayout = .standard; recentSources = RecentSources(); return }
+        let server = client.server.url.absoluteString
+        let scope = (layout: HomeLayout.storageKey(server: server, userID: user.id), sources: RecentSources.storageKey(server: server, userID: user.id))
+        guard homeScope?.layout != scope.layout else { return }
+        homeScope = scope
+        homeLayout = HomeLayout.decode(UserDefaults.standard.data(forKey: scope.layout))
+        recentSources = RecentSources.decode(UserDefaults.standard.data(forKey: scope.sources))
+    }
+    /// Changes Start's layout and saves it for this account.
+    func updateHomeLayout(_ change: (inout HomeLayout) -> Void) {
+        var layout = homeLayout
+        change(&layout)
+        guard layout != homeLayout else { return }
+        homeLayout = layout
+        if let key = homeScope?.layout { UserDefaults.standard.set(layout.encoded(), forKey: key) }
+    }
+    /// "An Start anheften" / "Von Start lösen" with a short confirmation.
+    func togglePin(_ pin: HomePin) {
+        if homeLayout.isPinned(pin.kind, pin.itemID) {
+            updateHomeLayout { $0.unpin(pin.kind, pin.itemID) }
+            announce("Von Start gelöst", symbol: "pin.slash")
+        } else if !homeLayout.canPin {
+            announce("Start hat schon \(HomeLayout.pinLimit) angeheftete Kacheln", symbol: "pin")
+        } else {
+            updateHomeLayout { $0.pin(pin) }
+            announce("An Start angeheftet", symbol: "pin.fill")
+        }
+    }
+    private func rememberSource(_ context: QueueContext) {
+        var sources = recentSources
+        guard sources.record(context), sources != recentSources else { return }
+        recentSources = sources
+        if let key = homeScope?.sources { UserDefaults.standard.set(sources.encoded(), forKey: key) }
+    }
+    func forgetSource(_ id: String) {
+        recentSources.remove(id)
+        if let key = homeScope?.sources { UserDefaults.standard.set(recentSources.encoded(), forKey: key) }
     }
     private var generation = UUID()
     private var catalogGeneration = UUID()
@@ -558,39 +608,93 @@ struct AppNotice: Identifiable, Equatable, Sendable {
             if !genre.isEmpty { result = try await client.get("/library/radio", query: [.init(name: "genre", value: genre), .init(name: "nonce", value: UUID().uuidString)]) }
             else { result = try await client.get("/library/tracks", query: query) }
             guard self.client === client, player.playbackRevision == playbackRevision else { return }
-            let context = !genre.isEmpty ? QueueContext(kind: "radio", id: genre, title: "Radio: \(genre)")
+            let context = !genre.isEmpty ? RadioStation(.genre(genre)).context
                 : name == "Favoriten" ? QueueContext(kind: "favorites", title: "Lieblingstitel") : QueueContext(kind: "library", title: name)
             player.play(name == "Neu" ? result : result.shuffled(), client: client, context: context)
         } catch { if self.client === client { report(error) } }
     }
+
+    // MARK: Radio
+
+    /// "Radio starten" on a title: the title, then similar ones from the library.
     func startRadio(_ track: Track) async {
+        await startRadio(RadioStation(.track(id: track.id, title: track.title)), seed: track)
+    }
+    /// "Künstler-Radio". The server seeds radios with a title, so the app picks
+    /// one of the artist: the listener's most played (`preferred`), else a
+    /// random one of `tracks`; without either it asks the server for them.
+    func startArtistRadio(_ artist: Artist, preferred: [Track] = [], tracks: [Track] = []) async {
         guard !offlineMode, let client, !listeningBusy else { return }
+        var preferred = preferred, tracks = tracks
+        if preferred.isEmpty { preferred = ((try? await artistTopTracks(artist.id, limit: 5)) ?? []).map(\.track) }
+        if preferred.isEmpty && tracks.isEmpty { tracks = await radioCandidates(client, [.init(name: "artist_id", value: artist.id)]) }
+        guard self.client === client else { return }
+        guard let seed = RadioStation.pickSeed(preferred: preferred, fallback: tracks) else {
+            announce("Für \(artist.name) gibt es noch keine Titel", symbol: "dot.radiowaves.left.and.right"); return
+        }
+        await startRadio(RadioStation(.artist(id: artist.id, name: artist.name), seedTrackID: seed.id), seed: seed)
+    }
+    /// "Album-Radio": seeded with a random title of the album.
+    func startAlbumRadio(_ release: Release, tracks: [Track] = []) async {
+        guard !offlineMode, let client, !listeningBusy else { return }
+        var tracks = tracks
+        if tracks.isEmpty { tracks = await radioCandidates(client, [.init(name: "release_id", value: release.id)]) }
+        guard self.client === client else { return }
+        guard let seed = RadioStation.pickSeed(preferred: [], fallback: tracks) else {
+            announce("Dieses Album hat keine Titel", symbol: "dot.radiowaves.left.and.right"); return
+        }
+        await startRadio(RadioStation(.album(id: release.id, title: release.title), seedTrackID: seed.id), seed: seed)
+    }
+    /// "Genre-Radio": the server's personal radio limited to the genre.
+    func startGenreRadio(_ genre: String) async {
+        guard !genre.isEmpty, genre != "__none__" else { return }
+        await startRadio(RadioStation(.genre(genre)), seed: nil)
+    }
+    private func radioCandidates(_ client: APIClient, _ filter: [URLQueryItem]) async -> [Track] {
+        (try? await client.get("/library/tracks", query: filter + [.init(name: "limit", value: "100")]) as [Track]) ?? []
+    }
+    /// Replaces the queue with the seed and the radio's titles, leaving out
+    /// what was played in this session. Later batches follow when the queue
+    /// runs low (`extendAutoplay`), also with autoplay off.
+    func startRadio(_ station: RadioStation, seed: Track?) async {
+        guard !offlineMode, let client, !listeningBusy, let query = station.query(nonce: UUID().uuidString) else { return }
         let playbackRevision = player.playbackRevision
         listeningBusy = true; defer { if self.client === client { listeningBusy = false } }
         do {
-            let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
+            let result: [Track] = try await client.get("/library/radio", query: query)
             guard self.client === client, player.playbackRevision == playbackRevision else { return }
-            player.play([track] + result.filter { $0.id != track.id }, client: client,
-                        context: QueueContext(kind: "radio", id: track.id, title: "Radio: \(track.title)"))
+            let tracks = RadioStation.startQueue(seed: seed, results: result, excluding: player.sessionPlayedIDs)
+            guard !tracks.isEmpty else {
+                announce("Für dieses Radio gibt es gerade keine neuen Titel", symbol: "dot.radiowaves.left.and.right"); return
+            }
+            player.play(tracks, client: client, context: station.context)
+            announce("\(station.kindLabel) gestartet", symbol: "dot.radiowaves.left.and.right")
         } catch { if self.client === client { report(error) } }
     }
     func continueRadio(after track: Track) async {
-        guard player.autoplay, !player.isPlaybackRequested, player.current?.id == track.id, let client else { return }
+        let station = player.radioStation
+        guard player.autoplay || station != nil, !player.isPlaybackRequested, player.current?.id == track.id, let client else { return }
         if offlineMode {
             let candidates = offline.readyTracks.filter { $0.id != track.id }.shuffled()
             if !candidates.isEmpty { player.play(candidates, client: client) }; return
         }
         let playbackRevision = player.playbackRevision
-        do {
-            let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: track.id), .init(name: "nonce", value: UUID().uuidString)])
-            guard self.client === client, player.playbackRevision == playbackRevision, player.autoplay, !player.isPlaybackRequested, player.current?.id == track.id else { return }
-            // Like an autoplay top-up: one small batch without anything played
-            // in this session; the lookahead asks for the next batch later.
-            let played = Set(player.queue.tracks.map(\.id)).union(player.sessionPlayedIDs)
-            var seen = Set<String>()
-            let candidates = Array(result.filter { !played.contains($0.id) && seen.insert($0.id).inserted }.prefix(PlaybackQueue.autoplayBatch))
-            if !candidates.isEmpty { player.play(candidates, client: client, context: QueueContext(kind: "radio", id: track.id, title: "Radio: \(track.title)")) }
-        } catch { /* Autoplay must not turn normal queue completion into an alert. */ }
+        let nonce = UUID().uuidString
+        let queries = station?.refillQueries(lastTrackID: track.id, nonce: nonce) ?? [[.init(name: "seed", value: track.id), .init(name: "nonce", value: nonce)]]
+        let context = station?.context ?? RadioStation(.track(id: track.id, title: track.title)).context
+        for query in queries {
+            do {
+                let result: [Track] = try await client.get("/library/radio", query: query)
+                guard self.client === client, player.playbackRevision == playbackRevision, player.autoplay || station != nil,
+                      !player.isPlaybackRequested, player.current?.id == track.id else { return }
+                // Like an autoplay top-up: one small batch without anything played
+                // in this session; the lookahead asks for the next batch later.
+                let played = Set(player.queue.tracks.map(\.id)).union(player.sessionPlayedIDs)
+                var seen = Set<String>()
+                let candidates = Array(result.filter { !played.contains($0.id) && seen.insert($0.id).inserted }.prefix(PlaybackQueue.autoplayBatch))
+                if !candidates.isEmpty { player.play(candidates, client: client, context: context); return }
+            } catch { return /* Autoplay must not turn normal queue completion into an alert. */ }
+        }
     }
     /// Restores the saved queue with its sections ("Als Nächstes", "Weiter aus: …",
     /// "Ähnliche Titel"). Offline only the titles with a local file come back.
@@ -634,8 +738,20 @@ struct AppNotice: Identifiable, Equatable, Sendable {
         return (400..<500).contains(status) && ![401, 403, 408, 429].contains(status)
     }
     /// Autoplay lookahead: similar tracks for the last track the user chose.
+    /// A radio's top-up asks with the station's own seed first, then drifts
+    /// from the queue's last title when the seed has nothing new left.
     func extendAutoplay(seed: Track, expectedCount: Int, lastID: String) async {
         guard !offlineMode, let client else { return }
+        if let station = player.radioStation {
+            for query in station.refillQueries(lastTrackID: lastID, nonce: UUID().uuidString) {
+                do {
+                    let result: [Track] = try await client.get("/library/radio", query: query)
+                    guard self.client === client else { return }
+                    if player.appendAutoplay(result, expectedCount: expectedCount, lastID: lastID) > 0 { return }
+                } catch { return }
+            }
+            return
+        }
         do {
             let result: [Track] = try await client.get("/library/radio", query: [.init(name: "seed", value: seed.id), .init(name: "nonce", value: UUID().uuidString)])
             guard self.client === client else { return }

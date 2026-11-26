@@ -1,4 +1,4 @@
-# Native listening preview 0.5.3 — build 42
+# Native listening preview 0.6.0 — build 43
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.

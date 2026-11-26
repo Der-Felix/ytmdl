@@ -81,6 +81,14 @@ enum SleepMode: String, CaseIterable, Identifiable {
     private var lastClear: QueueUndoOffer?
     @ObservationIgnored private var undoExpiry: Task<Void, Never>?
     @ObservationIgnored var onQueueEnded: ((Track) -> Void)?
+    /// A new queue was started from `context` (an album, a playlist, a radio …);
+    /// Start's "Wieder einsteigen" remembers it. Restored queues do not count.
+    @ObservationIgnored var onQueueStarted: ((QueueContext) -> Void)?
+    /// The queue is a radio the user started ("Radio: …"): it keeps going
+    /// with new titles even with autoplay off, until the user stops it.
+    var radioStation: RadioStation? { RadioStation(context: queue.context) }
+    /// Autoplay is on, or a radio runs: the queue is topped up near its end.
+    private var continuesQueue: Bool { autoplay || radioStation != nil }
     @ObservationIgnored var onSnapshot: ((PlaybackQueue, Double, String, Bool) -> Void)?
     var repeatAll = false { didSet { cancelPrepared(); prepareNext() } }
     var error: String?
@@ -226,6 +234,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         reportSkip(movingTo: tracks.indices.contains(start) ? tracks[start] : tracks[0])
         if self.client !== client { loudnessValues.removeAll(); loudnessParameters.removeAll() }
         self.client = client; queue.replace(tracks, start: start, context: context, origins: origins); loadCurrent()
+        if origins == nil, let context = queue.context { onQueueStarted?(context) }
     }
     /// A user action is about to replace the current track with `next`. Reports
     /// a skip when the web player's rules say so (see `ListeningTracker`).
@@ -236,10 +245,13 @@ enum SleepMode: String, CaseIterable, Identifiable {
     /// Similar tracks for a queue that is about to run out: one small batch,
     /// without tracks played earlier in this session. Ignored when the queue
     /// changed in the meantime or autoplay was turned off.
-    func appendAutoplay(_ tracks: [Track], expectedCount: Int, lastID: String) {
-        guard autoplay, !repeatAll, !repeatOne, queue.tracks.count == expectedCount, queue.tracks.last?.id == lastID else { return }
-        guard queue.appendAutoplay(tracks, excluding: sessionPlayed.ids) > 0 else { return }
+    /// Returns how many titles were appended.
+    @discardableResult func appendAutoplay(_ tracks: [Track], expectedCount: Int, lastID: String) -> Int {
+        guard continuesQueue, !repeatAll, !repeatOne, queue.tracks.count == expectedCount, queue.tracks.last?.id == lastID else { return 0 }
+        let added = queue.appendAutoplay(tracks, excluding: sessionPlayed.ids)
+        guard added > 0 else { return 0 }
         prepareNext(); updateNowPlaying()
+        return added
     }
     #if DEBUG
     // Loopback UI fixtures can inspect navigation with a selected title without
@@ -449,7 +461,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         if promotePrepared() { return }
         let play = wantsPlayback
         if queue.next(repeatAll: repeatAll) { loadCurrent(play: play) }
-        else { let ended = current; cancelPrepared(); pause(); seek(0); if play && autoplay, let ended { onQueueEnded?(ended) } }
+        else { let ended = current; cancelPrepared(); pause(); seek(0); if play && continuesQueue, let ended { onQueueEnded?(ended) } }
     }
     func previous() {
         if position > 3 { seek(0); return }
@@ -643,7 +655,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
     /// end for similar tracks. Repeat, a sleep timer and offline-only playback
     /// end the queue on purpose, so they never extend it.
     private func requestAutoplayIfNeeded() {
-        guard autoplay, !offlineOnly, !repeatAll, !repeatOne, sleepMode == .off, wantsPlayback,
+        guard continuesQueue, !offlineOnly, !repeatAll, !repeatOne, sleepMode == .off, wantsPlayback,
               queue.remaining <= PlaybackQueue.autoplayLookahead,
               let seed = queue.autoplaySeed, let last = queue.tracks.last else { return }
         let key = "\(queue.tracks.first?.id ?? ""):\(queue.tracks.count):\(last.id):\(seed.id)"

@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.5.3, build 42
+# Apple app handoff — preview 0.6.0, build 43
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).

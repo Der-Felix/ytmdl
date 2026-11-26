@@ -649,6 +649,7 @@ struct GenreAlbumsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if genre != "__none__" { radioButton }
                 if releases.isEmpty && busy {
                     LazyVGrid(columns: columns, spacing: 20) { ForEach(0..<6, id: \.self) { _ in AlbumCardSkeleton() } }
                         .accessibilityElement(children: .ignore).accessibilityLabel("Alben werden geladen")
@@ -671,7 +672,28 @@ struct GenreAlbumsView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(genre == "__none__" ? "Ohne Genre" : genre)
+        .toolbar {
+            if genre != "__none__" {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu { PinToStartButton(model: model, pin: .genre(genre)) } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold))
+                            .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }.accessibilityLabel("Weitere Aktionen").accessibilityIdentifier("genre-page-more")
+                }
+            }
+        }
         .task { if releases.isEmpty { await load() } }
+    }
+    /// "Genre-Radio": the genre's music from the whole library, not only these albums.
+    private var radioButton: some View {
+        Button { Task { await model.startGenreRadio(genre) } } label: {
+            Label("Genre-Radio starten", systemImage: "dot.radiowaves.left.and.right")
+        }
+        .buttonStyle(MobileActionStyle(prominent: true))
+        .frame(maxWidth: 360, alignment: .leading)
+        .disabled(model.offlineMode || model.listeningBusy)
+        .accessibilityHint("Spielt Musik aus diesem Genre und läuft mit neuen Titeln weiter")
+        .accessibilityIdentifier("genre-radio")
     }
     private var columns: [GridItem] {
         [GridItem(.adaptive(minimum: sizeClass == .regular ? 160 : 150, maximum: 260), spacing: ListenMetrics.shelfGap, alignment: .top)]
