@@ -20,6 +20,19 @@ final class PlayerUITests: XCTestCase {
         let image = XCTAttachment(screenshot: app.screenshot())
         image.name = name; image.lifetime = .keepAlways; add(image)
     }
+    #if os(iOS)
+    /// Chooses an iPhone tab. While Search is shown the system may fold the
+    /// other tabs into one button; that button unfolds them first.
+    @MainActor private func selectTab(_ app: XCUIApplication, _ name: String) {
+        let button = app.tabBars.buttons[name]
+        if !(button.exists && button.isHittable) {
+            let folded = app.tabBars.buttons.firstMatch
+            if folded.exists && folded.isHittable { folded.tap() }
+        }
+        if !(button.waitForExistence(timeout: 5) && button.isHittable) { print(app.debugDescription) }
+        button.tap()
+    }
+    #endif
     @MainActor func testLibraryFitsNativeScreen() throws {
         let app = try app()
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
@@ -106,16 +119,20 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(mini.waitForExistence(timeout: 20))
         XCTAssertTrue(mini.isHittable)
         XCTAssertLessThanOrEqual(mini.frame.height, 70)
-        XCTAssertGreaterThan(app.staticTexts["Deine Musik.\nDein Moment."].frame.height, 120, "The fixture must actually use accessibility text size.")
-        let mix = app.buttons["Favoriten-Mix"].firstMatch
-        for _ in 0..<6 where !mix.isHittable { app.swipeUp() }
-        XCTAssertTrue(mix.isHittable, "The large-text primary action remains reachable by scrolling.")
+        let favorites = app.buttons["home-quick-favorites"]
+        XCTAssertTrue(favorites.waitForExistence(timeout: 10))
+        for _ in 0..<6 where !favorites.isHittable { app.swipeUp() }
+        XCTAssertTrue(favorites.isHittable, "The large-text quick access remains reachable by scrolling.")
+        // One column only happens at accessibility sizes: this also proves the
+        // fixture really uses them.
+        XCTAssertGreaterThan(favorites.frame.width, app.frame.width * 0.75, "Quick access falls back to one column.")
+        attach(app, name: "Start at largest text")
         let next = app.buttons["Nächster Titel"].firstMatch
         XCTAssertTrue(next.isHittable)
         XCTAssertGreaterThanOrEqual(next.frame.width, 44)
         XCTAssertLessThanOrEqual(next.frame.height, 60)
         for title in ["Playlists", "Bibliothek", "Einstellungen", "Start"] {
-            app.tabBars.buttons[title].tap()
+            selectTab(app, title)
             XCTAssertTrue(mini.isHittable)
         }
         mini.tap()
@@ -139,13 +156,19 @@ final class PlayerUITests: XCTestCase {
     @MainActor func testMobileCollectionDesignAndPlaylistFilterWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact design requires iPhone.")
         let app = try app()
-        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].waitForExistence(timeout: 20))
-        let mix = app.buttons["Favoriten-Mix"].firstMatch
-        XCTAssertTrue(mix.isHittable)
-        XCTAssertGreaterThanOrEqual(mix.frame.height, 44)
-        XCTAssertTrue(app.buttons["Offline"].firstMatch.isHittable)
-        attach(app, name: "Build 28 Start")
-        app.tabBars.buttons["Bibliothek"].tap()
+        let favorites = app.buttons["home-quick-favorites"]
+        XCTAssertTrue(favorites.waitForExistence(timeout: 20))
+        XCTAssertTrue(favorites.isHittable)
+        XCTAssertGreaterThanOrEqual(favorites.frame.height, 44)
+        XCTAssertLessThan(favorites.frame.width, app.frame.width * 0.6, "Quick access uses two columns at the default text size.")
+        XCTAssertFalse(app.buttons["open-mobile-player"].exists, "No player button in the navigation bar.")
+        XCTAssertTrue(app.buttons["mix-card-genre-0a1b2c3d4e5f"].waitForExistence(timeout: 15))
+        attach(app, name: "Start top")
+        app.swipeUp()
+        attach(app, name: "Start shelves")
+        app.swipeUp()
+        attach(app, name: "Start shelves end")
+        selectTab(app, "Bibliothek")
         for title in ["Favoriten", "Künstler", "Offline"] {
             let button = app.buttons[title].firstMatch
             XCTAssertTrue(button.isHittable)
@@ -153,7 +176,7 @@ final class PlayerUITests: XCTestCase {
         }
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.exists)
         attach(app, name: "Build 28 Library")
-        app.tabBars.buttons["Playlists"].tap()
+        selectTab(app, "Playlists")
         let create = app.buttons["Neue Playlist"].firstMatch
         XCTAssertTrue(create.isHittable)
         XCTAssertGreaterThanOrEqual(create.frame.height, 44)
@@ -176,7 +199,7 @@ final class PlayerUITests: XCTestCase {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact flow requires iPhone.")
         let app = try app()
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
-        app.tabBars.buttons["Bibliothek"].tap()
+        selectTab(app, "Bibliothek")
         app.buttons["Favoriten"].firstMatch.tap()
         XCTAssertTrue(app.buttons["Aktionen für Nachtfahrt"].waitForExistence(timeout: 10))
         app.buttons["Aktionen für Nachtfahrt"].tap()
@@ -184,7 +207,7 @@ final class PlayerUITests: XCTestCase {
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["Aktionen für Nachtfahrt"])
         waitForExpectations(timeout: 10)
         XCTAssertTrue(app.buttons["Aktionen für Zeitlos"].exists)
-        app.tabBars.buttons["Suche"].tap()
+        selectTab(app, "Suche")
         let search = app.searchFields.firstMatch
         if !search.exists { app.swipeDown() }
         XCTAssertTrue(search.waitForExistence(timeout: 5))
@@ -195,11 +218,48 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.alerts.firstMatch.exists)
         attach(app, name: "Favorites update and search resolves without audio")
     }
+    @MainActor func testMobileSearchGroupsResultsRemembersSearchesAndBrowsesGenres() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "The search tab requires iPhone.")
+        let app = try app()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        selectTab(app, "Suche")
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10), "The search field shows without pulling down.")
+        XCTAssertTrue(search.isHittable)
+        let genre = app.buttons["search-genre-Elektronisch"]
+        XCTAssertTrue(genre.waitForExistence(timeout: 10), "Genres to browse before typing.")
+        XCTAssertFalse(app.buttons["open-mobile-player"].exists)
+        attach(app, name: "Search before typing")
+        search.tap(); search.typeText("Nor")
+        attach(app, name: "Search while typing")
+        let top = app.buttons["search-top-hit"]
+        XCTAssertTrue(top.waitForExistence(timeout: 10), "Results arrive while typing.")
+        XCTAssertTrue(app.staticTexts["Top-Treffer"].exists)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Titel,")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Künstler,")).firstMatch.exists)
+        attach(app, name: "Search results")
+        search.typeText("\n")
+        // Emptying the field shows the search just made.
+        search.tap()
+        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3))
+        let recent = app.buttons["Erneut suchen: Nor"]
+        XCTAssertTrue(recent.waitForExistence(timeout: 10), "The submitted search is remembered.")
+        attach(app, name: "Search with recent searches")
+        // Scrolling puts the keyboard away; a genre opens the filtered library.
+        app.swipeDown()
+        for _ in 0..<3 where !genre.isHittable { app.swipeUp() }
+        genre.tap()
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.buttons["Bibliothek"].isSelected, "The genre opens the Library tab.")
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+        attach(app, name: "Genre opens the library")
+    }
     @MainActor func testMobileManualPlaylistCreateEditOrderRemoveDeleteWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact editor requires iPhone.")
         let app = try app()
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
-        app.tabBars.buttons["Playlists"].tap()
+        selectTab(app, "Playlists")
         app.buttons["Neue Playlist"].tap()
         let name = app.textFields["playlistName"]
         XCTAssertTrue(name.waitForExistence(timeout: 10))
@@ -251,7 +311,7 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(mini.waitForExistence(timeout: 20))
         for _ in 0..<3 {
             for tab in ["Suche", "Bibliothek", "Playlists", "Einstellungen", "Start"] {
-                app.tabBars.buttons[tab].tap()
+                selectTab(app, tab)
                 XCTAssertTrue(mini.isHittable, "Mini-player remains reachable after " + tab)
                 XCTAssertFalse(app.alerts.firstMatch.exists)
             }
@@ -298,7 +358,7 @@ final class PlayerUITests: XCTestCase {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact flow requires iPhone.")
         let app = try app()
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
-        app.tabBars.buttons["Bibliothek"].tap()
+        selectTab(app, "Bibliothek")
         app.staticTexts["Lichtblick"].firstMatch.tap()
         let retry = app.buttons["Titel erneut laden"]
         XCTAssertTrue(retry.waitForExistence(timeout: 10))
@@ -315,7 +375,7 @@ final class PlayerUITests: XCTestCase {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact editor requires iPhone.")
         let app = try app()
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
-        app.tabBars.buttons["Playlists"].tap()
+        selectTab(app, "Playlists")
         app.buttons["Neue Playlist"].tap()
         let name = app.textFields["playlistName"]
         XCTAssertTrue(name.waitForExistence(timeout: 10))
@@ -345,7 +405,7 @@ final class PlayerUITests: XCTestCase {
         let mini = app.buttons["mobile-mini-player-open"]
         XCTAssertTrue(mini.waitForExistence(timeout: 20))
         XCTAssertTrue(mini.isHittable)
-        app.tabBars.buttons["Playlists"].tap()
+        selectTab(app, "Playlists")
         app.staticTexts["Abends unterwegs"].firstMatch.tap()
         let play = app.buttons["collection-play"], shuffle = app.buttons["collection-shuffle"]
         XCTAssertTrue(play.waitForExistence(timeout: 10))
@@ -365,29 +425,33 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Pause"].exists)
         attach(app, name: "Mobile player opened without audio")
         app.buttons["Schließen"].firstMatch.tap()
-        app.tabBars.buttons["Suche"].tap()
+        selectTab(app, "Suche")
         XCTAssertTrue(mini.isHittable)
-        app.buttons["open-mobile-player"].tap()
+        XCTAssertFalse(app.buttons["open-mobile-player"].exists, "The mini player is the way into the player.")
+        mini.tap()
         XCTAssertTrue(app.navigationBars["Jetzt läuft"].waitForExistence(timeout: 10))
     }
     @MainActor func testMobileHomeDownloadsAndSoundSettingsWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Mobile flow requires iPhone.")
         let app = try app()
-        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
         attach(app, name: "Mobile Start")
-        app.tabBars.buttons["Bibliothek"].tap()
+        selectTab(app, "Bibliothek")
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 10))
         app.staticTexts["Nachtfahrt"].firstMatch.tap()
         XCTAssertTrue(app.buttons["Offline speichern"].firstMatch.waitForExistence(timeout: 10))
         app.buttons["Offline speichern"].firstMatch.tap()
-        app.tabBars.buttons["Start"].tap()
+        // Choosing the shown tab again returns to its first page, where
+        // Offline lives now that Start has no shortcut tiles.
+        selectTab(app, "Bibliothek")
+        XCTAssertTrue(app.buttons["Offline"].firstMatch.waitForExistence(timeout: 10))
         app.buttons["Offline"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Offline-Musik"].waitForExistence(timeout: 10))
         app.buttons["offline-collection-r0"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Offline verfügbar"].firstMatch.waitForExistence(timeout: 30))
         XCTAssertFalse(app.buttons["Pause"].exists, "Downloading must not start playback.")
         attach(app, name: "Mobile Offline downloads")
-        app.tabBars.buttons["Einstellungen"].tap()
+        selectTab(app, "Einstellungen")
         app.buttons["Equalizer, Überblendung & Visualizer"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Klang & Wiedergabe"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.switches["Equalizer aktivieren"].firstMatch.exists)
@@ -397,17 +461,17 @@ final class PlayerUITests: XCTestCase {
     @MainActor func testOfflinePlaylistsBrowseSearchAndSortWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Offline flow requires iPhone.")
         let app = try app()
-        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].waitForExistence(timeout: 20))
-        app.tabBars.buttons["Playlists"].tap()
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        selectTab(app, "Playlists")
         app.staticTexts["Abends unterwegs"].firstMatch.tap()
         app.buttons["playlist-collection-options"].tap()
         app.buttons["Offline speichern"].firstMatch.tap()
-        app.tabBars.buttons["Start"].tap()
+        selectTab(app, "Bibliothek")
         app.buttons["Offline"].firstMatch.tap()
         XCTAssertTrue(app.buttons["offline-collection-p0"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["6 von 6 Titeln offline"].waitForExistence(timeout: 30))
         // Enter the same local-only mode available without a server session.
-        app.tabBars.buttons["Einstellungen"].tap()
+        selectTab(app, "Einstellungen")
         for _ in 0..<8 where !app.buttons["Abmelden"].firstMatch.isHittable { app.swipeUp() }
         app.buttons["Abmelden"].firstMatch.tap()
         app.buttons["Abmelden"].firstMatch.tap()
@@ -443,7 +507,7 @@ final class PlayerUITests: XCTestCase {
     @MainActor func testListeningHomeOpensMixAndStartsItsQueue() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact home requires iPhone.")
         let app = try app()
-        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
         // The server sections of the fixture: mixes, history and new albums.
         let card = app.buttons["mix-card-genre-0a1b2c3d4e5f"]
         XCTAssertTrue(card.waitForExistence(timeout: 15), "Mixes come from the server.")
@@ -785,7 +849,7 @@ final class PlayerUITests: XCTestCase {
         #if !os(tvOS)
         app.buttons["Schließen"].firstMatch.tap()
         #if os(iOS)
-        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 5))
         #else
         XCTAssertTrue(app.staticTexts["Deine Musik"].firstMatch.waitForExistence(timeout: 5))
         #endif

@@ -27,6 +27,8 @@ struct RootView: View {
     @State private var pendingWidgetRoute: MusicWidgetRoute?
     #if os(iOS)
     @State private var mobilePaths: [Destination: NavigationPath] = [:]
+    /// Grows when the Search tab is chosen while it is already shown.
+    @State private var searchFocusRequest = 0
     #endif
     @State private var detailVisit = UUID()
     @State private var detailPath = NavigationPath()
@@ -74,21 +76,15 @@ struct RootView: View {
                         }
                 }
                 else if sizeClass == .compact {
-                    TabView(selection: $destination) {
-                        ForEach([Destination.home, .search, .library, .playlists, .settings]) { item in
-                            NavigationStack(path: Binding(get: { mobilePaths[item] ?? NavigationPath() }, set: { mobilePaths[item] = $0 })) {
-                                routedContent(item).toolbar {
-                                    ToolbarItem(placement: .topBarTrailing) {
-                                        Button { expandedPlayer = true } label: { Image(systemName: "play.circle").font(.system(size: 21, weight: .medium)).frame(width: 44, height: 44) }
-                                            .buttonStyle(.plain).foregroundStyle(.primary).accessibilityLabel("Player")
-                                            .accessibilityIdentifier("open-mobile-player")
-                                    }
-                                }
-                            }
-                                // Every page of the tab, pushed ones included: nothing
-                                // readable shows between the mini player and the tab bar.
-                                .scrollEdgeEffectStyle(.hard, for: .bottom)
-                                .tabItem { Label(item.rawValue, systemImage: item.icon) }.tag(Optional(item))
+                    // No player button in the bars: the mini player opens it
+                    // whenever something is loaded, and Start offers to resume.
+                    TabView(selection: mobileSelection) {
+                        ForEach([Destination.home, .library, .playlists, .settings]) { item in
+                            Tab(value: Optional(item)) { mobileTab(item) } label: { Label(item.rawValue, systemImage: item.icon) }
+                        }
+                        // The system's search tab: its field sits in the tab bar.
+                        Tab("Suche", systemImage: Destination.search.icon, value: Optional(Destination.search), role: .search) {
+                            mobileTab(.search)
                         }
                     }.tabBarMinimizeBehavior(.never)
                         .tabViewBottomAccessory(isEnabled: model.player.current != nil) {
@@ -187,6 +183,36 @@ struct RootView: View {
             selectDestination(.playlists)
         }
     }
+    #if os(iOS)
+    private func mobileTab(_ item: Destination) -> some View {
+        NavigationStack(path: Binding(get: { mobilePaths[item] ?? NavigationPath() }, set: { mobilePaths[item] = $0 })) {
+            routedContent(item)
+        }
+            // Every page of the tab, pushed ones included: nothing
+            // readable shows between the mini player and the tab bar.
+            .scrollEdgeEffectStyle(.hard, for: .bottom)
+    }
+    /// Choosing the shown tab again returns to its first page, like the
+    /// system apps; on Search it also puts the cursor in the field.
+    private var mobileSelection: Binding<Destination?> {
+        Binding(get: { destination }, set: { selected in
+            if selected == destination, let item = selected {
+                if mobilePaths[item]?.isEmpty == false { mobilePaths[item] = NavigationPath() }
+                if item == .search { searchFocusRequest &+= 1 }
+            }
+            destination = selected
+        })
+    }
+    #endif
+    /// "Stöbern" in Search: the library, filtered by the genre.
+    private func openGenre(_ genre: String) {
+        model.genre = genre
+        Task { await model.filterGenre(genre) }
+        #if os(iOS)
+        mobilePaths[.library] = NavigationPath()
+        #endif
+        selectDestination(.library)
+    }
     private var splitView: some View {
         NavigationSplitView {
             #if os(macOS)
@@ -259,14 +285,19 @@ struct RootView: View {
             DesktopHomeView(model: model, navigate: selectDestination)
             #else
             #if os(iOS)
-            MobileHomeView(model: model) { expandedPlayer = true }
+            MobileHomeView(model: model)
             #else
             TVHomeView(model: model) { selectDestination(.player) }
             #endif
             #endif
         case .library: LibraryView(model: model)
         case .artists: ArtistListView(model: model)
-        case .search: SearchView(model: model)
+        case .search:
+            #if os(iOS)
+            MobileSearchView(model: model, focusRequest: searchFocusRequest, openGenre: openGenre)
+            #else
+            SearchView(model: model)
+            #endif
         case .favorites: CollectionView(model: model, kind: .favorites)
         case .playlists: PlaylistListView(model: model)
         case .player: NowPlayingView(model: model)
