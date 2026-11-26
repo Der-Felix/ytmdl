@@ -134,23 +134,10 @@ func TestListeningAtLibraryScale(t *testing.T) {
 	radio("base_radio_artist", RadioRequest{User: "scale_v", ArtistID: "sa31", Nonce: "n"})
 	measure("base_mixes", 10*time.Second, func() error { _, err := c.PersonalMixesOn(ctx, "scale_v", day); return err })
 	t.Logf("timings: %s", strings.Join(timings, " "))
-	// TEMPORARY: report the timings and plans from CI.
-	explain := func(name, q string, args ...any) {
-		rows, err := db.QueryContext(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+q, args...)
-		if err != nil {
-			t.Errorf("explain %s: %v", name, err)
-			return
-		}
-		defer rows.Close()
-		lines := []string{}
-		for rows.Next() {
-			var l string
-			_ = rows.Scan(&l)
-			lines = append(lines, l)
-		}
-		t.Logf("PLAN %s\n%s", name, strings.Join(lines, "\n"))
+	var jit string
+	if err := db.QueryRowContext(ctx, `SHOW jit`).Scan(&jit); err != nil || jit != "off" {
+		t.Errorf("jit = %q (%v), want off", jit, err)
 	}
-	explain("seed_track", seedRadioQuery(trackSeedSQL), "scale_u", "st35", "", "n", []string{}, 50)
-	explain("general", generalRadioSQL, "scale_u", "", "", "n", []string{}, 50)
+	// TEMPORARY: report the timings from CI.
 	t.Errorf("timings: %s; mixes: %s", strings.Join(timings, " "), strings.Join(kinds, " "))
 }

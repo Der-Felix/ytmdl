@@ -122,6 +122,17 @@ func applyPoolOptions(cfg *pgxpool.Config, opts Options) {
 	if opts.ConnectTimeout > 0 {
 		cfg.ConnConfig.ConnectTimeout = opts.ConnectTimeout
 	}
+	// Every query of this application is short. PostgreSQL's JIT compiler
+	// kicks in on cost estimates alone and, on a library of 150,000 tracks,
+	// spent 1.2 to 1.8 seconds compiling the radio and mix queries that then
+	// ran in 0.2 to 1 second. Turning it off for the application's sessions
+	// changes no result.
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	if _, set := cfg.ConnConfig.RuntimeParams["jit"]; !set {
+		cfg.ConnConfig.RuntimeParams["jit"] = "off"
+	}
 }
 
 // waitForDatabase retries the first connection until the startup budget is
