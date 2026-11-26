@@ -1154,12 +1154,15 @@ final class PlayerUITests: XCTestCase {
         let moving = app.buttons["home-editor-toggle-new_releases"], target = app.buttons["home-editor-toggle-mixes"]
         let origin = app.coordinate(withNormalizedOffset: .zero)
         let handleX = app.frame.width - 40
-        origin.withOffset(CGVector(dx: handleX, dy: moving.frame.midY))
-            .press(forDuration: 0.8, thenDragTo: origin.withOffset(CGVector(dx: handleX, dy: target.frame.minY)), withVelocity: .slow, thenHoldForDuration: 0.6)
         var moved = false
-        for _ in 0..<10 where !moved {
-            moved = app.buttons["home-editor-toggle-new_releases"].frame.minY < app.buttons["home-editor-toggle-mixes"].frame.minY
-            if !moved { Thread.sleep(forTimeInterval: 0.3) }
+        // The simulator sometimes misses the long press that lifts a row; try the drag again then.
+        for _ in 0..<3 where !moved {
+            origin.withOffset(CGVector(dx: handleX, dy: moving.frame.midY))
+                .press(forDuration: 1.2, thenDragTo: origin.withOffset(CGVector(dx: handleX, dy: target.frame.minY)), withVelocity: .slow, thenHoldForDuration: 0.6)
+            for _ in 0..<10 where !moved {
+                moved = moving.frame.minY < target.frame.minY
+                if !moved { Thread.sleep(forTimeInterval: 0.3) }
+            }
         }
         if !moved { print(app.debugDescription) }
         XCTAssertTrue(moved, "Dragging the handle moves the shelf.")

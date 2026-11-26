@@ -690,7 +690,7 @@ struct GenreAlbumsView: View {
             Label("Genre-Radio starten", systemImage: "dot.radiowaves.left.and.right")
         }
         .buttonStyle(MobileActionStyle(prominent: true))
-        .frame(maxWidth: 360, alignment: .leading)
+        .frame(maxWidth: sizeClass == .regular ? 360 : .infinity, alignment: .leading)
         .disabled(model.offlineMode || model.listeningBusy)
         .accessibilityHint("Spielt Musik aus diesem Genre und läuft mit neuen Titeln weiter")
         .accessibilityIdentifier("genre-radio")
