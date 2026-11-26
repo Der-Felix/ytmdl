@@ -465,7 +465,8 @@ final class PlayerUITests: XCTestCase {
     /// player in the light appearance, for a look at contrast.
     @MainActor func testLightAppearanceScreensWithoutPlayback() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact screens require iPhone.")
-        let app = try app(pausedPlayer: true, light: true)
+        // No loaded player: its mini player would also read "Nachtfahrt".
+        let app = try app(light: true)
         XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["home-settings"].isHittable)
         attach(app, name: "Light Start")
@@ -479,6 +480,7 @@ final class PlayerUITests: XCTestCase {
         waitForExpectations(timeout: 10)
         attach(app, name: "Light album page")
         // A confirmation after "Zur Warteschlange", like on every track row.
+        // On the empty queue the title becomes the current one, paused.
         app.buttons["Aktionen für Nachtfahrt"].firstMatch.tap()
         let enqueue = app.buttons["Zur Warteschlange"].firstMatch
         XCTAssertTrue(enqueue.waitForExistence(timeout: 5))

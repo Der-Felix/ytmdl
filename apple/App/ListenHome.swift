@@ -304,6 +304,10 @@ struct MixDetailView: View {
                     #if !os(tvOS)
                     .listRowSeparator(.hidden)
                     #endif
+                    #if os(iOS)
+                    // The margins of the album and playlist pages.
+                    .listRowInsets(EdgeInsets(top: 8, leading: ListenMetrics.pageMargin, bottom: 24, trailing: ListenMetrics.pageMargin))
+                    #endif
             }
             if let savedPlaylist {
                 Section {
@@ -349,6 +353,9 @@ struct MixDetailView: View {
         }
         .navigationTitle(shown.title)
         #if os(iOS)
+        // A plain list like the album and playlist pages: 16 pt margins, no inset cards.
+        .listStyle(.plain)
+        .modifier(ReadableContentWidth())
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
         #endif
