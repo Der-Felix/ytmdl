@@ -1285,6 +1285,8 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Für dich"].waitForExistence(timeout: 10))
         let link = app.buttons["foryou-stats"]
         reveal(link, in: app)
+        // "Dein Hören" ends the page: one more swipe lifts the tiles clear of the tab bar.
+        app.swipeUp()
         XCTAssertTrue(link.waitForExistence(timeout: 5), "Für dich leads to the statistics.")
         attach(app, name: "Für dich with Dein Hören")
         link.tap()
