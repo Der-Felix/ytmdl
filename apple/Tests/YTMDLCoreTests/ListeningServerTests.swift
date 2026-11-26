@@ -227,7 +227,8 @@ private let weekJSON = #"""
     #expect(preferences.entries[0].createdAt != nil)
 
     // Exclude: shown at once, confirmed by the server's answer.
-    let pending = try #require(preferences.addPending(.artist, target: "a1", name: "Daft Punk", id: "pending-1"))
+    let added = preferences.addPending(.artist, target: "a1", name: "Daft Punk", id: "pending-1")
+    let pending = try #require(added)
     #expect(pending.isPending && preferences.entries.first?.id == "pending-1")
     let again = preferences.addPending(.artist, target: "a1", name: "Daft Punk")
     #expect(again == nil, "The same exclusion is not added twice.")
@@ -238,7 +239,8 @@ private let weekJSON = #"""
     let rolledBack = preferences.remove(id: "pending-2")
     #expect(rolledBack?.index == 0 && !preferences.contains(.track, "t9"))
     // Allow again: removed at once, restored at its place when the server refuses.
-    let allowed = try #require(preferences.remove(.genre, "SCHLAGER"))
+    let removed = preferences.remove(.genre, "SCHLAGER")
+    let allowed = try #require(removed)
     #expect(allowed.index == 2 && !preferences.contains(.genre, "Schlager"))
     preferences.restore(allowed.entry, at: allowed.index)
     #expect(preferences.entries.map(\.id) == ["aa11", "9f1c", "77ab", "03de"])
