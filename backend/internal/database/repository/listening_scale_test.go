@@ -1,4 +1,4 @@
-package repository_test
+package repository
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"ytdm/backend/internal/database/dbtest"
-	"ytdm/backend/internal/database/repository"
 )
 
 // TestListeningAtLibraryScale builds a library of 150,000 tracks (3,000
@@ -46,7 +45,7 @@ func TestListeningAtLibraryScale(t *testing.T) {
 		`INSERT INTO favorite_tracks(user_id,track_id,created_at) SELECT 'scale_u','st'||(i*61+3),now()-interval '100 days' FROM generate_series(1,1000) i`,
 		`INSERT INTO track_skips(user_id,track_id,skip_count,last_skipped_at) SELECT 'scale_u','st'||(i*89+5),2,now()-interval '3 days' FROM generate_series(1,500) i`,
 		`INSERT INTO track_lyrics_search(track_id,body,document)
-		 SELECT 'st'||i,b,to_tsvector('simple',lower(b)) FROM generate_series(3,150000,3) i,
+		 SELECT 'st'||i,b,to_tsvector('simple',replace(lower(b),'ü','u')) FROM generate_series(3,150000,3) i,
 		 LATERAL (SELECT 'zeile '||md5(i::text)||E'\n'||CASE WHEN i%150=0 THEN 'über den wolken muss die freiheit ' ELSE 'la la '||substr(md5((i+1)::text),1,8)||' ' END||md5((i+2)::text) AS b) x`,
 		`ANALYZE`,
 	} {
@@ -56,7 +55,7 @@ func TestListeningAtLibraryScale(t *testing.T) {
 	}
 	t.Logf("fixture built in %v", time.Since(start))
 
-	c := repository.NewCatalog(db)
+	c := NewCatalog(db)
 	for _, e := range [][2]string{{"genre", "Schlager"}, {"artist", "sa7"}, {"track", "st300"}} {
 		if _, err := c.AddListeningExclusion(ctx, "scale_u", e[0], e[1]); err != nil {
 			t.Fatal(err)
@@ -64,7 +63,7 @@ func TestListeningAtLibraryScale(t *testing.T) {
 	}
 	berlin, _ := time.LoadLocation("Europe/Berlin")
 	day := time.Now().In(berlin)
-	var mixes []repository.PersonalMix
+	var mixes []PersonalMix
 	timings := []string{}
 	measure := func(name string, limit time.Duration, fn func() error) {
 		t.Helper()
@@ -93,7 +92,7 @@ func TestListeningAtLibraryScale(t *testing.T) {
 	if len(mixes) > 0 {
 		measure("mix_detail", 3*time.Second, func() error { _, err := c.PersonalMixOn(ctx, "scale_u", mixes[0].ID, day); return err })
 	}
-	radio := func(name string, req repository.RadioRequest) {
+	radio := func(name string, req RadioRequest) {
 		measure(name, 5*time.Second, func() error {
 			res, err := c.Radio(ctx, req)
 			if err == nil && len(res.TrackIDs) == 0 {
@@ -102,12 +101,12 @@ func TestListeningAtLibraryScale(t *testing.T) {
 			return err
 		})
 	}
-	radio("radio_personal", repository.RadioRequest{User: "scale_u", Nonce: "n"})
-	radio("radio_genre_500", repository.RadioRequest{User: "scale_u", Genre: "Rock", Nonce: "n", Limit: 500})
+	radio("radio_personal", RadioRequest{User: "scale_u", Nonce: "n"})
+	radio("radio_genre_500", RadioRequest{User: "scale_u", Genre: "Rock", Nonce: "n", Limit: 500})
 	// st35 belongs to sa37 (Metal); a Schlager seed plays nothing, Schlager is excluded.
-	radio("radio_track", repository.RadioRequest{User: "scale_u", TrackID: "st35", Nonce: "n"})
-	radio("radio_artist_500", repository.RadioRequest{User: "scale_u", ArtistID: "sa31", Nonce: "n", Limit: 500})
-	radio("radio_release", repository.RadioRequest{User: "scale_u", ReleaseID: "sr31", Nonce: "n"})
+	radio("radio_track", RadioRequest{User: "scale_u", TrackID: "st35", Nonce: "n"})
+	radio("radio_artist_500", RadioRequest{User: "scale_u", ArtistID: "sa31", Nonce: "n", Limit: 500})
+	radio("radio_release", RadioRequest{User: "scale_u", ReleaseID: "sr31", Nonce: "n"})
 	for _, p := range []string{"week", "year", "all"} {
 		measure("stats_"+p, 3*time.Second, func() error { _, err := c.ListeningStatsAt(ctx, "scale_u", p, 10, time.Now(), berlin); return err })
 	}
@@ -126,7 +125,32 @@ func TestListeningAtLibraryScale(t *testing.T) {
 		ids[i] = fmt.Sprintf("st%d", i+1)
 	}
 	measure("filter_excluded", time.Second, func() error { _, err := c.FilterExcludedTracks(ctx, "scale_u", ids); return err })
+	// Baseline: a user without history or exclusions.
+	if _, err := db.ExecContext(ctx, `INSERT INTO users(id,username,password_hash,role,enabled,created_at,updated_at) VALUES('scale_v','scale_v','hash','user',true,now(),now())`); err != nil {
+		t.Fatal(err)
+	}
+	radio("base_radio_personal", RadioRequest{User: "scale_v", Nonce: "n"})
+	radio("base_radio_track", RadioRequest{User: "scale_v", TrackID: "st35", Nonce: "n"})
+	radio("base_radio_artist", RadioRequest{User: "scale_v", ArtistID: "sa31", Nonce: "n"})
+	measure("base_mixes", 10*time.Second, func() error { _, err := c.PersonalMixesOn(ctx, "scale_v", day); return err })
 	t.Logf("timings: %s", strings.Join(timings, " "))
-	// TEMPORARY: report the timings from CI.
+	// TEMPORARY: report the timings and plans from CI.
+	explain := func(name, q string, args ...any) {
+		rows, err := db.QueryContext(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+q, args...)
+		if err != nil {
+			t.Errorf("explain %s: %v", name, err)
+			return
+		}
+		defer rows.Close()
+		lines := []string{}
+		for rows.Next() {
+			var l string
+			_ = rows.Scan(&l)
+			lines = append(lines, l)
+		}
+		t.Logf("PLAN %s\n%s", name, strings.Join(lines, "\n"))
+	}
+	explain("seed_track", seedRadioQuery(trackSeedSQL), "scale_u", "st35", "", "n", []string{}, 50)
+	explain("general", generalRadioSQL, "scale_u", "", "", "n", []string{}, 50)
 	t.Errorf("timings: %s; mixes: %s", strings.Join(timings, " "), strings.Join(kinds, " "))
 }
