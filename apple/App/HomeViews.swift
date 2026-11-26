@@ -126,9 +126,11 @@ struct ListenPressStyle: ButtonStyle {
     }
 }
 
-/// The start screen ("Start"): a greeting as the title, a grid of what you most
-/// likely want right now, then shelves of mixes, recent titles, new albums and
-/// most played titles. Server parts load and fail on their own and never raise
+/// The start screen ("Start"): a greeting as the title, "Weiterhören" while
+/// something waits to go on, then the shelves in the order the listener chose
+/// ("Start anpassen"): quick access with pinned tiles, mixes, "Wieder
+/// einsteigen", recent titles, new albums, most played titles and the
+/// optional shelves. Server parts load and fail on their own and never raise
 /// an alert; without a connection a hint points to the saved music.
 struct MobileHomeView: View {
     var model: AppModel
@@ -137,12 +139,60 @@ struct MobileHomeView: View {
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// An artist opened from "Deine Top-Künstler".
+    @State private var pushed: CollectionKind?
+    @State private var missingArtist: String?
+    /// The "Favoriten" shelf, loaded only while it is shown.
+    @State private var favoriteTracks: [Track] = []
     private var feed: ListenFeed { model.feed }
+    private var layout: HomeLayout { model.homeLayout }
     private var cardWidth: CGFloat { textSize.isAccessibilitySize ? ListenMetrics.largeCardWidth : ListenMetrics.cardWidth }
     private var localGenres: [String] { model.genres.filter { $0 != "__none__" } }
     private var greeting: String { HomeGreeting.text(hour: Calendar.current.component(.hour, from: .now)) }
+    private struct FavoritesKey: Equatable { let shown: Bool; let favorites: Int; let user: String? }
 
     var body: some View {
+        content
+            .navigationDestination(item: $pushed) { CollectionView(model: model, kind: $0) }
+            .task(id: FavoritesKey(shown: layout.isVisible(.favorites), favorites: model.favoriteIDs.count, user: model.user?.id)) {
+                guard layout.isVisible(.favorites) else { return }
+                favoriteTracks = await model.favoriteShelfTracks()
+            }
+            .alert("Nicht gefunden", isPresented: Binding(get: { missingArtist != nil }, set: { if !$0 { missingArtist = nil } })) {
+                Button("OK") { missingArtist = nil }
+            } message: { Text("„\(missingArtist ?? "")“ ist in deiner Bibliothek nicht als Künstler zu finden.") }
+    }
+
+    @ViewBuilder private func shelf(_ shelf: HomeShelf) -> some View {
+        switch shelf {
+        case .quickAccess: quickAccess.padding(.horizontal, ListenMetrics.pageMargin)
+        case .mixes: mixShelf
+        case .jumpBackIn: jumpBackInShelf
+        case .recent: historyShelf
+        case .newReleases: releaseShelf
+        case .frequent: frequentShelf
+        case .discover: discoverShelf
+        case .topArtists: topArtistShelf
+        case .genres: genreShelf
+        case .favorites: favoritesShelf
+        case .playlists: playlistShelf
+        }
+    }
+
+    /// The way into "Start anpassen", after the last shelf.
+    private var customizeButton: some View {
+        NavigationLink { HomeEditorView(model: model) } label: {
+            Label("Start anpassen", systemImage: "slider.horizontal.3")
+        }
+        .buttonStyle(MobileActionStyle())
+        .frame(maxWidth: 360)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, ListenMetrics.pageMargin)
+        .accessibilityHint("Bereiche ein- und ausblenden, sortieren und Kacheln anheften")
+        .accessibilityIdentifier("home-customize")
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ListenMetrics.sectionSpacing) {
                 if tabRoot {
@@ -161,17 +211,16 @@ struct MobileHomeView: View {
                     }.padding(.bottom, ListenMetrics.headerGap - ListenMetrics.sectionSpacing)
                 }
                 if feed.unreachable { offlineHint.padding(.horizontal, ListenMetrics.pageMargin) }
-                quickAccess.padding(.horizontal, ListenMetrics.pageMargin)
-                mixShelf
-                historyShelf
-                releaseShelf
-                frequentShelf
+                ResumeCard(model: model).padding(.horizontal, ListenMetrics.pageMargin)
+                ForEach(layout.visibleShelves) { shelf($0) }
+                customizeButton
             }
             .padding(.top, 4).padding(.bottom, 32)
             .frame(maxWidth: 1000, alignment: .leading).frame(maxWidth: .infinity)
             // A shelf that finishes loading fades from its skeleton (same
             // size, so nothing jumps); with Reduce Motion it just switches.
             .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: [feed.mixesPhase, feed.historyPhase, feed.releasesPhase, feed.frequentPhase])
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: layout.visibleShelves)
         }
         .background(Color(uiColor: .systemGroupedBackground))
         // Content scrolling under the floating tab bar and mini player gets a
@@ -180,42 +229,54 @@ struct MobileHomeView: View {
         .navigationTitle(greeting)
         .modifier(TabRootChrome(active: tabRoot))
         .refreshable { await model.loadLibrary(); await model.loadListenFeed() }
-        .task(id: model.playlistRevision) { await model.loadPlaylistPreviews(Array(model.playlists.prefix(6))) }
+        .task(id: model.playlistRevision) { await model.loadPlaylistPreviews(Array(model.playlists.prefix(12))) }
         .task(id: model.user?.id) { await model.loadListenFeed() }
     }
 
     // MARK: Quick access
 
     private enum QuickEntry: Identifiable {
-        case resume(Track), favorites, mix(PersonalMix), genre(String), playlist(Playlist)
+        case pin(HomePin), favorites, forYou, mix(PersonalMix), genre(String), playlist(Playlist)
         var id: String {
             switch self {
-            case .resume: "resume"
+            case .pin(let pin): "pin-" + pin.id
             case .favorites: "favorites"
+            case .forYou: "foryou"
             case .mix(let mix): "mix-" + mix.id
             case .genre(let genre): "genre-" + genre
             case .playlist(let playlist): "playlist-" + playlist.id
             }
         }
+        var isPin: Bool { if case .pin = self { true } else { false } }
     }
     private var quickColumns: Int { textSize.isAccessibilitySize ? 1 : sizeClass == .regular ? 3 : 2 }
-    /// Up to six entries: resume the saved queue (only when nothing is loaded,
-    /// the mini player covers the rest), favorites, the first mixes, then
-    /// playlists. Full rows only, so the grid never ends in a gap.
-    private var quickEntries: [QuickEntry] {
-        var entries: [QuickEntry] = []
-        if model.player.current == nil, let snapshot = model.listeningHistory.snapshot, snapshot.tracks.indices.contains(snapshot.index) {
-            entries.append(.resume(snapshot.tracks[snapshot.index]))
+    /// A pin whose item is gone (a deleted playlist, a mix not offered
+    /// today) waits hidden instead of opening nothing.
+    private func available(_ pin: HomePin) -> Bool {
+        switch pin.kind {
+        case .playlist: return model.playlists.isEmpty || model.playlists.contains { $0.id == pin.itemID }
+        case .mix: return feed.mixesPhase != .loaded || feed.mixes.contains { $0.id == pin.itemID }
+        default: return true
         }
-        entries.append(.favorites)
+    }
+    /// The pinned tiles first (up to eight), then defaults fill the grid:
+    /// favorites, "Für dich", the first mixes, playlists. Without pins six
+    /// tiles. Full rows only, so the grid never ends in a gap; a pin is never cut.
+    private var quickEntries: [QuickEntry] {
+        let pins = layout.pins.filter(available)
+        var entries = pins.map(QuickEntry.pin)
+        var defaults: [QuickEntry] = []
+        if !layout.isPinned(.favorites, HomePin.favorites.itemID) { defaults.append(.favorites) }
         switch feed.mixesPhase {
-        case .loaded: entries += feed.mixes.prefix(2).map(QuickEntry.mix)
-        case .unsupported: entries += localGenres.prefix(2).map(QuickEntry.genre)
+        case .loaded:
+            defaults.append(.forYou)
+            defaults += feed.mixes.filter { !layout.isPinned(.mix, $0.id) }.prefix(2).map(QuickEntry.mix)
+        case .unsupported: defaults += localGenres.filter { !layout.isPinned(.genre, $0) }.prefix(2).map(QuickEntry.genre)
         default: break
         }
-        entries += model.playlists.prefix(6).map(QuickEntry.playlist)
-        entries = Array(entries.prefix(6))
-        if entries.count > quickColumns { entries.removeLast(entries.count % quickColumns) }
+        defaults += model.playlists.filter { !layout.isPinned(.playlist, $0.id) }.prefix(6).map(QuickEntry.playlist)
+        entries = Array((entries + defaults).prefix(pins.isEmpty ? 6 : HomeLayout.pinLimit))
+        while entries.count > quickColumns, entries.count % quickColumns != 0, entries.last?.isPin == false { entries.removeLast() }
         return entries
     }
     /// While the first answers are outstanding the grid keeps its final height.
@@ -236,30 +297,27 @@ struct MobileHomeView: View {
     }
     @ViewBuilder private func quickTile(_ entry: QuickEntry) -> some View {
         switch entry {
-        case .resume(let track):
-            Button { model.resumeLastSession() } label: {
-                QuickTile(title: "Weiterhören", subtitle: track.title) {
-                    ArtworkView(model: model, kind: "tracks", id: track.id, cornerRadius: 0)
-                }
-            }.buttonStyle(ListenPressStyle())
-                .accessibilityLabel("Weiterhören: \(track.title), \(track.artistText)")
-                .accessibilityHint("Setzt die letzte Wiedergabe fort")
-                .accessibilityIdentifier("home-quick-resume")
+        case .pin(let pin): pinTile(pin)
         case .favorites:
             NavigationLink(value: CollectionKind.favorites) {
                 QuickTile(title: "Favoriten") { QuickSymbol(name: "heart.fill") }
             }.buttonStyle(ListenPressStyle())
                 .accessibilityLabel("Favoriten").accessibilityHint("Öffnet deine Lieblingstitel")
                 .accessibilityIdentifier("home-quick-favorites")
+                .contextMenu { PinToStartButton(model: model, pin: .favorites) }
+        case .forYou:
+            NavigationLink(value: ForYouRoute()) {
+                QuickTile(title: "Für dich") { QuickSymbol(name: "sparkles") }
+            }.buttonStyle(ListenPressStyle())
+                .accessibilityLabel("Für dich").accessibilityHint("Mixe, Genres und deine Top-Künstler")
+                .accessibilityIdentifier("home-quick-foryou")
         case .mix(let mix):
             NavigationLink(value: mix) {
-                QuickTile(title: mix.title) {
-                    if let cover = mix.coverTrackIds.first { ArtworkView(model: model, kind: "tracks", id: cover, cornerRadius: 0) }
-                    else { QuickSymbol(name: "sparkles") }
-                }
+                QuickTile(title: mix.title) { mixCover(mix) }
             }.buttonStyle(ListenPressStyle())
                 .accessibilityLabel("Mix: \(mix.title)").accessibilityHint("Öffnet den Mix")
                 .accessibilityIdentifier("home-quick-mix-" + mix.id)
+                .contextMenu { PinToStartButton(model: model, pin: .mix(mix)) }
         case .genre(let genre):
             Button { Task { await model.playMix(genre, genre: genre) } } label: {
                 QuickTile(title: genre) { QuickSymbol(name: "waveform") }
@@ -268,14 +326,65 @@ struct MobileHomeView: View {
                 .accessibilityIdentifier("home-quick-genre-" + genre)
         case .playlist(let playlist):
             NavigationLink(value: CollectionKind.playlist(playlist)) {
-                QuickTile(title: playlist.name) {
-                    if let cover = model.playlistPreviews[playlist.id]?.first { ArtworkView(model: model, kind: "tracks", id: cover.id, cornerRadius: 0) }
-                    else { QuickSymbol(name: "music.note.list") }
-                }
+                QuickTile(title: playlist.name) { playlistCover(playlist.id) }
             }.buttonStyle(ListenPressStyle())
                 .accessibilityLabel("Playlist: \(playlist.name)").accessibilityHint("Öffnet die Playlist")
                 .accessibilityIdentifier("home-quick-playlist-" + playlist.id)
+                .contextMenu { PinToStartButton(model: model, pin: .playlist(playlist)) }
         }
+    }
+    @ViewBuilder private func mixCover(_ mix: PersonalMix) -> some View {
+        if let cover = mix.coverTrackIds.first { ArtworkView(model: model, kind: "tracks", id: cover, cornerRadius: 0) }
+        else { QuickSymbol(name: mix.symbol) }
+    }
+    @ViewBuilder private func playlistCover(_ id: String) -> some View {
+        if let cover = model.playlistPreviews[id]?.first { ArtworkView(model: model, kind: "tracks", id: cover.id, cornerRadius: 0) }
+        else { QuickSymbol(name: "music.note.list") }
+    }
+    /// A pinned tile; it opens its item and is unpinned from its menu.
+    @ViewBuilder private func pinTile(_ pin: HomePin) -> some View {
+        Group {
+            switch pin.kind {
+            case .playlist:
+                let playlist = model.playlists.first { $0.id == pin.itemID } ?? Playlist(id: pin.itemID, name: pin.title, trackCount: 0, durationMs: 0)
+                NavigationLink(value: CollectionKind.playlist(playlist)) {
+                    QuickTile(title: playlist.name) { playlistCover(playlist.id) }
+                }.accessibilityLabel("Playlist: \(playlist.name)").accessibilityHint("Öffnet die Playlist")
+            case .album:
+                let artists = pin.subtitle.isEmpty ? [] : pin.subtitle.components(separatedBy: " · ")
+                NavigationLink(value: CollectionKind.release(Release(id: pin.itemID, title: pin.title, artists: artists))) {
+                    QuickTile(title: pin.title, subtitle: pin.subtitle.isEmpty ? nil : pin.subtitle) {
+                        ArtworkView(model: model, kind: "releases", id: pin.itemID, cornerRadius: 0)
+                    }
+                }.accessibilityLabel("Album: \(pin.title)").accessibilityHint("Öffnet das Album")
+            case .artist:
+                NavigationLink(value: CollectionKind.artist(Artist(id: pin.itemID, name: pin.title))) {
+                    QuickTile(title: pin.title) {
+                        ArtworkView(model: model, kind: "artists", id: pin.itemID, cornerRadius: 0, monogram: pin.title)
+                    }
+                }.accessibilityLabel("Künstler: \(pin.title)").accessibilityHint("Öffnet den Künstler")
+            case .mix:
+                let mix = feed.mixes.first { $0.id == pin.itemID } ?? PersonalMix(id: pin.itemID, kind: "", title: pin.title, trackCount: 0)
+                NavigationLink(value: mix) {
+                    QuickTile(title: mix.title) { mixCover(mix) }
+                }.accessibilityLabel("Mix: \(mix.title)").accessibilityHint("Öffnet den Mix")
+            case .genre:
+                NavigationLink(value: LibraryRoute.genre(pin.itemID)) {
+                    QuickTile(title: pin.title) {
+                        Image(systemName: "guitars.fill").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(GenreTile.color(for: pin.itemID).gradient).accessibilityHidden(true)
+                    }
+                }.accessibilityLabel("Genre: \(pin.title)").accessibilityHint("Öffnet das Genre mit seinem Radio")
+            case .favorites:
+                NavigationLink(value: CollectionKind.favorites) {
+                    QuickTile(title: "Favoriten") { QuickSymbol(name: "heart.fill") }
+                }.accessibilityLabel("Favoriten").accessibilityHint("Öffnet deine Lieblingstitel")
+            }
+        }
+        .buttonStyle(ListenPressStyle())
+        .accessibilityIdentifier("home-pin-\(pin.kind.rawValue)-\(pin.itemID)")
+        .contextMenu { PinToStartButton(model: model, pin: pin) }
     }
 
     // MARK: Shelves
@@ -291,7 +400,9 @@ struct MobileHomeView: View {
                     Text(message).font(.callout).foregroundStyle(.red).padding(.horizontal, ListenMetrics.pageMargin)
                 }
                 ListenShelf {
-                    ForEach(feed.mixes.prefix(10)) { mix in MixCard(model: model, mix: mix, width: cardWidth) }
+                    ForEach(feed.mixes.prefix(10)) { mix in
+                        MixCard(model: model, mix: mix, width: cardWidth).contextMenu { PinToStartButton(model: model, pin: .mix(mix)) }
+                    }
                 }
             }
         case .idle, .loading:
@@ -396,6 +507,118 @@ struct MobileHomeView: View {
                         HomeTrackCard(model: model, track: entry.track, width: cardWidth, caption: "\(entry.playCount)× gehört") {
                             play(entries.map(\.track), start: index, context: QueueContext(kind: "history", id: "frequent", title: "Am meisten gehört"))
                         }
+                    }
+                }
+            }
+        }
+    }
+    /// "Wieder einsteigen": albums, playlists, mixes, artists and radios
+    /// started on this device, newest first. Hidden until there is one.
+    @ViewBuilder private var jumpBackInShelf: some View {
+        let sources = model.recentSources.entries
+        if !sources.isEmpty {
+            ListenSection {
+                ListenSectionHeader(title: HomeShelf.jumpBackIn.title, subtitle: "Zuletzt gestartet auf diesem Gerät")
+                ListenShelf {
+                    ForEach(sources) { source in RecentSourceCard(model: model, source: source, width: cardWidth) }
+                }
+            }
+        }
+    }
+    /// Optional: the mixes of "Entdecken" (and what newer servers add) as cards.
+    @ViewBuilder private var discoverShelf: some View {
+        let mixes = feed.mixesPhase == .loaded ? feed.mixes.filter { MixGroup.of($0) != .madeForYou } : []
+        if !mixes.isEmpty {
+            ListenSection {
+                ListenSectionHeader(title: HomeShelf.discover.title, subtitle: HomeShelf.discover.subtitle) {
+                    allLink(ForYouRoute(), label: "Für dich", hint: "Öffnet „Für dich“")
+                }
+                ListenShelf {
+                    ForEach(mixes) { mix in
+                        MixCard(model: model, mix: mix, width: cardWidth).contextMenu { PinToStartButton(model: model, pin: .mix(mix)) }
+                    }
+                }
+            }
+        }
+    }
+    /// Optional: the artists of the most played titles; each opens the artist or starts its radio.
+    @ViewBuilder private var topArtistShelf: some View {
+        let top = feed.frequentPhase == .loaded ? TopArtist.rank(feed.frequent) : []
+        if !top.isEmpty {
+            ListenSection {
+                ListenSectionHeader(title: HomeShelf.topArtists.title, subtitle: "Aus deinen meistgespielten Titeln")
+                ListenShelf {
+                    ForEach(top) { artist in
+                        TopArtistCard(model: model, artist: artist, width: textSize.isAccessibilitySize ? 150 : 112,
+                                      open: { pushed = .artist($0) }, notFound: { missingArtist = $0 })
+                    }
+                }
+            }
+        }
+    }
+    /// Optional: the genres, each opening its albums with "Genre-Radio".
+    @ViewBuilder private var genreShelf: some View {
+        let genres = model.preferredGenres
+        if !genres.isEmpty {
+            ListenSection {
+                ListenSectionHeader(title: HomeShelf.genres.title, subtitle: HomeShelf.genres.subtitle) {
+                    allLink(LibraryRoute.genres, label: "Alle Genres", hint: "Öffnet die Genres der Bibliothek")
+                }
+                ListenShelf {
+                    ForEach(Array(genres.prefix(12)), id: \.self) { genre in
+                        NavigationLink(value: LibraryRoute.genre(genre)) { GenreTile(name: genre, showsRadio: true).frame(width: cardWidth) }
+                            .buttonStyle(ListenPressStyle())
+                            .accessibilityLabel(genre).accessibilityHint("Öffnet das Genre mit seinem Radio")
+                            .accessibilityIdentifier("home-genre-" + genre)
+                            .contextMenu {
+                                Button("Genre-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startGenreRadio(genre) } }
+                                    .disabled(model.offlineMode || model.listeningBusy)
+                                PinToStartButton(model: model, pin: .genre(genre))
+                            }
+                    }
+                }
+            }
+        }
+    }
+    /// Optional: the first favorites; tapping plays them in this order.
+    @ViewBuilder private var favoritesShelf: some View {
+        if !favoriteTracks.isEmpty {
+            ListenSection {
+                ListenSectionHeader(title: HomeShelf.favorites.title, subtitle: HomeShelf.favorites.subtitle) {
+                    allLink(CollectionKind.favorites, label: "Alle Lieblingstitel", hint: "Öffnet deine Lieblingstitel")
+                }
+                ListenShelf {
+                    ForEach(Array(favoriteTracks.enumerated()), id: \.offset) { index, track in
+                        HomeTrackCard(model: model, track: track, width: cardWidth) {
+                            play(favoriteTracks, start: index, context: QueueContext(kind: "favorites", title: "Lieblingstitel"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+    /// Optional: the playlists with their cover collages.
+    @ViewBuilder private var playlistShelf: some View {
+        if !model.playlists.isEmpty {
+            ListenSection {
+                ListenSectionHeader(title: HomeShelf.playlists.title, subtitle: HomeShelf.playlists.subtitle) {
+                    allLink(Destination.playlists, label: "Alle Playlists", hint: "Öffnet die Playlists")
+                }
+                ListenShelf {
+                    ForEach(Array(model.playlists.prefix(12))) { playlist in
+                        NavigationLink(value: CollectionKind.playlist(playlist)) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                MobileCollectionArtwork(model: model, tracks: model.playlistPreviews[playlist.id] ?? [], size: cardWidth)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(playlist.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                                    Text(CollectionSummary.tracks(playlist.trackCount)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                                }.lineLimit(1)
+                            }.frame(width: cardWidth, alignment: .leading).contentShape(Rectangle())
+                        }
+                        .buttonStyle(ListenPressStyle())
+                        .accessibilityHint("Öffnet die Playlist")
+                        .accessibilityIdentifier("home-playlist-" + playlist.id)
+                        .contextMenu { PinToStartButton(model: model, pin: .playlist(playlist)) }
                     }
                 }
             }
@@ -557,7 +780,7 @@ struct TrackQuickActions: View {
             .disabled(model.player.queue.tracks.count >= PlaybackQueue.limit)
         Button("Zur Warteschlange", systemImage: "text.badge.plus") { model.enqueue([track], next: false) }
             .disabled(model.player.queue.tracks.count >= PlaybackQueue.limit)
-        Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
+        Button("Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
             .disabled(model.offlineMode || model.listeningBusy)
         let favorite = model.favoriteIDs.contains(track.id)
         Button(favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", systemImage: favorite ? "heart.slash" : "heart") { Task { await model.toggleFavorite(track) } }
@@ -582,6 +805,11 @@ struct HomeReleaseCard: View {
         // The button reads its texts as one label ("Title, Artist").
         }.buttonStyle(ListenPressStyle())
             .accessibilityHint("Öffnet das Album")
+            .contextMenu {
+                Button("Album-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startAlbumRadio(release) } }
+                    .disabled(model.offlineMode || model.listeningBusy)
+                PinToStartButton(model: model, pin: .album(release))
+            }
     }
 }
 

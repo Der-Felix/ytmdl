@@ -67,8 +67,25 @@ USER = {'id':'fixture','username':'fixture_user','display_name':'Design-Vorschau
 MIXES = [
     {'id':'genre-0a1b2c3d4e5f','kind':'genre','title':'Dein Mix 1','description':'Deine Favoriten aus Elektronisch und Titel, die du kaum kennst','genre':'Elektronisch','track_ids':['t0','t2','t4']},
     {'id':'on_repeat','kind':'on_repeat','title':'In Dauerschleife','description':'Deine meistgespielten Titel der letzten 30 Tage','track_ids':['t1','t3','t5']},
+    {'id':'rediscover','kind':'rediscover','title':'Wiederentdecken','description':'Titel, die du länger nicht gehört hast','track_ids':['t2','t5','t4']},
+    {'id':'unheard','kind':'unheard','title':'Noch nicht gehört','description':'Aus deiner Mediathek, noch nie gespielt','track_ids':['t4','t2']},
+    # A kind this app version does not know, with a group: "Für dich" shows it generically.
+    {'id':'time_capsule','kind':'time_capsule','title':'Zeitkapsel','description':'Was du vor einem Jahr gehört hast','group':'rewind','track_ids':['t5','t3']},
 ]
 HISTORY = [('t3', 7, '2026-11-24T18:03:04.123456789Z'), ('t4', 2, '2026-11-23T08:00:00Z')]
+# GET /history?sort=frequent: most played first. Not the first titles either.
+FREQUENT = [('t3', 7, '2026-11-24T18:03:04Z'), ('t5', 4, '2026-11-22T20:00:00Z'), ('t4', 2, '2026-11-23T08:00:00Z')]
+ARTIST_GENRES = {a['name']: a['genres'] for a in ARTISTS}
+
+
+def radio(seed, genre):
+    """GET /library/radio like the server: near the seed (its artist first) or within a genre, never the seed."""
+    tracks = TRACKS
+    if genre: tracks = [t for t in tracks if any(g.casefold() == genre.casefold() for a in t['artists'] for g in ARTIST_GENRES.get(a, []))]
+    if seed:
+        base = next(t for t in TRACKS if t['id'] == seed)
+        tracks = sorted((t for t in tracks if t['id'] != seed), key=lambda t: t['artists'] != base['artists'])
+    return tracks
 
 
 def mix_summary(mix):
@@ -151,7 +168,14 @@ class Handler(BaseHTTPRequestHandler):
             mix = next((m for m in MIXES if m['id'] == path.rsplit('/',1)[1]), None)
             if mix is None: return self.response({'error':{'code':'PLAYLIST_NOT_FOUND','message':'Mix not offered today'}},404)
             return self.response(mix_summary(mix) | {'tracks':[t for i in mix['track_ids'] for t in TRACKS if t['id'] == i]})
-        if path.endswith('/history'): return self.response([history_entry(*entry) for entry in HISTORY])
+        if path.endswith('/history'):
+            entries = FREQUENT if query.get('sort', [''])[0] == 'frequent' else HISTORY
+            return self.response([history_entry(*entry) for entry in entries])
+        if path.endswith('/library/radio'):
+            seed = query.get('seed', [''])[0]; genre = query.get('genre', [''])[0]
+            if seed and not any(t['id'] == seed for t in TRACKS):
+                return self.response({'error':{'code':'TRACK_NOT_FOUND','message':'Ausgangstitel ist nicht mehr verfügbar.'}},404)
+            return self.response(radio(seed, genre))
         if path.endswith('/top-tracks'):
             artist = ARTIST_NAMES.get(path.split('/')[-2], '')
             return self.response([t | {'play_count':9-i, 'last_played_at':'2026-11-20T10:00:00Z'} for i,t in enumerate(t for t in TRACKS if artist in t['artists'])])

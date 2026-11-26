@@ -16,12 +16,16 @@ public struct PersonalMix: Decodable, Identifiable, Hashable, Sendable {
     /// Up to four tracks for a cover collage, different releases first.
     public let coverTrackIds: [String]
     public let coverReleaseIds: [String]
+    /// Where "Für dich" shows the mix (`made_for_you`, `discover`, `rewind`);
+    /// newer servers send it, older ones leave it out. See `MixGroup`.
+    public let group: String?
     public init(id: String, kind: String, title: String, description: String = "", genre: String? = nil,
-                trackCount: Int, coverTrackIds: [String] = [], coverReleaseIds: [String] = []) {
+                trackCount: Int, coverTrackIds: [String] = [], coverReleaseIds: [String] = [], group: String? = nil) {
         self.id = id; self.kind = kind; self.title = title; self.description = description; self.genre = genre
         self.trackCount = trackCount; self.coverTrackIds = coverTrackIds; self.coverReleaseIds = coverReleaseIds
+        self.group = group?.isEmpty == false ? group : nil
     }
-    enum CodingKeys: String, CodingKey { case id, kind, title, description, genre, trackCount, coverTrackIds, coverReleaseIds }
+    enum CodingKeys: String, CodingKey { case id, kind, title, description, genre, trackCount, coverTrackIds, coverReleaseIds, group }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -34,6 +38,9 @@ public struct PersonalMix: Decodable, Identifiable, Hashable, Sendable {
         // Go serializes an empty slice as null.
         coverTrackIds = try c.decodeIfPresent([String].self, forKey: .coverTrackIds) ?? []
         coverReleaseIds = try c.decodeIfPresent([String].self, forKey: .coverReleaseIds) ?? []
+        // Optional and new: a value the app cannot read never drops the mix.
+        let group = (try? c.decodeIfPresent(String.self, forKey: .group)) ?? nil
+        self.group = group?.isEmpty == false ? group : nil
     }
     public var isGenreMix: Bool { kind == "genre" }
     /// The small line above a mix title: its genre or where it comes from (as on the web).
@@ -296,8 +303,9 @@ public enum QueueSection: String, Sendable {
         case .played: "Zuvor gespielt"
         case .current: "Aktueller Titel"
         case .user: "Als Nächstes"
-        case .context: context.map { "Weiter aus: \($0.title)" } ?? "Weiter in der Warteschlange"
-        case .autoplay: "Ähnliche Titel"
+        // A radio names itself ("Radio: Nachtfahrt"); its top-ups continue it.
+        case .context: context.map { $0.kind == "radio" ? $0.title : "Weiter aus: \($0.title)" } ?? "Weiter in der Warteschlange"
+        case .autoplay: context?.kind == "radio" ? "Mehr aus diesem Radio" : "Ähnliche Titel"
         }
     }
 }

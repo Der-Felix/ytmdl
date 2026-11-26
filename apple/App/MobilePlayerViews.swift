@@ -41,6 +41,7 @@ struct MobileMiniPlayer: View {
     var open: () -> Void
     @State private var playTaps = 0
     @State private var skipTaps = 0
+    private var radio: RadioStation? { model.player.radioStation }
     var body: some View {
         if let track = model.player.current {
             let requested = model.player.isPlaybackRequested
@@ -50,13 +51,17 @@ struct MobileMiniPlayer: View {
                         ArtworkView(model: model, kind: "tracks", id: track.id, cornerRadius: 8).frame(width: 40, height: 40)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                            Text(model.player.loading ? "Wird geladen …" : track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            HStack(spacing: 4) {
+                                // A running radio shows its symbol before the artist.
+                                if radio != nil { Image(systemName: "dot.radiowaves.left.and.right").imageScale(.small).foregroundStyle(.tint) }
+                                Text(model.player.loading ? "Wird geladen …" : track.artistText).lineLimit(1)
+                            }.font(.caption).foregroundStyle(.secondary)
                         // The system bottom accessory has a compact height;
                         // the expanded player shows fully scaled metadata.
                         }.dynamicTypeSize(...DynamicTypeSize.xxLarge).frame(maxWidth: .infinity, alignment: .leading)
                     }.contentShape(Rectangle())
                 }.buttonStyle(.plain)
-                    .accessibilityLabel("Player öffnen: \(track.title), \(track.artistText)")
+                    .accessibilityLabel("Player öffnen: \(track.title), \(track.artistText)" + (radio.map { ", \($0.title)" } ?? ""))
                     .accessibilityHint("Öffnet „Jetzt läuft“")
                     .accessibilityIdentifier("mobile-mini-player-open")
                 Button { playTaps += 1; model.player.toggle() } label: {
@@ -145,6 +150,21 @@ struct MobilePlayerView: View {
         .navigationTitle("Jetzt läuft").navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
+            // Where the queue plays from ("Radio: Nachtfahrt") under the title.
+            if let context = model.player.queue.context, model.player.current != nil {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text("Jetzt läuft").font(.headline)
+                        Label(context.kind == "radio" ? context.title : "Aus: \(context.title)",
+                              systemImage: context.kind == "radio" ? "dot.radiowaves.left.and.right" : "play.square.stack")
+                            .labelStyle(.titleAndIcon).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    .frame(maxWidth: 240)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("mobile-player-source")
+                }
+            }
             if let track = model.player.current {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu { moreMenu(track) } label: { Label("Titel-Aktionen", systemImage: "ellipsis") }
@@ -367,7 +387,8 @@ struct MobilePlayerView: View {
         if !model.offlineMode {
             Section {
                 Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; adding = true }
-                Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
+                Button("Radio zu diesem Titel", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
+                    .disabled(model.listeningBusy)
                 Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }
                 Button("Wiedergabe übergeben", systemImage: "arrow.up.forward.app") { Task { await model.saveHandoff() } }
             }
@@ -675,6 +696,7 @@ struct MobileQueueView: View {
         let player = model.player
         let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         return VStack(spacing: 12) {
+            if let context = queue.context { source(context) }
             layout {
                 QueueModeChip(title: "Zufall", symbol: "shuffle", active: queue.isShuffled) { player.setShuffle(!queue.isShuffled) }
                     .accessibilityIdentifier("mobile-queue-shuffle")
@@ -698,6 +720,25 @@ struct MobileQueueView: View {
         }
         .padding(.horizontal, ListenMetrics.pageMargin).padding(.top, 8).padding(.bottom, 12)
         .background(.bar)
+    }
+
+    /// What the queue plays from: "Radio: Nachtfahrt" (it keeps going with
+    /// new titles), or the album, playlist or mix it was started from.
+    private func source(_ context: QueueContext) -> some View {
+        let radio = context.kind == "radio"
+        return HStack(spacing: 10) {
+            Image(systemName: radio ? "dot.radiowaves.left.and.right" : "play.square.stack")
+                .font(.body.weight(.semibold)).foregroundStyle(.tint).frame(width: 28).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(radio ? context.title : "Aus: \(context.title)").font(.subheadline.weight(.semibold)).lineLimit(2)
+                if radio {
+                    Text("Läuft weiter mit neuen Titeln aus deiner Mediathek").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("mobile-queue-source")
     }
 
     private func header(_ run: Run, queue: PlaybackQueue) -> some View {

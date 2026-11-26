@@ -1,4 +1,4 @@
-# Native listening preview 0.5.3 — build 42
+# Native listening preview 0.6.0 — build 43
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -11,7 +11,7 @@ from implemented features and simulator verification.
 
 | Feature | Current implementation |
 | --- | --- |
-| iPhone/iPad Start | Greeting by time of day, a quick-access grid (Weiterhören for the saved queue, Favoriten, first mixes, playlists), then shelves: personal mixes, server history **Zuletzt gehört** (local list as fallback), **Neu in der Mediathek**, **Am meisten gehört**; offline hint when the server is unreachable. Mac Start shows the same mixes and server history. Apple TV has its own **Start** tab with the same sections as focusable shelves |
+| iPhone/iPad Start | Greeting by time of day, **Weiterhören** for a paused or saved queue, then the sections in the listener's order (**Start anpassen**, build 43): quick access with up to eight pinned tiles (defaults: Favoriten, Für dich, first mixes, playlists), personal mixes, **Wieder einsteigen**, server history **Zuletzt gehört** (local list as fallback), **Neu in der Mediathek**, **Am meisten gehört**, and optional Entdecken, Deine Top-Künstler, Deine Genres, Favoriten, Playlists; offline hint when the server is unreachable. Mac Start shows the same mixes and server history. Apple TV has its own **Start** tab with the same sections as focusable shelves |
 | Personal mixes | `GET /library/mixes`: "Dein Mix 1…n" with genre label plus the listening mixes, collage cover, track count, play button; **Für dich** overview (also on Apple TV) and mix page with play, shuffle, play next, add to queue, **Als Playlist speichern** (needs a connection) and track sorting like the web. Older servers keep the previous local genre shortcuts |
 | Artist page | **Am meisten gehört** from `GET /library/artists/{id}/top-tracks` (5, up to 10 on request); queue actions for the whole artist |
 | Library/search | Library artists, albums, tracks, genre filter and authenticated artwork. iPhone search has an always visible field: results while typing as Top-Treffer, Titel, Alben, Künstler, Playlists; recent searches; genres to browse |
@@ -30,11 +30,47 @@ from implemented features and simulator verification.
 | Mobile visualization | Four mobile FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
 | Lyrics | Cached/plain text; LRC timing, optional following and tap-to-seek when time tags exist |
 | Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all with **Rückgängig** for a few seconds, save as playlist, local resume state and explicit restore that keeps each entry's section and the started context; whole albums, artists, playlists and mixes can be queued. Apple TV edits upcoming entries through a long-press menu and has the same filter |
-| Song/genre radio | Existing local-library server recommendations; **Automatisch weiterspielen** (on by default) appends at most 12 similar titles when two or fewer remain, leaving out titles already queued or played earlier in the session (last 200, per account and server), and tops up again at the next lookahead; an explicitly started song radio keeps its full list. Not with repeat, sleep timer or offline-only playback |
+| Song/genre radio | Existing local-library server recommendations; **Automatisch weiterspielen** (on by default) appends at most 12 similar titles when two or fewer remain, leaving out titles already queued or played earlier in the session (last 200, per account and server), and tops up again at the next lookahead. Build 43: song, artist, album and genre radio from rows, pages, the player and Für dich; a started radio keeps its first list, names itself "Radio: …" and tops up even with autoplay off. Not with repeat, sleep timer or offline-only playback |
 | Listening history | Local recent metadata and queue; plays and skips with the web's rules (`ListeningTracker`) as idempotent server events, also for local files, queued while offline and scoped to origin/account |
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## Für dich, radio everywhere and Start anpassen (build 43)
+
+Ships as 0.6.0 (43); the server API is unchanged (1.10.1 is enough). Apple TV and Mac keep
+their screens; the queue headings of a radio ("Radio: …", "Mehr aus diesem Radio") apply there too.
+
+- **Für dich (iPhone/iPad):** `GET /library/mixes` grouped by `MixGroup`: **Für dich gemacht**
+  (genre mixes, In Dauerschleife), **Entdecken** (Wiederentdecken, Noch nicht gehört, Neu in der
+  Mediathek), **Rückblick**, and **Weitere Mixe** for kinds or groups this version does not know.
+  A server `group` wins over the kind. The first mix is a large card with its own play button.
+  **Deine Genres** (genres of the genre mixes first) open the genre page; **Deine Top-Künstler**
+  ranks artists by plays in `GET /history?sort=frequent`, each opens its page or starts its radio.
+  Reached from "Alle" on Start's mixes and from the **Für dich** quick tile.
+- **Mix page:** Abspielen, Zufall, Einreihen, Als Playlist speichern and now **Offline**; the
+  "…" menu pins the mix to Start.
+- **Radio:** track rows and their context menus (**Radio starten**), the player's "…" menu
+  (**Radio zu diesem Titel**), the album page's "…" menu (**Album-Radio starten**), the artist
+  page's **Radio** tile, the genre page's **Genre-Radio starten** and "Für dich". The queue is
+  replaced by the seed and the radio's titles minus the session's played titles, named
+  "Radio: …" (queue header, player title line, radio symbol and VoiceOver label in the mini
+  player), and topped up with 12 new titles whenever two or fewer remain, also with autoplay
+  off. A banner confirms the start. How each radio is seeded: see HANDOFF.md, build 43.
+- **Start anpassen:** at the end of Start and under Einstellungen → Darstellung. Shown sections
+  with drag handles and a minus, hidden ones with a plus; VoiceOver offers "Nach oben"/"Nach
+  unten". Optional sections: Entdecken, Deine Top-Künstler, Deine Genres, Favoriten (first 20
+  favorites) and Playlists. **Zurücksetzen** restores the defaults and unpins everything.
+- **Pinned tiles:** **An Start anheften** / **Von Start lösen** in the menus of playlists,
+  albums, artists, mixes, genres, favorites and in quick-access tiles; up to eight. Pinned tiles
+  lead quick access; favorites, Für dich, mixes and playlists fill the rest. A pinned playlist
+  that was deleted or a mix not offered today stays hidden.
+- **Weiterhören and Wieder einsteigen:** Start's one large card resumes a paused queue (or the
+  saved one) with its source and progress; **Wieder einsteigen** lists the last twelve albums,
+  playlists, mixes, artists, radios and favorites started on this device.
+- **Storage:** `HomeLayout` (version 1) and `RecentSources` in `UserDefaults` per server and
+  account, read tolerantly: unknown sections and pins are dropped, new sections join at their
+  default place.
 
 ## iPhone and iPad polish (build 42)
 
