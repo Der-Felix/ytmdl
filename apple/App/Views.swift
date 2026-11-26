@@ -101,11 +101,15 @@ struct RootView: View {
         }
         .sheet(isPresented: $expandedPlayer, onDismiss: applyWidgetRoute) {
             NavigationStack {
-                NowPlayingView(model: model)
+                NowPlayingView(model: model, openCollection: playerLinks)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Schließen", systemImage: "chevron.down") { expandedPlayer = false } } }
             }
             #if os(macOS)
             .frame(minWidth: 760, idealWidth: 900, minHeight: 540, idealHeight: 640)
+            #endif
+            #if os(iOS)
+            // Drag down to close; the grabber says so.
+            .presentationDragIndicator(.visible)
             #endif
         }
         .alert("YTMDL", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
@@ -182,6 +186,22 @@ struct RootView: View {
             #endif
             selectDestination(.playlists)
         }
+    }
+    /// The player's artist and album links. They close the player and open the
+    /// page in the shown tab (iPhone) or the detail column (iPad).
+    private var playerLinks: ((CollectionKind) -> Void)? {
+        #if os(iOS)
+        return { kind in
+            expandedPlayer = false
+            if sizeClass == .compact, let tab = destination {
+                var path = mobilePaths[tab] ?? NavigationPath()
+                path.append(kind)
+                mobilePaths[tab] = path
+            } else { detailPath.append(kind) }
+        }
+        #else
+        return nil
+        #endif
     }
     #if os(iOS)
     private func mobileTab(_ item: Destination) -> some View {
@@ -314,6 +334,15 @@ struct RootView: View {
         if let track = model.player.current {
             #if os(macOS)
             desktopMiniPlayer(track)
+            #elseif os(iOS)
+            // iPad: the iPhone's mini player on a floating bar of limited width.
+            MobileMiniPlayer(model: model) { expandedPlayer = true }
+                .padding(.vertical, 4)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .frame(maxWidth: 640)
+                .padding(.horizontal, 16).padding(.bottom, 8)
+                .frame(maxWidth: .infinity)
+                .id(track.id)
             #else
             HStack(spacing: 14) {
                 Button { expandedPlayer = true } label: {
@@ -1460,13 +1489,15 @@ struct PlaylistListView: View {
 
 struct NowPlayingView: View {
     var model: AppModel
+    /// Artist and album links of the iPhone and iPad player.
+    var openCollection: ((CollectionKind) -> Void)? = nil
     @State private var tab = 0
     var body: some View {
         GeometryReader { geometry in
             #if os(macOS)
             desktopPlayer(geometry.size)
             #elseif os(iOS)
-            MobilePlayerView(model: model)
+            MobilePlayerView(model: model, openCollection: openCollection)
             #else
             ScrollView {
                 if let track = model.player.current {

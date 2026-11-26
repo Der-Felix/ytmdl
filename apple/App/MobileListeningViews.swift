@@ -4,37 +4,6 @@ import YTMDLCore
 import UIKit
 import MediaPlayer
 
-struct MobileMiniPlayer: View {
-    var model: AppModel
-    var open: () -> Void
-    var body: some View {
-        if let track = model.player.current {
-            HStack(spacing: 8) {
-                Button(action: open) {
-                    HStack(spacing: 10) {
-                        ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 40, height: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(track.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                            Text(model.player.loading ? "Wird geladen …" : track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        // The system bottom accessory has a compact height;
-                        // expanded playback exposes fully scaled metadata.
-                        }.dynamicTypeSize(...DynamicTypeSize.xxxLarge).frame(maxWidth: .infinity, alignment: .leading)
-                    }.contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel("Player öffnen: \(track.title), \(track.artistText)").accessibilityIdentifier("mobile-mini-player-open")
-                Button { model.player.toggle() } label: {
-                    Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen")
-                Button { model.player.next() } label: { Image(systemName: "forward.end.fill").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }
-                    .buttonStyle(.plain).accessibilityLabel("Nächster Titel")
-            }.padding(.horizontal, 12).padding(.vertical, 6)
-                // Swiping up opens the player, like tapping the title.
-                .contentShape(Rectangle())
-                .simultaneousGesture(DragGesture(minimumDistance: 16).onEnded { drag in
-                    if drag.translation.height < -24 && abs(drag.translation.width) < abs(drag.translation.height) { open() }
-                })
-        }
-    }
-}
 
 #endif
 
@@ -353,197 +322,32 @@ struct DownloadPreferences: View {
 
 #endif
 
-#if os(iOS)
-struct MobilePlayerView: View {
-    var model: AppModel
-    @State private var tab = "Warteschlange"
-    @State private var adding = false
-    @State private var playlistSelection: [Track] = []
-    @State private var queueQuery = ""
-    @State private var tools = false
-    @AppStorage("mobileCoverColors") private var coverColors = true
-    @AppStorage("mobileVisualizerPlacement") private var placement = "overlay"
-    @Environment(\.colorScheme) private var scheme
-    private var accent: Color {
-        guard coverColors, let color = model.player.artworkPalette?.accent.button else { return .pink }
-        return Color(red: color.red, green: color.green, blue: color.blue)
-    }
-    private func coverSize(_ size: CGSize) -> CGFloat { min(360, max(180, min(size.width - 48, size.height * 0.38))) }
-    var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                if let track = model.player.current {
-                    VStack(spacing: 22) {
-                        let side = coverSize(geometry.size)
-                        Group {
-                            if model.player.visualizationEnabled && placement == "background" {
-                                MobileSpectrum(player: model.player).frame(height: 300)
-                                    .padding(18).allowsHitTesting(false).accessibilityHidden(true)
-                            } else {
-                                // On the cover the bars stay inside its rounded
-                                // square: same width, clipped to the same corners.
-                                ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: side, height: side)
-                                    .overlay(alignment: .bottom) {
-                                        if model.player.visualizationEnabled {
-                                            MobileSpectrum(player: model.player).frame(height: min(100, side * 0.32))
-                                                .padding(.horizontal, 12).padding(.bottom, 10)
-                                                .allowsHitTesting(false).accessibilityHidden(true)
-                                        }
-                                    }
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    .shadow(color: .black.opacity(0.18), radius: 20, y: 12)
-                            }
-                        }.frame(maxWidth: .infinity)
-                        HStack(alignment: .center, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                // Two lines at most, shrinking a little before
-                                // the tail is cut; the artist keeps its own line.
-                                Text(track.title).font(.title2.bold()).lineLimit(2).truncationMode(.tail).minimumScaleFactor(0.8)
-                                Text(track.artistText).font(.title3).foregroundStyle(.secondary).lineLimit(1)
-                                if !track.album.isEmpty && track.album != track.title { Text(track.album).font(.caption).foregroundStyle(.secondary) }
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                            if !model.offlineMode {
-                                Button { Task { await model.toggleFavorite(track) } } label: { Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Favorit umschalten").disabled(model.pendingFavorites.contains(track.id))
-                            }
-                            Menu {
-                                if !model.offlineMode {
-                                    Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; adding = true }
-                                    Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
-                                    Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) }
-                                    Button("Wiedergabe übergeben", systemImage: "arrow.up.forward.app") { Task { await model.saveHandoff() } }
-                                }
-                                Button("Klang & Wiedergabe", systemImage: "slider.horizontal.3") { tools = true }
-                            } label: { Image(systemName: "ellipsis").font(.system(size: 20, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Titel-Aktionen")
-                        }
-                        VStack(spacing: 6) {
-                            Slider(value: Binding(get: { min(model.player.position, model.player.duration) }, set: { model.player.seek($0) }), in: 0...max(1, model.player.duration)).accessibilityLabel("Wiedergabeposition")
-                            HStack { Text(formatTime(model.player.position)).accessibilityIdentifier("playbackElapsed"); Spacer(); Text(formatTime(model.player.duration)) }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        }
-                        HStack(spacing: min(20, max(0, (geometry.size.width - 48 - 246) / 4))) {
-                            Button { model.player.shuffle() } label: { Image(systemName: "shuffle").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Nächste Titel mischen").accessibilityIdentifier("mobile-player-shuffle")
-                            Button { model.player.previous() } label: { Image(systemName: "backward.end.fill").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Vorheriger Titel").accessibilityIdentifier("mobile-player-previous")
-                            Button { model.player.toggle() } label: { Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 30, weight: .semibold)).frame(width: 70, height: 70).background(accent, in: Circle()).foregroundStyle(.white).contentShape(Circle()) }.accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen").accessibilityIdentifier("mobile-player-toggle")
-                            Button { model.player.next() } label: { Image(systemName: "forward.end.fill").font(.system(size: 22, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Nächster Titel").accessibilityIdentifier("mobile-player-next")
-                            Button {
-                                if model.player.repeatOne { model.player.setRepeatOne(false); model.player.repeatAll = false }
-                                else if model.player.repeatAll { model.player.setRepeatOne(true) }
-                                else { model.player.repeatAll = true }
-                            } label: { Image(systemName: model.player.repeatOne ? "repeat.1" : "repeat").font(.system(size: 22, weight: .semibold)).foregroundStyle(model.player.repeatAll || model.player.repeatOne ? Color.pink : Color.primary).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel(model.player.repeatOne ? "Einzeltitel wiederholen" : model.player.repeatAll ? "Warteschlange wiederholen" : "Wiederholung aus").accessibilityIdentifier("mobile-player-repeat")
-                        }.buttonStyle(.plain)
-                        HStack { SystemVolumeSlider().frame(height: 36); AirPlayPicker().frame(width: 44, height: 44) }.accessibilityLabel("Lautstärke und Audioausgabe")
-                        HStack {
-                            Text(track.codec?.uppercased() ?? "Audio").font(.caption).foregroundStyle(.secondary)
-                            if model.offline.audioURL(track.id) != nil { Label("Offline", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary) }
-                            Spacer()
-                            Button("Werkzeuge", systemImage: "slider.horizontal.3") { tools = true }.font(.subheadline)
-                        }
-                        if model.player.loading { ProgressView("Titel wird geladen …") }
-                        if let error = model.player.error { Text(error).font(.callout).foregroundStyle(.secondary); Button("Erneut versuchen") { model.player.resume() } }
-                        Picker("Player-Bereich", selection: $tab) { ForEach(["Warteschlange", "Lyrics"], id: \.self) { Text($0).tag($0) } }.pickerStyle(.segmented)
-                        if tab == "Lyrics" { MobileLyricsView(player: model.player) }
-                        else { mobileQueue }
-                    }.padding(24).frame(maxWidth: 760).frame(maxWidth: .infinity)
-                } else { ContentUnavailableView("Musik auswählen", systemImage: "play.circle", description: Text("Öffne ein Album oder eine Playlist.")) }
-            }.background {
-                if coverColors, let palette = model.player.artworkPalette {
-                    LinearGradient(colors: [Color(red: palette.dominant.red, green: palette.dominant.green, blue: palette.dominant.blue).opacity(scheme == .dark ? 0.32 : 0.13), Color.primary.opacity(0.02)], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
-                }
-            }
-        }.navigationTitle("Jetzt läuft").navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom, spacing: 0) { QueueUndoBar(player: model.player) }
-        .sheet(isPresented: $tools) { NavigationStack { MobileAudioSettings(model: model).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fertig") { tools = false } } } } }
-        .sheet(isPresented: $adding) { AddToPlaylistSheet(model: model, tracks: playlistSelection) }
-    }
-    private var mobileQueue: some View {
-        LazyVStack(spacing: 8) {
-            HStack {
-                Text("\(model.player.queue.tracks.count) Titel").font(.subheadline).foregroundStyle(.secondary)
-                Spacer()
-                Menu("Warteschlange", systemImage: "ellipsis.circle") {
-                    if !model.offlineMode {
-                        Button("Als Playlist speichern", systemImage: "music.note.list") { playlistSelection = model.player.queue.tracks; adding = true }
-                    }
-                    Button("Nächste leeren") { model.player.clearUpcoming() }.disabled(model.player.queue.index + 1 >= model.player.queue.tracks.count)
-                    Button("Leeren und stoppen", role: .destructive) { model.player.clearQueue() }
-                }.accessibilityIdentifier("mobile-queue-tools")
-            }
-            Toggle(isOn: Binding(get: { model.player.autoplay }, set: { model.player.setAutoplay($0) })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Automatisch weiterspielen").font(.subheadline.weight(.medium))
-                    Text("Spielt am Ende der Warteschlange ähnliche Titel aus deiner Bibliothek.").font(.caption).foregroundStyle(.secondary)
-                }
-            }.accessibilityIdentifier("mobile-queue-autoplay")
-            // Styled like the playlist filter: rounded, secondary fill,
-            // magnifier and a clear button.
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                TextField("Warteschlange filtern", text: $queueQuery).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .accessibilityIdentifier("mobile-queue-filter")
-                if !queueQuery.isEmpty {
-                    Button { queueQuery = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44) }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Filter leeren")
-                }
-            }.padding(.leading, 14).padding(.trailing, queueQuery.isEmpty ? 14 : 0).frame(minHeight: 48)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-            let queue = model.player.queue
-            ForEach(queue.rows(filter: queueQuery)) { row in
-                let index = row.position, track = row.track
-                if row.startsSection {
-                    HStack(spacing: 6) {
-                        if row.section == .autoplay { Image(systemName: "sparkles").accessibilityHidden(true) }
-                        Text(row.section.heading(queue.context)).lineLimit(2)
-                        Spacer(minLength: 8)
-                        if row.section != .current { Text("\(queue.count(of: row.section))").monospacedDigit() }
-                    }.font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-                        .padding(.horizontal, 10).padding(.top, 10)
-                        .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
-                }
-                HStack(spacing: 12) {
-                    Button { model.player.select(index) } label: {
-                        HStack(spacing: 12) {
-                            ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 48, height: 48)
-                            // The title takes every point up to the indicator and the menu.
-                            VStack(alignment: .leading, spacing: 2) { Text(track.title).font(.headline).lineLimit(1); Text(track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                                .frame(maxWidth: .infinity, alignment: .leading).layoutPriority(1)
-                            if index == model.player.queue.index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink).accessibilityLabel("Läuft gerade") }
-                        }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                    }.buttonStyle(.plain).layoutPriority(1).accessibilityIdentifier("mobile-queue-track-\(index)")
-                    Menu {
-                        Button("Nach oben", systemImage: "arrow.up") { model.player.moveInQueue(from: index, to: index - 1) }.disabled(index == 0)
-                        Button("Nach unten", systemImage: "arrow.down") { model.player.moveInQueue(from: index, to: index + 1) }.disabled(index + 1 >= model.player.queue.tracks.count)
-                        if !model.offlineMode {
-                            Button("Zur Playlist hinzufügen", systemImage: "music.note.list") { playlistSelection = [track]; adding = true }
-                            Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", systemImage: "heart") { Task { await model.toggleFavorite(track) } }.disabled(model.pendingFavorites.contains(track.id))
-                        }
-                        Button("Als Nächstes", systemImage: "text.insert") { model.player.playNextInQueue(index) }.disabled(index <= model.player.queue.index + 1)
-                        Button("Aus Warteschlange entfernen", systemImage: "minus.circle", role: .destructive) { model.player.removeFromQueue(index) }.disabled(index == model.player.queue.index)
-                        if !model.offlineMode { Button("Offline speichern", systemImage: "arrow.down.circle") { model.offline.enqueue([track]) } }
-                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.fixedSize().accessibilityLabel("Warteschlangen-Aktionen für \(track.title)").accessibilityIdentifier("mobile-queue-actions-\(index)")
-                }.padding(.vertical, 10).padding(.leading, 10).padding(.trailing, 2).background(index == model.player.queue.index ? Color.pink.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 14))
-            }
-        }
-    }
-}
-
-struct SystemVolumeSlider: UIViewRepresentable {
-    func makeUIView(context: Context) -> MPVolumeView { let view = MPVolumeView(); return view }
-    func updateUIView(_ uiView: MPVolumeView, context: Context) { }
-}
-
-#endif
-
 struct MobileLyricsView: View {
     var player: PlayerModel
     var viewportHeight: CGFloat = 360
+    /// In place of the cover (iPhone and iPad player): every kind of lyrics
+    /// stays inside `viewportHeight`, always follows and says when there are none.
+    var compact = false
     @State private var following = true
     @State private var timeline = LyricsTimeline("")
     var body: some View {
         Group {
-        if timeline.lines.isEmpty { Text(cleanLyrics(player.lyrics)).font(.title3).lineSpacing(12).frame(maxWidth: .infinity, alignment: .leading) }
+        if timeline.lines.isEmpty {
+            let text = cleanLyrics(player.lyrics)
+            if compact {
+                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView("Kein Liedtext", systemImage: "quote.bubble", description: Text("Für diesen Titel ist kein Liedtext gespeichert."))
+                        .frame(height: viewportHeight)
+                } else {
+                    ScrollView { Text(text).font(.title3.weight(.semibold)).lineSpacing(10).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 16) }
+                        .frame(height: viewportHeight).scrollIndicators(.hidden)
+                }
+            } else { Text(text).font(.title3).lineSpacing(12).frame(maxWidth: .infinity, alignment: .leading) }
+        }
         else {
             let lines = timeline.lines
             let active = timeline.activeIndex(at: player.position)
-            Toggle("Lyrics folgen", isOn: $following).font(.subheadline)
+            if !compact { Toggle("Lyrics folgen", isOn: $following).font(.subheadline) }
             ScrollViewReader { reader in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 20) {

@@ -279,6 +279,20 @@ enum SleepMode: String, CaseIterable, Identifiable {
         reportSkip(movingTo: queue.tracks[index]); queue.select(index); loadCurrent()
     }
     func shuffle() { queue.shuffleUpcoming(); cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization() }
+    /// "Zufall" as a mode (iPhone and iPad): off restores the context's order.
+    func setShuffle(_ enabled: Bool) {
+        guard enabled != queue.isShuffled else { return }
+        queue.setShuffle(enabled); cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
+    }
+    var repeatMode: RepeatMode { RepeatMode(all: repeatAll, one: repeatOne) }
+    /// Off, whole queue or this title; the same cycle on every platform.
+    func setRepeat(_ mode: RepeatMode) {
+        switch mode {
+        case .off: setRepeatOne(false); repeatAll = false
+        case .all: setRepeatOne(false); repeatAll = true
+        case .one: setRepeatOne(true)
+        }
+    }
     func removeFromQueue(_ index: Int) {
         guard queue.remove(at: index) else { return }
         cancelPrepared(); prepareNext(); updateNowPlaying(); refreshNormalization()
