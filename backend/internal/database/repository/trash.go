@@ -37,6 +37,7 @@ const trashPayloadSQL = `SELECT t.title,jsonb_build_object(
    'events',COALESCE((SELECT jsonb_agg(to_jsonb(e)) FROM playback_events e WHERE e.track_id=t.id),'[]'),
    'skips',COALESCE((SELECT jsonb_agg(to_jsonb(s)) FROM track_skips s WHERE s.track_id=t.id),'[]'),
    'skip_events',COALESCE((SELECT jsonb_agg(to_jsonb(e)) FROM skip_events e WHERE e.track_id=t.id),'[]'),
+   'exclusions',COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM listening_exclusions x WHERE x.track_id=t.id),'[]'),
    'playlists',COALESCE((SELECT jsonb_agg(to_jsonb(p)||jsonb_build_object('next_ids',ARRAY(SELECT n.track_id FROM playlist_tracks n WHERE n.playlist_id=p.playlist_id AND n.position>p.position ORDER BY n.position),'previous_ids',ARRAY(SELECT n.track_id FROM playlist_tracks n WHERE n.playlist_id=p.playlist_id AND n.position<p.position ORDER BY n.position DESC))) FROM playlist_tracks p WHERE p.track_id=t.id),'[]'))
    FROM tracks t WHERE t.id=$1 FOR UPDATE`
 
@@ -231,6 +232,9 @@ func (c *Catalog) RestoreTrashMetadata(ctx context.Context, e *TrashEntry) error
 			// Skips (schema 22) follow the same pattern; older entries have none.
 			`INSERT INTO track_skips SELECT s.* FROM jsonb_populate_recordset(NULL::track_skips,COALESCE($1::jsonb->'skips','[]'::jsonb)) s JOIN users u ON u.id=s.user_id ON CONFLICT DO NOTHING`,
 			`INSERT INTO skip_events SELECT e.* FROM jsonb_populate_recordset(NULL::skip_events,COALESCE($1::jsonb->'skip_events','[]'::jsonb)) e JOIN users u ON u.id=e.user_id ON CONFLICT DO NOTHING`,
+			// "Weniger davon" for the track (schema 23); the lyrics search
+			// row is not kept, the indexer rebuilds it.
+			`INSERT INTO listening_exclusions SELECT x.* FROM jsonb_populate_recordset(NULL::listening_exclusions,COALESCE($1::jsonb->'exclusions','[]'::jsonb)) x JOIN users u ON u.id=x.user_id ON CONFLICT DO NOTHING`,
 		} {
 			if _, err := tx.ExecContext(ctx, q, payload); err != nil {
 				return err

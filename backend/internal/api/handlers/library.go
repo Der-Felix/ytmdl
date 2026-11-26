@@ -205,7 +205,9 @@ func (h *Handlers) LibrarySearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	results, err := h.deps.Catalog.SearchLibrary(r.Context(), q, limit)
+	// lyrics=false leaves out the lyric hits.
+	withLyrics := !strings.EqualFold(queryString(r, "lyrics"), "false") && queryString(r, "lyrics") != "0"
+	results, err := h.deps.Catalog.SearchLibraryWithLyrics(r.Context(), q, limit, withLyrics)
 	if err != nil {
 		response.Error(w, r, err)
 		return

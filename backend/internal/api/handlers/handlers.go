@@ -84,6 +84,9 @@ type Handlers struct {
 	healthMu        sync.Mutex
 	healthCache     map[string]checkResult
 	healthCached    time.Time
+
+	// radio keeps recent radio stations for their next batches.
+	radio radioStations
 }
 
 // New builds the handler set.
@@ -256,6 +259,9 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 		"version":        h.deps.Version,
 		"uptime_seconds": int(time.Since(h.deps.StartedAt).Seconds()),
 		"checks":         checks,
+		// features lists optional capabilities; clients check it before
+		// calling the matching endpoints (absent on older servers).
+		"features": ListeningFeatures,
 	}})
 }
 

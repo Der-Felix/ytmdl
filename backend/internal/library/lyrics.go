@@ -149,6 +149,7 @@ func (s *Service) RefreshTrackLyrics(ctx context.Context, trackID string) (*Trac
 		return nil, err
 	}
 	result.CheckedAt = &checkedAt
+	s.indexLyricsNow(ctx, trackID, path, resolved.Body(), &checkedAt)
 	return result, nil
 }
 
@@ -165,7 +166,11 @@ func (s *Service) DeleteTrackLyrics(ctx context.Context, trackID string) error {
 	if err := s.library.RemoveLyrics(audioPath); err != nil {
 		return err
 	}
-	return s.catalog.SetLyricsState(ctx, trackID, music.LyricsUnknown, "", time.Time{})
+	if err := s.catalog.SetLyricsState(ctx, trackID, music.LyricsUnknown, "", time.Time{}); err != nil {
+		return err
+	}
+	s.indexLyricsNow(ctx, trackID, "", "", nil)
+	return nil
 }
 
 // trackAudio resolves a track and the absolute path of its first existing

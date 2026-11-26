@@ -129,8 +129,15 @@ Playlists and favorites are strictly scoped to the authenticated user.
 | `POST` | `/api/v1/history` | User | Record a play: `{track_id, event_id}`; idempotent per `event_id` (16–100 characters). |
 | `POST` | `/api/v1/history/skips` | User | Record a skip (moved on before the track counted as a play): `{track_id, event_id}`; idempotent per `event_id`. |
 | `DELETE` | `/api/v1/history` | User | Clear the current user's plays and skips. |
-| `GET` | `/api/v1/library/mixes` | User | The current user's personal mixes (`id`, `kind`, `title`, `description`, `genre`, `track_count`, `cover_track_ids`, `cover_release_ids`); stable for a calendar day. |
+| `GET` | `/api/v1/history/stats` | User | Listening statistics for `period=week`, `month`, `year` or `all`: totals, top tracks, artists, releases and genres, activity per day or month. See [Listening API](features/listening.md). |
+| `GET` | `/api/v1/library/mixes` | User | The current user's personal mixes (`id`, `kind`, `title`, `description`, `group`, `genre`, `artist_id`, `decade`, `daypart`, `track_count`, `cover_track_ids`, `cover_release_ids`); stable for a calendar day; optional `tz`. Kinds and rules: [Listening API](features/listening.md). |
 | `GET` | `/api/v1/library/mixes/{id}` | User | One mix with up to 50 `tracks`; `404 PLAYLIST_NOT_FOUND` when the mix is not offered today. |
+| `GET` | `/api/v1/library/radio` | User | Local radio as a track list: `seed` (track), `artist`, `release` or `genre`, `nonce`, `limit` (1–500), `exclude`. |
+| `GET` | `/api/v1/library/radio/station` | User | A titled radio station in batches (`limit` 1–100) with a no-repeat `cursor`. |
+| `GET` | `/api/v1/listening-preferences` | User | The user's exclusions for mixes and radio (artist, genre, track). |
+| `PUT` | `/api/v1/listening-preferences` | User | Add an exclusion: `{kind, target}`; idempotent. |
+| `DELETE` | `/api/v1/listening-preferences/{id}` | User | Remove an exclusion; `404 PREFERENCE_NOT_FOUND` for an unknown or foreign id. |
+| `DELETE` | `/api/v1/listening-preferences?kind=&target=` | User | Remove the exclusion of that target, if any. |
 
 ---
 
@@ -139,7 +146,7 @@ Playlists and favorites are strictly scoped to the authenticated user.
 | Method | Endpoint | Access | Purpose |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/v1/library/stats` | User | Library storage, codec, and lyrics statistics. |
-| `GET` | `/api/v1/library/search` | User | Search local catalog across artists, releases, and tracks. |
+| `GET` | `/api/v1/library/search` | User | Search local catalog across artists, releases, and tracks, plus a `lyrics` group of tracks found by their stored lyrics with a snippet (`lyrics=false` skips it). |
 | `GET` | `/api/v1/library/artists` | User | Paginated local artists list. |
 | `GET` | `/api/v1/library/artists/{id}` | User | Local artist detail with size and the releases that have at least one track in the library. |
 | `GET` | `/api/v1/library/releases` | User | Paginated local releases list. Filters: `q`, `artist_id`, `release_type`, `year`, `genre`, `genre_missing=true`, and `in_library=true` for only releases with at least one track in the library (`track_count_in_library > 0`); without it, releases known only from a download attempt or a subscription are listed too. |
@@ -198,7 +205,7 @@ them, and every repair or delete action require an Administrator.
 
 | Method | Endpoint | Access | Purpose |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/v1/health` | Public | System health check (application, database, ffmpeg, yt-dlp). |
+| `GET` | `/api/v1/health` | Public | System health check (application, database, ffmpeg, yt-dlp); `features` lists optional capabilities such as `radio.station` or `history.stats` for clients to check. |
 | `GET` | `/api/v1/settings` | User | Get effective server settings and provider statuses. |
 | `PUT` | `/api/v1/settings` | Admin | Update dynamic server settings (workers, lyrics toggles, match score, subscription defaults, `subscription_include_appearances`, `complete_releases`: place copies of recordings the library already holds on further releases of new downloads). |
 | `GET` | `/api/v1/storage/status` | Admin | Inspect storage volume capacity, mount health, and identity guard. |

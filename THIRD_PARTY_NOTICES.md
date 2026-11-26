@@ -14,6 +14,7 @@ The backend is written in Go and utilizes the following direct third-party modul
 | `golang.org/x/net` | Complementary networking libraries | BSD-3-Clause | https://pkg.go.dev/golang.org/x/net |
 | `golang.org/x/sync` | Concurrency primitives & singleflight | BSD-3-Clause | https://pkg.go.dev/golang.org/x/sync |
 | `golang.org/x/sys` | Low-level OS primitives & flock support | BSD-3-Clause | https://pkg.go.dev/golang.org/x/sys |
+| `golang.org/x/text` | Unicode normalization for the lyrics search | BSD-3-Clause | https://pkg.go.dev/golang.org/x/text |
 | `gopkg.in/yaml.v3` | YAML parsing & configuration | MIT / Apache-2.0 | https://github.com/go-yaml/yaml |
 
 ## Frontend Dependencies (TypeScript / React)

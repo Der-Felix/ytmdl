@@ -1022,13 +1022,22 @@ func (c *Catalog) SearchTracks(ctx context.Context, query string, limit int) ([]
 }
 
 // SearchLibrary performs a combined ranked search across artists, releases, and tracks.
+// Lyric hits come as their own group, as many as track hits (at most
+// MaxLyricsHits).
 func (c *Catalog) SearchLibrary(ctx context.Context, query string, limit int) (*music.LibrarySearchResults, error) {
+	return c.SearchLibraryWithLyrics(ctx, query, limit, true)
+}
+
+// SearchLibraryWithLyrics is SearchLibrary; withLyrics=false leaves the
+// lyrics group empty and skips its query.
+func (c *Catalog) SearchLibraryWithLyrics(ctx context.Context, query string, limit int, withLyrics bool) (*music.LibrarySearchResults, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return &music.LibrarySearchResults{
 			Artists:  []music.LibraryArtist{},
 			Releases: []music.LibraryRelease{},
 			Tracks:   []music.LibraryTrack{},
+			Lyrics:   []music.LyricsSearchHit{},
 		}, nil
 	}
 	if len(q) > 200 {
@@ -1058,10 +1067,18 @@ func (c *Catalog) SearchLibrary(ctx context.Context, query string, limit int) (*
 		return nil, err
 	}
 
+	lyrics := []music.LyricsSearchHit{}
+	if withLyrics {
+		if lyrics, err = c.SearchLyrics(ctx, q, min(trackLimit, MaxLyricsHits)); err != nil {
+			return nil, err
+		}
+	}
+
 	return &music.LibrarySearchResults{
 		Artists:  artists,
 		Releases: releases,
 		Tracks:   tracks,
+		Lyrics:   lyrics,
 	}, nil
 }
 

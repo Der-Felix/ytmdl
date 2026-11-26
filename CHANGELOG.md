@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Server
+
+- **More mixes:** up to six **Dein Mix** genre mixes; **Mix: <Künstler>** for up to three of your top artists (the artist and artists of its main genre); **Deine 90er**-style mixes for up to two decades you listen to; **Favoriten-Mix** (favourites not played for a while first); **Vergessene Favoriten** (favourites not played for 90 days); and a mix for the time of day (**Dein Morgen-Mix**, **Nachmittags-**, **Abend-**, **Nacht-Mix**) from what you played at that time in the last 120 days. Every mix gets a `group` (`made_for_you`, `discover`, `rewind`) for clients that lay out sections; `GET /api/v1/library/mixes` accepts `tz` for the user's day and time of day. Existing fields are unchanged.
+- **Radio from an artist, album or genre:** `GET /api/v1/library/radio` also takes `artist`, `release`, `limit` and `exclude` (its response is unchanged). The new `GET /api/v1/library/radio/station` returns a titled station ("Radio: …") in batches with a cursor that never repeats a track.
+- **Listening statistics:** `GET /api/v1/history/stats?period=week|month|year|all` with totals, estimated listening time, top tracks, artists, albums and genres and plays per day or month, from the timestamped plays the server has recorded since 1.1.0.
+- **Lyrics search:** the library search also finds tracks by their stored lyrics, as a separate `lyrics` group with a snippet around the match; case and umlauts do not matter. A background indexer builds the search index from the `.lrc`/`.txt` files, which stay the source of truth.
+- **Less of this:** `GET/PUT/DELETE /api/v1/listening-preferences` keeps an artist, a genre or a track ("Weniger davon") out of mixes and radio; playing them yourself stays possible.
+- `GET /api/v1/health` lists these capabilities under `features`, so clients can tell a server that has them. The contract is in `docs/features/listening.md`.
+- The database moves to schema 24: migration 23 adds `listening_exclusions`, migration 24 adds `track_lyrics_search`. Both only add new tables; no existing row is rewritten.
+- The server opens its database sessions with PostgreSQL's JIT compiler turned off. On a large library it spent more time compiling the radio queries than running them; seeded radio on 150,000 tracks now answers in about a third of a second instead of two seconds.
+
 ### Apple app (native preview, independent version)
 
 - **Listening like the web's Hören:** Start shows Weiterhören, the personal mixes (with a **Für dich** overview and mix pages), the server's **Zuletzt gehört** and **Neu in der Mediathek**; the artist page shows **Am meisten gehört**. Plays and skips follow the web player's rules and reach `POST /history` and `POST /history/skips`, including those of local files, which are queued until the account is online. The queue shows **Als Nächstes**, **Weiter aus: …** and **Ähnliche Titel**, with **Automatisch weiterspielen** on by default; albums, artists, playlists and mixes can be queued as a whole. No server change.
