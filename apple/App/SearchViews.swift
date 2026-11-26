@@ -53,7 +53,10 @@ struct MobileSearchView: View {
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
         .navigationTitle("Suche")
-        .searchable(text: $query, prompt: "Titel, Alben, Künstler")
+        // Always visible under the title. The automatic placement hid the
+        // field in the bar until the list was pulled down, also in the
+        // search tab, which is why search looked broken on the iPhone.
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Titel, Alben, Künstler")
         .searchFocused($fieldFocused)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()

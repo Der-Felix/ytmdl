@@ -386,11 +386,13 @@ private struct QuickTile<Artwork: View>: View {
     var body: some View {
         HStack(spacing: 10) {
             artwork.frame(width: ListenMetrics.tileHeight, height: ListenMetrics.tileHeight).clipped()
+            // Two lines for a long name rather than an ellipsis mid-word; with
+            // a subtitle both keep one line so the tile height stays 56 pt.
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
-            }.lineLimit(textSize.isAccessibilitySize ? 2 : 1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(textSize.isAccessibilitySize ? 3 : subtitle == nil ? 2 : 1)
+                if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(textSize.isAccessibilitySize ? 2 : 1) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.trailing, 8)
         .frame(maxWidth: .infinity, minHeight: ListenMetrics.tileHeight, alignment: .leading)

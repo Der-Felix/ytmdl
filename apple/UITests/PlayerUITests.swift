@@ -60,9 +60,18 @@ final class PlayerUITests: XCTestCase {
         app.buttons["Als Playlist speichern"].tap()
         XCTAssertTrue(app.buttons["Erstellen und Titel hinzufügen"].waitForExistence(timeout: 5))
         app.navigationBars["Zur Playlist hinzufügen"].buttons["Schließen"].tap()
+        // A sheet asked for while the previous one is still closing is dropped:
+        // wait until it is gone, and ask once more if nothing appeared.
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.navigationBars["Zur Playlist hinzufügen"])
+        waitForExpectations(timeout: 10)
         for _ in 0..<5 { if app.buttons["Werkzeuge"].isHittable { break }; app.swipeDown() }
-        app.buttons["Werkzeuge"].tap()
         let normalization = app.switches["playback-normalization"]
+        app.buttons["Werkzeuge"].tap()
+        if !normalization.waitForExistence(timeout: 5) {
+            attach(app, name: "Sound settings did not open")
+            print(app.debugDescription)
+            if app.buttons["Werkzeuge"].isHittable { app.buttons["Werkzeuge"].tap() }
+        }
         XCTAssertTrue(normalization.waitForExistence(timeout: 5))
         XCTAssertTrue(normalization.isHittable)
         // Settings persist across fixture launches. Test the rendered enabled
@@ -544,7 +553,7 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Pause"].exists)
         attach(app, name: "Tablet player controls without audio")
         app.buttons["Schließen"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["Deine Musik.\nDein Moment."].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 5))
     }
     @MainActor func testSidebarSwitchDiscardsOpenedCollections() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Sidebar regression requires iPad.")
