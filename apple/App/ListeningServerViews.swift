@@ -230,9 +230,7 @@ struct PreferencesView: View {
         case .track:
             ArtworkView(model: model, kind: "tracks", id: entry.target, cornerRadius: 6)
         default:
-            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(GenreTile.color(for: entry.target).gradient)
-                .overlay { Image(systemName: "guitars").font(.footnote.weight(.semibold)).foregroundStyle(.white) }
-                .accessibilityHidden(true)
+            GenreThumbnail(model: model, genre: entry.target)
         }
     }
     private func detail(_ entry: ListeningPreference) -> String? {

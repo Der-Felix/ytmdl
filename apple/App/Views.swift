@@ -69,13 +69,14 @@ struct RootView: View {
                 #elseif os(iOS)
                 if model.offlineMode {
                     NavigationStack { OfflineLibraryView(model: model) }
+                        // Inside the inset: the confirmation sits above the mini player.
+                        .overlay(alignment: .bottom) { NoticeBanner(model: model, edge: .bottom) }
                         .safeAreaInset(edge: .bottom, spacing: 0) {
                             if model.player.current != nil {
                                 MobileMiniPlayer(model: model) { expandedPlayer = true }
                                     .background(.regularMaterial)
                             }
                         }
-                        .overlay(alignment: .top) { NoticeBanner(model: model) }
                 }
                 else if sizeClass == .compact {
                     // No player button in the bars: the mini player opens it
@@ -94,13 +95,17 @@ struct RootView: View {
                         .tabViewBottomAccessory(isEnabled: model.player.current != nil) {
                             MobileMiniPlayer(model: model) { expandedPlayer = true }
                         }
-                        .overlay(alignment: .top) { NoticeBanner(model: model) }
                         // Light confirmations: one per queue or playlist notice and
                         // per confirmed favorite (the open player taps for its own).
                         .sensoryFeedback(.success, trigger: model.notice?.id) { _, new in new != nil }
                         .sensoryFeedback(trigger: model.favoriteConfirmations) { _, _ in expandedPlayer ? nil : SensoryFeedback.impact(weight: .light) }
                 } else {
-                    splitView.overlay(alignment: .top) { NoticeBanner(model: model) }
+                    // At the bottom of the detail, clear of its navigation bar
+                    // and above the floating mini player.
+                    splitView.overlay(alignment: .bottom) {
+                        NoticeBanner(model: model, edge: .bottom)
+                            .padding(.bottom, model.player.current != nil ? 84 : 8)
+                    }
                 }
                 #else
                 if model.offlineMode {
@@ -144,8 +149,9 @@ struct RootView: View {
         #endif
         .onChange(of: destination) { if !detailPath.isEmpty { detailPath = NavigationPath() } }
         // The server may have been updated while the app was away: ask again
-        // what it offers (statistics, lyrics search, stations, exclusions).
-        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.refreshServerFeatures() } } }
+        // what it offers (statistics, lyrics search, stations, exclusions),
+        // reload the daily mixes once they are old and send waiting plays.
+        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.refreshAfterForeground() } } }
         .onChange(of: model.user?.id) { old, _ in
             detailPath = NavigationPath(); detailVisit = UUID()
             #if os(iOS)
@@ -227,6 +233,10 @@ struct RootView: View {
             // Every page of the tab, pushed ones included: nothing
             // readable shows between the mini player and the tab bar.
             .scrollEdgeEffectStyle(.hard, for: .bottom)
+            // Confirmations sit at the bottom of the tab's safe area, right
+            // above the mini player and the tab bar, on root and pushed pages
+            // alike, so they never cover the back button or a toolbar.
+            .overlay(alignment: .bottom) { NoticeBanner(model: model, edge: .bottom) }
     }
     /// Choosing the shown tab again returns to its first page, like the
     /// system apps; on Search it also puts the cursor in the field.
@@ -563,9 +573,8 @@ struct ArtworkView: View {
         }.aspectRatio(1, contentMode: .fit).clipped().clipShape(RoundedRectangle(cornerRadius: cornerRadius)).accessibilityHidden(true)
     }
     @ViewBuilder private var online: some View {
-        if !model.offlineMode, let client = model.client, let request = try? client.artworkRequest(kind: kind, id: id) {
-            AsyncImage(request: request) { image in image.resizable().scaledToFill() } placeholder: { placeholder }
-                .asyncImageURLSession(client.session)
+        if !model.offlineMode, model.client != nil {
+            CachedArtworkImage(model: model, kind: kind, id: id) { placeholder }
         } else { placeholder }
     }
     @ViewBuilder private var placeholder: some View {
@@ -604,6 +613,49 @@ private struct OfflineArtworkImage: View {
             guard !Task.isCancelled else { return }
             if let decoded { OfflineArtworkCache.images.setObject(.init(decoded), forKey: url as NSURL); image = decoded } else { failed = true }
         }
+    }
+}
+
+/// A server cover from the model's session cache (`ArtworkImageCache`):
+/// fetched once, decoded off the main thread at the size it is shown. A
+/// cover already decoded in this session shows in the first frame; one that
+/// arrives fades in over the placeholder (instantly with Reduce Motion), and
+/// the frame never changes size.
+struct CachedArtworkImage<Placeholder: View>: View {
+    var model: AppModel
+    var kind: String
+    var id: String
+    @ViewBuilder var placeholder: Placeholder
+    /// The cover this view fetched, with what it is the cover of: a reused
+    /// row never shows the previous title's cover.
+    @State private var loaded: (key: String, image: CGImage)?
+    @State private var pixels: CGFloat = 0
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var size: Int { ArtworkImageCache.bucket(forPixels: pixels) }
+    private var identity: String { kind + "/" + id }
+    private struct Key: Equatable { let kind: String; let id: String; let size: Int; let ready: Bool }
+    var body: some View {
+        let cached: CGImage? = pixels > 0 ? (model.artworkImages.cached(kind: kind, id: id, size: size) ?? nil) : nil
+        let fetched: CGImage? = loaded?.key == identity ? loaded?.image : nil
+        // The placeholder sets the frame; the cover only fills it.
+        placeholder
+            .overlay {
+                if let image = cached ?? fetched {
+                    Image(decorative: image, scale: 1).resizable().scaledToFill()
+                        .transition(.opacity)
+                }
+            }
+            .clipped()
+            .onGeometryChange(for: CGFloat.self) { max($0.size.width, $0.size.height) } action: { pixels = $0 * displayScale }
+            .task(id: Key(kind: kind, id: id, size: size, ready: pixels > 0)) {
+                guard pixels > 0, let client = model.client else { return }
+                if model.artworkImages.cached(kind: kind, id: id, size: size) != nil { return }
+                let wanted = identity
+                let image = await model.artworkImages.image(kind: kind, id: id, size: size, client: client)
+                guard !Task.isCancelled, let image, wanted == identity else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { loaded = (wanted, image) }
+            }
     }
 }
 

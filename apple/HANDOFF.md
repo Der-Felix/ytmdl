@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.6.1, build 44
+# Apple app handoff — preview 0.6.2, build 45
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,37 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 45: genre artwork and stability pass (CI only, not installed)
+
+Builds on build 44; see FEATURES.md "Genre artwork and stability (build 45)". New files:
+`App/ArtworkStore.swift` (registered like `StatsViews.swift`), `Sources/YTMDLCore/GenreArtwork.swift`
+and `Tests/YTMDLCoreTests/GenreArtworkTests.swift`.
+
+- **Core:** `GenreCovers` (limits, cover pick, per-account storage key), `GenreCoverLayout`
+  (tint, single, pair, 2 × 2), `GenreCoverIndex` (persisted LRU mapping, 400 genres),
+  `GenreCoverQueue` (newest-visible first, 4 running, 48 waiting, retry after 60 s),
+  `LatestRequests` (drop stale answers), `FeedFreshness` (30 min or a new day) and
+  `StationPaging.committing` (a top-up only commits onto the cursor it started from).
+  `ListeningPreferences` keeps entries being lifted (`removing`) so a list loaded meanwhile does
+  not bring them back.
+- **App:** `ArtworkImageCache` (session cache of decoded covers in four pixel buckets, one
+  request per cover, 404 remembered) and `GenreArtworkStore` (model-owned, visibility-driven via
+  `loadsGenreCovers`), both on `AppModel` and reset with the library. `CachedArtworkImage`
+  replaces `AsyncImage` in `ArtworkView`. `GenreTile`/`GenreThumbnail` in `ForYouViews.swift`.
+- **Fixes:** Start/Für dich feed load is model-owned and single-flight (a cancelled view task no
+  longer marks shelves failed or the server unreachable) and refreshes on foreground when stale;
+  statistics drop stale answers and never stick on the skeleton; radio top-ups are single-flight
+  per station and drop tracks queued meanwhile; the favourites shelf keeps its tracks on a
+  failed reload; the genre list got a retry; large JSON decodes off the main thread; the
+  `AVAudioSession` calls run on a serial queue (`AudioSessionQueue` in `PlayerModel.swift`) and
+  interruptions resume playback when the system allows it.
+- **Notice:** `NoticeBanner(edge: .bottom)` is placed per tab on iPhone (above the mini player)
+  and over the split view on iPad, never over a navigation bar.
+- **Fixture:** genres `Elektronisch`, `Pop`, `Ambient` (four albums, mosaic) and `Jazz` (none,
+  tint fallback); `/library/releases` honours `genre` and `limit`.
+- **Left open:** the exclude/allow server ordering if both are sent within one request round
+  trip; the iPad mini player on pushed pages was not rechecked.
 
 ## Build 44: server 1.11 listening features (CI only, not installed)
 

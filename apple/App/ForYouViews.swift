@@ -28,11 +28,11 @@ extension AppModel {
         guard let results = try? await search(name) else { return nil }
         return LibraryMatch.index(of: name, in: results.artists.map(\.name)).map { results.artists[$0] }
     }
-    /// The first favorites for Start's "Favoriten" shelf; empty on failure.
-    func favoriteShelfTracks() async -> [Track] {
-        guard !offlineMode, let client else { return [] }
-        let tracks = (try? await client.get("/library/tracks", query: [.init(name: "favorite", value: "true"), .init(name: "limit", value: "20")]) as [Track]) ?? []
-        return self.client === client ? tracks : []
+    /// The first favorites for Start's "Favoriten" shelf; nil on failure.
+    func favoriteShelfTracks() async -> [Track]? {
+        guard !offlineMode, let client else { return nil }
+        let tracks = try? await client.get("/library/tracks", query: [.init(name: "favorite", value: "true"), .init(name: "limit", value: "20")]) as [Track]
+        return self.client === client ? tracks : nil
     }
     /// Starts a remembered radio again ("Wieder einsteigen").
     /// The saved context keeps the seed's ID only, so the new queue starts
@@ -66,29 +66,121 @@ struct PinToStartButton: View {
 
 // MARK: - Shared cards
 
-/// A genre to browse: a deep color derived from its name (stable across
-/// launches), white text with at least 4.5:1 contrast.
+/// A genre to browse, led by its music: covers of the genre's newest albums
+/// (one, a pair or a 2 × 2 mosaic) under a dark scrim that keeps the white
+/// name readable on the brightest cover. The genre's own deep colour (stable
+/// across launches) is the placeholder while covers load and stays when the
+/// genre has none. Fixed proportions, so nothing moves when covers arrive.
 struct GenreTile: View {
+    var model: AppModel
     var name: String
     var showsRadio = false
+    @Environment(\.dynamicTypeSize) private var textSize
+    /// Wide enough for two lines of a long German genre name over the covers.
+    private var aspect: CGFloat { textSize.isAccessibilitySize ? 1.25 : 1.6 }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: ListenMetrics.cardRadius, style: .continuous) }
     var body: some View {
-        HStack(alignment: .bottom) {
-            Text(name).font(.headline).foregroundStyle(.white).lineLimit(2).multilineTextAlignment(.leading)
-            Spacer(minLength: 4)
-            if showsRadio {
-                Image(systemName: "dot.radiowaves.left.and.right").font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.85))
-                    .accessibilityHidden(true)
+        Color.clear
+            .aspectRatio(aspect, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .background { GenreArtwork(model: model, genre: name) }
+            .overlay { GenreScrim() }
+            .overlay(alignment: .bottomLeading) {
+                HStack(alignment: .lastTextBaseline, spacing: 6) {
+                    Text(name).font(.headline).foregroundStyle(.white).lineLimit(2).multilineTextAlignment(.leading)
+                        .minimumScaleFactor(0.8)
+                        .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if showsRadio {
+                        Image(systemName: "dot.radiowaves.left.and.right").font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.9))
+                            .accessibilityHidden(true)
+                    }
+                }
+                .padding(12)
             }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 72, alignment: .bottomLeading)
-        .background(Self.color(for: name).gradient, in: RoundedRectangle(cornerRadius: ListenMetrics.cardRadius, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: ListenMetrics.cardRadius, style: .continuous))
+            .clipShape(shape)
+            .contentShape(shape)
+            .loadsGenreCovers(model, name)
     }
     static func color(for name: String) -> Color {
         var hash: UInt32 = 2_166_136_261
         for byte in name.lowercased().utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
         return Color(hue: Double(hash % 360) / 360, saturation: 0.6, brightness: 0.42)
+    }
+}
+
+/// Darkens the lower part of a genre tile: at least 4.5:1 for white text
+/// where the name sits, whatever the cover; the top keeps the cover's colour.
+private struct GenreScrim: View {
+    var body: some View {
+        LinearGradient(stops: [.init(color: .black.opacity(0), location: 0.25),
+                               .init(color: .black.opacity(0.55), location: 0.62),
+                               .init(color: .black.opacity(0.78), location: 1)],
+                       startPoint: .top, endPoint: .bottom)
+            .allowsHitTesting(false).accessibilityHidden(true)
+    }
+}
+
+/// The covers of a genre filling the space it gets; the genre's colour
+/// while they load and when it has none. Loading belongs to the model
+/// (`GenreArtworkStore`); views only ask when they appear.
+struct GenreArtwork: View {
+    var model: AppModel
+    var genre: String
+    var body: some View {
+        let tint = GenreTile.color(for: genre)
+        ZStack {
+            Rectangle().fill(tint.gradient)
+            switch GenreCoverLayout(model.genreArtwork.covers(for: genre)) {
+            case .tint:
+                EmptyView()
+            case .single(let id):
+                cover(id, tint)
+            case .pair(let first, let second):
+                HStack(spacing: 1) { cover(first, tint); cover(second, tint) }
+            case .mosaic(let ids):
+                // Equal quarters: stacks share their space evenly between flexible cells.
+                VStack(spacing: 1) {
+                    HStack(spacing: 1) { cover(ids[0], tint); cover(ids[1], tint) }
+                    HStack(spacing: 1) { cover(ids[2], tint); cover(ids[3], tint) }
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+    private func cover(_ id: String, _ tint: Color) -> some View {
+        CachedArtworkImage(model: model, kind: "releases", id: id) {
+            Rectangle().fill(tint.gradient)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A small square of a genre's covers for rows (the library's genres, the
+/// statistics, "Empfehlungen") and Start's pinned tile.
+struct GenreThumbnail: View {
+    var model: AppModel
+    var genre: String
+    var cornerRadius: CGFloat = 6
+    var body: some View {
+        GenreArtwork(model: model, genre: genre)
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            // Rows live in lazy lists (built as they scroll in) or short stacks,
+            // so appearing is the right moment; a List may not report scroll visibility.
+            .onAppear { model.genreArtwork.request(genre) }
+            .onDisappear { model.genreArtwork.withdraw(genre) }
+    }
+}
+
+extension View {
+    /// Asks for a genre's covers while the view is actually on screen in its
+    /// scroll view, not merely built: the genre grid of Suche is not lazy, so
+    /// `onAppear` would ask for every genre of the library at once.
+    func loadsGenreCovers(_ model: AppModel, _ genre: String) -> some View {
+        onScrollVisibilityChange(threshold: 0.05) { visible in
+            if visible { model.genreArtwork.request(genre) } else { model.genreArtwork.withdraw(genre) }
+        }
     }
 }
 
@@ -444,7 +536,7 @@ struct ForYouHubView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: textSize.isAccessibilitySize ? 280 : 150), spacing: ListenMetrics.tileGap)],
                           spacing: ListenMetrics.tileGap) {
                     ForEach(allGenres ? genres : Array(genres.prefix(limit)), id: \.self) { genre in
-                        NavigationLink(value: LibraryRoute.genre(genre)) { GenreTile(name: genre, showsRadio: true) }
+                        NavigationLink(value: LibraryRoute.genre(genre)) { GenreTile(model: model, name: genre, showsRadio: true) }
                             .buttonStyle(ListenPressStyle())
                             .accessibilityLabel(genre).accessibilityHint("Öffnet das Genre mit seinem Radio")
                             .accessibilityIdentifier("foryou-genre-" + genre)

@@ -85,15 +85,31 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     private(set) var serverHealthKnown = false
     /// Where the running server station continues (`radio.station`).
     @ObservationIgnored var stationPaging: StationPaging?
+    /// The top-up of a server station on its way; a second top-up of the
+    /// same station waits for it instead of asking with the same cursor.
+    @ObservationIgnored var stationBatch: (key: String, task: Task<[Track]?, Never>)?
+    /// The running load of the start screen's server parts (`loadListenFeed`).
+    @ObservationIgnored var feedTask: (id: UUID, task: Task<Void, Never>)?
     /// The listener's exclusions ("Empfehlungen"), with `listening.preferences`.
     var preferences = ListeningPreferences()
     var preferencesPhase = ListenFeed.Phase.idle
     /// This week's statistics for Start's "Statistik" card.
     var weekStats: ListeningStats?
 
+    // MARK: Covers
+
+    /// Server covers of this session, decoded once at the size they are shown.
+    let artworkImages = ArtworkImageCache()
+    /// The covers of genre tiles, remembered per account and server.
+    let genreArtwork = GenreArtworkStore()
+
     init(offlineLibrary: OfflineLibrary? = nil) {
         offline = offlineLibrary ?? OfflineLibrary.shared
         player.offlineLibrary = offline
+        genreArtwork.fetch = { [weak self] genre in
+            guard let self else { throw CancellationError() }
+            return try await self.genreCoverReleases(genre)
+        }
         player.onTrackPlayed = { [weak self] track in
             guard let self else { return }
             listeningHistory.record(track)
@@ -121,8 +137,19 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     /// account's Start layout and recently started sources load with it.
     private func scopeListeningSession() {
         loadHomePreferences()
-        guard let user, let client else { player.setSessionScope(nil); return }
+        guard let user, let client else { player.setSessionScope(nil); genreArtwork.configure(storageKey: nil); return }
         player.setSessionScope(client.server.url.absoluteString.lowercased() + "\n" + user.id)
+        genreArtwork.configure(storageKey: GenreCovers.storageKey(server: client.server.url.absoluteString, userID: user.id))
+    }
+    /// A few of a genre's newest albums for its tile: the request of the genre
+    /// page with the smallest limit a 2 × 2 mosaic needs.
+    func genreCoverReleases(_ genre: String) async throws -> [Release] {
+        guard !offlineMode, let client else { throw CancellationError() }
+        let releases: [Release] = try await client.get("/library/releases", query: [
+            .init(name: "genre", value: genre), .init(name: "limit", value: String(GenreCovers.requestLimit)),
+            .init(name: "sort", value: "recent"), .init(name: "order", value: "desc")])
+        guard self.client === client else { throw CancellationError() }
+        return releases
     }
 
     /// Takes over what `/health` says the server offers. Exclusions load once
@@ -360,7 +387,10 @@ struct AppNotice: Identifiable, Equatable, Sendable {
         }
         // Without an answer the genre row stays hidden (or keeps the last list).
         switch genreResult {
-        case .success(let genres): self.genres = genres
+        case .success(let genres):
+            self.genres = genres
+            // New albums may have arrived: each genre tile asks once more when it shows.
+            genreArtwork.refresh()
         case .failure(let error): failures.append(error)
         }
         if self.catalogGeneration == catalogGeneration { connecting = false }
@@ -539,8 +569,9 @@ struct AppNotice: Identifiable, Equatable, Sendable {
         serverFeatures = .none; serverVersion = nil; serverHealthKnown = false; stationPaging = nil
         preferences = ListeningPreferences(); preferencesPhase = .idle; weekStats = nil
         artistDirectory.reset()
+        artworkImages.reset()
         listeningHistory.configure(server: nil, userID: nil, persist: false)
-        feed.clear()
+        feed.clear(); feedTask?.task.cancel(); feedTask = nil; stationBatch = nil
         query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil
     }
     static let previewLimit = 48
@@ -758,9 +789,34 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     /// already queued or played in this session. A queue restored after a
     /// relaunch (no cursor) starts the station again. Nil on failure; empty
     /// once the station is used up.
+    ///
+    /// Two top-ups of the same station never run side by side (the lookahead
+    /// and the end of the queue can both ask): the second gets the first's
+    /// answer. A top-up that finishes after another station started (or the
+    /// same one anew) keeps its titles to itself and leaves that station's
+    /// cursor alone.
     private func nextStationBatch(_ station: RadioStation, client: APIClient, limit: Int) async -> [Track]? {
         let key = station.context.id ?? ""
-        var paging = stationPaging?.key == key ? stationPaging! : StationPaging(key: key, nonce: UUID().uuidString)
+        if let running = stationBatch, running.key == key {
+            // The other caller may have queued these titles already.
+            return unqueued(await running.task.value)
+        }
+        let task = Task { [weak self] () -> [Track]? in
+            await self?.fetchStationBatch(station, key: key, client: client, limit: limit)
+        }
+        stationBatch = (key, task)
+        let result = await task.value
+        if stationBatch?.task == task { stationBatch = nil }
+        return unqueued(result)
+    }
+    private func unqueued(_ tracks: [Track]?) -> [Track]? {
+        guard let tracks else { return nil }
+        let queued = Set(player.queue.tracks.map(\.id))
+        return tracks.filter { !queued.contains($0.id) }
+    }
+    private func fetchStationBatch(_ station: RadioStation, key: String, client: APIClient, limit: Int) async -> [Track]? {
+        let before = stationPaging
+        var paging = before?.key == key ? before! : StationPaging(key: key, nonce: UUID().uuidString)
         guard !paging.exhausted else { return [] }
         let exclude = StationPaging.exclusions(queue: player.queue.tracks.map(\.id), played: player.sessionPlayedIDs)
         do {
@@ -768,13 +824,15 @@ struct AppNotice: Identifiable, Equatable, Sendable {
                 query: station.stationQuery(nonce: paging.nonce, limit: limit, cursor: paging.cursor, exclude: exclude))
             guard self.client === client else { return nil }
             paging.advance(page)
-            stationPaging = paging
-            let known = Set(exclude)
+            guard let committed = StationPaging.committing(paging, startedFrom: before, current: stationPaging) else { return nil }
+            stationPaging = committed
+            // Titles queued or played meanwhile stay out as well.
+            let known = Set(exclude).union(player.queue.tracks.map(\.id)).union(player.sessionPlayedIDs)
             return page.tracks.filter { !known.contains($0.id) }
         } catch {
             // A cursor the server no longer reads (400): the next top-up starts
             // the station anew; `exclude` keeps out what is already queued.
-            if case PlayerError.server(400, _, _) = error, self.client === client, stationPaging?.key == key { stationPaging = nil }
+            if case PlayerError.server(400, _, _) = error, self.client === client, stationPaging == before, before?.key == key { stationPaging = nil }
             return nil
         }
     }
@@ -857,8 +915,10 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     func extendAutoplay(seed: Track, expectedCount: Int, lastID: String) async {
         guard !offlineMode, let client else { return }
         if let station = player.radioStation, serverFeatures.stations {
-            // The station continues at its cursor; nothing repeats.
-            guard let batch = await nextStationBatch(station, client: client, limit: PlaybackQueue.autoplayBatch), !batch.isEmpty else { return }
+            // The station continues at its cursor; nothing repeats. A queue
+            // replaced meanwhile (another radio, an album) gets nothing.
+            guard let batch = await nextStationBatch(station, client: client, limit: PlaybackQueue.autoplayBatch), !batch.isEmpty,
+                  self.client === client, player.radioStation?.context.id == station.context.id else { return }
             player.appendAutoplay(batch, expectedCount: expectedCount, lastID: lastID)
             return
         }

@@ -86,11 +86,15 @@ struct NoMatchesView: View {
 }
 
 /// A short confirmation after "Als Nächstes spielen", "Zur Warteschlange" or
-/// "Zur Playlist hinzufügen", in the style of the queue's undo bar. It fades
-/// in from the top edge (only fades with Reduce Motion) and leaves by itself.
+/// "Zur Playlist hinzufügen", in the style of the queue's undo bar. It comes
+/// in from its edge (only fades with Reduce Motion) and leaves by itself.
+/// The tabs and the iPad show it at the bottom, above the mini player and
+/// the tab bar: at the top it covered the back button of pushed pages.
 struct NoticeBanner: View {
     var model: AppModel
+    var edge: Edge = .top
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var inset: EdgeInsets { edge == .top ? EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 0) : EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0) }
     var body: some View {
         VStack {
             if let notice = model.notice {
@@ -114,10 +118,10 @@ struct NoticeBanner: View {
                     .padding(.leading, 16).padding(.trailing, 10).padding(.vertical, 2)
                     .background(.regularMaterial, in: Capsule())
                     .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-                    .padding(.horizontal, ListenMetrics.pageMargin).padding(.top, 4)
+                    .padding(.horizontal, ListenMetrics.pageMargin).padding(inset)
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("app-notice")
-                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity))
                 } else {
                     HStack(spacing: 10) {
                         Image(systemName: notice.symbol).foregroundStyle(.tint).accessibilityHidden(true)
@@ -126,10 +130,10 @@ struct NoticeBanner: View {
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .background(.regularMaterial, in: Capsule())
                     .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-                    .padding(.horizontal, ListenMetrics.pageMargin).padding(.top, 4)
+                    .padding(.horizontal, ListenMetrics.pageMargin).padding(inset)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("app-notice")
-                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity))
                     .onTapGesture { model.notice = nil }
                 }
             }
@@ -182,7 +186,10 @@ struct MobileHomeView: View {
             .navigationDestination(item: $pushed) { CollectionView(model: model, kind: $0) }
             .task(id: FavoritesKey(shown: layout.isVisible(.favorites), favorites: model.favoriteIDs.count, user: model.user?.id)) {
                 guard layout.isVisible(.favorites) else { return }
-                favoriteTracks = await model.favoriteShelfTracks()
+                let tracks = await model.favoriteShelfTracks()
+                // A cancelled or failed load keeps the shelf as it was instead of emptying it.
+                guard !Task.isCancelled, let tracks else { return }
+                favoriteTracks = tracks
             }
             .task(id: StatsKey(wanted: statsWanted, user: model.user?.id)) {
                 if statsWanted { await model.loadWeekStats() }
@@ -408,10 +415,8 @@ struct MobileHomeView: View {
                 }.accessibilityLabel("Mix: \(mix.title)").accessibilityHint("Öffnet den Mix")
             case .genre:
                 NavigationLink(value: LibraryRoute.genre(pin.itemID)) {
-                    QuickTile(title: pin.title) {
-                        Image(systemName: "guitars.fill").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(GenreTile.color(for: pin.itemID).gradient).accessibilityHidden(true)
+                    QuickTile(title: pin.title, subtitle: "Genre") {
+                        GenreThumbnail(model: model, genre: pin.itemID, cornerRadius: 0)
                     }
                 }.accessibilityLabel("Genre: \(pin.title)").accessibilityHint("Öffnet das Genre mit seinem Radio")
             case .favorites:
@@ -609,7 +614,7 @@ struct MobileHomeView: View {
                 }
                 ListenShelf {
                     ForEach(Array(genres.prefix(12)), id: \.self) { genre in
-                        NavigationLink(value: LibraryRoute.genre(genre)) { GenreTile(name: genre, showsRadio: true).frame(width: cardWidth) }
+                        NavigationLink(value: LibraryRoute.genre(genre)) { GenreTile(model: model, name: genre, showsRadio: true).frame(width: cardWidth) }
                             .buttonStyle(ListenPressStyle())
                             .accessibilityLabel(genre).accessibilityHint("Öffnet das Genre mit seinem Radio")
                             .accessibilityIdentifier("home-genre-" + genre)

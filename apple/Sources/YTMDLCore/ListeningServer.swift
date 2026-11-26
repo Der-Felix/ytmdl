@@ -520,6 +520,36 @@ public struct ListeningPreferences: Equatable, Sendable {
         guard !entries.contains(where: { $0.id == entry.id }) else { return }
         entries.insert(entry, at: min(max(0, index), entries.count))
     }
+
+    /// Exclusions lifted on the device whose removal the server has not
+    /// confirmed yet. A list loaded meanwhile still has them; they must not
+    /// come back from it.
+    public private(set) var removing: [Removal] = []
+    public struct Removal: Hashable, Sendable {
+        public let kind: PreferenceKind
+        public let target: String
+    }
+    /// Takes the exclusion out at once and remembers that its removal is on the way.
+    @discardableResult public mutating func beginRemoval(_ kind: PreferenceKind, _ target: String) -> (entry: ListeningPreference, index: Int)? {
+        let removal = Removal(kind: kind, target: target)
+        if !removing.contains(removal) { removing.append(removal) }
+        return remove(kind, target)
+    }
+    /// The server answered the removal (either way).
+    public mutating func endRemoval(_ kind: PreferenceKind, _ target: String) {
+        if let index = removing.firstIndex(of: Removal(kind: kind, target: target)) { removing.remove(at: index) }
+    }
+    /// The server's list with what is still on its way: exclusions waiting
+    /// for confirmation stay, exclusions being lifted stay out.
+    public func merged(with server: [ListeningPreference]) -> ListeningPreferences {
+        let pending = entries.filter { entry in
+            entry.isPending && !server.contains { saved in saved.kind == entry.kind && saved.target == entry.target }
+        }
+        let kept = server.filter { saved in !removing.contains { saved.targets($0.kind, $0.target) } }
+        var result = ListeningPreferences(pending + kept)
+        result.removing = removing
+        return result
+    }
 }
 
 /// Which queued titles an exclusion affects, judged on the device: a title

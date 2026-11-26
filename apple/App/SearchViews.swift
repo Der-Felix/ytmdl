@@ -111,7 +111,7 @@ struct MobileSearchView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: textSize.isAccessibilitySize ? 280 : 150), spacing: ListenMetrics.tileGap)],
                           spacing: ListenMetrics.tileGap) {
                     ForEach(shown, id: \.self) { genre in
-                        Button { openGenre(genre) } label: { GenreTile(name: genre) }
+                        Button { openGenre(genre) } label: { GenreTile(model: model, name: genre) }
                             .buttonStyle(ListenPressStyle())
                             .accessibilityLabel(genre).accessibilityHint("Zeigt die Alben dieses Genres in der Bibliothek")
                             .accessibilityIdentifier("search-genre-" + genre)

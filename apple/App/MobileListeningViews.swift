@@ -31,13 +31,8 @@ struct MobileCollectionArtwork: View {
 // Consistent touch surfaces: accent is reserved for the main action and icons.
 struct MobileActionStyle: ButtonStyle {
     var prominent = false
-    private var collectionSurface: Color {
-        #if os(iOS)
-        Color(uiColor: .secondarySystemGroupedBackground)
-        #else
-        Color.primary.opacity(0.06)
-        #endif
-    }
+    private var collectionSurface: Color { actionSurface(plain: plainBackground) }
+    @Environment(\.listenPlainBackground) private var plainBackground
     @Environment(\.isEnabled) private var enabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {

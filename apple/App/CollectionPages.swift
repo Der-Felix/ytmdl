@@ -135,6 +135,9 @@ struct CollectionHeader<Artwork: View>: View {
             }
         }
         .padding(.top, 8)
+        // These pages are plain lists on the system background: the
+        // secondary buttons and tiles take a fill that shows in light mode.
+        .environment(\.listenPlainBackground, true)
     }
 
     private func cover(_ size: CGFloat) -> some View {
