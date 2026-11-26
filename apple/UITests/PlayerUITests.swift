@@ -55,11 +55,17 @@ final class PlayerUITests: XCTestCase {
         app.buttons["Nach unten"].tap()
         XCTAssertEqual(app.buttons["mobile-queue-track-1"].label, title)
         XCTAssertTrue(app.buttons["mobile-player-toggle"].label == "Abspielen")
-        // Sound settings first: opening them right after the playlist sheet
-        // closed dismissed the whole player in CI (on dev too since build 38).
-        for _ in 0..<5 { if app.buttons["Werkzeuge"].isHittable { break }; app.swipeDown() }
+        // After scrolling to the queue, "Werkzeuge" can sit under the player's
+        // navigation bar: the test system still calls it hittable, but the tap
+        // lands on the bar. Scroll back until it is clear of the bar.
+        let werkzeuge = app.buttons["Werkzeuge"]
+        let playerBar = app.navigationBars["Jetzt läuft"]
+        for _ in 0..<6 {
+            if werkzeuge.isHittable && werkzeuge.frame.minY > playerBar.frame.maxY + 8 { break }
+            app.swipeDown()
+        }
         let normalization = app.switches["playback-normalization"]
-        app.buttons["Werkzeuge"].tap()
+        werkzeuge.tap()
         if !normalization.waitForExistence(timeout: 5) {
             attach(app, name: "Sound settings did not open")
             print(app.debugDescription)
