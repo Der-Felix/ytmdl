@@ -1214,6 +1214,8 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(pin.waitForExistence(timeout: 5))
         pin.tap()
         XCTAssertTrue(app.descendants(matching: .any)["app-notice"].waitForExistence(timeout: 5), "Pinning confirms briefly.")
+        // Start is still scrolled to its end from the editor link; a second tap returns to the top.
+        selectTab(app, "Start")
         selectTab(app, "Start")
         let tile = app.buttons["home-pin-playlist-p0"]
         XCTAssertTrue(tile.waitForExistence(timeout: 10), "The pinned playlist leads quick access.")
