@@ -150,7 +150,9 @@ struct MobileHomeView: View {
                         // Settings live behind this button, so the tab bar
                         // keeps four short entries.
                         NavigationLink(value: Destination.settings) {
-                            Image(systemName: "gearshape").font(.title3.weight(.semibold))
+                            // Fixed size: the title next to it already grows, and a
+                            // scaled gear pushed past the edge at the largest sizes.
+                            Image(systemName: "gearshape").font(.system(size: 22, weight: .semibold))
                                 .frame(width: 44, height: 44).contentShape(Rectangle())
                         }
                         .buttonStyle(ListenPressStyle())

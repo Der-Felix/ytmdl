@@ -44,7 +44,7 @@ Builds on build 41; see FEATURES.md "iPhone and iPad polish (build 42)". No new 
   `MobilePageHeader` and apply `TabRootChrome` (navigation bar hidden, page colour behind the
   status bar). The same views pushed from elsewhere keep the system bar. The settings left the
   iPhone tab bar; Start's header links `Destination.settings` (`home-settings`).
-- **Feedback:** `AppModel.announce(_:symbol:)` sets `notice` (`AppNotice`, cleared after 2.4 s);
+- **Feedback:** `AppModel.announce(_:symbol:)` sets `notice` (`AppNotice`, cleared after 4 s);
   `AppModel.enqueue` announces, so iOS track rows, `TrackQuickActions` and offline rows go
   through it. `AddToPlaylistSheet` announces after the server confirmed. `NoticeBanner` sits
   over the iPhone tab view, the iPad split view, offline mode, the player and the queue; the

@@ -5,7 +5,7 @@ import YTMDLCore
 /// "Zur Warteschlange hinzugefügt" and similar: what just happened, in one line.
 struct AppNotice: Identifiable, Equatable, Sendable {
     /// How long a confirmation stays on screen.
-    static let seconds = 2.4
+    static let seconds = 4.0
     let id = UUID()
     let text: String
     let symbol: String

@@ -53,7 +53,7 @@ the German system texts.
   and boxes; one section title style; "Als Nächstes spielen" and "Zur Warteschlange" in every
   menu; every failure offers **Erneut laden**.
 - **Feedback:** "Als Nächstes spielen", "Zur Warteschlange" and "Zur Playlist hinzufügen" show a
-  short banner (2.4 s) with a success haptic; a confirmed favourite taps lightly. Buttons and
+  short banner (4 s) with a success haptic; a confirmed favourite taps lightly. Buttons and
   tiles shrink to 97 % when pressed (140 ms, ease-out); Start's shelves fade in from their
   placeholders. With Reduce Motion nothing moves; the banner only fades.
 - **States:** placeholder rows while a mix, search or artist filter loads; German empty states
