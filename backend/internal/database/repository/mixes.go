@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/music"
 )
@@ -104,38 +106,51 @@ func (c *Catalog) PersonalMixesOn(ctx context.Context, userID string, day time.T
 	if err != nil {
 		return nil, err
 	}
-	mixes, err := b.genreMixes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	add := func(m *PersonalMix, err error) error {
-		if err == nil && m != nil {
-			mixes = append(mixes, *m)
-		}
-		return err
-	}
-	addAll := func(ms []PersonalMix, err error) error {
-		mixes = append(mixes, ms...)
-		return err
-	}
-	steps := []func() error{
-		func() error { return add(b.daypartMix(ctx, daypartAt(day))) },
-		func() error { return addAll(b.artistMixes(ctx)) },
-		func() error { return add(b.kindMix(ctx, MixKindFavorites)) },
-		func() error { return add(b.kindMix(ctx, MixKindOnRepeat)) },
-		func() error { return add(b.kindMix(ctx, MixKindRediscover)) },
-		func() error { return add(b.kindMix(ctx, MixKindForgottenFavorites)) },
-		func() error { return addAll(b.decadeMixes(ctx)) },
-		func() error { return add(b.kindMix(ctx, MixKindUnheard)) },
-		func() error { return add(b.kindMix(ctx, MixKindNew)) },
-	}
-	for _, step := range steps {
-		if err := step(); err != nil {
+	one := func(m *PersonalMix, err error) ([]PersonalMix, error) {
+		if err != nil || m == nil {
 			return nil, err
 		}
+		return []PersonalMix{*m}, nil
+	}
+	kind := func(k string) func(context.Context) ([]PersonalMix, error) {
+		return func(ctx context.Context) ([]PersonalMix, error) { return one(b.kindMix(ctx, k)) }
+	}
+	// The steps are independent; they run side by side on a few
+	// connections and keep this order in the answer.
+	steps := []func(context.Context) ([]PersonalMix, error){
+		b.genreMixes,
+		func(ctx context.Context) ([]PersonalMix, error) { return one(b.daypartMix(ctx, daypartAt(day))) },
+		b.artistMixes,
+		kind(MixKindFavorites),
+		kind(MixKindOnRepeat),
+		kind(MixKindRediscover),
+		kind(MixKindForgottenFavorites),
+		b.decadeMixes,
+		kind(MixKindUnheard),
+		kind(MixKindNew),
+	}
+	results := make([][]PersonalMix, len(steps))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(mixParallelism)
+	for i, step := range steps {
+		g.Go(func() error {
+			ms, err := step(gctx)
+			results[i] = ms
+			return err
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	mixes := []PersonalMix{}
+	for _, ms := range results {
+		mixes = append(mixes, ms...)
 	}
 	return mixes, nil
 }
+
+// mixParallelism bounds the database connections one mix list uses at once.
+const mixParallelism = 3
 
 // PersonalMix returns one mix with its tracks.
 func (c *Catalog) PersonalMix(ctx context.Context, userID, id string) (*PersonalMixDetail, error) {

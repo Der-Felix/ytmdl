@@ -256,7 +256,7 @@ func (c *Catalog) ListeningStatsAt(ctx context.Context, userID, period string, l
 		}
 	}
 	points := map[string]StatsPoint{}
-	if err := c.scanRows(ctx, `SELECT to_char(date_trunc('`+bucket+`',e.played_at AT TIME ZONE $2),'YYYY-MM-DD'),count(*),COALESCE(sum(t.duration_ms),0)::bigint
+	if err := c.scanRows(ctx, `SELECT to_char(date_trunc('`+bucket+`',e.played_at AT TIME ZONE $2::text),'YYYY-MM-DD'),count(*),COALESCE(sum(t.duration_ms),0)::bigint
  FROM playback_events e JOIN tracks t ON t.id=e.track_id WHERE e.user_id=$1 AND e.played_at>=$3 AND e.played_at<=$4 GROUP BY 1`,
 		[]any{userID, tz, start, now}, func(r *sql.Rows) error {
 			var p StatsPoint
