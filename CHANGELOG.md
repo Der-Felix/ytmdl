@@ -11,6 +11,7 @@
 - **Less of this:** `GET/PUT/DELETE /api/v1/listening-preferences` keeps an artist, a genre or a track ("Weniger davon") out of mixes and radio; playing them yourself stays possible.
 - `GET /api/v1/health` lists these capabilities under `features`, so clients can tell a server that has them. The contract is in `docs/features/listening.md`.
 - The database moves to schema 24: migration 23 adds `listening_exclusions`, migration 24 adds `track_lyrics_search`. Both only add new tables; no existing row is rewritten.
+- The server opens its database sessions with PostgreSQL's JIT compiler turned off. On a large library it spent more time compiling the radio queries than running them; seeded radio on 150,000 tracks now answers in about a third of a second instead of two seconds.
 
 ### Apple app (native preview, independent version)
 

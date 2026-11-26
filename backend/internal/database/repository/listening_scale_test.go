@@ -138,6 +138,4 @@ func TestListeningAtLibraryScale(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SHOW jit`).Scan(&jit); err != nil || jit != "off" {
 		t.Errorf("jit = %q (%v), want off", jit, err)
 	}
-	// TEMPORARY: report the timings from CI.
-	t.Errorf("timings: %s; mixes: %s", strings.Join(timings, " "), strings.Join(kinds, " "))
 }

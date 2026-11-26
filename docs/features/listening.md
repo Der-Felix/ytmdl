@@ -312,14 +312,32 @@ listening history keeps them.
 
 ## Cost on a large library
 
-Expected cost for about 150,000 tracks (by construction of the queries and
-the indexes they use; not benchmarked against a production copy):
+`TestListeningAtLibraryScale` builds a library of 150,000 tracks (3,000
+artists, 15,000 releases, 5,000 played tracks, 33,000 timestamped plays,
+50,000 indexed lyrics, a genre, an artist and a track excluded) and times
+every query. On the CI runner, with the race detector:
+
+| Query | Time |
+|---|---|
+| `GET /mixes` (17 mixes) | 1.0–2.8 s |
+| one mix | 0.4 s |
+| personal radio | 1.5–1.6 s (same without history or exclusions) |
+| genre radio, 500 tracks | 0.6 s |
+| track, artist, release radio | 0.12–0.35 s |
+| statistics week / year / all | 0.15–0.25 s |
+| lyrics search | 0.06–0.15 s |
+| `/library/search` with lyrics | 0.13 s |
+
+The server opens its database sessions with `jit=off`: PostgreSQL's JIT
+compiler spent 1.2–1.8 s compiling the radio queries before this, triggered
+by cost estimates alone. A connection URL with `jit=on` keeps it on.
 
 - Mix candidates are bounded by the user's own history or by a daily
   shuffle with a `LIMIT` (2000 liked, 300–600 new per mix); the artist mix
   reads the artists table once and at most 30 related artists through
   `idx_tracks_artist`; the daypart mix reads at most 20,000 events through
-  `playback_events_user_time`. The whole list runs about 20 bounded queries.
+  `playback_events_user_time`. The whole list runs about 20–35 bounded
+  queries, three at a time.
 - Seeded radio expands at most 100 candidate artists through
   `idx_tracks_artist`; the personal and genre radio scan the tracks once, as
   before. A station is computed once and its later batches are a lookup.
