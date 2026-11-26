@@ -141,6 +141,11 @@ extension AppModel {
         guard let client, !tracks.isEmpty else { return }
         let added = next ? player.insertNext(tracks, client: client) : player.append(tracks, client: client)
         if added < tracks.count { error = added == 0 ? "Die Warteschlange ist voll (höchstens 500 Titel)." : "Nur \(added) von \(tracks.count) Titeln passten noch in die Warteschlange (höchstens 500)." }
+        else {
+            let subject = added == 1 ? "1 Titel" : "\(added) Titel"
+            announce(next ? "\(subject) als Nächstes eingereiht" : "\(subject) zur Warteschlange hinzugefügt",
+                     symbol: next ? "text.insert" : "text.badge.plus")
+        }
     }
 }
 
@@ -154,6 +159,15 @@ private var listenSurface: Color {
     Color(uiColor: .secondarySystemGroupedBackground)
     #else
     Color.primary.opacity(0.06)
+    #endif
+}
+/// The radius of buttons, tiles and boxes: on iPhone and iPad the one of
+/// every card (`ListenMetrics.cardRadius`), elsewhere unchanged.
+var listenSurfaceRadius: CGFloat {
+    #if os(iOS)
+    12
+    #else
+    16
     #endif
 }
 
@@ -290,6 +304,10 @@ struct MixDetailView: View {
                     #if !os(tvOS)
                     .listRowSeparator(.hidden)
                     #endif
+                    #if os(iOS)
+                    // The margins of the album and playlist pages.
+                    .listRowInsets(EdgeInsets(top: 8, leading: ListenMetrics.pageMargin, bottom: 24, trailing: ListenMetrics.pageMargin))
+                    #endif
             }
             if let savedPlaylist {
                 Section {
@@ -303,10 +321,22 @@ struct MixDetailView: View {
                     ContentUnavailableView("Diesen Mix gibt es heute nicht", systemImage: "sparkles",
                         description: Text("Mixe werden täglich neu zusammengestellt. Öffne „Für dich“, um die aktuellen Mixe zu sehen."))
                 } else if let failure {
+                    #if os(iOS)
+                    ListenSectionFailure(message: failure) { Task { await load() } }
+                        .listRowInsets(ListenMetrics.rowInsets).listRowSeparator(.hidden).listRowBackground(Color.clear)
+                    #else
                     Text(failure).foregroundStyle(.secondary)
                     Button("Mix erneut laden") { Task { await load() } }
+                    #endif
                 } else if detail == nil {
+                    #if os(iOS)
+                    // The rows' final height while the mix loads.
+                    ForEach(0..<6, id: \.self) { _ in
+                        TrackRowSkeleton().listRowInsets(ListenMetrics.rowInsets).listRowSeparator(.hidden)
+                    }.accessibilityElement(children: .ignore).accessibilityLabel("Mix wird geladen")
+                    #else
                     ProgressView("Mix wird geladen …")
+                    #endif
                 } else if tracks.isEmpty {
                     ContentUnavailableView("Keine Titel mehr verfügbar", systemImage: "sparkles", description: Text("Die Titel dieses Mixes sind nicht mehr in der Mediathek."))
                 }
@@ -315,11 +345,17 @@ struct MixDetailView: View {
                 #endif
                 ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
                     TrackRow(model: model, track: track) { play(start: index) }
+                        #if os(iOS)
+                        .listRowInsets(ListenMetrics.rowInsets)
+                        #endif
                 }
             }
         }
         .navigationTitle(shown.title)
         #if os(iOS)
+        // A plain list like the album and playlist pages: 16 pt margins, no inset cards.
+        .listStyle(.plain)
+        .modifier(ReadableContentWidth())
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
         #endif
@@ -555,21 +591,16 @@ struct QueueUndoBar: View {
 /// widths in a row, at least 44 pt tall.
 struct MixTileStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
-    /// The same surface as `MobileActionStyle`.
-    private var surface: Color {
-        #if os(iOS)
-        Color(uiColor: .secondarySystemGroupedBackground)
-        #else
-        Color.primary.opacity(0.06)
-        #endif
-    }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.labelStyle(MixTileLabelStyle())
             .padding(.horizontal, 8).padding(.vertical, 10).frame(maxWidth: .infinity, minHeight: 60)
             .foregroundStyle(Color.primary)
-            .background { RoundedRectangle(cornerRadius: 16).fill(surface) }
+            .background { RoundedRectangle(cornerRadius: listenSurfaceRadius, style: .continuous).fill(listenSurface) }
+            .contentShape(RoundedRectangle(cornerRadius: listenSurfaceRadius, style: .continuous))
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .opacity(!enabled ? 0.45 : configuration.isPressed ? 0.75 : 1)
-            .contentShape(RoundedRectangle(cornerRadius: 16))
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
     }
 }
 private struct MixTileLabelStyle: LabelStyle {
@@ -592,6 +623,6 @@ struct ListenSectionFailure: View {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary).accessibilityHidden(true)
             Text(message).font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
             Button("Erneut laden", action: retry)
-        }.padding(14).background(listenSurface, in: RoundedRectangle(cornerRadius: 16))
+        }.padding(14).background(listenSurface, in: RoundedRectangle(cornerRadius: listenSurfaceRadius, style: .continuous))
     }
 }

@@ -20,11 +20,97 @@ enum ListenMetrics {
     /// Card width at accessibility text sizes, so two lines of text still fit.
     static let largeCardWidth: CGFloat = 200
     static let tileHeight: CGFloat = 56
-    static let tileRadius: CGFloat = 8
+    /// One radius for every tile, card, action and surface of the pages.
+    static let tileRadius: CGFloat = 12
     static let cardRadius: CGFloat = 12
-    static let rowArtwork: CGFloat = 52
+    /// The cover of a row (titles, albums, artists, the queue).
+    static let rowArtwork: CGFloat = 48
+    /// Insets of every row in a list: 6 pt above and below, the page margin
+    /// in front, room for the "…" button behind.
+    static let rowInsets = EdgeInsets(top: 6, leading: pageMargin, bottom: 6, trailing: 4)
     static let pressDuration = 0.14
     static var surface: Color { Color(uiColor: .secondarySystemGroupedBackground) }
+}
+
+/// The large title of a tab's first page on iPhone. It sits where the system
+/// large title would, without the empty navigation bar row above it, and
+/// wraps or shrinks instead of truncating at the largest text sizes.
+struct MobilePageHeader<Trailing: View>: View {
+    var title: String
+    @ViewBuilder var trailing: Trailing
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(title).font(.largeTitle.bold())
+                .lineLimit(2).minimumScaleFactor(0.7)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+            trailing
+        }
+        .padding(.leading, ListenMetrics.pageMargin).padding(.trailing, ListenMetrics.pageMargin - 6)
+        .padding(.top, 8)
+    }
+}
+extension MobilePageHeader where Trailing == EmptyView {
+    init(title: String) { self.init(title: title) { EmptyView() } }
+}
+
+/// A tab's first page on iPhone shows its own title (`MobilePageHeader`), so
+/// the navigation bar is hidden there; the page colour covers the status bar
+/// so scrolled content never reads behind the clock. Pushed copies of the
+/// same view (Start's "Alle Alben") keep the bar and its back button.
+struct TabRootChrome: ViewModifier {
+    var active: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if active {
+            content
+                .toolbar(.hidden, for: .navigationBar)
+                .overlay(alignment: .top) {
+                    Color.clear.frame(height: 0)
+                        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea(edges: .top))
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+        } else {
+            content
+        }
+    }
+}
+
+/// The empty result of a filter, in German whatever the system's language.
+struct NoMatchesView: View {
+    var query: String
+    var body: some View {
+        ContentUnavailableView("Keine Treffer für „\(query)“", systemImage: "magnifyingglass",
+                               description: Text("Prüfe die Schreibweise oder versuche einen anderen Begriff."))
+    }
+}
+
+/// A short confirmation after "Als Nächstes spielen", "Zur Warteschlange" or
+/// "Zur Playlist hinzufügen", in the style of the queue's undo bar. It fades
+/// in from the top edge (only fades with Reduce Motion) and leaves by itself.
+struct NoticeBanner: View {
+    var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        VStack {
+            if let notice = model.notice {
+                HStack(spacing: 10) {
+                    Image(systemName: notice.symbol).foregroundStyle(.tint).accessibilityHidden(true)
+                    Text(notice.text).font(.subheadline.weight(.semibold)).lineLimit(2)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .padding(.horizontal, ListenMetrics.pageMargin).padding(.top, 4)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("app-notice")
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                .onTapGesture { model.notice = nil }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.notice?.id)
+    }
 }
 
 /// Press feedback for cards and tiles: a slight shrink (not with Reduce
@@ -46,15 +132,34 @@ struct ListenPressStyle: ButtonStyle {
 /// an alert; without a connection a hint points to the saved music.
 struct MobileHomeView: View {
     var model: AppModel
+    /// The first page of the iPhone's Start tab: own title and the settings button.
+    var tabRoot = false
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var feed: ListenFeed { model.feed }
     private var cardWidth: CGFloat { textSize.isAccessibilitySize ? ListenMetrics.largeCardWidth : ListenMetrics.cardWidth }
     private var localGenres: [String] { model.genres.filter { $0 != "__none__" } }
+    private var greeting: String { HomeGreeting.text(hour: Calendar.current.component(.hour, from: .now)) }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ListenMetrics.sectionSpacing) {
+                if tabRoot {
+                    MobilePageHeader(title: greeting) {
+                        // Settings live behind this button, so the tab bar
+                        // keeps four short entries.
+                        NavigationLink(value: Destination.settings) {
+                            // Fixed size: the title next to it already grows, and a
+                            // scaled gear pushed past the edge at the largest sizes.
+                            Image(systemName: "gearshape").font(.system(size: 22, weight: .semibold))
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(ListenPressStyle())
+                        .accessibilityLabel("Einstellungen").accessibilityHint("Konto, Server, Klang und Darstellung")
+                        .accessibilityIdentifier("home-settings")
+                    }.padding(.bottom, ListenMetrics.headerGap - ListenMetrics.sectionSpacing)
+                }
                 if feed.unreachable { offlineHint.padding(.horizontal, ListenMetrics.pageMargin) }
                 quickAccess.padding(.horizontal, ListenMetrics.pageMargin)
                 mixShelf
@@ -64,12 +169,16 @@ struct MobileHomeView: View {
             }
             .padding(.top, 4).padding(.bottom, 32)
             .frame(maxWidth: 1000, alignment: .leading).frame(maxWidth: .infinity)
+            // A shelf that finishes loading fades from its skeleton (same
+            // size, so nothing jumps); with Reduce Motion it just switches.
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: [feed.mixesPhase, feed.historyPhase, feed.releasesPhase, feed.frequentPhase])
         }
         .background(Color(uiColor: .systemGroupedBackground))
         // Content scrolling under the floating tab bar and mini player gets a
         // solid edge, so no caption reads half-covered behind them.
         .scrollEdgeEffectStyle(.hard, for: .bottom)
-        .navigationTitle(HomeGreeting.text(hour: Calendar.current.component(.hour, from: .now)))
+        .navigationTitle(greeting)
+        .modifier(TabRootChrome(active: tabRoot))
         .refreshable { await model.loadLibrary(); await model.loadListenFeed() }
         .task(id: model.playlistRevision) { await model.loadPlaylistPreviews(Array(model.playlists.prefix(6))) }
         .task(id: model.user?.id) { await model.loadListenFeed() }
@@ -326,10 +435,10 @@ struct MobileHomeView: View {
             HStack(spacing: 12) {
                 NavigationLink(value: Destination.downloads) { Label("Gespeicherte Musik", systemImage: "arrow.down.circle") }
                     .buttonStyle(MobileActionStyle())
-                Button { Task { await model.loadListenFeed() } } label: { Label("Erneut versuchen", systemImage: "arrow.clockwise") }
+                Button { Task { await model.loadListenFeed() } } label: { Label("Erneut laden", systemImage: "arrow.clockwise") }
                     .buttonStyle(MobileActionStyle())
             }
-        }.padding(16).background(ListenMetrics.surface, in: RoundedRectangle(cornerRadius: 18))
+        }.padding(16).background(ListenMetrics.surface, in: RoundedRectangle(cornerRadius: ListenMetrics.cardRadius, style: .continuous))
             .accessibilityElement(children: .contain)
     }
 }
@@ -443,13 +552,15 @@ struct TrackQuickActions: View {
     var model: AppModel
     var track: Track
     var body: some View {
-        Button("Als Nächstes abspielen", systemImage: "text.insert") { if let client = model.client { model.player.insertNext(track, client: client) } }
+        // The labels and order of the track row's "…" menu.
+        Button("Als Nächstes spielen", systemImage: "text.insert") { model.enqueue([track], next: true) }
             .disabled(model.player.queue.tracks.count >= PlaybackQueue.limit)
-        Button("Zur Warteschlange", systemImage: "text.badge.plus") { if let client = model.client { model.player.append(track, client: client) } }
+        Button("Zur Warteschlange", systemImage: "text.badge.plus") { model.enqueue([track], next: false) }
             .disabled(model.player.queue.tracks.count >= PlaybackQueue.limit)
         Button("Song-Radio starten", systemImage: "dot.radiowaves.left.and.right") { Task { await model.startRadio(track) } }
             .disabled(model.offlineMode || model.listeningBusy)
-        Button(model.favoriteIDs.contains(track.id) ? "Aus Favoriten entfernen" : "Zu Favoriten", systemImage: "heart") { Task { await model.toggleFavorite(track) } }
+        let favorite = model.favoriteIDs.contains(track.id)
+        Button(favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", systemImage: favorite ? "heart.slash" : "heart") { Task { await model.toggleFavorite(track) } }
             .disabled(model.offlineMode || model.pendingFavorites.contains(track.id))
     }
 }

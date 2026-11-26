@@ -5,7 +5,7 @@ import UIKit
 #endif
 
 final class PlayerUITests: XCTestCase {
-    @MainActor private func app(player: Bool = false, pausedPlayer: Bool = false, largeText: Bool = false) throws -> XCUIApplication {
+    @MainActor private func app(player: Bool = false, pausedPlayer: Bool = false, largeText: Bool = false, light: Bool = false) throws -> XCUIApplication {
         let server = ProcessInfo.processInfo.environment["YTMDL_FIXTURE_URL"] ?? "http://127.0.0.1:59583"
         guard let host = URL(string: server)?.host, ["127.0.0.1", "localhost"].contains(host) else { throw NSError(domain: "Loopback fixture required", code: 1) }
         let app = XCUIApplication()
@@ -13,6 +13,8 @@ final class PlayerUITests: XCTestCase {
         if player { app.launchArguments.append("--fixture-player") }
         if pausedPlayer { app.launchArguments.append("--fixture-paused-player") }
         if largeText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
+        // The app's own appearance setting, for this launch only (argument domain).
+        if light { app.launchArguments += ["-appearance", "light"] }
         app.launch()
         return app
     }
@@ -31,6 +33,17 @@ final class PlayerUITests: XCTestCase {
         }
         if !(button.waitForExistence(timeout: 5) && button.isHittable) { print(app.debugDescription) }
         button.tap()
+    }
+    /// The settings open from the gear on Start's first page (the tab bar
+    /// keeps Start, Bibliothek, Playlists and Suche).
+    @MainActor private func openSettings(_ app: XCUIApplication) {
+        selectTab(app, "Start")
+        let gear = app.buttons["home-settings"]
+        // Choosing the shown tab again returns to its first page.
+        if !gear.waitForExistence(timeout: 3) { selectTab(app, "Start") }
+        if !gear.waitForExistence(timeout: 10) { print(app.debugDescription) }
+        gear.tap()
+        XCTAssertTrue(app.navigationBars["Einstellungen"].waitForExistence(timeout: 10))
     }
     #endif
     @MainActor func testLibraryFitsNativeScreen() throws {
@@ -260,10 +273,14 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(next.isHittable)
         XCTAssertGreaterThanOrEqual(next.frame.width, 44)
         XCTAssertLessThanOrEqual(next.frame.height, 60)
-        for title in ["Playlists", "Bibliothek", "Einstellungen", "Start"] {
+        for title in ["Playlists", "Bibliothek", "Start"] {
             selectTab(app, title)
             XCTAssertTrue(mini.isHittable)
         }
+        attach(app, name: "Start title wraps at largest text")
+        openSettings(app)
+        XCTAssertTrue(mini.isHittable)
+        selectTab(app, "Start")
         mini.tap()
         XCTAssertTrue(app.buttons["Schließen"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Schließen"].firstMatch.isHittable)
@@ -444,18 +461,54 @@ final class PlayerUITests: XCTestCase {
         XCTAssertFalse(app.alerts.firstMatch.exists)
         attach(app, name: "Manual playlist CRUD without playback")
     }
+    /// The app is designed dark first: Start, Bibliothek, an album and the
+    /// player in the light appearance, for a look at contrast.
+    @MainActor func testLightAppearanceScreensWithoutPlayback() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact screens require iPhone.")
+        // No loaded player: its mini player would also read "Nachtfahrt".
+        let app = try app(light: true)
+        XCTAssertTrue(app.buttons["home-quick-favorites"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["home-settings"].isHittable)
+        attach(app, name: "Light Start")
+        selectTab(app, "Bibliothek")
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 10))
+        attach(app, name: "Light library")
+        app.staticTexts["Nachtfahrt"].firstMatch.tap()
+        let play = app.buttons["collection-play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: play)
+        waitForExpectations(timeout: 10)
+        attach(app, name: "Light album page")
+        // A confirmation after "Zur Warteschlange", like on every track row.
+        // On the empty queue the title becomes the current one, paused.
+        app.buttons["Aktionen für Nachtfahrt"].firstMatch.tap()
+        let enqueue = app.buttons["Zur Warteschlange"].firstMatch
+        XCTAssertTrue(enqueue.waitForExistence(timeout: 5))
+        enqueue.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["app-notice"].waitForExistence(timeout: 5), "Adding to the queue is confirmed.")
+        attach(app, name: "Light queue confirmation")
+        openPlayer(app)
+        attach(app, name: "Light player")
+        app.buttons["Schließen"].firstMatch.tap()
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
     @MainActor func testRepeatedMobileTabSwitchesKeepPausedMiniPlayerReachable() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "Compact navigation requires iPhone.")
         let app = try app(pausedPlayer: true)
         let mini = app.buttons["mobile-mini-player-open"]
         XCTAssertTrue(mini.waitForExistence(timeout: 20))
         for _ in 0..<3 {
-            for tab in ["Suche", "Bibliothek", "Playlists", "Einstellungen", "Start"] {
+            for tab in ["Suche", "Bibliothek", "Playlists", "Start"] {
                 selectTab(app, tab)
                 XCTAssertTrue(mini.isHittable, "Mini-player remains reachable after " + tab)
                 XCTAssertFalse(app.alerts.firstMatch.exists)
             }
         }
+        XCTAssertFalse(app.tabBars.buttons["Einstellungen"].exists, "The settings sit behind the gear on Start, not in the tab bar.")
+        openSettings(app)
+        XCTAssertTrue(mini.isHittable, "Mini-player remains reachable in the settings.")
+        selectTab(app, "Start")
         mini.tap()
         XCTAssertTrue(app.buttons["mobile-player-toggle"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["mobile-player-toggle"].isHittable)
@@ -503,7 +556,7 @@ final class PlayerUITests: XCTestCase {
         let album = app.staticTexts["Lichtblick"].firstMatch
         for _ in 0..<5 where !(album.exists && album.isHittable) { app.swipeUp() }
         album.tap()
-        let retry = app.buttons["Titel erneut laden"]
+        let retry = app.buttons["Erneut laden"]
         XCTAssertTrue(retry.waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Noch keine Titel"].exists, "A network failure must not claim the collection is empty.")
         retry.tap()
@@ -601,7 +654,7 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Offline verfügbar"].firstMatch.waitForExistence(timeout: 30))
         XCTAssertFalse(app.buttons["Pause"].exists, "Downloading must not start playback.")
         attach(app, name: "Mobile Offline downloads")
-        selectTab(app, "Einstellungen")
+        openSettings(app)
         app.buttons["Equalizer, Überblendung & Visualizer"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Klang & Wiedergabe"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.switches["Equalizer aktivieren"].firstMatch.exists)
@@ -624,7 +677,7 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["offline-collection-p0"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["6 von 6 Titeln offline"].waitForExistence(timeout: 30))
         // Enter the same local-only mode available without a server session.
-        selectTab(app, "Einstellungen")
+        openSettings(app)
         for _ in 0..<8 where !app.buttons["Abmelden"].firstMatch.isHittable { app.swipeUp() }
         app.buttons["Abmelden"].firstMatch.tap()
         app.buttons["Abmelden"].firstMatch.tap()

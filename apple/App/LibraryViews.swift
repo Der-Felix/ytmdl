@@ -75,6 +75,8 @@ import YTMDLCore
 /// collection, then the albums with sort, layout, filter and genre chips.
 struct MobileLibraryView: View {
     @Bindable var model: AppModel
+    /// The first page of the iPhone's Bibliothek tab, with its own large title.
+    var tabRoot = false
     @AppStorage(LibraryPreferences.layoutKey) private var layoutName = LibraryAlbumLayout.grid.rawValue
     @State private var filterText = ""
     @State private var filtered: [Release]?
@@ -90,6 +92,7 @@ struct MobileLibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if tabRoot { MobilePageHeader(title: "Bibliothek").padding(.bottom, ListenMetrics.headerGap) }
                 LibraryShortcuts().padding(.horizontal, ListenMetrics.pageMargin)
                 albumsHeader.padding(.top, ListenMetrics.sectionSpacing)
                 filterField.padding(.horizontal, ListenMetrics.pageMargin).padding(.top, ListenMetrics.headerGap)
@@ -103,6 +106,7 @@ struct MobileLibraryView: View {
         .scrollEdgeEffectStyle(.hard, for: .bottom)
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Bibliothek")
+        .modifier(TabRootChrome(active: tabRoot))
         .refreshable { await model.loadLibrary() }
         // Nothing has answered yet and nothing is running: load instead of
         // waiting for a load that was never started.
@@ -193,7 +197,7 @@ struct MobileLibraryView: View {
         if !query.isEmpty, let filterFailure {
             ListenSectionFailure(message: filterFailure) { Task { await runFilter() } }.padding(.horizontal, ListenMetrics.pageMargin)
         } else if !query.isEmpty, let filtered, filtered.isEmpty {
-            ContentUnavailableView.search(text: query).padding(.top, 24)
+            NoMatchesView(query: query).padding(.top, 24)
         } else if query.isEmpty, let message = model.libraryError, !model.connecting {
             // A failed load is never shown as an empty library: "Noch keine
             // Alben" needs an answer from the server with an empty list.
@@ -414,9 +418,13 @@ struct MobileArtistListView: View {
             } else {
                 ForEach(directory.sections) { section in
                     Section {
-                        ForEach(section.items) { artist in row(artist) }
-                    } header: {
+                        // A row, not a pinned header: nothing shows through
+                        // below the tab bar's hard edge.
                         Text(section.letter).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                            .accessibilityAddTraits(.isHeader)
+                            .listRowInsets(EdgeInsets(top: 12, leading: ListenMetrics.pageMargin, bottom: 2, trailing: ListenMetrics.pageMargin))
+                            .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                        ForEach(section.items) { artist in row(artist) }
                     }
                     .sectionIndexLabel(section.letter)
                 }
@@ -454,21 +462,22 @@ struct MobileArtistListView: View {
         if let filterFailure {
             ListenSectionFailure(message: filterFailure) { Task { await runFilter() } }.listRowSeparator(.hidden)
         } else if let filtered {
-            if filtered.isEmpty { ContentUnavailableView.search(text: query).listRowSeparator(.hidden) }
+            if filtered.isEmpty { NoMatchesView(query: query).listRowSeparator(.hidden) }
             else { ForEach(filtered) { row($0) } }
         } else {
-            ProgressView().frame(maxWidth: .infinity).listRowSeparator(.hidden)
+            // The rows' final shape while the server filters.
+            ForEach(0..<4, id: \.self) { _ in skeletonRow }
         }
     }
     private func row(_ artist: Artist) -> some View {
         NavigationLink(value: CollectionKind.artist(artist)) {
             HStack(spacing: 12) {
-                ArtistAvatar(model: model, artist: artist).frame(width: 44, height: 44)
+                ArtistAvatar(model: model, artist: artist).frame(width: ListenMetrics.rowArtwork, height: ListenMetrics.rowArtwork)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(artist.name).font(.body.weight(.semibold)).lineLimit(1)
                     if let detail = detail(artist) { Text(detail).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
                 }
-            }.padding(.vertical, 2)
+            }
         }
         .listRowInsets(EdgeInsets(top: 6, leading: ListenMetrics.pageMargin, bottom: 6, trailing: ListenMetrics.pageMargin))
         .accessibilityIdentifier("artist-row-" + artist.id)
@@ -481,7 +490,7 @@ struct MobileArtistListView: View {
     }
     private var skeletonRow: some View {
         HStack(spacing: 12) {
-            Circle().fill(ListenMetrics.surface).frame(width: 44, height: 44)
+            Circle().fill(ListenMetrics.surface).frame(width: ListenMetrics.rowArtwork, height: ListenMetrics.rowArtwork)
             Capsule().fill(ListenMetrics.surface).frame(width: 140, height: 12)
         }.padding(.vertical, 2).listRowSeparator(.hidden).accessibilityHidden(true)
     }
@@ -546,7 +555,7 @@ struct LibraryTracksView: View {
                 } else if let failure {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(failure, systemImage: "exclamationmark.triangle").font(.subheadline).foregroundStyle(.secondary)
-                        Button("Titel erneut laden", systemImage: "arrow.clockwise") { Task { await load() } }.buttonStyle(.bordered)
+                        Button("Erneut laden", systemImage: "arrow.clockwise") { Task { await load() } }.buttonStyle(.bordered)
                     }.listRowSeparator(.hidden)
                 } else if tracks.isEmpty {
                     ContentUnavailableView("Noch keine Titel", systemImage: "music.note", description: Text("Füge im Web Musik hinzu. Sie erscheint dann hier."))

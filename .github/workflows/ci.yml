@@ -288,7 +288,8 @@ jobs:
     # exhausted the build job's time budget before UI checks could finish.
     runs-on: xcode-27
     needs: apple
-    timeout-minutes: 40
+    # The iPhone suite alone takes 30-38 minutes since the light-mode test.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:

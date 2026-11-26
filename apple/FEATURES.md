@@ -1,4 +1,4 @@
-# Native listening preview 0.5.2 — build 41
+# Native listening preview 0.5.3 — build 42
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -35,6 +35,32 @@ from implemented features and simulator verification.
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## iPhone and iPad polish (build 42)
+
+Ships as 0.5.3 (42); the server API is unchanged. Apple TV and Mac are unchanged apart from
+the German system texts.
+
+- **Titles:** Start, Bibliothek and Playlists show their own large title right under the status
+  bar (the empty navigation bar row above it is gone); pushed copies of these pages keep the
+  bar and its back button. The Start greeting wraps or shrinks instead of truncating.
+- **Tabs:** Start, Bibliothek, Playlists and Suche. **Einstellungen** opens from the gear next to
+  the Start greeting; the iPad sidebar keeps its entry.
+- **Bottom edge:** section titles of album, artist, search and Künstler pages are rows, not
+  pinned headers, so nothing reads below the tab bar's hard edge on any page.
+- **Consistency:** one row (48 pt cover, 6 pt insets, 16 pt margin) for titles, albums,
+  artists, search results and the queue; one 12 pt radius for tiles, cards, action buttons
+  and boxes; one section title style; "Als Nächstes spielen" and "Zur Warteschlange" in every
+  menu; every failure offers **Erneut laden**.
+- **Feedback:** "Als Nächstes spielen", "Zur Warteschlange" and "Zur Playlist hinzufügen" show a
+  short banner (4 s) with a success haptic; a confirmed favourite taps lightly. Buttons and
+  tiles shrink to 97 % when pressed (140 ms, ease-out); Start's shelves fade in from their
+  placeholders. With Reduce Motion nothing moves; the banner only fades.
+- **States:** placeholder rows while a mix, search or artist filter loads; German empty states
+  ("Keine Treffer für …"); the app declares German as its language, so system texts (back
+  button, search field, empty results) are German whatever the device language.
+- **Light appearance:** a UI test now captures Start, Bibliothek, an album page, the queue
+  confirmation and the player in light mode.
 
 ## iPhone and iPad library, album, artist and playlist pages (build 41)
 

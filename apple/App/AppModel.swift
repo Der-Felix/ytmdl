@@ -2,6 +2,15 @@ import Foundation
 import Observation
 import YTMDLCore
 
+/// "Zur Warteschlange hinzugefügt" and similar: what just happened, in one line.
+struct AppNotice: Identifiable, Equatable, Sendable {
+    /// How long a confirmation stays on screen.
+    static let seconds = 4.0
+    let id = UUID()
+    let text: String
+    let symbol: String
+}
+
 @MainActor @Observable final class AppModel {
     var user: User?
     var client: APIClient?
@@ -36,6 +45,22 @@ import YTMDLCore
     var offlineMode = false
     var handoff: PlaybackHandoff?
     var listeningBusy = false
+    /// A short confirmation the iPhone and iPad show for a moment.
+    var notice: AppNotice?
+    /// Grows with every favorite the server confirmed: a light tap on iPhone.
+    private(set) var favoriteConfirmations = 0
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    /// Shows `text` briefly; a newer confirmation replaces the shown one.
+    func announce(_ text: String, symbol: String) {
+        let shown = AppNotice(text: text, symbol: symbol)
+        notice = shown
+        noticeTask?.cancel()
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(AppNotice.seconds))
+            guard !Task.isCancelled, let self, self.notice?.id == shown.id else { return }
+            self.notice = nil
+        }
+    }
     var syncHistory = UserDefaults.standard.object(forKey: "syncListeningHistory") as? Bool ?? true
     private var persistsSession = true
     init(offlineLibrary: OfflineLibrary? = nil) {
@@ -297,6 +322,7 @@ import YTMDLCore
             guard self.generation == generation else { return }
             if wasFavorite { favoriteIDs.remove(track.id) } else { favoriteIDs.insert(track.id) }
             favoriteRevision = UUID()
+            favoriteConfirmations &+= 1
         } catch { if self.generation == generation { report(error) } }
     }
     private struct PlaylistInput: Encodable { let name: String; let description: String; let smartRules: SmartPlaylistRules? }

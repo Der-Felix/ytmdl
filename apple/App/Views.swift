@@ -74,12 +74,15 @@ struct RootView: View {
                                     .background(.regularMaterial)
                             }
                         }
+                        .overlay(alignment: .top) { NoticeBanner(model: model) }
                 }
                 else if sizeClass == .compact {
                     // No player button in the bars: the mini player opens it
                     // whenever something is loaded, and Start offers to resume.
+                    // Four short tabs; the settings open from the gear on Start
+                    // (the iPad sidebar keeps its own entry).
                     TabView(selection: mobileSelection) {
-                        ForEach([Destination.home, .library, .playlists, .settings]) { item in
+                        ForEach([Destination.home, .library, .playlists]) { item in
                             Tab(value: Optional(item)) { mobileTab(item) } label: { Label(item.rawValue, systemImage: item.icon) }
                         }
                         // The system's search tab: its field sits in the tab bar.
@@ -90,7 +93,14 @@ struct RootView: View {
                         .tabViewBottomAccessory(isEnabled: model.player.current != nil) {
                             MobileMiniPlayer(model: model) { expandedPlayer = true }
                         }
-                } else { splitView }
+                        .overlay(alignment: .top) { NoticeBanner(model: model) }
+                        // Light confirmations: one per queue or playlist notice and
+                        // per confirmed favorite (the open player taps for its own).
+                        .sensoryFeedback(.success, trigger: model.notice?.id) { _, new in new != nil }
+                        .sensoryFeedback(trigger: model.favoriteConfirmations) { _, _ in expandedPlayer ? nil : SensoryFeedback.impact(weight: .light) }
+                } else {
+                    splitView.overlay(alignment: .top) { NoticeBanner(model: model) }
+                }
                 #else
                 if model.offlineMode {
                     NavigationStack { OfflineLibraryView(model: model) }
@@ -208,7 +218,7 @@ struct RootView: View {
     #if os(iOS)
     private func mobileTab(_ item: Destination) -> some View {
         NavigationStack(path: Binding(get: { mobilePaths[item] ?? NavigationPath() }, set: { mobilePaths[item] = $0 })) {
-            routedContent(item)
+            routedContent(item, tabRoot: true)
         }
             // Every page of the tab, pushed ones included: nothing
             // readable shows between the mini player and the tab bar.
@@ -287,8 +297,9 @@ struct RootView: View {
             }.id(DetailIdentity(selection: destination, visit: detailVisit))
         }
     }
-    private func routedContent(_ destination: Destination) -> some View {
-        content(destination)
+    /// `tabRoot`: the first page of an iPhone tab, which shows its own large title.
+    private func routedContent(_ destination: Destination, tabRoot: Bool = false) -> some View {
+        content(destination, tabRoot: tabRoot)
             .navigationDestination(for: CollectionKind.self) { kind in CollectionView(model: model, kind: kind) }
             .navigationDestination(for: Destination.self) { item in content(item) }
             .navigationDestination(for: PersonalMix.self) { mix in MixDetailView(model: model, mix: mix) }
@@ -309,20 +320,20 @@ struct RootView: View {
                 #endif
             }
     }
-    @ViewBuilder private func content(_ destination: Destination) -> some View {
+    @ViewBuilder private func content(_ destination: Destination, tabRoot: Bool = false) -> some View {
         switch destination {
         case .home:
             #if os(macOS)
             DesktopHomeView(model: model, navigate: selectDestination)
             #else
             #if os(iOS)
-            MobileHomeView(model: model)
+            MobileHomeView(model: model, tabRoot: tabRoot)
             #else
             TVHomeView(model: model) { selectDestination(.player) }
             #endif
             #endif
         #if os(iOS)
-        case .library: MobileLibraryView(model: model)
+        case .library: MobileLibraryView(model: model, tabRoot: tabRoot)
         case .artists: MobileArtistListView(model: model)
         #else
         case .library: LibraryView(model: model)
@@ -335,7 +346,7 @@ struct RootView: View {
             SearchView(model: model)
             #endif
         case .favorites: CollectionView(model: model, kind: .favorites)
-        case .playlists: PlaylistListView(model: model)
+        case .playlists: PlaylistListView(model: model, tabRoot: tabRoot)
         case .player: NowPlayingView(model: model)
         case .downloads:
             #if !os(tvOS)
@@ -1062,7 +1073,7 @@ struct CollectionView: View {
         } else if let loadFailure {
             VStack(alignment: .leading, spacing: 12) {
                 Label(loadFailure, systemImage: "exclamationmark.triangle").font(.subheadline).foregroundStyle(.secondary)
-                Button("Titel erneut laden", systemImage: "arrow.clockwise") { Task { await load() } }
+                Button("Erneut laden", systemImage: "arrow.clockwise") { Task { await load() } }
                     .buttonStyle(.bordered)
             }.padding(.vertical, 8).listRowInsets(CollectionMetrics.rowInsets).listRowSeparator(.hidden)
         } else if tracks.isEmpty {
@@ -1087,6 +1098,12 @@ struct CollectionView: View {
         let albumArtists = Set(release.artists)
         ForEach(groups) { group in
             Section {
+                if groups.count > 1 {
+                    Text("CD \(group.disc)").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                        .accessibilityAddTraits(.isHeader)
+                        .listRowInsets(EdgeInsets(top: 12, leading: ListenMetrics.pageMargin, bottom: 2, trailing: ListenMetrics.pageMargin))
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                }
                 ForEach(group.positions, id: \.self) { position in
                     let track = tracks[position]
                     TrackRow(model: model, track: track, number: track.trackNumber ?? position + 1,
@@ -1094,18 +1111,14 @@ struct CollectionView: View {
                         .listRowInsets(CollectionMetrics.rowInsets)
                         .onAppear { loadMoreIfNeeded(position) }
                 }
-            } header: {
-                if groups.count > 1 {
-                    Text("CD \(group.disc)").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).textCase(nil)
-                        .accessibilityAddTraits(.isHeader)
-                }
             }
         }
         Section { loadState(numbered: true) }
         if !related.isEmpty, let artist = releaseDetail?.artist {
             Section {
+                CollectionSectionTitle(title: "Mehr von \(artist.name)").sectionTitleRow()
                 shelf(related)
-            } header: { CollectionSectionTitle(title: "Mehr von \(artist.name)") }
+            }
         }
     }
 
@@ -1129,6 +1142,7 @@ struct CollectionView: View {
         let popular = popularTracks
         if !popular.isEmpty {
             Section {
+                CollectionSectionTitle(title: "Beliebte Titel").sectionTitleRow()
                 ForEach(Array(popular.prefix(popularExpanded ? 10 : 5).enumerated()), id: \.offset) { index, entry in
                     TrackRow(model: model, track: entry.track, detail: entry.plays.map { "\($0)× gehört" }, number: index + 1, showsArtist: false) {
                         if topTracks.isEmpty { play(tracks, index: index) }
@@ -1143,11 +1157,11 @@ struct CollectionView: View {
                         .font(.subheadline.weight(.semibold)).listRowInsets(CollectionMetrics.rowInsets).listRowSeparator(.hidden)
                         .accessibilityIdentifier("artist-popular-more")
                 }
-            } header: { CollectionSectionTitle(title: "Beliebte Titel") }
+            }
         }
         let albums = artistAlbumSort.apply(related.filter { !$0.isSingleOrEP })
         if !albums.isEmpty {
-            Section { shelf(albums) } header: {
+            Section {
                 CollectionSectionTitle(title: "Alben") {
                     Menu {
                         Picker("Alben sortieren", selection: $artistAlbumSort) {
@@ -1157,23 +1171,30 @@ struct CollectionView: View {
                         HStack(spacing: 4) { Text(artistAlbumSort.label); Image(systemName: "chevron.up.chevron.down").imageScale(.small) }
                             .font(.subheadline).frame(minHeight: 44).contentShape(Rectangle())
                     }
+                    // Borderless: only the control opens the menu, not the whole title row.
+                    .menuStyle(.button).buttonStyle(.borderless)
                     .accessibilityLabel("Alben sortieren").accessibilityValue(artistAlbumSort.label)
                     .accessibilityIdentifier("artist-album-sort")
-                }
+                }.sectionTitleRow()
+                shelf(albums)
             }
         }
         let singles = artistAlbumSort.apply(related.filter(\.isSingleOrEP))
         if !singles.isEmpty {
-            Section { shelf(singles) } header: { CollectionSectionTitle(title: "Singles & EPs") }
+            Section {
+                CollectionSectionTitle(title: "Singles & EPs").sectionTitleRow()
+                shelf(singles)
+            }
         }
         Section {
+            CollectionSectionTitle(title: "Alle Titel").sectionTitleRow()
             ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
                 TrackRow(model: model, track: track, detail: track.album.isEmpty ? nil : track.album, showsArtist: false) { play(tracks, index: index) }
                     .listRowInsets(CollectionMetrics.rowInsets)
                     .onAppear { loadMoreIfNeeded(index) }
             }
             loadState(numbered: false)
-        } header: { CollectionSectionTitle(title: "Alle Titel") }
+        }
     }
 
     /// Adds the missing titles to the favorites; when all are favorites, removes them.
@@ -1457,8 +1478,9 @@ struct TrackRow: View {
     @Environment(\.dynamicTypeSize) private var textSize
     private var isCurrent: Bool { model.player.current?.id == track.id }
     private var queueFull: Bool { model.player.queue.tracks.count >= PlaybackQueue.limit }
-    private func playNext() { if let client = model.client { model.player.insertNext(track, client: client) } }
-    private func enqueue() { if let client = model.client { model.player.append(track, client: client) } }
+    // Through the model, so the iPhone confirms them briefly.
+    private func playNext() { model.enqueue([track], next: true) }
+    private func enqueue() { model.enqueue([track], next: false) }
     /// The same actions in the "…" menu and the context menu, with the labels
     /// of the queue: "Als Nächstes spielen", "Zur Warteschlange".
     @ViewBuilder private var mobileMenuItems: some View {
@@ -1771,6 +1793,8 @@ struct SearchView: View {
 
 struct PlaylistListView: View {
     var model: AppModel
+    /// iPhone: the first page of the Playlists tab, with its own large title.
+    var tabRoot = false
     @State private var creating = false
     @State private var playlistQuery = ""
     @State private var alphabetical = false
@@ -1810,6 +1834,9 @@ struct PlaylistListView: View {
     private var mobilePlaylists: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ListenMetrics.headerGap) {
+                if tabRoot {
+                    MobilePageHeader(title: "Playlists").padding(.horizontal, -ListenMetrics.pageMargin).padding(.top, -8)
+                }
                 HStack(spacing: 8) {
                     HStack(spacing: 10) {
                         Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary).accessibilityHidden(true)
@@ -1868,6 +1895,7 @@ struct PlaylistListView: View {
             .scrollEdgeEffectStyle(.hard, for: .bottom)
             .scrollDismissesKeyboard(.interactively)
             .refreshable { await model.loadLibrary() }
+            .modifier(TabRootChrome(active: tabRoot))
     }
     #endif
     private var emptyPlaylists: some View {
