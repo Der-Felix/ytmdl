@@ -235,7 +235,9 @@ struct CollectionSectionTitle<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title).font(.title3.bold()).foregroundStyle(.primary).accessibilityAddTraits(.isHeader)
+            // `Color.primary`, not `.primary`: inside a list header the
+            // hierarchical style resolves against the header's dimmed colour.
+            Text(title).font(.title3.bold()).foregroundStyle(Color.primary).accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             trailing
         }.textCase(nil).padding(.top, 8)

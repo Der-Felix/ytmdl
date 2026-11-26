@@ -241,10 +241,21 @@ struct OfflineLibraryView: View {
     private var trackHeader: some View {
         Section {
             if let collection {
+                #if os(iOS)
+                CollectionHeader(eyebrow: "Offline", title: collection.name,
+                    detail: "\(playable.count) offline verfügbar · \(records.count) gespeichert",
+                    canPlay: !playable.isEmpty,
+                    play: { play(playable) }, shuffle: { play(playable.shuffled()) }) { size in
+                    MobileCollectionArtwork(model: model, tracks: records.map(\.track), size: size)
+                }
+                .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 12, trailing: 0))
+                #else
                 MobileCollectionHeader(model: model, tracks: records.map(\.track), title: collection.name,
                     detail: "\(playable.count) offline verfügbar · \(records.count) gespeichert",
                     play: { play(playable) }, shuffle: { play(playable.shuffled()) })
                     .disabled(playable.isEmpty)
+                #endif
                 Toggle("Beim Aktualisieren synchronisieren", isOn: Binding(get: { collection.keepUpdated }, set: { model.offline.setKeepUpdated(collection.id, enabled: $0) }))
                     .disabled(model.offlineMode)
             } else {

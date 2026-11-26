@@ -15,15 +15,30 @@ import YTMDLCore
     private(set) var failure: String?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var pages = 0
+    /// The directory owns its loading, so a list that is rebuilt or closed
+    /// mid-request (the iPad sidebar does both) never strands it half-loaded.
+    @ObservationIgnored private var worker: Task<Void, Never>?
 
     func reset() {
+        worker?.cancel(); worker = nil
         artists = []; sections = []; complete = false; loading = false; failure = nil; pages = 0; generation = UUID()
     }
     func retry(_ model: AppModel) async { failure = nil; await load(model) }
-    /// Continues where it stopped; ends when all are there or the list closes.
+    /// Continues where it stopped until every artist is there; returns when
+    /// that load ends. Calling it again while it runs just waits for it.
     func load(_ model: AppModel) async {
-        guard !loading, !complete, failure == nil, !model.offlineMode, let client = model.client else { return }
-        let generation = generation
+        if worker == nil {
+            guard !complete, failure == nil, !model.offlineMode, model.client != nil else { return }
+            let generation = generation
+            worker = Task { [weak self] in
+                await self?.run(model, generation)
+                if let self, self.generation == generation { self.worker = nil }
+            }
+        }
+        await worker?.value
+    }
+    private func run(_ model: AppModel, _ generation: UUID) async {
+        guard let client = model.client else { return }
         loading = true
         defer { if self.generation == generation { loading = false } }
         while !Task.isCancelled && artists.count < Self.ceiling {
@@ -504,6 +519,7 @@ struct LibraryTracksView: View {
     @State private var more = true
     @State private var busy = false
     @State private var failure: String?
+    @State private var generation = 0
     private var order: Order { Order(rawValue: orderName) ?? .recent }
     var body: some View {
         List {
@@ -552,8 +568,15 @@ struct LibraryTracksView: View {
                     .accessibilityIdentifier("tracks-sort")
             }
         }
-        .task(id: orderName) { tracks = []; more = true; failure = nil; await load() }
-        .refreshable { tracks = []; more = true; failure = nil; await load() }
+        .task(id: orderName) { await reload() }
+        .refreshable { await reload() }
+    }
+    /// Starts over in the current order. A newer generation supersedes a load
+    /// still in flight, so changing the sort mid-load never leaves the list empty.
+    private func reload() async {
+        generation += 1
+        tracks = []; more = true; failure = nil; busy = false
+        await load()
     }
     private func play(_ list: [Track], index: Int = 0) {
         guard let client = model.client, !list.isEmpty else { return }
@@ -561,17 +584,20 @@ struct LibraryTracksView: View {
     }
     private func load() async {
         guard let client = model.client, !busy, more else { return }
-        busy = true; defer { busy = false }
+        let started = generation
+        let current = order
+        busy = true
+        defer { if generation == started { busy = false } }
         do {
             let page: [Track] = try await client.get("/library/tracks", query: [
                 .init(name: "limit", value: "100"), .init(name: "offset", value: String(tracks.count)),
-                .init(name: "sort", value: order.rawValue), .init(name: "order", value: order.direction)])
-            try Task.checkCancellation()
-            guard model.client === client else { return }
+                .init(name: "sort", value: current.rawValue), .init(name: "order", value: current.direction)])
+            guard generation == started, model.client === client else { return }
             tracks += page; more = page.count == 100; failure = nil
-        } catch is CancellationError {
         } catch {
-            if !Task.isCancelled { failure = "Titel konnten nicht geladen werden. Bitte Verbindung prüfen und erneut versuchen." }
+            if generation == started && !Task.isCancelled && !(error is CancellationError) {
+                failure = "Titel konnten nicht geladen werden. Bitte Verbindung prüfen und erneut versuchen."
+            }
         }
     }
 }

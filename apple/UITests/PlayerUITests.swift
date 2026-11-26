@@ -554,7 +554,8 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(play.waitForExistence(timeout: 10))
         for control in [play, shuffle] {
             XCTAssertTrue(control.isHittable)
-            XCTAssertGreaterThanOrEqual(control.frame.height, 52)
+            // Layout lands on fractional points (51.99…); half a point is rounding.
+            XCTAssertGreaterThanOrEqual(control.frame.height, 51.5)
             XCTAssertGreaterThanOrEqual(control.frame.width, 120)
         }
         // Queue and offline sit in the header's action row; "…" keeps editing.
@@ -562,7 +563,10 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["collection-queue"].isHittable)
         app.buttons["playlist-collection-options"].tap()
         XCTAssertTrue(app.buttons["Bearbeiten"].firstMatch.waitForExistence(timeout: 10))
-        app.navigationBars.firstMatch.tap()
+        // Dismiss the menu with a tap beside it; the menu hangs from the
+        // top right, so the left edge never lands on one of its entries.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.55)).tap()
+        XCTAssertTrue(app.buttons["Bearbeiten"].firstMatch.waitForNonExistence(timeout: 5))
         XCTAssertTrue(mini.isHittable, "Player must stay above tabs inside a pushed collection.")
         attach(app, name: "Playlist with anchored paused mini player")
         mini.tap()

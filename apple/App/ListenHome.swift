@@ -573,9 +573,12 @@ struct MixTileStyle: ButtonStyle {
     }
 }
 private struct MixTileLabelStyle: LabelStyle {
+    /// One icon box for every symbol, so the labels of neighbouring tiles
+    /// share a baseline although the glyphs differ in height.
+    @ScaledMetric(relativeTo: .title3) private var iconHeight: CGFloat = 26
     func makeBody(configuration: Configuration) -> some View {
         VStack(spacing: 6) {
-            configuration.icon.font(.title3).foregroundStyle(.tint)
+            configuration.icon.font(.title3).foregroundStyle(.tint).frame(height: iconHeight)
             configuration.title.font(.footnote.weight(.semibold)).lineLimit(1).fixedSize()
         }
     }
