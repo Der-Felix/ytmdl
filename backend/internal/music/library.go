@@ -66,4 +66,17 @@ type LibrarySearchResults struct {
 	Artists  []LibraryArtist  `json:"artists"`
 	Releases []LibraryRelease `json:"releases"`
 	Tracks   []LibraryTrack   `json:"tracks"`
+	// Lyrics are tracks found by their stored lyrics, apart from Tracks
+	// (which match title, album, album artist or ISRC). A track can be in
+	// both.
+	Lyrics []LyricsSearchHit `json:"lyrics"`
+}
+
+// LyricsSearchHit is a track found by its lyrics, with a short snippet
+// around the match. Match is the matched text exactly as it appears in
+// Snippet, so a client can highlight it.
+type LyricsSearchHit struct {
+	Track   LibraryTrack `json:"track"`
+	Snippet string       `json:"snippet"`
+	Match   string       `json:"match"`
 }

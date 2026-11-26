@@ -196,7 +196,18 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 			})
 
 			authed.Get("/history", h.ListeningHistory)
+			authed.Get("/history/stats", h.ListeningStats)
 			authed.Get("/playback/handoff", h.GetPlaybackHandoff)
+			authed.Route("/listening-preferences", func(prefs chi.Router) {
+				prefs.Get("/", h.ListeningPreferences)
+
+				prefs.Group(func(mutating chi.Router) {
+					mutating.Use(middleware.CSRF)
+					mutating.Put("/", h.AddListeningPreference)
+					mutating.Delete("/", h.RemoveListeningPreferenceByTarget)
+					mutating.Delete("/{id}", h.RemoveListeningPreference)
+				})
+			})
 			authed.Group(func(m chi.Router) {
 				m.Use(middleware.CSRF)
 				m.Post("/history", h.RecordPlayback)
@@ -222,6 +233,7 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 				library.Get("/genres", h.LibraryGenres)
 				library.Get("/duplicates", h.DuplicateGroups)
 				library.Get("/radio", h.LocalRadio)
+				library.Get("/radio/station", h.RadioStation)
 				library.Get("/mixes", h.PersonalMixes)
 				library.Get("/mixes/{id}", h.PersonalMix)
 				library.With(middleware.RequireAdmin).Get("/audio-analysis", h.AudioAnalysisStatus)

@@ -613,6 +613,8 @@ func build(ctx context.Context, cfg config.Config, logger *slog.Logger) (*applic
 	}
 
 	libraryService.StartTrashMaintenance()
+	// The lyrics search index follows the sidecars in the background.
+	libraryService.StartLyricsIndex()
 	// Files written under an older naming scheme are moved to the current one
 	// in the background. It runs once per scheme and is a no-op afterwards.
 	libraryService.StartNamingMigration(libsvc.NamingMigrationOptions{

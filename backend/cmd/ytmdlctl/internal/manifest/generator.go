@@ -89,6 +89,8 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 			supportedSources = []int{8, 9, 10}
 		} else if opts.TargetSchema == 12 {
 			supportedSources = []int{8, 9, 10, 11}
+		} else if opts.TargetSchema == 24 {
+			supportedSources = []int{8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23}
 		} else if opts.TargetSchema == 22 {
 			supportedSources = []int{8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
 		} else if opts.TargetSchema == 21 {
@@ -311,6 +313,16 @@ func Generate(opts GeneratorOptions) ([]byte, error) {
 				update, rollback = UpdateSchemaNeutral, RollbackSchemaNeutral
 			}
 			upgradePaths = append(upgradePaths, UpgradePath{SourceSchema: source, TargetSchema: 22, UpdateClassification: update, RollbackClassification: rollback})
+		}
+	}
+
+	if len(upgradePaths) == 0 && mVer >= ManifestVersion3 && opts.TargetSchema == 24 {
+		for source := 8; source <= 24; source++ {
+			update, rollback := UpdateSchemaForward, RollbackBackupRestoreRequired
+			if source == 24 {
+				update, rollback = UpdateSchemaNeutral, RollbackSchemaNeutral
+			}
+			upgradePaths = append(upgradePaths, UpgradePath{SourceSchema: source, TargetSchema: 24, UpdateClassification: update, RollbackClassification: rollback})
 		}
 	}
 

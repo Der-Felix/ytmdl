@@ -45,6 +45,9 @@ const (
 	CodeSessionNotFound      Code = "SESSION_NOT_FOUND"
 	CodeSessionUnavailable   Code = "SESSION_UNAVAILABLE"
 	CodePlaylistNotFound     Code = "PLAYLIST_NOT_FOUND"
+	// CodePreferenceNotFound is a listening preference (an exclusion) that
+	// does not exist or belongs to another user.
+	CodePreferenceNotFound   Code = "PREFERENCE_NOT_FOUND"
 	CodeSessionInUse         Code = "SESSION_IN_USE"
 	CodeLastAdmin            Code = "LAST_ADMIN"
 	CodeCSRFInvalid          Code = "CSRF_INVALID"
@@ -179,7 +182,7 @@ func HTTPStatus(code Code) int {
 		return http.StatusUnsupportedMediaType
 	case CodeArtistNotFound, CodeReleaseNotFound, CodeTrackNotFound,
 		CodeJobNotFound, CodeSubscriptionNotFound, CodeProviderNotFound,
-		CodeFileNotFound, CodeUserNotFound, CodeSessionNotFound, CodePlaylistNotFound:
+		CodeFileNotFound, CodeUserNotFound, CodeSessionNotFound, CodePlaylistNotFound, CodePreferenceNotFound:
 		return http.StatusNotFound
 	case CodeUnsupportedMediaFormat, CodeTransferBudgetExceeded,
 		CodeMediaAgeRestricted, CodeMediaPremiumRequired, CodeMediaUnavailable:
