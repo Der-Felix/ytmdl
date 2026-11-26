@@ -1,4 +1,4 @@
-# Native listening preview 0.5.0 — build 39
+# Native listening preview 0.5.1 — build 40
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -23,7 +23,7 @@ from implemented features and simulator verification.
 | Collection artwork | Up to four distinct album covers on collection headers; shared, bounded previews in mobile Start and Playlists |
 | Mobile collection design | Integrated cover/title/metadata header, equal-width play/shuffle actions with 52-point minimum height; playlist editing/download actions in one menu; stacked actions at accessibility text sizes |
 | Home/Lock Screen widgets (iOS/iPadOS) | Small/medium Home widgets and circular/rectangular/inline Lock Screen widgets open the player; medium Home widgets also link to favorites and playlists. Navigation only, no live song state or playback controls |
-| Mobile transport | Seeking, previous/next, shuffle, repeat queue/track, native device volume and AirPlay |
+| Mobile transport | Scrubber with remaining time, previous/next, shuffle mode, repeat queue/track, native device volume and AirPlay, haptics (build 40) |
 | System artwork | Now Playing artwork published after authenticated/local loading, retained across progress updates, cleared on title change or stop; actual lock-screen review remains required |
 | Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer. Apple TV has the same settings under **Optionen → Klang & Wiedergabe** (each value opens a list of choices) plus sleep timer and tempo menus in the player |
 | Mobile visualization | Four mobile FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
@@ -34,6 +34,39 @@ from implemented features and simulator verification.
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## iPhone and iPad player and queue (build 40)
+
+Ships as 0.5.1 (40); the server API is unchanged. Apple TV and Mac keep their players.
+
+- **Jetzt läuft** is one column of at most 480 pt, so the iPad cover stops at 420 pt. The
+  cover is the one large element: it steps back while paused and springs forward on play
+  (still with Reduce Motion) over a blurred, veiled copy of the artwork (off with **Player-Farben
+  aus dem Cover**). Below it are:
+  - title and favourite; the artist opens their page, and with several artists you choose one.
+    **Zum Album** and **Zum Künstler** are in the "…" menu, found by name in the library.
+  - a scrubber that grows while dragged and seeks once on release, with elapsed and
+    remaining time. VoiceOver adjusts it in 10-second steps.
+  - transport with 80/64/44 pt targets. Shuffle and repeat show their state by colour and a
+    dot; shuffle is a mode now and restores the context's order when turned off.
+  - volume and AirPlay. Device volume on a device; the simulator, which draws no system
+    slider, shows the player's own volume.
+  - a row for **Liedtext** (in place of the cover), **Schlaf-Timer**, **Werkzeuge** and
+    **Warteschlange**, with a dot on the ones that are on.
+
+  At default text size nothing scrolls; larger text shrinks the cover first, then scrolls.
+  Drag down or **Schließen** closes it. Haptics on play/pause, skip and favourite.
+- **Warteschlange** is a sheet (half or full height):
+  - **Zufall**, **Wiederholen** and **Autoplay** at the top, then the filter.
+  - sections **Jetzt läuft**, **Als Nächstes**, **Weiter aus: …** and **Ähnliche Titel**;
+    already played titles are behind **Zuvor gespielt anzeigen**. The current title has a
+    moving indicator.
+  - tap to jump; drag to reorder within a section (or **Reihenfolge ändern**); swipe to
+    remove or to play next. The context menu and "…" offer **Als Nächstes spielen**, up/down,
+    playlist, favourite, offline and remove.
+  - **Nächste leeren** and **Leeren und stoppen** with **Rückgängig**, and an empty state.
+- **Mini player:** cover, title and artist, play/pause, next and a thin progress line; tap or
+  swipe up opens the player. iPad uses it too, on a floating bar of at most 640 pt.
 
 ## iPhone search, navigation and Start (build 39)
 

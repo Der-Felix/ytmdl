@@ -32,7 +32,8 @@ private func moved(_ offset: Int, _ insertion: Int, _ positions: [Int]) -> [Int]
     // Played on by one, removed one and queued one: the rest of the context
     // returns to its order, the queued title stays next.
     _ = queue.next(repeatAll: false)
-    #expect(queue.remove(at: 2))
+    let removed = queue.remove(at: 2)
+    #expect(removed)
     queue.append(track("q"))
     queue.setShuffle(false)
     let upcomingContext = queue.tracks.indices.filter { $0 > queue.index && queue.origin(at: $0) == .context }.map { queue.tracks[$0].id }
@@ -91,6 +92,9 @@ private func moved(_ offset: Int, _ insertion: Int, _ positions: [Int]) -> [Int]
     queue.replace(["a", "b", "c", "d"].map(track), start: 0)
     let move = PlaybackQueue.listMove(from: 0, to: 3, positions: [1, 2, 3])
     #expect(move != nil)
-    if let move { #expect(queue.move(from: move.source, to: move.destination)) }
+    if let move {
+        let applied = queue.move(from: move.source, to: move.destination)
+        #expect(applied)
+    }
     #expect(queue.tracks.map(\.id) == ["a", "c", "d", "b"])
 }

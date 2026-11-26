@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.5.0, build 39
+# Apple app handoff — preview 0.5.1, build 40
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,32 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 40: iPhone and iPad player and queue (CI only, not installed)
+
+Builds on build 39; see FEATURES.md "iPhone and iPad player and queue (build 40)".
+
+- **New file:** `App/MobilePlayerViews.swift`, registered for the three app targets like
+  `HomeViews.swift`. It holds `MobileMiniPlayer`, `MobilePlayerView` and `MobileQueueView`
+  (moved out of `MobileListeningViews.swift`), `PlayerMetrics` (the player's sizes), the
+  scrubber, the mode buttons, the backdrop, `SystemVolumeSlider` and `PlayingIndicator`.
+  `MobileLyricsView` gained `compact` for the lyrics in the cover's place.
+- **Core:** `PlaybackQueue.setShuffle`/`isShuffled` (shuffle as a mode; a new queue starts
+  unshuffled, restored queues too), and `Sources/YTMDLCore/PlayerControls.swift` with
+  `RepeatMode`, `PlaybackClock`, `LibraryMatch` and `PlaybackQueue.listMove`, tested in
+  `PlayerControlsTests`. `PlayerModel.setShuffle`, `repeatMode` and `setRepeat`; the Mac and TV
+  keep the one-off `shuffle()`.
+- **Links:** `NowPlayingView` and `MobilePlayerView` take `openCollection`; `RootView.playerLinks`
+  closes the player and pushes the artist or album onto the shown tab (iPhone) or the detail
+  path (iPad). Artists and albums are found by name in the loaded library, then by search.
+- **Play state:** the player and mini player show `isPlaybackRequested` instead of
+  `isPlaying`, so the button matches what `toggle()` does while a title loads or stalls.
+- **iPad mini player:** `RootView.miniPlayer` uses `MobileMiniPlayer` on iOS (the TV branch is
+  unchanged). Its identifier is `mobile-mini-player-open` there too.
+- **Tests:** `testPlayerModesLyricsAndArtistLinkWithoutPlayback` (new) and
+  `testQueueManagementAndNormalizationSettingsWithoutPlayback` (queue sheet: move, play next,
+  shuffle, clear and undo, save). The large-text and tablet tests cover the queue sheet too.
+  The large-text test allows 64 pt skip targets.
 
 ## Build 39: iPhone search, navigation and Start (CI only, not installed)
 
@@ -209,7 +235,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.5.0 (39)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.5.1 (40)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness
