@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.11.0 — 2026-11-26
 
-### Server
+More mixes, radio stations, listening statistics, lyrics search and "less of this" exclusions on the server, plus the Apple app's listening work.
+
+### Changes
 
 - **More mixes:** up to six **Dein Mix** genre mixes; **Mix: <Künstler>** for up to three of your top artists (the artist and artists of its main genre); **Deine 90er**-style mixes for up to two decades you listen to; **Favoriten-Mix** (favourites not played for a while first); **Vergessene Favoriten** (favourites not played for 90 days); and a mix for the time of day (**Dein Morgen-Mix**, **Nachmittags-**, **Abend-**, **Nacht-Mix**) from what you played at that time in the last 120 days. Every mix gets a `group` (`made_for_you`, `discover`, `rewind`) for clients that lay out sections; `GET /api/v1/library/mixes` accepts `tz` for the user's day and time of day. Existing fields are unchanged.
 - **Radio from an artist, album or genre:** `GET /api/v1/library/radio` also takes `artist`, `release`, `limit` and `exclude` (its response is unchanged). The new `GET /api/v1/library/radio/station` returns a titled station ("Radio: …") in batches with a cursor that never repeats a track.
@@ -25,6 +27,16 @@
 - **iPhone and iPad library and collection pages (0.5.2, build 41):** **Bibliothek** opens with tiles for Favoriten, Künstler, Titel, Genres, Offline and Playlists, then the albums: sort by Zuletzt hinzugefügt, Titel, Künstler or Jahr, grid or list (both remembered), a filter field, genre chips and loading placeholders. Album, artist, playlist, favorites and mix pages share one header: a large cover, the title, the artist as a link, a summary line, **Abspielen** and **Zufall**, and one row of actions (Favorit, Offline, Einreihen, Playlist). Album titles are numbered (by disc), the playing title shows the moving indicator, and **Mehr von …** ends the page. The artist page shows **Beliebte Titel**, **Alben** by year with a sort menu and **Singles & EPs** apart. **Künstler** is an A–Z list with the system index and a filter. New **Titel** and **Genres** views. Playlists lose the slogan and show cover mosaics with a subtle sparkle for smart playlists. Every track row swipes for **Als Nächstes** and **Warteschlange** and uses the queue's labels. Relative dates and times are always German. No server change.
 - **iPhone and iPad polish (0.5.3, build 42):** Start, Bibliothek and Playlists show their large title right under the status bar instead of below an empty bar, and the Start greeting wraps instead of being cut off at the largest text sizes. The settings moved behind a gear on Start, so the iPhone tab bar has Start, Bibliothek, Playlists and Suche (the iPad sidebar is unchanged). Section titles no longer pin above the tab bar on album, artist and search pages and look the same everywhere (search titles were dimmed). One row size for titles, albums, artists, search results and the queue (whose rows were much taller), one corner radius for tiles, cards and buttons, and the same menu wording ("Als Nächstes spielen", "Zur Warteschlange") everywhere. "Als Nächstes spielen", "Zur Warteschlange" and "Zur Playlist hinzufügen" now confirm with a short banner and a light haptic, favourites tap lightly, buttons and tiles shrink slightly when pressed, and Start's shelves fade in when they finish loading (no motion with Reduce Motion). Loading shows placeholder rows instead of spinners, every failure offers **Erneut laden**, and system texts (back button, empty search results) are German whatever the device language. No server change.
 
+### Upgrade from v1.10.1
+
+Use the checksum-verified v1.11.0 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.11.0 --dry-run` before
+`ytmdlctl update --channel stable --target 1.11.0`. The database moves to schema 24:
+two new tables, no existing row is rewritten. Lyrics become searchable once the
+background indexer has caught up. Keep a verified backup. Protect the media
+separately; the database dump does not contain music files. With the single image,
+pull the image and recreate the stack instead.
 ## 1.10.1 — 2026-11-25
 
 Fixes after 1.10.0: radio and autoplay stay near the seed, the download summary causes less load, the web app gets design fixes, and the access log shows the real client address.

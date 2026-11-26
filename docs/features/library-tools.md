@@ -116,7 +116,9 @@ loudness measurements, per-user duplicate review, seven-day trash, fingerprints
 and playback handoff; migration 0019 records the identity scheme of each track; migration 0020 adds the
 appearance setting of a subscription; migration 0021 adds the table of further
 releases a recording is placed on; migration 0022 adds per-user skip signals
-for personal mixes and the radio, and the record of provider genre lookups.
+for personal mixes and the radio, and the record of provider genre lookups;
+migration 0023 adds the table of listening exclusions; migration 0024 adds the
+search index of stored lyrics.
 The schema is additive: upgrading preserves existing
 identities, audio and playlists and never removes candidates automatically.
 Upgrades from supported older schemas require a verified database backup;
