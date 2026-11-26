@@ -144,9 +144,9 @@ private final class PlaylistProtocol: URLProtocol, @unchecked Sendable {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: folder) }
     let model = AppModel(offlineLibrary: OfflineLibrary(root: folder, startTransfers: false)); model.client = client
-    let candidates = (0..<20).map { Playlist(id: "p\($0)", name: "Fixture", trackCount: 3, durationMs: 3000) }
+    let candidates = (0..<60).map { Playlist(id: "p\($0)", name: "Fixture", trackCount: 3, durationMs: 3000) }
     await model.loadPlaylistPreviews(candidates)
-    #expect(model.playlistPreviews.count == 12)
+    #expect(model.playlistPreviews.count == AppModel.previewLimit)
     #expect(model.playlistPreviews.values.allSatisfy { $0.count == 1 }, "Same-album tracks use one cover.")
     let count = PlaylistProtocol.state.snapshot().count
     await model.loadPlaylistPreviews(candidates)

@@ -222,7 +222,7 @@ struct MobileHomeView: View {
                 ListenShelf {
                     ForEach(Array(server.prefix(12).enumerated()), id: \.offset) { index, entry in
                         HomeTrackCard(model: model, track: entry.track, width: cardWidth,
-                                      caption: entry.lastPlayedAt.map { $0.formatted(.relative(presentation: .named)) }) {
+                                      caption: entry.lastPlayedAt.map { GermanDates.relative($0) }) {
                             play(server.map(\.track), start: index, context: QueueContext(kind: "history", title: "Zuletzt gehört"))
                         }
                     }

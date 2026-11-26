@@ -261,7 +261,7 @@ struct TVForYouView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 48) {
-                Text("Täglich neu gemischt aus deiner Mediathek und deinem Hörverlauf · \(Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)))")
+                Text("Täglich neu gemischt aus deiner Mediathek und deinem Hörverlauf · \(GermanDates.day(.now))")
                     .font(.callout).foregroundStyle(.secondary)
                 if let message = feed.mixError { Text(message).font(.callout).foregroundStyle(.red) }
                 content

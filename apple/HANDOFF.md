@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.5.1, build 40
+# Apple app handoff — preview 0.5.2, build 41
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,37 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 41: iPhone and iPad library and collection pages (CI only, not installed)
+
+Builds on build 40; see FEATURES.md "iPhone and iPad library, album, artist and playlist pages (build 41)".
+
+- **New files:** `App/LibraryViews.swift` (`MobileLibraryView`, `MobileArtistListView`,
+  `LibraryTracksView`, `LibraryGenresView`, `GenreAlbumsView`, and `ArtistDirectory`, the
+  paged A–Z artist list held by `AppModel.artistDirectory`) and `App/CollectionPages.swift`
+  (`CollectionHeader`, `CollectionActionRow`/`CollectionAction`, `CollectionMetrics`,
+  `ReadableContentWidth`, `ShelfReleaseCard`, `TrackRowSkeleton`, `MonogramView`,
+  `LibraryRoute`, `ReleaseDetailResponse`). Both are registered for the three app targets like
+  `MobilePlayerViews.swift`. Core: `Sources/YTMDLCore/LibraryBrowsing.swift` (`GermanDates`,
+  `LibraryAlbumSort`/`LibraryPreferences`, `ArtistAlbumSort`, `LibraryIndex`, `ArtistMonogram`,
+  `DiscGroup`, `CollectionSummary`, release kinds) with `LibraryBrowsingTests`.
+- **Models:** `Track.discNumber`, `Release.releaseType`/`albumArtist`, `Artist.releaseCount`
+  (all optional; older servers and saved queues decode as before).
+- **Routing:** on iOS `.library` and `.artists` show the new views; `LibraryRoute` adds Titel,
+  Genres and one genre. `CollectionView` keeps its state and logic and gains `mobileCollection`
+  (album, artist, playlist, favorites); Mac and TV keep `standardCollection`/`desktopCollection`.
+- **Album order:** `AppModel.albumSort` (stored under `librarySort`) is sent to every
+  `/library/releases` call; `setAlbumSort` reloads. Playlist previews: up to 48, requested per
+  visible row (was 12 for the whole list).
+- **TrackRow (iOS):** number or cover, playing indicator, swipe actions, context menu; the
+  queue's labels. `PlayingIndicator` takes a colour. `ArtworkView` takes a monogram name.
+- **Mix page (iOS):** uses `CollectionHeader` with **Einreihen** and **Als Playlist**.
+- **Fixture:** release types and years, `GET /library/releases/{id}`, `artist_id` and `q`
+  filters, three more artists (A, O and # sections).
+- **Tests:** `testMobileLibrarySortPersistsAndFiltersWithoutPlayback`,
+  `testMobileAlbumAndArtistPagesWithoutPlayback`, `testMobileArtistListTitlesAndGenresWithoutPlayback`,
+  `testTabletLibraryAlbumAndArtistPagesWithoutPlayback`; the playlist tests use the header's
+  offline tile instead of the "…" menu.
 
 ## Build 40: iPhone and iPad player and queue (CI only, not installed)
 
@@ -235,7 +266,7 @@ manifests remain readable. Missing measurements bypass processing with a status.
 There is no audio rewrite or database migration. Mac now shares offline browsing,
 collection headers and LRC lyrics with iOS; tvOS still has no offline catalog.
 
-Keep the app and widget on the same version (now 0.5.1 (40)). Use Xcode 27; an older selected Xcode cannot
+Keep the app and widget on the same version (now 0.5.2 (41)). Use Xcode 27; an older selected Xcode cannot
 build the native targets. Keep SwiftPM build output outside iCloud/worktree paths
 to avoid Finder resource-fork signing errors. Run Swift tests serially and keep
 audible-test opt-in disabled. The fixture server supports deterministic loudness

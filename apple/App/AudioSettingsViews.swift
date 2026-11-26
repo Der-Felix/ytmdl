@@ -1,4 +1,5 @@
 import SwiftUI
+import YTMDLCore
 
 #if os(macOS)
 struct EqualizerControls: View {
@@ -97,7 +98,7 @@ struct PlaybackOptions: View {
             Picker("Sleep-Timer", selection: Binding(get: { player.sleepMode }, set: { player.setSleepMode($0) })) {
                 ForEach(SleepMode.allCases) { Text($0.name).tag($0) }
             }.controlSize(.large)
-            if let deadline = player.sleepDeadline { Text("Stoppt um \(deadline.formatted(date: .omitted, time: .shortened)).").desktopScaledFont(15).foregroundStyle(.secondary) }
+            if let deadline = player.sleepDeadline { Text("Stoppt um \(GermanDates.time(deadline)).").desktopScaledFont(15).foregroundStyle(.secondary) }
             Toggle("Diesen Titel wiederholen", isOn: Binding(get: { player.repeatOne }, set: { player.setRepeatOne($0) }))
             if player.isCrossfading { Label("Titel werden gerade überblendet", systemImage: "waveform").desktopScaledFont(15).foregroundStyle(.secondary) }
         }.desktopScaledFont(17)

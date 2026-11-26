@@ -23,6 +23,10 @@ import YTMDLCore
     var genre = ""
     var releaseOffset = 0
     var moreReleases = false
+    /// Order of the album list, remembered on this device (iPhone and iPad library).
+    private(set) var albumSort = LibraryPreferences.sort()
+    /// Every artist A–Z for the iPhone and iPad artist list, loaded page by page.
+    let artistDirectory = ArtistDirectory()
     var device: DeviceStart?
     var player = PlayerModel()
     var listeningHistory = ListeningHistory()
@@ -195,7 +199,7 @@ import YTMDLCore
         let playlistRevision = playlistRevision
         let favoriteRevision = favoriteRevision
         connecting = true; defer { if self.catalogGeneration == catalogGeneration { connecting = false } }
-        async let releasePage: Result<[Release], any Error> = fetch(client, "/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc"), .init(name: "genre", value: genre)])
+        async let releasePage: Result<[Release], any Error> = fetch(client, "/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "genre", value: genre)] + albumSort.queryItems)
         async let artistPage: Result<[Artist], any Error> = fetch(client, "/library/artists", query: [.init(name: "limit", value: "60")])
         async let playlistPage: Result<[Playlist], any Error> = fetch(client, "/playlists")
         async let favoritePage: Result<[String], any Error> = fetch(client, "/favorites/ids")
@@ -246,7 +250,7 @@ import YTMDLCore
         let catalogGeneration = catalogGeneration
         connecting = true; defer { if self.catalogGeneration == catalogGeneration { connecting = false } }
         do {
-            let next: [Release] = try await client.get("/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "offset", value: String(releaseOffset)), .init(name: "genre", value: genre), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc")])
+            let next: [Release] = try await client.get("/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "offset", value: String(releaseOffset)), .init(name: "genre", value: genre)] + albumSort.queryItems)
             guard self.generation == generation, self.catalogGeneration == catalogGeneration else { return }
             let existing = Set(releases.map(\.id)); releases += next.filter { !existing.contains($0.id) }
             releaseOffset += next.count; moreReleases = next.count == 60
@@ -258,7 +262,7 @@ import YTMDLCore
         let catalogGeneration = UUID(); self.catalogGeneration = catalogGeneration
         connecting = true; defer { if self.catalogGeneration == catalogGeneration { connecting = false } }
         do {
-            let result: [Release] = try await client.get("/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "genre", value: value), .init(name: "sort", value: "recent"), .init(name: "order", value: "desc")])
+            let result: [Release] = try await client.get("/library/releases", query: [.init(name: "limit", value: "60"), .init(name: "genre", value: value)] + albumSort.queryItems)
             guard self.generation == generation, self.catalogGeneration == catalogGeneration, genre == value else { return }
             releases = result; releaseOffset = result.count; moreReleases = result.count == 60
             releasesLoaded = true; libraryError = nil
@@ -267,6 +271,13 @@ import YTMDLCore
             if !Self.isCancellation(error) { libraryError = describe(error) }
             report(error)
         }
+    }
+    /// A new album order: remembered on this device and loaded right away for
+    /// the chosen genre. The server sorts, so the order spans the whole library.
+    func setAlbumSort(_ sort: LibraryAlbumSort) async {
+        guard sort != albumSort else { return }
+        albumSort = sort; LibraryPreferences.setSort(sort)
+        await filterGenre(genre)
     }
     func search(_ value: String) async throws -> SearchResults? {
         guard let client, value.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else { return nil }
@@ -397,22 +408,24 @@ import YTMDLCore
         playlistBusy = false; playlistRevision = UUID(); catalogGeneration = UUID(); favoriteRevision = UUID()
         connecting = false; listeningBusy = false; handoff = nil; error = nil; pendingFavorites = []
         genres = []; genre = ""; releaseOffset = 0; moreReleases = false; libraryError = nil; releasesLoaded = false
+        artistDirectory.reset()
         listeningHistory.configure(server: nil, userID: nil, persist: false)
         feed.clear()
         query = ""; releases = []; artists = []; tracks = []; playlists = []; favoriteIDs = []; device = nil
     }
-    // Cover previews are shared by Start and Playlists. Fetch at most twelve
-    // collections per revision, serially, and retain only four distinct covers.
+    static let previewLimit = 48
+    // Cover previews are shared by Start and Playlists. Fetch at most `previewLimit`
+    // collections per revision (rows ask as they appear) and retain only four distinct covers.
     func loadPlaylistPreviews(_ candidates: [Playlist]) async {
         guard !offlineMode, let client else { return }
         let revision = playlistRevision
         if previewRevision != revision {
             playlistPreviews = [:]; previewRequests = []; previewRevision = revision
         }
-        for playlist in candidates.prefix(12) {
+        for playlist in candidates.prefix(Self.previewLimit) {
             guard !Task.isCancelled, self.client === client, playlistRevision == revision else { return }
             guard playlist.trackCount > 0, playlistPreviews[playlist.id] == nil,
-                  !previewRequests.contains(playlist.id), playlistPreviews.count + previewRequests.count < 12 else { continue }
+                  !previewRequests.contains(playlist.id), playlistPreviews.count + previewRequests.count < Self.previewLimit else { continue }
             previewRequests.insert(playlist.id)
             defer { if self.client === client, playlistRevision == revision { previewRequests.remove(playlist.id) } }
             do {

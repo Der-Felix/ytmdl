@@ -229,7 +229,7 @@ struct ForYouView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                Text("Täglich neu gemischt aus deiner Mediathek und deinem Hörverlauf · \(Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)))")
+                Text("Täglich neu gemischt aus deiner Mediathek und deinem Hörverlauf · \(GermanDates.day(.now))")
                     .font(.subheadline).foregroundStyle(.secondary)
                 if let message = model.feed.mixError { Text(message).font(.callout).foregroundStyle(.red) }
                 switch model.feed.mixesPhase {
@@ -388,6 +388,26 @@ struct MixDetailView: View {
                 offlineSaveNote
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.padding(.vertical, 24)
+    }
+    #elseif os(iOS)
+    /// The header of all collection pages, with the mix's own actions.
+    private var header: some View {
+        VStack(spacing: ListenMetrics.shelfGap) {
+            CollectionHeader(eyebrow: shown.label, title: shown.title,
+                             detail: "\(detail.map { $0.tracks.count } ?? shown.trackCount) Titel · \(listenDuration(tracks.reduce(0) { $0 + $1.durationMs }))",
+                             description: shown.description, canPlay: !tracks.isEmpty, idPrefix: "mix",
+                             actions: [
+                                queueCollectionAction(model, tracks: tracks, id: "mix-enqueue"),
+                                CollectionAction(id: "mix-save-playlist", title: "Als Playlist", label: "Als Playlist speichern", symbol: "music.note.list",
+                                                 hint: saveUnavailable ? "Braucht eine Verbindung zum Server" : "Legt eine Playlist mit den Titeln dieses Mixes an",
+                                                 enabled: !tracks.isEmpty && !saveUnavailable,
+                                                 kind: .button({ savedPlaylist = nil; savingPlaylist = true }))
+                             ],
+                             play: { play(start: 0) }, shuffle: { play(start: 0, shuffle: true) }) { size in
+                MixArtwork(model: model, mix: shown, size: size)
+            }
+            offlineSaveNote
+        }
     }
     #else
     private var header: some View {
@@ -553,9 +573,12 @@ struct MixTileStyle: ButtonStyle {
     }
 }
 private struct MixTileLabelStyle: LabelStyle {
+    /// One icon box for every symbol, so the labels of neighbouring tiles
+    /// share a baseline although the glyphs differ in height.
+    @ScaledMetric(relativeTo: .title3) private var iconHeight: CGFloat = 26
     func makeBody(configuration: Configuration) -> some View {
         VStack(spacing: 6) {
-            configuration.icon.font(.title3).foregroundStyle(.tint)
+            configuration.icon.font(.title3).foregroundStyle(.tint).frame(height: iconHeight)
             configuration.title.font(.footnote.weight(.semibold)).lineLimit(1).fixedSize()
         }
     }

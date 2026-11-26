@@ -109,17 +109,24 @@ struct MobileLibraryShortcuts: View {
 struct MobilePlaylistRow: View {
     var model: AppModel
     var playlist: Playlist
+    /// The cover mosaic, count and length; a smart playlist only gains a
+    /// small sparkle in front of its count.
     var body: some View {
-        HStack(spacing: 16) {
-            MobileCollectionArtwork(model: model, tracks: model.playlistPreviews[playlist.id] ?? [], size: 72)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(playlist.name).font(.headline).foregroundStyle(.primary).lineLimit(2)
-                Text("\(playlist.trackCount) Titel · \(mobileCollectionDuration(playlist.durationMs))")
-                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                if playlist.smartRules != nil { Label("Intelligent", systemImage: "sparkles").font(.caption).foregroundStyle(.secondary) }
+        HStack(spacing: 12) {
+            MobileCollectionArtwork(model: model, tracks: model.playlistPreviews[playlist.id] ?? [], size: 60)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(playlist.name).font(.body.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
+                HStack(spacing: 4) {
+                    if playlist.smartRules != nil {
+                        Image(systemName: "sparkles").imageScale(.small).foregroundStyle(.tint)
+                            .accessibilityLabel("Intelligente Playlist")
+                    }
+                    Text(CollectionSummary.line(trackCount: playlist.trackCount, durationMs: playlist.durationMs)).monospacedDigit()
+                }.font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }.frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-        }.padding(16).contentShape(Rectangle())
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary).accessibilityHidden(true)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10).contentShape(Rectangle())
     }
 }
 
@@ -234,10 +241,21 @@ struct OfflineLibraryView: View {
     private var trackHeader: some View {
         Section {
             if let collection {
+                #if os(iOS)
+                CollectionHeader(eyebrow: "Offline", title: collection.name,
+                    detail: "\(playable.count) offline verfügbar · \(records.count) gespeichert",
+                    canPlay: !playable.isEmpty,
+                    play: { play(playable) }, shuffle: { play(playable.shuffled()) }) { size in
+                    MobileCollectionArtwork(model: model, tracks: records.map(\.track), size: size)
+                }
+                .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 12, trailing: 0))
+                #else
                 MobileCollectionHeader(model: model, tracks: records.map(\.track), title: collection.name,
                     detail: "\(playable.count) offline verfügbar · \(records.count) gespeichert",
                     play: { play(playable) }, shuffle: { play(playable.shuffled()) })
                     .disabled(playable.isEmpty)
+                #endif
                 Toggle("Beim Aktualisieren synchronisieren", isOn: Binding(get: { collection.keepUpdated }, set: { model.offline.setKeepUpdated(collection.id, enabled: $0) }))
                     .disabled(model.offlineMode)
             } else {
