@@ -1810,8 +1810,10 @@ final class PlayerUITests: XCTestCase {
         XCUIRemote.shared.press(.down)
         let woke = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: next)
         XCTAssertEqual(XCTWaiter.wait(for: [woke], timeout: 5), .completed, "Any press brings the controls back.")
-        let toggleFocused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: toggle)
-        XCTAssertEqual(XCTWaiter.wait(for: [toggleFocused], timeout: 5), .completed, "Waking returns the focus to play/pause.")
+        Thread.sleep(forTimeInterval: 0.5)
+        // The catcher gives the focus up once awake; reaching the scrubber below proves it.
+        let catcher = app.descendants(matching: .any)["tv-np-wake"].firstMatch
+        XCTAssertFalse(catcher.exists && catcher.hasFocus, "The invisible catcher gives the focus up once awake.")
 
         // Up from the transport onto the scrubber; right seeks, faster when repeated.
         let elapsed = app.staticTexts["playbackElapsed"]

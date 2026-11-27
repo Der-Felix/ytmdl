@@ -287,6 +287,9 @@ struct TVNowPlayingView: View {
             }
         }
         .defaultFocus($focus, .playPause)
+        // A full-screen cover does not inherit the tab view's tint: lists in
+        // the queue panel would take the accent for all their text.
+        .tint(.white)
         .onPlayPauseCommand { player.remoteToggle(); touch() }
         .onExitCommand { back() }
         .onChange(of: focus) { _, new in
