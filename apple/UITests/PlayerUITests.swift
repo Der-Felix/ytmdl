@@ -1592,7 +1592,8 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(first.waitForExistence(timeout: 20), "The start screen shows the server's mixes.")
         XCTAssertTrue(second.exists)
         XCTAssertTrue(app.staticTexts["Zuletzt gehört"].waitForExistence(timeout: 10))
-        for _ in 0..<6 where !first.hasFocus && !second.hasFocus { XCUIRemote.shared.press(.down) }
+        focusTVMixRow(app)
+        for _ in 0..<4 where !first.hasFocus && !second.hasFocus { XCUIRemote.shared.press(.left) }
         XCTAssertTrue(first.hasFocus || second.hasFocus, "A mix card takes the remote's focus.")
         attach(app, name: "TV home with focused mix")
         XCTAssertFalse(app.buttons["Pause"].exists, "The start screen never starts playback.")
@@ -1602,8 +1603,9 @@ final class PlayerUITests: XCTestCase {
         let first = app.buttons["tv-mix-genre-0a1b2c3d4e5f"], all = app.buttons["tv-all-mixes"]
         XCTAssertTrue(first.waitForExistence(timeout: 20), "The start screen shows the server's mixes.")
         XCTAssertTrue(all.exists, "Alle Mixe closes the first mix row.")
-        for _ in 0..<6 where !first.hasFocus { XCUIRemote.shared.press(.down) }
-        XCTAssertTrue(first.hasFocus)
+        focusTVMixRow(app)
+        for _ in 0..<4 where !first.hasFocus && !all.hasFocus { XCUIRemote.shared.press(.left) }
+        XCTAssertTrue(first.hasFocus || all.hasFocus, "The first mix row takes the remote's focus.")
         for _ in 0..<3 where !all.hasFocus { XCUIRemote.shared.press(.right) }
         XCTAssertTrue(all.hasFocus)
         XCUIRemote.shared.press(.select)
@@ -1677,6 +1679,15 @@ final class PlayerUITests: XCTestCase {
         for _ in 0..<10 where !item.hasFocus { XCUIRemote.shared.press(.right) }
         XCTAssertTrue(item.hasFocus, "\(tab) takes the remote's focus in the tab bar.")
         XCUIRemote.shared.press(.select)
+    }
+    /// Down from the tab bar into the first shelf of mixes. The tab bar is
+    /// centred, so the focus lands on whichever card sits below "Start".
+    @MainActor private func focusTVMixRow(_ app: XCUIApplication) {
+        for _ in 0..<6 {
+            let id = focusedIdentifier(app)
+            if id.hasPrefix("tv-mix-") || id == "tv-all-mixes" { return }
+            XCUIRemote.shared.press(.down)
+        }
     }
     /// The four text tabs of the Apple TV tab bar.
     private static let tvTabNames = ["Start", "Bibliothek", "Suche", "Playlists"]

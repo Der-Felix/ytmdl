@@ -82,6 +82,10 @@ struct RootView: View {
                         .tabItem { tvTabLabel(item) }.tag(Optional(item))
                     }
                 }
+                // Lists and plain buttons take the tint for their text on tvOS:
+                // white keeps them neutral. Alerts and dialogs inside pages set
+                // the accent again (the app-wide tint), so their buttons stay legible.
+                .tint(.white)
                 .fullScreenCover(isPresented: $tvNowPlaying) {
                     TVNowPlayingView(model: model) { kind in
                         // Back from the player into the shown tab, then the page.
@@ -1046,19 +1050,13 @@ struct CollectionView: View {
         .sheet(isPresented: $adding) {
             if let playlist { PlaylistTrackPicker(model: model, playlist: playlist, existing: Set(tracks.map(\.id))) { tracks = $0.tracks } }
         }
-        .confirmationDialog("Playlist löschen?", isPresented: $deleting, titleVisibility: .visible) {
-            Button("Playlist löschen", role: .destructive) {
-                Task {
-                    guard let playlist, let client = model.client else { return }
-                    do { try await model.deletePlaylist(playlist); if model.client === client { dismiss() } }
-                    catch is CancellationError { }
-                    catch { if model.client === client { failure = playlistFailure(error) } }
-                }
-            }
-        } message: { Text("Die Playlist wird entfernt. Ihre Titel und Audiodateien bleiben in der Bibliothek.") }
-        .alert("Playlist konnte nicht geändert werden", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
-            Button("OK") { failure = nil }
-        } message: { Text(failure ?? "") }
+        #if os(tvOS)
+        // Content is tinted white on tvOS; dialog buttons need the accent or their labels vanish on the white platter.
+        .background { playlistDialogs(Color.clear).tint(TVTheme.accent) }
+        #else
+        .confirmationDialog("Playlist löschen?", isPresented: $deleting, titleVisibility: .visible) { deletePlaylistButton } message: { deletePlaylistMessage }
+        .alert("Playlist konnte nicht geändert werden", isPresented: failureShown) { Button("OK") { failure = nil } } message: { Text(failure ?? "") }
+        #endif
         .onChange(of: model.favoriteIDs) { old, new in
             guard isFavorites else { return }
             let removed = old.subtracting(new)
@@ -1553,6 +1551,25 @@ struct CollectionView: View {
         catch is CancellationError { }
         catch { if model.client === client { failure = playlistFailure(error) } }
     }
+    private var failureShown: Binding<Bool> { Binding(get: { failure != nil }, set: { if !$0 { failure = nil } }) }
+    private var deletePlaylistMessage: Text { Text("Die Playlist wird entfernt. Ihre Titel und Audiodateien bleiben in der Bibliothek.") }
+    private var deletePlaylistButton: some View {
+        Button("Playlist löschen", role: .destructive) {
+            Task {
+                guard let playlist, let client = model.client else { return }
+                do { try await model.deletePlaylist(playlist); if model.client === client { dismiss() } }
+                catch is CancellationError { }
+                catch { if model.client === client { failure = playlistFailure(error) } }
+            }
+        }
+    }
+    #if os(tvOS)
+    private func playlistDialogs<V: View>(_ host: V) -> some View {
+        host
+            .confirmationDialog("Playlist löschen?", isPresented: $deleting, titleVisibility: .visible) { deletePlaylistButton } message: { deletePlaylistMessage }
+            .alert("Playlist konnte nicht geändert werden", isPresented: failureShown) { Button("OK") { failure = nil } } message: { Text(failure ?? "") }
+    }
+    #endif
     private func reloadPlaylist() async {
         guard let playlist, let client = model.client, !busy else { return }
         busy = true; defer { busy = false }

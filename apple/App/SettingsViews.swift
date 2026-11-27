@@ -125,10 +125,17 @@ struct SettingsView: View {
             }
             #endif
         }.navigationTitle("Einstellungen")
-        .confirmationDialog("Auf diesem Gerät abmelden?", isPresented: $signingOut) {
-            Button("Abmelden", role: .destructive) { if removeOfflineOnLogout { model.player.stop(); model.offline.clearCurrent() }; Task { await model.logout() } }
-        } message: { Text("Die Wiedergabe stoppt. Die lokal gespeicherte Sitzung wird entfernt.") }
+        #if os(tvOS)
+        // Content is tinted white on tvOS; dialog buttons need the accent or their labels vanish on the white platter.
+        .background { Color.clear.confirmationDialog("Auf diesem Gerät abmelden?", isPresented: $signingOut) { signOutButton } message: { signOutMessage }.tint(TVTheme.accent) }
+        #else
+        .confirmationDialog("Auf diesem Gerät abmelden?", isPresented: $signingOut) { signOutButton } message: { signOutMessage }
+        #endif
     }
+    private var signOutButton: some View {
+        Button("Abmelden", role: .destructive) { if removeOfflineOnLogout { model.player.stop(); model.offline.clearCurrent() }; Task { await model.logout() } }
+    }
+    private var signOutMessage: Text { Text("Die Wiedergabe stoppt. Die lokal gespeicherte Sitzung wird entfernt.") }
     #if os(macOS)
     private var desktopSettings: some View {
         VStack(alignment: .leading, spacing: 24) {

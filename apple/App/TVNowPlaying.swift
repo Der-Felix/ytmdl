@@ -302,11 +302,16 @@ struct TVNowPlayingView: View {
             rest()
         }
         .sheet(item: $sheet) { item in sheetContent(item) }
-        .confirmationDialog("Weitere Aktionen", isPresented: $moreActions, titleVisibility: .visible) { moreDialog }
-        .alert("YTMDL", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("OK") { model.error = nil }
-        } message: { Text(model.error ?? "") }
-        .accessibilityIdentifier("tv-now-playing")
+        // The page around is tinted white; the dialog buttons need the accent
+        // or their labels vanish on the white focus platter.
+        .background {
+            Color.clear
+                .confirmationDialog("Weitere Aktionen", isPresented: $moreActions, titleVisibility: .visible) { moreDialog }
+                .alert("YTMDL", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+                    Button("OK") { model.error = nil }
+                } message: { Text(model.error ?? "") }
+                .tint(TVTheme.accent)
+        }
     }
 
     // MARK: Input and resting
@@ -647,7 +652,6 @@ struct TVNowPlayingView: View {
         .font(.system(size: 24, weight: .medium))
         .lineLimit(1)
         .frame(minHeight: 66, alignment: .leading)
-        .accessibilityIdentifier("tv-np-footnote")
     }
     private var upcoming: Track? {
         let queue = player.queue
@@ -724,7 +728,6 @@ struct TVNowPlayingView: View {
             }
             .scrollClipDisabled()
         }
-        .accessibilityIdentifier("tv-np-queue-panel")
     }
 
     private var lyricsPanel: some View {
@@ -732,7 +735,6 @@ struct TVNowPlayingView: View {
             panelHeader("Lyrics")
             TVLyricsPanel(player: player)
         }
-        .accessibilityIdentifier("tv-np-lyrics-panel")
     }
 }
 
