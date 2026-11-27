@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "YTMDL Cookie Export",
+  "version": "1.0.0",
+  "description": "Saves the youtube.com cookies of this browser window as a Netscape cookies.txt for a YTMDL media session. Nothing leaves this computer.",
+  "permissions": ["cookies"],
+  "host_permissions": ["https://*.youtube.com/*"],
+  "action": {
+    "default_title": "YTMDL Cookie Export",
+    "default_popup": "popup.html"
+  }
+}
