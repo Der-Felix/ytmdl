@@ -47,6 +47,28 @@ public enum PlaybackClock {
     }
 }
 
+/// Seeking with the remote: each press moves `seconds(streak:)`; presses in
+/// the same direction that follow each other quickly (or a held edge of the
+/// touch surface, which repeats) build a streak and move further.
+public enum ScrubStep {
+    /// The longest pause between two presses that still continues a streak.
+    public static let window: Double = 0.6
+    /// The streak after a press: one more when it follows the last press in
+    /// the same direction within `window` seconds, else it starts again.
+    public static func streak(after previous: Int, sameDirection: Bool, interval: Double) -> Int {
+        sameDirection && interval.isFinite && interval >= 0 && interval <= window ? previous + 1 : 0
+    }
+    /// 10 s for single presses, then 20 s, 30 s and at most 60 s.
+    public static func seconds(streak: Int) -> Double {
+        switch streak {
+        case ..<2: 10
+        case 2..<4: 20
+        case 4..<7: 30
+        default: 60
+        }
+    }
+}
+
 /// Finding a library page for the names a track carries. Tracks know their
 /// artists and album by name only; the player looks those names up.
 public enum LibraryMatch {

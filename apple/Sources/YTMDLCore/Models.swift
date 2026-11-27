@@ -257,6 +257,48 @@ public enum PlayerError: LocalizedError, Equatable {
     }
 }
 
+/// Why a connection to the server failed, told apart by the transport error,
+/// so the app says what is actually wrong: no network, a wrong address, a
+/// server that does not answer, a certificate this device does not trust, or
+/// an answer that is not from a compatible YTMDL server. Nil for every other
+/// error. The app never overrides certificate trust; it only explains it.
+public enum ConnectionProblem: Equatable, Sendable {
+    case offline, hostNotFound, unreachable, certificateUntrusted, certificateExpired, secureTransportRequired, incompatible
+    public init?(_ error: any Error) {
+        if error is DecodingError { self = .incompatible; return }
+        guard let transport = error as? URLError else { return nil }
+        switch transport.code {
+        case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff: self = .offline
+        case .cannotFindHost, .dnsLookupFailed: self = .hostNotFound
+        case .cannotConnectToHost, .timedOut, .networkConnectionLost, .resourceUnavailable: self = .unreachable
+        case .serverCertificateUntrusted, .serverCertificateHasUnknownRoot, .secureConnectionFailed,
+             .clientCertificateRejected, .clientCertificateRequired: self = .certificateUntrusted
+        case .serverCertificateHasBadDate, .serverCertificateNotYetValid: self = .certificateExpired
+        case .appTransportSecurityRequiresSecureConnection: self = .secureTransportRequired
+        case .badServerResponse, .cannotParseResponse, .cannotDecodeContentData, .cannotDecodeRawData, .zeroByteResource: self = .incompatible
+        default: return nil
+        }
+    }
+    public var message: String {
+        switch self {
+        case .offline:
+            "Dieses Gerät ist nicht mit dem Netzwerk verbunden. Bitte WLAN oder Ethernet prüfen."
+        case .hostNotFound:
+            "Unter dieser Adresse wurde kein Server gefunden. Bitte die Server-Adresse prüfen."
+        case .unreachable:
+            "Der Server antwortet nicht. Bitte prüfen, ob er läuft und von diesem Gerät aus im Netzwerk erreichbar ist."
+        case .certificateUntrusted:
+            "Dieses Gerät vertraut dem Zertifikat des Servers nicht. Nutzt dein Server eine eigene Zertifizierungsstelle, muss deren Root-Zertifikat auf diesem Gerät installiert und unter Einstellungen › Allgemein › Info › Zertifikatsvertrauenseinstellungen als vertrauenswürdig aktiviert sein."
+        case .certificateExpired:
+            "Das Zertifikat des Servers ist abgelaufen oder noch nicht gültig. Bitte das Zertifikat erneuern und Datum und Uhrzeit dieses Geräts prüfen."
+        case .secureTransportRequired:
+            "Dieses Gerät verlangt eine verschlüsselte Verbindung. Bitte die HTTPS-Adresse des Servers verwenden."
+        case .incompatible:
+            "Die Antwort des Servers passt nicht zur App. Bitte prüfen, ob die Adresse auf deinen YTMDL-Server zeigt und seine Version aktuell ist."
+        }
+    }
+}
+
 public struct ServerAddress: Equatable, Sendable {
     public let url: URL
     public var isSecure: Bool { url.scheme == "https" }

@@ -841,14 +841,14 @@ struct AppNotice: Identifiable, Equatable, Sendable {
         guard player.autoplay || station != nil, !player.isPlaybackRequested, player.current?.id == track.id, let client else { return }
         if offlineMode {
             let candidates = offline.readyTracks.filter { $0.id != track.id }.shuffled()
-            if !candidates.isEmpty { player.play(candidates, client: client) }; return
+            if !candidates.isEmpty { player.play(candidates, client: client, startedByUser: false) }; return
         }
         let playbackRevision = player.playbackRevision
         if let station, serverFeatures.stations {
             guard let batch = await nextStationBatch(station, client: client, limit: PlaybackQueue.autoplayBatch) else { return }
             guard self.client === client, player.playbackRevision == playbackRevision, !player.isPlaybackRequested,
                   player.current?.id == track.id, !batch.isEmpty else { return }
-            player.play(Array(batch.prefix(PlaybackQueue.autoplayBatch)), client: client, context: player.queue.context ?? station.context)
+            player.play(Array(batch.prefix(PlaybackQueue.autoplayBatch)), client: client, context: player.queue.context ?? station.context, startedByUser: false)
             return
         }
         let nonce = UUID().uuidString
@@ -864,7 +864,7 @@ struct AppNotice: Identifiable, Equatable, Sendable {
                 let played = Set(player.queue.tracks.map(\.id)).union(player.sessionPlayedIDs)
                 var seen = Set<String>()
                 let candidates = Array(result.filter { !played.contains($0.id) && seen.insert($0.id).inserted }.prefix(PlaybackQueue.autoplayBatch))
-                if !candidates.isEmpty { player.play(candidates, client: client, context: context); return }
+                if !candidates.isEmpty { player.play(candidates, client: client, context: context, startedByUser: false); return }
             } catch { return /* Autoplay must not turn normal queue completion into an alert. */ }
         }
     }
@@ -977,7 +977,9 @@ struct AppNotice: Identifiable, Equatable, Sendable {
     }
     func describe(_ failure: any Error) -> String {
         if failure is PlayerError || failure is VaultError { return failure.localizedDescription }
-        if failure is DecodingError { return "Die Antwort des Servers passt nicht zur App. Bitte Server-Version prüfen." }
+        // No network, wrong address, no answer, an untrusted certificate or a
+        // foreign answer: each says what is wrong (see `ConnectionProblem`).
+        if let problem = ConnectionProblem(failure) { return problem.message }
         return "Der Server ist nicht erreichbar oder die Antwort passt nicht zur App. Bitte Verbindung und Server-Version prüfen."
     }
     #if DEBUG

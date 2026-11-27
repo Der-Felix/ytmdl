@@ -10,7 +10,9 @@ import SwiftUI
         WindowGroup {
             RootView(model: model)
                 #if os(tvOS)
-                .tint(.white)
+                // Not white: alert and dialog buttons draw their label in the
+                // tint on a white focused platter, which left them blank.
+                .tint(TVTheme.accent)
                 #elseif os(iOS)
                 .tint((DesktopTheme(rawValue: mobileAccent) ?? .rose).accent)
                 #else
