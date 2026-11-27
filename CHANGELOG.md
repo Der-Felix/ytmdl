@@ -1,11 +1,23 @@
 # Changelog
 
-## Unreleased
+## 1.11.2 — 2026-11-27
+
+The server settings page opens again when no media session is configured.
 
 ### Changes
 
 - **The server settings open again without a media session:** with no managed session configured, the session list was answered as `null` instead of an empty list, and the web app's settings page went blank on it. The server now answers an empty list and the page also accepts the old answer.
 - The Downloads page drops the "Pause beendet …" line once the probe it announced has paused the provider again.
+
+### Upgrade from v1.11.1
+
+Use the checksum-verified v1.11.2 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.11.2 --dry-run` before
+`ytmdlctl update --channel stable --target 1.11.2`. The database stays at schema 24;
+there is no migration. Keep a verified backup. Protect the media separately; the
+database dump does not contain music files.
+With the single image, pull the image and recreate the stack instead.
 
 ## 1.11.1 — 2026-11-27
 

@@ -34,7 +34,7 @@ on:
         description: 'Published target version (its GHCR images must exist)'
         type: string
         required: true
-        default: '1.11.1'
+        default: '1.11.2'
       sources:
         description: 'Space-separated source versions; empty means every version in scripts/upgrade-sources.json'
         type: string
@@ -73,7 +73,7 @@ jobs:
       stage_target: ${{ steps.inputs.outputs.stage_target }}
       inputs_artifact: ${{ steps.inputs.outputs.inputs_artifact }}
     env:
-      TARGET: ${{ inputs.target || '1.11.1' }}
+      TARGET: ${{ inputs.target || '1.11.2' }}
       SOURCES: ${{ inputs.sources || '' }}
       ENGINES: ${{ inputs.engines || 'docker podman' }}
       CANDIDATE: ${{ inputs.candidate || '' }}
