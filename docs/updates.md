@@ -34,6 +34,26 @@ On macOS, `ytmdlctl` runs natively on Darwin (`darwin/arm64` or `darwin/amd64`) 
 
 The check is read-only. It never installs, restarts or downgrades anything; installing is always done with `ytmdlctl` on the host.
 
+## Upgrade to v1.11.1
+
+Use the checksum-verified **v1.11.1** CLI from the
+[v1.11.1 release](https://github.com/Der-Felix/ytmdl/releases/tag/v1.11.1).
+Run `ytmdlctl update --channel stable --target 1.11.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.11.1`.
+
+The database stays at schema 24; there is no migration. A block from YouTube now
+pauses the provider instead of failing tracks. After the update, an admin can
+requeue the items that failed earlier because the provider blocked requests with
+**Wieder einreihen** on the Downloads page. Still keep a verified backup before
+any update. The release qualifies v0.28.1, v1.0.0, v1.1.1, v1.2.0, v1.3.0,
+v1.4.0, v1.4.1, v1.5.0, v1.6.0, v1.6.1, v1.7.0, v1.7.1, v1.7.2, v1.8.0, v1.9.0,
+v1.10.0, v1.10.1 and v1.11.0 sources with Docker and rootless Podman. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+
+With the single image `ghcr.io/der-felix/ytmdl`, pull the image and recreate the
+stack after a database backup; `ytmdlctl update` manages only the two-image
+layout. See [Single-image deployment](/single-image).
+
 ## Upgrade to v1.11.0
 
 Use the checksum-verified **v1.11.0** CLI from the
