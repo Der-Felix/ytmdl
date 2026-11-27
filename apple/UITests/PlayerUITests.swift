@@ -6,13 +6,15 @@ import UIKit
 
 final class PlayerUITests: XCTestCase {
     /// `oldServer`: the fixture's second port, which answers like server 1.10 (no `features`).
-    @MainActor private func app(player: Bool = false, pausedPlayer: Bool = false, largeText: Bool = false, light: Bool = false, oldServer: Bool = false) throws -> XCUIApplication {
+    /// `unreachable`: a loopback port where nothing listens, so connecting fails.
+    @MainActor private func app(player: Bool = false, pausedPlayer: Bool = false, largeText: Bool = false, light: Bool = false, oldServer: Bool = false, unreachable: Bool = false) throws -> XCUIApplication {
         var server = ProcessInfo.processInfo.environment["YTMDL_FIXTURE_URL"] ?? "http://127.0.0.1:59583"
         guard let host = URL(string: server)?.host, ["127.0.0.1", "localhost"].contains(host) else { throw NSError(domain: "Loopback fixture required", code: 1) }
         if oldServer, var parts = URLComponents(string: server), let port = parts.port {
             parts.port = port + 1
             server = parts.string ?? server
         }
+        if unreachable { server = "http://127.0.0.1:59599" }
         let app = XCUIApplication()
         app.launchArguments = ["--fixture-server", server]
         if player { app.launchArguments.append("--fixture-player") }
@@ -1590,7 +1592,8 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(first.waitForExistence(timeout: 20), "The start screen shows the server's mixes.")
         XCTAssertTrue(second.exists)
         XCTAssertTrue(app.staticTexts["Zuletzt gehört"].waitForExistence(timeout: 10))
-        for _ in 0..<6 where !first.hasFocus && !second.hasFocus { XCUIRemote.shared.press(.down) }
+        focusTVMixRow(app)
+        for _ in 0..<4 where !first.hasFocus && !second.hasFocus { XCUIRemote.shared.press(.left) }
         XCTAssertTrue(first.hasFocus || second.hasFocus, "A mix card takes the remote's focus.")
         attach(app, name: "TV home with focused mix")
         XCTAssertFalse(app.buttons["Pause"].exists, "The start screen never starts playback.")
@@ -1600,8 +1603,9 @@ final class PlayerUITests: XCTestCase {
         let first = app.buttons["tv-mix-genre-0a1b2c3d4e5f"], all = app.buttons["tv-all-mixes"]
         XCTAssertTrue(first.waitForExistence(timeout: 20), "The start screen shows the server's mixes.")
         XCTAssertTrue(all.exists, "Alle Mixe closes the first mix row.")
-        for _ in 0..<6 where !first.hasFocus { XCUIRemote.shared.press(.down) }
-        XCTAssertTrue(first.hasFocus)
+        focusTVMixRow(app)
+        for _ in 0..<4 where !first.hasFocus && !all.hasFocus { XCUIRemote.shared.press(.left) }
+        XCTAssertTrue(first.hasFocus || all.hasFocus, "The first mix row takes the remote's focus.")
         for _ in 0..<3 where !all.hasFocus { XCUIRemote.shared.press(.right) }
         XCTAssertTrue(all.hasFocus)
         XCUIRemote.shared.press(.select)
@@ -1623,29 +1627,18 @@ final class PlayerUITests: XCTestCase {
     @MainActor func testTVQueueRemovesUpcomingEntryFromMenu() throws {
         let app = try app(pausedPlayer: true)
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
-        let playerTab = app.buttons["Player"].firstMatch
-        XCTAssertTrue(playerTab.waitForExistence(timeout: 20))
-        XCUIRemote.shared.press(.up)
-        for _ in 0..<8 where !app.buttons["Bibliothek"].firstMatch.hasFocus { XCUIRemote.shared.press(.left) }
-        for _ in 0..<8 where !playerTab.hasFocus { XCUIRemote.shared.press(.right) }
-        XCTAssertTrue(playerTab.hasFocus)
-        XCUIRemote.shared.press(.select)
+        openTVQueuePanel(app)
         let target = app.buttons["tv-queue-track-1"]
         XCTAssertTrue(target.waitForExistence(timeout: 10))
         XCTAssertTrue(target.label.hasPrefix("Zeitlos"), "The fixture queue starts with Nachtfahrt, then Zeitlos.")
-        XCUIRemote.shared.press(.down)
-        // Walk into the queue panel on the right without touching the tab bar
-        // or the Warteschlange/Lyrics switch, then down to the first upcoming row.
-        let tabs: Set<String> = ["Start", "Bibliothek", "Suche", "Favoriten", "Playlists", "Player", "Optionen", "Warteschlange", "Lyrics"]
+        // Walk down the panel (switch, actions, filter) to the first upcoming row.
         for _ in 0..<30 where !target.hasFocus {
             let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
             let id = focused.exists ? focused.identifier : ""
             if id.hasPrefix("tv-queue-track-"), let row = Int(id.dropFirst("tv-queue-track-".count)) {
                 XCUIRemote.shared.press(row < 1 ? .down : .up)
-            } else if id.hasPrefix("tv-queue-") || (focused.exists && (tabs.contains(focused.label) || focused.elementType == .segmentedControl)) {
-                XCUIRemote.shared.press(.down)
             } else {
-                XCUIRemote.shared.press(.right)
+                XCUIRemote.shared.press(.down)
             }
         }
         XCTAssertTrue(target.hasFocus, "The first upcoming queue entry takes the remote's focus.")
@@ -1687,6 +1680,256 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(item.hasFocus, "\(tab) takes the remote's focus in the tab bar.")
         XCUIRemote.shared.press(.select)
     }
+    /// Down from the tab bar into the first shelf of mixes. The tab bar is
+    /// centred, so the focus lands on whichever card sits below "Start".
+    @MainActor private func focusTVMixRow(_ app: XCUIApplication) {
+        for _ in 0..<6 {
+            let id = focusedIdentifier(app)
+            if id.hasPrefix("tv-mix-") || id == "tv-all-mixes" { return }
+            XCUIRemote.shared.press(.down)
+        }
+    }
+    /// The four text tabs of the Apple TV tab bar.
+    private static let tvTabNames = ["Start", "Bibliothek", "Suche", "Playlists"]
+    @MainActor private func tvTabFocused(_ app: XCUIApplication) -> Bool {
+        Self.tvTabNames.contains { app.buttons[$0].firstMatch.exists && app.buttons[$0].firstMatch.hasFocus }
+    }
+    /// From any root page: up into the tab bar, onto `tab`, and open it.
+    @MainActor private func selectTVTab(_ app: XCUIApplication, _ tab: String) {
+        for _ in 0..<8 where !tvTabFocused(app) { XCUIRemote.shared.press(.up) }
+        let item = app.buttons[tab].firstMatch
+        for _ in 0..<6 where !app.buttons["Start"].firstMatch.hasFocus { XCUIRemote.shared.press(.left) }
+        for _ in 0..<6 where !item.hasFocus { XCUIRemote.shared.press(.right) }
+        XCTAssertTrue(item.hasFocus, "\(tab) takes the remote's focus in the tab bar.")
+        XCUIRemote.shared.press(.select)
+    }
+    /// The settings are the gear after Playlists.
+    @MainActor private func openTVSettings(_ app: XCUIApplication) {
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
+        let playlists = app.buttons["Playlists"].firstMatch
+        XCTAssertTrue(playlists.waitForExistence(timeout: 20))
+        for _ in 0..<8 where !tvTabFocused(app) { XCUIRemote.shared.press(.up) }
+        for _ in 0..<6 where !playlists.hasFocus { XCUIRemote.shared.press(.right) }
+        XCTAssertTrue(playlists.hasFocus)
+        XCUIRemote.shared.press(.right)
+        XCTAssertFalse(playlists.hasFocus, "The settings gear follows Playlists.")
+        attach(app, name: "TV tab bar with the settings gear focused")
+        XCUIRemote.shared.press(.select)
+    }
+    /// The identifier of the focused element, or "".
+    @MainActor private func focusedIdentifier(_ app: XCUIApplication) -> String {
+        let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+        return focused.exists ? focused.identifier : ""
+    }
+    /// The label of the focused element (a List row is a cell), or "".
+    @MainActor private func focusedLabel(_ app: XCUIApplication) -> String {
+        let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+        return focused.exists ? focused.label : ""
+    }
+    /// Down from any root page onto the now-playing bar, and open it.
+    @MainActor private func openTVNowPlayingFromBar(_ app: XCUIApplication) {
+        let bar = app.buttons["tv-now-playing-bar"]
+        XCTAssertTrue(bar.waitForExistence(timeout: 20), "The now-playing bar shows what is loaded.")
+        for _ in 0..<14 where !bar.hasFocus { XCUIRemote.shared.press(.down) }
+        if !bar.hasFocus { print(app.debugDescription) }
+        XCTAssertTrue(bar.hasFocus, "The now-playing bar takes the remote's focus.")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.buttons["tv-np-toggle"].waitForExistence(timeout: 10), "The bar opens Jetzt läuft.")
+    }
+    /// In Jetzt läuft: down to the row under the transport, onto `identifier`.
+    @MainActor private func focusTVPlayerAction(_ app: XCUIApplication, _ identifier: String) -> Bool {
+        let row = ["tv-np-queue", "tv-np-lyrics", "tv-player-sleep", "tv-player-speed", "tv-np-radio", "tv-np-less", "tv-player-actions"]
+        for _ in 0..<4 where !row.contains(focusedIdentifier(app)) { XCUIRemote.shared.press(.down) }
+        guard let target = row.firstIndex(of: identifier) else { return false }
+        for _ in 0..<10 {
+            let id = focusedIdentifier(app)
+            if id == identifier { return true }
+            guard let index = row.firstIndex(of: id) else { return false }
+            XCUIRemote.shared.press(index < target ? .right : .left)
+        }
+        return focusedIdentifier(app) == identifier
+    }
+    /// Jetzt läuft from the bar, then its Warteschlange panel.
+    @MainActor private func openTVQueuePanel(_ app: XCUIApplication) {
+        openTVNowPlayingFromBar(app)
+        let onQueue = focusTVPlayerAction(app, "tv-np-queue")
+        if !onQueue { print(app.debugDescription) }
+        XCTAssertTrue(onQueue, "Warteschlange takes the remote's focus.")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "tv-queue-autoplay").firstMatch.waitForExistence(timeout: 10),
+                      "The queue panel opens.")
+    }
+    /// "1:05" as seconds.
+    private func seconds(_ label: String) -> Int {
+        let parts = label.split(separator: ":").compactMap { Int($0) }
+        return parts.count == 2 ? parts[0] * 60 + parts[1] : -1
+    }
+    /// The whole way of a listener: start a title from a list, Jetzt läuft
+    /// opens by itself, rests, wakes, seeks, shows queue and lyrics, and the
+    /// Menu button leads back to the list, where the bar keeps showing it.
+    @MainActor func testTVNowPlayingOpensByItselfAndStaysVisible() throws {
+        let app = try app()
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["tv-now-playing-bar"].exists, "Nothing is loaded, so there is no bar.")
+        for _ in 0..<6 where !tvTabFocused(app) { XCUIRemote.shared.press(.up) }
+        for tab in Self.tvTabNames { XCTAssertTrue(app.buttons[tab].firstMatch.exists, "\(tab) is a tab.") }
+        XCTAssertFalse(app.buttons["Player"].exists, "There is no Player tab any more.")
+        attach(app, name: "TV 01 tab bar")
+        selectTVTab(app, "Playlists")
+        let playlist = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Abends unterwegs")).firstMatch
+        XCTAssertTrue(playlist.waitForExistence(timeout: 10), "The fixture playlist is listed.")
+        for _ in 0..<6 where !focusedLabel(app).hasPrefix("Abends unterwegs") { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(focusedLabel(app).hasPrefix("Abends unterwegs"), "The playlist takes the remote's focus.")
+        XCUIRemote.shared.press(.select)
+        let row = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Zeitlos abspielen")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "The playlist shows its titles.")
+        for _ in 0..<8 where !focusedLabel(app).hasPrefix("Zeitlos abspielen") { XCUIRemote.shared.press(.down) }
+        if !focusedLabel(app).hasPrefix("Zeitlos abspielen") { print(app.debugDescription) }
+        XCTAssertTrue(focusedLabel(app).hasPrefix("Zeitlos abspielen"), "The second title takes the remote's focus.")
+        attach(app, name: "TV 02 playlist page")
+        XCUIRemote.shared.press(.select)
+
+        // Starting a title opens Jetzt läuft by itself.
+        let toggle = app.buttons["tv-np-toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Choosing a title opens Jetzt läuft.")
+        let title = app.staticTexts["tv-np-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, "Zeitlos")
+        XCTAssertTrue(app.buttons["tv-np-artist"].exists, "The artist is a link.")
+        Thread.sleep(forTimeInterval: 2)
+        attach(app, name: "TV 03 now playing")
+
+        // Without input the controls fade; cover, title and progress stay.
+        let next = app.buttons["tv-np-next"]
+        // Faded controls stay in the tree, disabled, so they take no press.
+        let rested = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == false"), object: next)
+        XCTAssertEqual(XCTWaiter.wait(for: [rested], timeout: 25), .completed, "The controls fade after a while without input.")
+        XCTAssertTrue(title.exists && app.staticTexts["playbackElapsed"].exists, "Title and progress stay while resting.")
+        Thread.sleep(forTimeInterval: 1)
+        attach(app, name: "TV 04 resting")
+        XCUIRemote.shared.press(.down)
+        let woke = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: next)
+        XCTAssertEqual(XCTWaiter.wait(for: [woke], timeout: 5), .completed, "Any press brings the controls back.")
+        Thread.sleep(forTimeInterval: 0.5)
+        // The catcher gives the focus up once awake; reaching the scrubber below proves it.
+        let catcher = app.descendants(matching: .any)["tv-np-wake"].firstMatch
+        XCTAssertFalse(catcher.exists && catcher.hasFocus, "The invisible catcher gives the focus up once awake.")
+
+        // Up from the transport onto the scrubber; right seeks, faster when repeated.
+        let elapsed = app.staticTexts["playbackElapsed"]
+        let scrubber = app.descendants(matching: .any)["tv-np-scrubber"].firstMatch
+        for _ in 0..<3 {
+            if scrubber.hasFocus { break }
+            XCUIRemote.shared.press(.up); Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(scrubber.hasFocus, "Up from the transport reaches the scrubber (focused: \(focusedIdentifier(app))).")
+        let before = seconds(elapsed.label)
+        XCUIRemote.shared.press(.right); XCUIRemote.shared.press(.right); XCUIRemote.shared.press(.right)
+        let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.seconds(elapsed.label) >= before + 25 }, object: nil)
+        let seeked = XCTWaiter.wait(for: [moved], timeout: 5) == .completed
+        attach(app, name: "TV 05 scrubbing")
+        XCTAssertTrue(seeked, "Right on the scrubber seeks forward (\(before) s → \(elapsed.label)).")
+
+        // Warteschlange: a panel beside the cover, the playing title marked.
+        XCTAssertTrue(focusTVPlayerAction(app, "tv-np-queue"))
+        XCUIRemote.shared.press(.select)
+        let current = app.buttons["tv-queue-track-1"]
+        XCTAssertTrue(current.waitForExistence(timeout: 10), "The queue panel opens.")
+        XCTAssertTrue(current.label.hasPrefix("Läuft: Zeitlos"), "The playing title is marked.")
+        Thread.sleep(forTimeInterval: 1)
+        attach(app, name: "TV 06 queue panel")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(current.waitForNonExistence(timeout: 5), "Menu closes the panel.")
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "Jetzt läuft stays open.")
+
+        // Lyrics: large lines in their own panel.
+        XCTAssertTrue(focusTVPlayerAction(app, "tv-np-lyrics"))
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.buttons["tv-lyrics-line-0"].waitForExistence(timeout: 10), "The lyrics panel shows the lines.")
+        attach(app, name: "TV 07 lyrics panel")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+
+        // The more dialog: its buttons carry visible labels.
+        XCTAssertTrue(focusTVPlayerAction(app, "tv-player-actions"))
+        XCUIRemote.shared.press(.select)
+        let handoff = app.buttons["Wiedergabe übergeben"].firstMatch
+        XCTAssertTrue(handoff.waitForExistence(timeout: 5), "Weitere Aktionen opens.")
+        attach(app, name: "TV 08 more actions dialog")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(handoff.waitForNonExistence(timeout: 5))
+
+        // Menu leaves Jetzt läuft; the list and the bar show what plays.
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(toggle.waitForNonExistence(timeout: 5), "Menu closes Jetzt läuft.")
+        let bar = app.buttons["tv-now-playing-bar"]
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "The bar shows what plays.")
+        XCTAssertTrue(row.exists, "Back on the playlist.")
+        attach(app, name: "TV 09 back on the list with the bar")
+        for _ in 0..<12 where !bar.hasFocus { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(bar.hasFocus, "The bar takes the remote's focus.")
+        attach(app, name: "TV 10 bar focused")
+        // Play/pause works outside the player too.
+        XCUIRemote.shared.press(.playPause)
+        expectation(for: NSPredicate(format: "value == %@", "Pausiert"), evaluatedWith: bar)
+        waitForExpectations(timeout: 5)
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "The bar opens Jetzt läuft.")
+        XCTAssertEqual(toggle.label, "Abspielen")
+
+        // The artist link opens the artist page in the shown tab.
+        let artist = app.buttons["tv-np-artist"]
+        for _ in 0..<4 where !artist.hasFocus { XCUIRemote.shared.press(.up) }
+        XCTAssertTrue(artist.hasFocus, "The artist link takes the remote's focus.")
+        attach(app, name: "TV 11 artist link focused")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(toggle.waitForNonExistence(timeout: 5), "The link closes Jetzt läuft.")
+        // Mira's page lists her titles only: Nachtfahrt (Nordlicht) leaves with the playlist.
+        let otherArtist = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Nachtfahrt abspielen")).firstMatch
+        XCTAssertTrue(otherArtist.waitForNonExistence(timeout: 10), "The artist page replaces the playlist.")
+        XCTAssertTrue(app.staticTexts["Mira"].firstMatch.waitForExistence(timeout: 10), "The artist page opens.")
+        Thread.sleep(forTimeInterval: 2)
+        attach(app, name: "TV 12 artist page")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
+    /// The main screens as they look at 1920 × 1080, for review.
+    @MainActor func testTVMainScreensForReview() throws {
+        let app = try app(pausedPlayer: true)
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
+        Thread.sleep(forTimeInterval: 2)
+        attach(app, name: "TV Start with the bar")
+        selectTVTab(app, "Bibliothek")
+        XCTAssertTrue(app.staticTexts["Deine Musik"].firstMatch.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 2)
+        attach(app, name: "TV Bibliothek")
+        // Into the album grid and open the focused album.
+        for _ in 0..<4 { XCUIRemote.shared.press(.down) }
+        attach(app, name: "TV Bibliothek album focused")
+        XCUIRemote.shared.press(.select)
+        Thread.sleep(forTimeInterval: 2)
+        attach(app, name: "TV album page")
+        XCUIRemote.shared.press(.menu)
+        selectTVTab(app, "Suche")
+        Thread.sleep(forTimeInterval: 2)
+        attach(app, name: "TV Suche")
+        selectTVTab(app, "Playlists")
+        Thread.sleep(forTimeInterval: 1)
+        attach(app, name: "TV Playlists")
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
+    /// A server that does not answer: the alert says so and its button reads.
+    @MainActor func testTVConnectErrorNamesTheCauseAndShowsItsButton() throws {
+        let app = try app(unreachable: true)
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 30), "The failed connection is reported.")
+        let message = alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "antwortet nicht")).firstMatch
+        XCTAssertTrue(message.exists, "The alert names the cause: the server does not answer.")
+        XCTAssertTrue(alert.buttons["OK"].exists, "The alert's button has its label.")
+        attach(app, name: "TV connect error alert")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
+        attach(app, name: "TV connect screen")
+    }
     /// Whether the remote's focus is on the element with `identifier`. On tvOS a
     /// List or Form row takes focus as a cell: its label starts with `title`, or
     /// the element with the identifier sits inside it.
@@ -1705,7 +1948,7 @@ final class PlayerUITests: XCTestCase {
     }
     @MainActor func testTVSoundSettingsShowAChangedCrossfade() throws {
         let app = try app()
-        openTVTab(app, "Optionen")
+        openTVSettings(app)
         let link = app.descendants(matching: .any).matching(identifier: "tv-settings-sound").firstMatch
         XCTAssertTrue(link.waitForExistence(timeout: 10), "Optionen has a Klang section.")
         let onLink = moveFocus(to: "tv-settings-sound", title: "Klang & Wiedergabe", in: app, .down)
@@ -1753,16 +1996,15 @@ final class PlayerUITests: XCTestCase {
     }
     @MainActor func testTVQueueFilterEditsTheShownEntry() throws {
         let app = try app(pausedPlayer: true)
-        openTVTab(app, "Player")
+        XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
+        openTVQueuePanel(app)
         let field = app.descendants(matching: .any).matching(identifier: "tv-queue-filter").firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10), "The queue panel has a filter.")
-        let tabs: Set<String> = ["Start", "Bibliothek", "Suche", "Favoriten", "Playlists", "Player", "Optionen", "Warteschlange", "Lyrics"]
         for _ in 0..<30 where !field.hasFocus {
             let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
             let id = focused.exists ? focused.identifier : ""
             if id.hasPrefix("tv-queue-track-") { XCUIRemote.shared.press(.up) }
-            else if id.hasPrefix("tv-queue-") || (focused.exists && (tabs.contains(focused.label) || focused.elementType == .segmentedControl)) { XCUIRemote.shared.press(.down) }
-            else { XCUIRemote.shared.press(.right) }
+            else { XCUIRemote.shared.press(.down) }
         }
         XCTAssertTrue(field.hasFocus, "The filter field takes the remote's focus.")
         XCUIRemote.shared.press(.select)
@@ -1819,19 +2061,7 @@ final class PlayerUITests: XCTestCase {
         // Wait for the restored catalogue before moving focus into the tab bar.
         // Foreground Play follows navigation; it must not race cold launch.
         XCTAssertTrue(app.staticTexts["Nachtfahrt"].firstMatch.waitForExistence(timeout: 20))
-        let playerTab = app.buttons["Player"].firstMatch
-        XCTAssertTrue(playerTab.waitForExistence(timeout: 20))
-        XCUIRemote.shared.press(.up)
-        for _ in 0..<8 {
-            if app.buttons["Bibliothek"].firstMatch.hasFocus { break }
-            XCUIRemote.shared.press(.left)
-        }
-        for _ in 0..<8 {
-            if playerTab.hasFocus { break }
-            XCUIRemote.shared.press(.right)
-        }
-        XCTAssertTrue(playerTab.hasFocus)
-        XCUIRemote.shared.press(.select)
+        openTVNowPlayingFromBar(app)
         XCTAssertTrue(app.buttons["Abspielen"].firstMatch.waitForExistence(timeout: 10))
         XCUIRemote.shared.press(.playPause)
         #endif

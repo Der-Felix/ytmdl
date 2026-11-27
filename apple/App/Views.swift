@@ -30,6 +30,15 @@ struct RootView: View {
     /// Grows when the Search tab is chosen while it is already shown.
     @State private var searchFocusRequest = 0
     #endif
+    #if os(tvOS)
+    /// Apple TV: "Jetzt läuft" over the tabs.
+    @State private var tvNowPlaying = false
+    @State private var tvPaths: [Destination: NavigationPath] = [:]
+    /// Four short tabs and settings as an icon, so nothing is clipped at
+    /// 1920 pt: Favoriten are in Bibliothek, playback in the bar and in
+    /// "Jetzt läuft", which opens by itself when something is started.
+    private static let tvTabs: [Destination] = [.home, .library, .search, .playlists, .settings]
+    #endif
     @State private var detailVisit = UUID()
     @State private var detailPath = NavigationPath()
     private struct DetailIdentity: Hashable {
@@ -62,10 +71,34 @@ struct RootView: View {
             else {
                 #if os(tvOS)
                 TabView(selection: $destination) {
-                    ForEach([Destination.home, .library, .search, .favorites, .playlists, .player, .settings]) { item in
-                        NavigationStack { routedContent(item) }.tabItem { Label(item == .settings ? "Optionen" : item.rawValue, systemImage: item.icon) }.tag(Optional(item))
+                    ForEach(Self.tvTabs) { item in
+                        NavigationStack(path: Binding(get: { tvPaths[item] ?? NavigationPath() }, set: { tvPaths[item] = $0 })) {
+                            routedContent(item)
+                        }
+                        // What plays, on every page of every tab.
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            TVNowPlayingBar(model: model) { tvNowPlaying = true }
+                        }
+                        .tabItem { tvTabLabel(item) }.tag(Optional(item))
                     }
                 }
+                // Lists and plain buttons take the tint for their text on tvOS:
+                // white keeps them neutral. Alerts and dialogs inside pages set
+                // the accent again (the app-wide tint), so their buttons stay legible.
+                .tint(.white)
+                .fullScreenCover(isPresented: $tvNowPlaying) {
+                    TVNowPlayingView(model: model) { kind in
+                        // Back from the player into the shown tab, then the page.
+                        tvNowPlaying = false
+                        let tab = destination ?? .home
+                        var path = tvPaths[tab] ?? NavigationPath()
+                        path.append(kind)
+                        tvPaths[tab] = path
+                    }
+                }
+                // Something the listener started opens "Jetzt läuft"; the
+                // next title, a continued radio or play/pause do not.
+                .onChange(of: model.player.userStarts) { tvNowPlaying = true }
                 #elseif os(iOS)
                 if model.offlineMode {
                     NavigationStack { OfflineLibraryView(model: model) }
@@ -134,7 +167,7 @@ struct RootView: View {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
         #if os(tvOS)
-        .onPlayPauseCommand { model.player.toggle() }
+        .onPlayPauseCommand { model.player.remoteToggle() }
         #endif
         .preferredColorScheme(appearance == "system" ? nil : appearance == "light" ? .light : .dark)
         #if os(macOS)
@@ -157,6 +190,10 @@ struct RootView: View {
             #if os(iOS)
             mobilePaths = [:]
             #endif
+            #if os(tvOS)
+            tvPaths = [:]
+            if old != nil { tvNowPlaying = false }
+            #endif
             if old != nil { expandedPlayer = false }
             applyWidgetRoute()
         }
@@ -177,6 +214,8 @@ struct RootView: View {
             if ProcessInfo.processInfo.arguments.contains("--fixture-player") {
                 #if os(iOS)
                 expandedPlayer = true
+                #elseif os(tvOS)
+                tvNowPlaying = true
                 #else
                 selectDestination(.player)
                 #endif
@@ -192,19 +231,30 @@ struct RootView: View {
         // saved-music overview instead of attempting authenticated API calls.
         if model.offlineMode && route != .player { return }
         switch route {
-        case .player: expandedPlayer = true
+        case .player:
+            #if os(tvOS)
+            tvNowPlaying = true
+            #else
+            expandedPlayer = true
+            #endif
         case .favorites:
             #if os(iOS)
             if sizeClass == .compact {
                 mobilePaths[.library] = NavigationPath([CollectionKind.favorites])
                 selectDestination(.library)
             } else { selectDestination(.favorites) }
+            #elseif os(tvOS)
+            // Favoriten live in Bibliothek on Apple TV.
+            tvPaths[.library] = NavigationPath([CollectionKind.favorites])
+            selectDestination(.library)
             #else
             selectDestination(.favorites)
             #endif
         case .playlists:
             #if os(iOS)
             mobilePaths[.playlists] = NavigationPath()
+            #elseif os(tvOS)
+            tvPaths[.playlists] = NavigationPath()
             #endif
             selectDestination(.playlists)
         }
@@ -248,6 +298,16 @@ struct RootView: View {
             }
             destination = selected
         })
+    }
+    #endif
+    #if os(tvOS)
+    /// Text for the four main tabs; the settings as a gear, like the system apps.
+    @ViewBuilder private func tvTabLabel(_ item: Destination) -> some View {
+        if item == .settings {
+            Image(systemName: "gearshape.fill").accessibilityLabel("Einstellungen")
+        } else {
+            Text(item.rawValue)
+        }
     }
     #endif
     /// "Stöbern" in Search: the library, filtered by the genre.
@@ -334,7 +394,7 @@ struct RootView: View {
             #endif
             .navigationDestination(for: ForYouRoute.self) { _ in
                 #if os(tvOS)
-                TVForYouView(model: model) { selectDestination(.player) }
+                TVForYouView(model: model) { tvNowPlaying = true }
                 #elseif os(iOS)
                 ForYouHubView(model: model)
                 #else
@@ -351,7 +411,7 @@ struct RootView: View {
             #if os(iOS)
             MobileHomeView(model: model, tabRoot: tabRoot)
             #else
-            TVHomeView(model: model) { selectDestination(.player) }
+            TVHomeView(model: model) { tvNowPlaying = true }
             #endif
             #endif
         #if os(iOS)
@@ -705,6 +765,9 @@ struct LibraryView: View {
                         } description: { Text(message) } actions: {
                             Button("Erneut laden", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
                                 .buttonStyle(.borderedProminent).accessibilityIdentifier("library-retry")
+                                #if os(tvOS)
+                                .tint(TVTheme.accent)
+                                #endif
                         }.accessibilityIdentifier("library-error")
                     } else {
                         ListenSectionFailure(message: message) { Task { await model.loadLibrary() } }
@@ -990,19 +1053,13 @@ struct CollectionView: View {
         .sheet(isPresented: $adding) {
             if let playlist { PlaylistTrackPicker(model: model, playlist: playlist, existing: Set(tracks.map(\.id))) { tracks = $0.tracks } }
         }
-        .confirmationDialog("Playlist löschen?", isPresented: $deleting, titleVisibility: .visible) {
-            Button("Playlist löschen", role: .destructive) {
-                Task {
-                    guard let playlist, let client = model.client else { return }
-                    do { try await model.deletePlaylist(playlist); if model.client === client { dismiss() } }
-                    catch is CancellationError { }
-                    catch { if model.client === client { failure = playlistFailure(error) } }
-                }
-            }
-        } message: { Text("Die Playlist wird entfernt. Ihre Titel und Audiodateien bleiben in der Bibliothek.") }
-        .alert("Playlist konnte nicht geändert werden", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
-            Button("OK") { failure = nil }
-        } message: { Text(failure ?? "") }
+        #if os(tvOS)
+        // Content is tinted white on tvOS; dialog buttons need the accent or their labels vanish on the white platter.
+        .background { playlistDialogs(Color.clear).tint(TVTheme.accent) }
+        #else
+        .confirmationDialog("Playlist löschen?", isPresented: $deleting, titleVisibility: .visible) { deletePlaylistButton } message: { deletePlaylistMessage }
+        .alert("Playlist konnte nicht geändert werden", isPresented: failureShown) { Button("OK") { failure = nil } } message: { Text(failure ?? "") }
+        #endif
         .onChange(of: model.favoriteIDs) { old, new in
             guard isFavorites else { return }
             let removed = old.subtracting(new)
@@ -1345,6 +1402,10 @@ struct CollectionView: View {
                 #else
                 HStack {
                     Button("Abspielen", systemImage: "play.fill") { play(tracks) }.buttonStyle(.borderedProminent).disabled(tracks.isEmpty)
+                        #if os(tvOS)
+                        // Under the white content tint the label would be white on white.
+                        .tint(TVTheme.accent)
+                        #endif
                     Button("Zufall", systemImage: "shuffle") { play(tracks.shuffled()) }.buttonStyle(.bordered).disabled(tracks.isEmpty)
                 }.padding(.vertical, 12)
                 #endif
@@ -1497,6 +1558,25 @@ struct CollectionView: View {
         catch is CancellationError { }
         catch { if model.client === client { failure = playlistFailure(error) } }
     }
+    private var failureShown: Binding<Bool> { Binding(get: { failure != nil }, set: { if !$0 { failure = nil } }) }
+    private var deletePlaylistMessage: Text { Text("Die Playlist wird entfernt. Ihre Titel und Audiodateien bleiben in der Bibliothek.") }
+    private var deletePlaylistButton: some View {
+        Button("Playlist löschen", role: .destructive) {
+            Task {
+                guard let playlist, let client = model.client else { return }
+                do { try await model.deletePlaylist(playlist); if model.client === client { dismiss() } }
+                catch is CancellationError { }
+                catch { if model.client === client { failure = playlistFailure(error) } }
+            }
+        }
+    }
+    #if os(tvOS)
+    private func playlistDialogs<V: View>(_ host: V) -> some View {
+        host
+            .confirmationDialog("Playlist löschen?", isPresented: $deleting, titleVisibility: .visible) { deletePlaylistButton } message: { deletePlaylistMessage }
+            .alert("Playlist konnte nicht geändert werden", isPresented: failureShown) { Button("OK") { failure = nil } } message: { Text(failure ?? "") }
+    }
+    #endif
     private func reloadPlaylist() async {
         guard let playlist, let client = model.client, !busy else { return }
         busy = true; defer { busy = false }
@@ -1679,6 +1759,17 @@ struct TrackRow: View {
             Button(action: action) {
                 HStack(spacing: 14) {
                     ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 52, height: 52)
+                        #if os(tvOS)
+                        // The playing title, like on iPhone: moving bars on its cover.
+                        .overlay {
+                            if model.player.current?.id == track.id {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 12).fill(.black.opacity(0.45))
+                                    PlayingIndicator(playing: model.player.isPlaying).scaleEffect(1.5)
+                                }
+                            }
+                        }
+                        #endif
                     VStack(alignment: .leading, spacing: 4) {
                         Text(track.title).desktopScaledFont(18, weight: .semibold, fallback: .headline).lineLimit(1)
                         if let detail {
@@ -2062,7 +2153,6 @@ struct NowPlayingView: View {
     var model: AppModel
     /// Artist and album links of the iPhone and iPad player.
     var openCollection: ((CollectionKind) -> Void)? = nil
-    @State private var tab = 0
     var body: some View {
         GeometryReader { geometry in
             #if os(macOS)
@@ -2070,21 +2160,11 @@ struct NowPlayingView: View {
             #elseif os(iOS)
             MobilePlayerView(model: model, openCollection: openCollection)
             #else
-            ScrollView {
-                if let track = model.player.current {
-                    let wide = geometry.size.width > 820
-                    VStack(spacing: 28) {
-                        if wide {
-                            HStack(alignment: .top, spacing: 40) { player(track, coverSize: wideCoverSize(geometry.size.height)).frame(maxWidth: .infinity); details.frame(maxWidth: .infinity) }
-                        } else { player(track, coverSize: min(340, max(140, geometry.size.width-48), geometry.size.height*0.38)); details }
-                    }.padding(wide ? 40 : 24).frame(maxWidth: 1300).frame(maxWidth: .infinity)
-                } else { ContentUnavailableView("Musik auswählen", systemImage: "play.circle", description: Text("Öffne ein Album oder eine Playlist, um loszuhören.")).frame(width: geometry.size.width, height: geometry.size.height) }
-            }
+            // Apple TV shows "Jetzt läuft" full screen over the tabs instead.
+            TVNowPlayingView(model: model) { openCollection?($0) }
             #endif
         }
         #if os(tvOS)
-        // The tab bar already says "Player". A large navigation title stayed on
-        // screen and overlapped the queue panel while it scrolled.
         .toolbar(.hidden, for: .navigationBar)
         #else
         .navigationTitle("Player")
@@ -2098,134 +2178,6 @@ struct NowPlayingView: View {
         DesktopListeningView(model: model, size: size)
     }
     #endif
-    private func wideCoverSize(_ height: CGFloat) -> CGFloat {
-        #if os(tvOS)
-        min(250, height * 0.32)
-        #else
-        min(380, height * 0.48)
-        #endif
-    }
-    private var titleFont: Font {
-        #if os(tvOS) || os(macOS)
-        .title2
-        #else
-        .title
-        #endif
-    }
-    private func player(_ track: Track, coverSize: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: playerSpacing) {
-            ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: coverSize, height: coverSize).frame(maxWidth: .infinity)
-            HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(track.title).font(titleFont.bold()).lineLimit(2); Text(track.artistText).font(.title3).foregroundStyle(.secondary).lineLimit(2)
-                    if !track.album.isEmpty && track.album != track.title { Text(track.album).font(.subheadline).foregroundStyle(.secondary) }
-                }
-                Spacer()
-                Button { Task { await model.toggleFavorite(track) } } label: { Image(systemName: model.favoriteIDs.contains(track.id) ? "heart.fill" : "heart").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Favorit umschalten")
-                #if os(macOS)
-                .buttonStyle(.borderless)
-                #endif
-            }
-            #if os(tvOS)
-            ProgressView(value: min(model.player.position, model.player.duration), total: max(1, model.player.duration))
-            HStack { Button("−10 Sekunden") { model.player.seek(model.player.position-10) }; Button("+10 Sekunden") { model.player.seek(model.player.position+10) } }
-            #else
-            Slider(value: Binding(get: { min(model.player.position, model.player.duration) }, set: { model.player.seek($0) }), in: 0...max(1, model.player.duration)).accessibilityLabel("Wiedergabeposition")
-            #endif
-            HStack { Text(formatTime(model.player.position)).accessibilityIdentifier("playbackElapsed"); Spacer(); Text(formatTime(model.player.duration)) }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            HStack(spacing: transportSpacing) {
-                Button { model.player.shuffle() } label: { Image(systemName: "shuffle").frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Nächste Titel mischen")
-                Button { model.player.previous() } label: { Image(systemName: "backward.end.fill").font(.title2).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Vorheriger Titel")
-                Button { model.player.toggle() } label: {
-                    Image(systemName: model.player.isPlaying ? "pause.fill" : "play.fill").font(.title).frame(width: playButtonSize, height: playButtonSize)
-                }.buttonStyle(.borderedProminent).buttonBorderShape(.circle).tint(.pink).accessibilityLabel(model.player.isPlaying ? "Pause" : "Abspielen")
-                Button { model.player.next() } label: { Image(systemName: "forward.end.fill").font(.title2).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Nächster Titel")
-                #if os(tvOS)
-                // Off, whole queue, this title: the same cycle as the iPhone player.
-                Button {
-                    if model.player.repeatOne { model.player.setRepeatOne(false); model.player.repeatAll = false }
-                    else if model.player.repeatAll { model.player.setRepeatOne(true) }
-                    else { model.player.repeatAll = true }
-                } label: {
-                    Image(systemName: model.player.repeatOne ? "repeat.1" : "repeat")
-                        .foregroundStyle(model.player.repeatAll || model.player.repeatOne ? .pink : .primary).frame(minWidth: 44, minHeight: 44)
-                }.accessibilityLabel(model.player.repeatOne ? "Einzeltitel wiederholen" : model.player.repeatAll ? "Warteschlange wiederholen" : "Wiederholung aus")
-                    .accessibilityIdentifier("tv-player-repeat")
-                #else
-                Button { model.player.repeatAll.toggle() } label: { Image(systemName: "repeat").foregroundStyle(model.player.repeatAll ? .pink : .primary).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel(model.player.repeatAll ? "Wiederholen ausschalten" : "Warteschlange wiederholen")
-                #endif
-            }.frame(maxWidth: .infinity).tint(.primary)
-            #if os(macOS)
-            .buttonStyle(.borderless)
-            #endif
-            #if os(tvOS)
-            TVPlayerQuickActions(model: model, track: track)
-            #endif
-            if model.player.loading { ProgressView("Titel wird geladen …") }
-            if let error = model.player.error { Text(error).font(.callout).foregroundStyle(.secondary); Button("Erneut versuchen") { model.player.resume() } }
-            #if os(iOS)
-            AirPlayPicker().frame(width: 44, height: 44).frame(maxWidth: .infinity).accessibilityLabel("Audioausgabe wählen")
-            #endif
-        }
-    }
-    private var playerSpacing: CGFloat {
-        #if os(macOS)
-        12
-        #else
-        16
-        #endif
-    }
-    private var transportSpacing: CGFloat {
-        #if os(macOS)
-        4
-        #else
-        20
-        #endif
-    }
-    private var playButtonSize: CGFloat {
-        #if os(macOS)
-        48
-        #else
-        64
-        #endif
-    }
-    private var details: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            detailsPicker
-            detailsContent
-        }
-    }
-    private var detailsPicker: some View {
-        Picker("Player-Ansicht", selection: $tab) { Text("Warteschlange").tag(0); Text("Lyrics").tag(1) }.pickerStyle(.segmented).labelsHidden()
-    }
-    @ViewBuilder private var detailsContent: some View {
-        if tab == 0 {
-            #if os(tvOS)
-            TVQueueView(model: model)
-            #else
-            LazyVStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(model.player.queue.tracks.enumerated()), id: \.offset) { index, track in
-                    Button { model.player.select(index) } label: {
-                        HStack(spacing: 12) {
-                            ArtworkView(model: model, kind: "tracks", id: track.id).frame(width: 48, height: 48)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(track.title).desktopScaledFont(18, weight: .semibold, fallback: .headline).lineLimit(1)
-                                Text(track.artistText).desktopScaledFont(16, fallback: .subheadline).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                            Spacer(minLength: 8)
-                            if model.player.queue.index == index { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink) }
-                        }.padding(8).contentShape(Rectangle())
-                        #if os(macOS)
-                        .background(model.player.queue.index == index ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 10))
-                        #endif
-                    }.buttonStyle(.plain)
-                }
-            }
-            #endif
-        } else {
-            MobileLyricsView(player: model.player)
-        }
-    }
 }
 
 #if os(iOS)

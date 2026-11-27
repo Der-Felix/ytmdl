@@ -8,7 +8,7 @@ import YTMDLCore
 /// loads and fails on its own and nothing starts playing by itself.
 struct TVHomeView: View {
     var model: AppModel
-    /// Switches to the Player tab.
+    /// Opens "Jetzt läuft" (starting playback opens it by itself).
     var openPlayer: () -> Void
     private var feed: ListenFeed { model.feed }
     private var genreMixes: [PersonalMix] { feed.mixes.filter(\.isGenreMix) }
@@ -69,7 +69,7 @@ struct TVHomeView: View {
         } else if model.listeningHistory.snapshot != nil {
             VStack(alignment: .leading, spacing: 20) {
                 heading("Weiterhören", subtitle: "Da weitermachen, wo du aufgehört hast")
-                Button { model.resumeLastSession(); openPlayer() } label: {
+                Button { model.resumeLastSession() } label: {
                     Label("Letzte Wiedergabe fortsetzen", systemImage: "play.circle.fill")
                 }.buttonStyle(.bordered)
             }
@@ -99,7 +99,7 @@ struct TVHomeView: View {
             // Without server mixes: the library mix the iPhone app also offers.
             VStack(alignment: .leading, spacing: 20) {
                 heading("Für deinen Moment", subtitle: "Ein Mix aus deiner Bibliothek")
-                Button { Task { await model.playMix("Favoriten"); openPlayer() } } label: {
+                Button { Task { await model.playMix("Favoriten") } } label: {
                     Label("Favoriten-Mix", systemImage: "heart.fill")
                 }.buttonStyle(.bordered).disabled(model.listeningBusy)
             }
@@ -125,7 +125,6 @@ struct TVHomeView: View {
                     trackCard(track) {
                         guard let client = model.client else { return }
                         model.player.play(tracks, start: index, client: client, context: QueueContext(kind: "history", title: "Zuletzt gehört"))
-                        openPlayer()
                     }
                 }
             }
@@ -209,6 +208,14 @@ struct TVHomeView: View {
             Button(action: play) {
                 ArtworkView(model: model, kind: "tracks", id: track.id, cornerRadius: 0)
                     .frame(width: Self.cardSize * 0.8, height: Self.cardSize * 0.8)
+                    .overlay {
+                        if model.player.current?.id == track.id {
+                            ZStack {
+                                Color.black.opacity(0.45)
+                                PlayingIndicator(playing: model.player.isPlaying).scaleEffect(2.6)
+                            }
+                        }
+                    }
             }.buttonStyle(.card)
                 .accessibilityLabel("\(track.title) abspielen, \(track.artistText)")
             Text(track.title).font(.callout.weight(.semibold)).lineLimit(1).accessibilityHidden(true)
@@ -239,8 +246,8 @@ struct TVMixCard: View {
                 .accessibilityHint("Öffnet den Mix. Gedrückt halten zum direkten Abspielen.")
                 .accessibilityIdentifier(identifierPrefix + mix.id)
                 .contextMenu {
-                    Button("Abspielen", systemImage: "play.fill") { Task { await model.playPersonalMix(mix); openPlayer() } }
-                    Button("Zufällig abspielen", systemImage: "shuffle") { Task { await model.playPersonalMix(mix, shuffle: true); openPlayer() } }
+                    Button("Abspielen", systemImage: "play.fill") { Task { await model.playPersonalMix(mix) } }
+                    Button("Zufällig abspielen", systemImage: "shuffle") { Task { await model.playPersonalMix(mix, shuffle: true) } }
                 }
             Text(mix.label.uppercased()).font(.caption2.weight(.semibold)).foregroundStyle(.tint).lineLimit(1)
                 .accessibilityHidden(true)
@@ -254,7 +261,7 @@ struct TVMixCard: View {
 /// genre mixes ("Dein Mix 1…n") first, then the mixes from listening.
 struct TVForYouView: View {
     var model: AppModel
-    /// Switches to the Player tab.
+    /// Opens "Jetzt läuft" (starting playback opens it by itself).
     var openPlayer: () -> Void
     private var feed: ListenFeed { model.feed }
     private var mixes: [PersonalMix] { PersonalMix.ordered(feed.mixes) }
@@ -371,7 +378,7 @@ struct TVQueueView: View {
                             Text(row.track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 12)
-                        if row.section == .current { Image(systemName: "speaker.wave.2.fill").foregroundStyle(.pink).accessibilityHidden(true) }
+                        if row.section == .current { PlayingIndicator(playing: player.isPlaying, color: TVTheme.accent).scaleEffect(1.6).frame(width: 28, height: 28) }
                     }.padding(12)
                 }.buttonStyle(.plain)
                     .focused($focus, equals: .row(row.position))

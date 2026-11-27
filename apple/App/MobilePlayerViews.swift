@@ -877,8 +877,11 @@ private struct QueueModeChip: View {
     }
 }
 
+#endif
+
+#if os(iOS) || os(tvOS)
 /// Three bars that move while the title plays and rest while paused or with
-/// Reduce Motion.
+/// Reduce Motion. Also the Apple TV rows and now-playing bar.
 struct PlayingIndicator: View {
     var playing: Bool
     /// White on a cover; the tint in place of a track number.

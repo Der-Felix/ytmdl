@@ -105,6 +105,10 @@ enum SleepMode: String, CaseIterable, Identifiable {
         return stream.isFinite && stream > 0 ? stream : 0
     }
     var isPlaybackRequested: Bool { wantsPlayback }
+    /// Grows each time the listener starts a new queue (`play` with
+    /// `startedByUser`). Apple TV opens Now Playing on it; auto-advance,
+    /// continued radio, restore and play/pause leave it unchanged.
+    private(set) var userStarts = 0
     var playbackRevision: UUID { activityRevision }
     var preparedTrackID: String? { pendingID }
     @ObservationIgnored private let volumePreferences: UserDefaults
@@ -262,8 +266,12 @@ enum SleepMode: String, CaseIterable, Identifiable {
     }
     /// Replaces the queue. `context` is what was started ("Weiter aus: …");
     /// `origins` restores the sections of a saved queue.
-    func play(_ tracks: [Track], start: Int = 0, client: APIClient, context: QueueContext? = nil, origins: [QueueOrigin]? = nil) {
+    /// `startedByUser`: the listener chose this just now (a title, album,
+    /// playlist, mix or radio). False for queues the app continues by itself.
+    func play(_ tracks: [Track], start: Int = 0, client: APIClient, context: QueueContext? = nil, origins: [QueueOrigin]? = nil,
+              startedByUser: Bool = true) {
         guard !tracks.isEmpty else { stop(); return }
+        if startedByUser { userStarts &+= 1 }
         reportSkip(movingTo: tracks.indices.contains(start) ? tracks[start] : tracks[0])
         if self.client !== client { loudnessValues.removeAll(); loudnessParameters.removeAll() }
         self.client = client; queue.replace(tracks, start: start, context: context, origins: origins); loadCurrent()
@@ -510,6 +518,16 @@ enum SleepMode: String, CaseIterable, Identifiable {
         let play = wantsPlayback; queue.previous(); loadCurrent(play: play)
     }
     func toggle() { wantsPlayback ? pause() : resume() }
+    @ObservationIgnored private var lastRemoteToggle: ContinuousClock.Instant?
+    /// The remote's play/pause button. On Apple TV one press can reach both
+    /// SwiftUI's press handler and the media command center; whichever comes
+    /// first toggles, the other one of the same press is ignored.
+    func remoteToggle() {
+        let now = ContinuousClock.now
+        if let last = lastRemoteToggle, now - last < .milliseconds(400) { return }
+        lastRemoteToggle = now
+        toggle()
+    }
     func pause() {
         if current != nil { _ = listening.tick(key: generation.uuidString, playing: false, now: Self.clock, duration: duration, rate: playbackRate) }
         activityRevision = UUID(); wantsPlayback = false; audio.pause(); standby.pause(); isPlaying = false; loading = false; updateNowPlaying()
@@ -859,10 +877,11 @@ enum SleepMode: String, CaseIterable, Identifiable {
             let token = command.addTarget { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
-                    // SwiftUI owns foreground TV remote presses. Let the media
-                    // command center handle background presses without toggling twice.
+                    // A foreground press can arrive here and in SwiftUI's
+                    // `onPlayPauseCommand`; `remoteToggle` lets only the first
+                    // toggle, so play/pause works wherever the focus is.
                     #if os(tvOS)
-                    if action == 2 && UIApplication.shared.applicationState == .active { return }
+                    if action == 2 { self.remoteToggle(); return }
                     #endif
                     switch action { case 0: self.resume(); case 1: self.pause(); case 2: self.toggle(); case 3: self.next(); default: self.previous() }
                 }

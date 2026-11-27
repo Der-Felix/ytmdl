@@ -1,4 +1,4 @@
-# Native listening preview 0.6.2 — build 45
+# Native listening preview 0.6.3 — build 46
 
 The native app is a player for an existing YTMDL library. Its version is independent
 of the server version. This preview does not promise full Spotify/Plexamp parity.
@@ -26,7 +26,7 @@ from implemented features and simulator verification.
 | Home/Lock Screen widgets (iOS/iPadOS) | Small/medium Home widgets and circular/rectangular/inline Lock Screen widgets open the player; medium Home widgets also link to favorites and playlists. Navigation only, no live song state or playback controls |
 | Mobile transport | Scrubber with remaining time, previous/next, shuffle mode, repeat queue/track, native device volume and AirPlay, haptics (build 40) |
 | System artwork | Now Playing artwork published after authenticated/local loading, retained across progress updates, cleared on title change or stop; actual lock-screen review remains required |
-| Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer. Apple TV has the same settings under **Optionen → Klang & Wiedergabe** (each value opens a list of choices) plus sleep timer and tempo menus in the player |
+| Mobile sound | Ten-band EQ, presets, preamp/headroom, measured loudness normalization, 0–12 second crossfade, adjacent-album protection, preload, fast start, speed, sleep timer. Apple TV has the same settings under **Einstellungen (gear) → Klang & Wiedergabe** (each value opens a list of choices; the tab was called **Optionen** before build 46) plus sleep timer and tempo in **Jetzt läuft** |
 | Mobile visualization | Four mobile FFT-driven styles, cover overlay/no cover, preset or custom color, Reduce Motion support |
 | Lyrics | Cached/plain text; LRC timing, optional following and tap-to-seek when time tags exist |
 | Queue | Sections like the web: **Als Nächstes** (queued), **Weiter aus: …** (started context), **Ähnliche Titel** (autoplay). Occurrence-based play/remove/insert-next/reorder, filter, clear upcoming/all with **Rückgängig** for a few seconds, save as playlist, local resume state and explicit restore that keeps each entry's section and the started context; whole albums, artists, playlists and mixes can be queued. Apple TV edits upcoming entries through a long-press menu and has the same filter |
@@ -35,6 +35,50 @@ from implemented features and simulator verification.
 | Playback transfer | Explicit save/pause and fetch/accept via existing server handoff routes; no remote automatic playback |
 | Appearance | Light/dark/system and six mobile accent palettes; cover-derived player background |
 | Device login | Existing device-code approval; backend support/deployment required |
+
+## Apple TV now playing and visible playback (build 46)
+
+Ships as 0.6.3 (46). Works with every server version; no new server request. iPhone, iPad
+and Mac only change in the connection messages.
+
+- **Jetzt läuft on Apple TV:** full screen over the tabs, led by a large cover on a blurred,
+  darkened copy of it. Where the queue plays from ("Aus: …", or the radio), the title in large
+  type on up to two lines, the artist and the album as links to their pages (when the library
+  knows them), a scrubber with elapsed and remaining time, and the transport for the sofa:
+  shuffle, previous, play/pause, next, repeat (off, queue, title) and favourite, white and
+  lifted when focused, the active modes in the accent with a dot.
+- **Seeking:** focus the scrubber (up from the transport); left and right seek 10 s, quick
+  repeated presses or a held edge of the touch surface move 20, 30 and at most 60 s.
+- **Secondary actions** sit lower and smaller: **Warteschlange** and **Lyrics**, then sleep
+  timer, tempo, song radio, **Weniger davon** (with server 1.11) and **Weitere Aktionen**
+  (playlist, handoff, artist exclusion). The line below names the focused icon, shows a
+  confirmation, or says what plays next.
+- **Panels:** Warteschlange and Lyrics open beside a smaller cover with title and progress. The
+  queue keeps everything of before (autoplay, **Warteschlange leeren** with Rückgängig, **Als
+  Playlist speichern**, filter, sections, long-press menu) and marks the playing title with
+  moving bars. Lyrics are large lines; timed lyrics follow the song and a line can be chosen to
+  jump there. The Menu button closes a panel, then Jetzt läuft; playback continues.
+- **Resting state:** after 10 s without input while playing, the controls fade; cover, title and
+  progress stay. Any press, Menu included, brings them back without triggering a button. With
+  Reduce Motion it only fades.
+- **Opens by itself:** choosing a title, album, playlist, mix, radio or **Letzte Wiedergabe
+  fortsetzen** opens Jetzt läuft. The next title, a continued radio, restoring and play/pause do
+  not.
+- **Visible everywhere:** while something is loaded, every page of every tab shows a bar at the
+  bottom with cover, title, artist, moving bars, "Läuft"/"Pausiert" and the progress; it takes
+  the focus below the content and opens Jetzt läuft. Playing rows (album, artist, playlist,
+  search, queue, Zuletzt gehört) show the moving bars too.
+- **Tabs:** Start, Bibliothek, Suche, Playlists and a gear for the settings. The Player tab is
+  replaced by the bar and Jetzt läuft; Favoriten are in Bibliothek (as on iPhone). Nothing in the
+  tab bar is cut off at 1920 × 1080.
+- **Play/pause on the remote** works wherever the focus is; one press never toggles twice.
+- **Connection messages (all devices):** a failed connection says what is wrong: no network, no
+  server under this address, a server that does not answer, a certificate this device does not
+  trust (a private certificate authority must be installed and fully trusted under Einstellungen
+  › Allgemein › Info › Zertifikatsvertrauenseinstellungen), an expired certificate, HTTPS
+  required, or an answer that is not from YTMDL. The app still never overrides certificate
+  checks. Alert and dialog buttons on Apple TV show their label again (the white tint made them
+  blank).
 
 ## Genre artwork and stability (build 45)
 

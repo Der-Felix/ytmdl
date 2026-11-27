@@ -1,4 +1,4 @@
-# Apple app handoff — preview 0.6.2, build 45
+# Apple app handoff — preview 0.6.3, build 46
 
 The Apple client arrived in `dev` with
 [PR #42](https://github.com/Der-Felix/ytmdl/pull/42) (merged 7 October 2026).
@@ -34,6 +34,49 @@ never run on GitHub (a manually dispatched workflow is only listed once the file
 default branch; a tag triggers it from any commit), no sideloading tool was used to install
 the `.ipa`, and the `.dmg` app was deliberately not launched here because it shares its
 bundle identifier with the installed Mac preview.
+
+## Build 46: Apple TV now playing and visible playback (CI only, not installed)
+
+Builds on build 45; see FEATURES.md "Apple TV now playing and visible playback (build 46)".
+New file: `App/TVNowPlaying.swift` (`#if os(tvOS)`, registered for all three app targets like
+`TVListenViews.swift`).
+
+- **Jetzt läuft:** `TVNowPlayingView`, presented by `RootView` as a `fullScreenCover` over the
+  tvOS `TabView`. One `@FocusState` enum for every control. The scrubber is a `.focusable()` view
+  with `onMoveCommand` (nothing focusable sits beside it, so left/right reach it);
+  `ScrubStep` (core, `PlayerControls.swift`) gives the step from the streak of quick presses.
+  `onExitCommand` wakes, closes a panel, then dismisses. Resting: a `task(id:)` keyed on the
+  input revision, playback, panel and sheets sleeps `TVTheme.restDelay` (10 s); then the
+  controls are disabled and hidden from accessibility and a full-screen invisible button
+  (`tv-np-wake`) takes the focus, so the first press only wakes. Button styles
+  (`TVRoundControlStyle`, `TVPillStyle`, `TVLinkStyle`) read `isFocused`. Sleep timer and
+  tempo open `TVChoiceList` in a sheet; "Weitere Aktionen" is a `confirmationDialog`.
+  `TVPlayerQuickActions` and the old tvOS layout in `NowPlayingView` are removed.
+- **Opening by itself:** `PlayerModel.play(…, startedByUser:)` (default true) counts
+  `userStarts`; `continueRadio` passes false. `RootView` (tvOS) presents Jetzt läuft on every
+  change. `next()`, `didFinish`, restore and play/pause do not call `play`.
+- **Bar and tabs:** `TVNowPlayingBar` is a `safeAreaInset(edge: .bottom)` of every tab's
+  `NavigationStack`, which now has a path per tab (`tvPaths`), so the artist and album links of
+  Jetzt läuft push onto the shown tab. Tabs: Start, Bibliothek, Suche, Playlists, and the
+  settings as an image-only tab item. `PlayingIndicator` moved out of the iOS-only part of
+  `MobilePlayerViews.swift`; `TrackRow`'s tvOS row, `TVQueueView` and the history shelf use it.
+- **Remote:** `PlayerModel.remoteToggle()` ignores a second toggle within 400 ms; SwiftUI's
+  `onPlayPauseCommand` (root and Jetzt läuft) and the command center's toggle both use it, so
+  the command center no longer drops foreground presses.
+- **Errors:** `ConnectionProblem` (core, `Models.swift`) maps `URLError` codes and
+  `DecodingError`; `AppModel.describe` uses it after `PlayerError`/`VaultError`. The tvOS tint
+  was `.white`, which drew alert button labels white on the white focused platter. The app
+  tint is now `TVTheme.accent` (root alert, connect screen), while the tab view and Jetzt läuft
+  set `.white` again, because tvOS lists and plain buttons draw their text in the tint. Alerts
+  and dialogs inside those pages sit on a `Color.clear` carrier in `.background` with
+  `.tint(TVTheme.accent)` (Jetzt läuft, sign-out, playlist delete); `.borderedProminent`
+  buttons on tvOS pages take the accent too.
+- **Tests:** core `connectionFailuresSayWhatIsWrong`, `remoteScrubbingAcceleratesOnQuickPressesInOneDirection`;
+  tvOS UI `testTVNowPlayingOpensByItselfAndStaysVisible`, `testTVMainScreensForReview`,
+  `testTVConnectErrorNamesTheCauseAndShowsItsButton` (a loopback port without a server). The
+  queue tests open the panel from the bar.
+- **Left open:** nothing ran on a real Apple TV or with a physical Siri Remote (clickpad
+  swipes, holding an edge, the play/pause button while another app's audio is active).
 
 ## Build 45: genre artwork and stability pass (CI only, not installed)
 
@@ -525,7 +568,8 @@ Design reference: [Apple buttons](https://developer.apple.com/design/human-inter
 | Mac Start feed and appearance | `App/DesktopHomeView.swift`, `App/Appearance.swift`, `App/ListeningHistory.swift` |
 | Listening home, mixes, mix page (shared) | `App/ListenHome.swift` |
 | Apple TV Start tab, Für dich, queue sections, editing and filter | `App/TVListenViews.swift` |
-| Apple TV sound settings and player quick actions | `App/TVSoundSettings.swift` |
+| Apple TV sound settings | `App/TVSoundSettings.swift` |
+| Apple TV Jetzt läuft, now-playing bar, focus button styles | `App/TVNowPlaying.swift` |
 | Streaming, prefetch, timers, two-player crossfade, metering | `App/PlayerModel.swift` |
 | Audio processing and ten-band EQ | `App/Equalizer.swift`, `App/AudioSettingsViews.swift` |
 | Cover-derived colors | `App/ArtworkPalette.swift` |

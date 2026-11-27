@@ -117,3 +117,44 @@ import Testing
     #expect(playlists[0].trackCount == 0 && playlists[0].durationMs == 0 && playlists[0].description == nil)
     #expect(playlists[1].smartRules?.sort == "recent" && playlists[1].smartRules?.limit == 50 && playlists[1].smartRules?.genre == "Pop")
 }
+
+@Test func connectionFailuresSayWhatIsWrong() throws {
+    #expect(ConnectionProblem(URLError(.cannotConnectToHost)) == .unreachable)
+    #expect(ConnectionProblem(URLError(.timedOut)) == .unreachable)
+    #expect(ConnectionProblem(URLError(.cannotFindHost)) == .hostNotFound)
+    #expect(ConnectionProblem(URLError(.dnsLookupFailed)) == .hostNotFound)
+    #expect(ConnectionProblem(URLError(.notConnectedToInternet)) == .offline)
+    for code: URLError.Code in [.serverCertificateUntrusted, .serverCertificateHasUnknownRoot, .secureConnectionFailed, .clientCertificateRejected] {
+        #expect(ConnectionProblem(URLError(code)) == .certificateUntrusted)
+    }
+    #expect(ConnectionProblem(URLError(.serverCertificateHasBadDate)) == .certificateExpired)
+    #expect(ConnectionProblem(URLError(.serverCertificateNotYetValid)) == .certificateExpired)
+    #expect(ConnectionProblem(URLError(.appTransportSecurityRequiresSecureConnection)) == .secureTransportRequired)
+    #expect(ConnectionProblem(URLError(.cannotParseResponse)) == .incompatible)
+    // Foundation hands transport failures over as NSError; they bridge.
+    let bridged: any Error = NSError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateHasUnknownRoot)
+    #expect(ConnectionProblem(bridged) == .certificateUntrusted)
+    let decoding = DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "not YTMDL"))
+    #expect(ConnectionProblem(decoding) == .incompatible)
+    #expect(ConnectionProblem(URLError(.cancelled)) == nil)
+    #expect(ConnectionProblem(PlayerError.invalidCredentials) == nil)
+    #expect(ConnectionProblem(CancellationError()) == nil)
+    // The certificate message names the fix and never suggests turning checks off.
+    let certificate = ConnectionProblem.certificateUntrusted.message
+    #expect(certificate.contains("Zertifizierungsstelle") && certificate.contains("vertrauenswürdig"))
+    #expect(ConnectionProblem.unreachable.message != ConnectionProblem.incompatible.message)
+}
+
+@Test func remoteScrubbingAcceleratesOnQuickPressesInOneDirection() {
+    #expect(ScrubStep.seconds(streak: 0) == 10)
+    #expect(ScrubStep.seconds(streak: 1) == 10)
+    #expect(ScrubStep.seconds(streak: 2) == 20)
+    #expect(ScrubStep.seconds(streak: 5) == 30)
+    #expect(ScrubStep.seconds(streak: 40) == 60)
+    var streak = 0
+    for _ in 0..<8 { streak = ScrubStep.streak(after: streak, sameDirection: true, interval: 0.2) }
+    #expect(streak == 8 && ScrubStep.seconds(streak: streak) == 60)
+    #expect(ScrubStep.streak(after: streak, sameDirection: false, interval: 0.2) == 0)
+    #expect(ScrubStep.streak(after: streak, sameDirection: true, interval: 1.5) == 0)
+    #expect(ScrubStep.streak(after: 3, sameDirection: true, interval: .infinity) == 0)
+}
