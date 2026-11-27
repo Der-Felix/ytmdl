@@ -105,7 +105,9 @@ export function MediaSessionsPanel() {
     [],
   )
 
-  const sessions = asyncState.status === 'success' ? asyncState.data : []
+  // A server up to 1.11.1 answers `null` instead of `[]` when no session exists.
+  const sessions =
+    asyncState.status === 'success' && Array.isArray(asyncState.data) ? asyncState.data : []
   const loading = asyncState.status === 'loading'
   const error =
     asyncState.status === 'error'

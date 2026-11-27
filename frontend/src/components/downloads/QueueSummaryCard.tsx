@@ -36,6 +36,15 @@ export function QueueSummaryCard({ summary, className, canManage = false, onChan
   const [busy, setBusy] = useState<'probe' | 'requeue' | null>(null)
   const [feedback, setFeedback] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
 
+  // "Pause beendet …" describes the probe that was just sent. Once the probe
+  // has an outcome (paused again until a new time, or reopened) it is stale.
+  const pauseState = pause ? `${pause.phase}|${pause.resumes_at ?? ''}` : 'open'
+  const [feedbackFor, setFeedbackFor] = useState(pauseState)
+  if (feedbackFor !== pauseState) {
+    setFeedbackFor(pauseState)
+    if (feedback?.tone === 'ok' && pauseState.startsWith('paused')) setFeedback(null)
+  }
+
   async function run(action: 'probe' | 'requeue') {
     setBusy(action)
     setFeedback(null)
