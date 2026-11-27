@@ -424,7 +424,13 @@ func (m *Manager) familyWait(ctx context.Context, family string) (time.Duration,
 	if !ok {
 		return 0, false
 	}
-	err := checker.Precheck(ctx, family)
+	// Ask with a registered provider name: the family key ("youtube") need
+	// not be one, the default provider of that family ("ytmusic") is.
+	name := family
+	if def := m.mediaProviderOf(Job{}); CanonicalCooldownKey(def) == family {
+		name = def
+	}
+	err := checker.Precheck(ctx, name)
 	if !apperr.IsSessionWait(err) {
 		return 0, false
 	}
