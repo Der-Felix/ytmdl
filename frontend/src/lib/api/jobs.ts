@@ -131,6 +131,26 @@ export function resumeJob(id: string, signal?: AbortSignal): Promise<Job> {
   })
 }
 
+/** POST /jobs/provider-pause/probe — end a provider pause now and send one probe (admin). */
+export function probeProviderPause(
+  signal?: AbortSignal,
+): Promise<{ pause_ended: boolean; summary: QueueSummary }> {
+  return request<{ pause_ended: boolean; summary: QueueSummary }>('/jobs/provider-pause/probe', {
+    method: 'POST',
+    signal,
+  })
+}
+
+/** POST /jobs/retry-blocked — requeue every item a provider block cost (admin). */
+export function retryBlockedFailures(
+  signal?: AbortSignal,
+): Promise<{ items: number; jobs: number }> {
+  return request<{ items: number; jobs: number }>('/jobs/retry-blocked', {
+    method: 'POST',
+    signal,
+  })
+}
+
 /** POST /jobs/{id}/retry-failed */
 export function retryFailedJob(
   id: string,

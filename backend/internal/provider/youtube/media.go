@@ -303,7 +303,9 @@ func (p *MediaProvider) Search(ctx context.Context, track music.Track) ([]provid
 		}
 	}
 
-	p.enrichDurations(ctx, track.Title, candidates)
+	if err := p.enrichDurations(ctx, track.Title, candidates); err != nil {
+		return nil, err
+	}
 	return candidates, nil
 }
 
@@ -526,9 +528,9 @@ func (p *MediaProvider) toCandidate(info ytdlp.Info) (provider.MediaCandidate, b
 // no artist either, and a candidate without one is rejected outright, so the
 // upload with the right title must not go without a lookup because the search
 // listed it fourth.
-func (p *MediaProvider) enrichDurations(ctx context.Context, wantedTitle string, candidates []provider.MediaCandidate) {
+func (p *MediaProvider) enrichDurations(ctx context.Context, wantedTitle string, candidates []provider.MediaCandidate) error {
 	if p.enrichLimit <= 0 {
-		return
+		return nil
 	}
 
 	targets := make([]string, 0, p.enrichLimit)
@@ -547,14 +549,23 @@ func (p *MediaProvider) enrichDurations(ctx context.Context, wantedTitle string,
 		}
 	}
 	if len(targets) == 0 {
-		return
+		return nil
 	}
 
 	for _, target := range targets {
 		if ctx.Err() != nil {
-			return
+			return nil
 		}
 		results, err := p.client.Query(ctx, target, "--no-playlist")
+		if err != nil && refusesExtraction(err) {
+			// A bot challenge or rate limit on the extraction is not a
+			// missing runtime. Swallowed here, it left the candidates
+			// without runtime and credits, the matcher scored them 0.0,
+			// and the item failed for good with MATCH_FAILED although the
+			// provider had only refused to answer. Resolving any of these
+			// candidates would meet the same refusal.
+			return err
+		}
 		if err != nil || len(results) == 0 {
 			// Enrichment is best effort: a candidate that stays without a
 			// runtime is simply scored more cautiously.
@@ -575,6 +586,16 @@ func (p *MediaProvider) enrichDurations(ctx context.Context, wantedTitle string,
 			candidates[i].Artists = artists
 		}
 	}
+	return nil
+}
+
+// refusesExtraction reports an answer with which the platform refuses to
+// extract anything for this session or server: a session protection response
+// (bot challenge, sign-in demand, session throttle, a closed session gate) or
+// a provider rate limit. A timeout or network failure is not among them; the
+// enrichment stays best effort for those.
+func refusesExtraction(err error) bool {
+	return apperr.ScopeOf(err) == apperr.ScopeSession || apperr.CodeOf(err) == apperr.CodeProviderRateLimited
 }
 
 // enrichOrder returns the candidate indices in the order they are looked up:

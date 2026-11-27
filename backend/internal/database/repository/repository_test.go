@@ -1669,6 +1669,103 @@ func TestResetFailedItems(t *testing.T) {
 	}
 }
 
+// Items a provider block cost are requeued across jobs in one step; other
+// failures, and MATCH_FAILED unless asked for, stay as they are.
+func TestResetBlockedFailedItemsAcrossJobs(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	repo := NewJobs(db)
+
+	newJob := func(target string) *jobs.Job {
+		job := &jobs.Job{
+			Type: jobs.TypeRelease, Status: jobs.StatusFailed, Label: target,
+			TargetID: target, Options: jobs.DefaultOptions(), Total: 3, Failed: 3,
+			ErrorCode: "SESSION_BOT_CHALLENGE", ErrorMessage: "blocked",
+		}
+		if err := repo.Create(ctx, job); err != nil {
+			t.Fatalf("create job: %v", err)
+		}
+		return job
+	}
+	failed := func(jobID string, pos int, code, message string) jobs.Item {
+		return jobs.Item{
+			ID: music.NewID(), JobID: jobID, Position: pos, Status: jobs.ItemFailed,
+			Label: fmt.Sprintf("Track %d", pos), Attempts: 5, MaxAttempts: 5, ErrorCode: code, ErrorMessage: message,
+		}
+	}
+	jobA, jobB, jobC := newJob("blocked_a"), newJob("blocked_b"), newJob("other_c")
+	zeroScore := "No sufficiently accurate media match found for \"x\" (best score 0.0, required 70.0)."
+	itemsA := []jobs.Item{
+		failed(jobA.ID, 1, "SESSION_BOT_CHALLENGE", "The media session encountered a bot challenge"),
+		failed(jobA.ID, 2, "PROVIDER_RATE_LIMITED", "rate limited"),
+		failed(jobA.ID, 3, "MATCH_FAILED", zeroScore),
+	}
+	itemsB := []jobs.Item{
+		failed(jobB.ID, 1, "SESSION_AUTH_FAILED", "sign in"),
+		failed(jobB.ID, 2, "MATCH_FAILED", "No sufficiently accurate media match found for \"y\" (best score 52.4, required 70.0)."),
+		failed(jobB.ID, 3, "DOWNLOAD_FAILED", "yt-dlp failed"),
+	}
+	itemsC := []jobs.Item{failed(jobC.ID, 1, "TRACK_NOT_FOUND", "gone")}
+	for job, items := range map[string][]jobs.Item{jobA.ID: itemsA, jobB.ID: itemsB, jobC.ID: itemsC} {
+		if err := repo.AddItems(ctx, job, items); err != nil {
+			t.Fatalf("add items: %v", err)
+		}
+	}
+
+	counts, err := repo.QueueCounts(ctx)
+	if err != nil {
+		t.Fatalf("queue counts: %v", err)
+	}
+	if counts.BlockedFailedItems != 3 {
+		t.Fatalf("blocked failed items = %d, want 3", counts.BlockedFailedItems)
+	}
+
+	items, touched, err := repo.ResetFailedItems(ctx, jobs.BlockedFailureFilter())
+	if err != nil {
+		t.Fatalf("reset blocked items: %v", err)
+	}
+	if items != 3 || touched != 2 {
+		t.Fatalf("reset %d items in %d jobs, want 3 in 2", items, touched)
+	}
+	status := func(id string) jobs.Item {
+		it, err := repo.GetItem(ctx, id)
+		if err != nil || it == nil {
+			t.Fatalf("get item: %v", err)
+		}
+		return *it
+	}
+	for _, id := range []string{itemsA[0].ID, itemsA[1].ID, itemsB[0].ID} {
+		if it := status(id); it.Status != jobs.ItemPending || it.Attempts != 0 || it.ErrorCode != "" {
+			t.Fatalf("blocked item not requeued: %+v", it)
+		}
+	}
+	for _, id := range []string{itemsA[2].ID, itemsB[1].ID, itemsB[2].ID, itemsC[0].ID} {
+		if it := status(id); it.Status != jobs.ItemFailed {
+			t.Fatalf("unrelated failure was requeued: %+v", it)
+		}
+	}
+	for id, want := range map[string]jobs.Status{jobA.ID: jobs.StatusQueued, jobB.ID: jobs.StatusQueued, jobC.ID: jobs.StatusFailed} {
+		if got, err := repo.Get(ctx, id); err != nil || got.Status != want {
+			t.Fatalf("job %s status = %v (%v), want %s", id, got.Status, err, want)
+		}
+	}
+
+	// On request, a MATCH_FAILED whose best candidate scored 0.0 follows;
+	// one with a real score does not.
+	filter := jobs.BlockedFailureFilter()
+	filter.ZeroScoreMatchFailures = true
+	items, touched, err = repo.ResetFailedItems(ctx, filter)
+	if err != nil || items != 1 || touched != 1 {
+		t.Fatalf("zero-score reset: %d items in %d jobs (%v), want 1 in 1", items, touched, err)
+	}
+	if it := status(itemsA[2].ID); it.Status != jobs.ItemPending {
+		t.Fatalf("zero-score match failure not requeued: %+v", it)
+	}
+	if it := status(itemsB[1].ID); it.Status != jobs.ItemFailed {
+		t.Fatalf("scored match failure was requeued: %+v", it)
+	}
+}
+
 func TestJobHistoryPagination137(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)

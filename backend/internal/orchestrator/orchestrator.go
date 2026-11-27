@@ -322,6 +322,24 @@ func (o *ProviderOrchestrator) Precheck(ctx context.Context, preferredProvider s
 	return err
 }
 
+// HasUsableSession reports whether configured YouTube sessions exist and one
+// of them could be leased now. The job queue asks it after a session refused
+// an item: the refused session is already in its own cooldown, so a usable
+// one means the refusal was that session's, and the queue retries the item on
+// another session instead of pausing the whole provider family. Without
+// configured sessions there is nothing to rotate to.
+func (o *ProviderOrchestrator) HasUsableSession() bool {
+	if o == nil || o.sessionPool == nil || !o.sessionPool.HasConfiguredSessions() {
+		return false
+	}
+	switch o.sessionPool.Availability().State {
+	case mediasession.PoolStateEligible, mediasession.PoolStateCapacityConstrained:
+		return true
+	default:
+		return false
+	}
+}
+
 // midAttemptCooldown reports a family cooldown that began after the attempt
 // was planned, typically because another worker just received a protection
 // response. Checking it before every request keeps concurrent attempts from

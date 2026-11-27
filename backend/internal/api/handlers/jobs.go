@@ -175,6 +175,47 @@ func (h *Handlers) RetryFailedJob(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// RetryBlockedRequest carries the optional fields of POST /jobs/retry-blocked.
+type RetryBlockedRequest struct {
+	// IncludeZeroScoreMatches also requeues MATCH_FAILED items whose best
+	// candidate scored 0.0, which a blocked extraction used to produce.
+	IncludeZeroScoreMatches bool `json:"include_zero_score_matches"`
+}
+
+// RetryBlockedFailures answers POST /jobs/retry-blocked: every item that
+// failed for good because a provider blocked the server goes back into the
+// queue, across all jobs. The body is optional.
+func (h *Handlers) RetryBlockedFailures(w http.ResponseWriter, r *http.Request) {
+	var req RetryBlockedRequest
+	if r.ContentLength != 0 {
+		if err := decodeJSON(r, &req); err != nil {
+			response.Error(w, r, err)
+			return
+		}
+	}
+	result, err := h.deps.Jobs.RetryBlockedFailures(r.Context(), req.IncludeZeroScoreMatches)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Data(w, http.StatusOK, result)
+}
+
+// ProbeProvider answers POST /jobs/provider-pause/probe: a running provider
+// pause ends now and a single item probes whether the block is over.
+func (h *Handlers) ProbeProvider(w http.ResponseWriter, r *http.Request) {
+	ended := h.deps.Jobs.ProbeProviderNow()
+	summary, err := h.deps.Jobs.GetQueueSummary(r.Context())
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+	response.Data(w, http.StatusOK, map[string]any{
+		"pause_ended": ended,
+		"summary":     summary,
+	})
+}
+
 // RetryJobItem answers POST /jobs/{job_id}/items/{item_id}/retry.
 func (h *Handlers) RetryJobItem(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "job_id")

@@ -246,7 +246,7 @@ function Downloads({ jobId }: DownloadsPageProps) {
               </Button>
             </div>
           )}
-          <QueueSummaryCard summary={summary} />
+          <QueueSummaryCard summary={summary} canManage={isAdmin} onChanged={reloadSummary} />
 
           {/* Side by side from xl; narrower, the card titles would wrap unevenly. */}
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

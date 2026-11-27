@@ -363,6 +363,20 @@ export interface QueueSummary {
   storage_healthy: boolean
   current: ActiveWorkerPreview[]
   next: NextUpJob[]
+  /** Provider families paused after a block (bot challenge, rate limit). */
+  provider_pauses?: ProviderPause[]
+  /** Failed items a provider block cost; POST /jobs/retry-blocked requeues them. */
+  blocked_failed_items?: number
+}
+
+export interface ProviderPause {
+  provider: string
+  reason_code: string
+  phase: 'paused' | 'probe_ready' | 'probing'
+  message: string
+  resumes_at?: string
+  since: string
+  level: number
 }
 
 /* -------------------------------------------------------------------- events */

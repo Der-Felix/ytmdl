@@ -74,4 +74,54 @@ describe('QueueSummaryCard', () => {
     expect(screen.getByText('Auf Speicher warten')).toBeDefined()
     expect(screen.getByText(/Bibliotheksspeicher ist aktuell nicht schreibbar/)).toBeDefined()
   })
+
+  const pausedSummary: QueueSummary = {
+    ...sampleSummary,
+    throughput_items_per_hour: 0,
+    eta_seconds: null,
+    eta_confidence: 'provider_paused',
+    eta_text: 'YouTube pausiert bis 14:32',
+    provider_pauses: [
+      {
+        provider: 'youtube',
+        reason_code: 'SESSION_BOT_CHALLENGE',
+        phase: 'paused',
+        message: 'YouTube verlangt eine Bot-Prüfung. Downloads pausieren bis 14:32, dann wird erneut geprüft.',
+        resumes_at: '2026-11-27T13:32:00Z',
+        since: '2026-11-27T13:27:00Z',
+        level: 1,
+      },
+    ],
+    blocked_failed_items: 312,
+  }
+
+  it('explains a provider pause instead of an estimate', () => {
+    render(<QueueSummaryCard summary={pausedSummary} />)
+
+    expect(screen.getByText('YouTube pausiert bis 14:32')).toBeDefined()
+    expect(screen.getByText(/YouTube verlangt eine Bot-Prüfung/)).toBeDefined()
+    expect(screen.getByText('Anbieter pausiert')).toBeDefined()
+    expect(screen.queryByText('Berechnung läuft …')).toBeNull()
+    // Without the right to manage the queue, no actions are offered.
+    expect(screen.queryByText('Jetzt erneut prüfen')).toBeNull()
+    expect(screen.queryByText('Wieder einreihen')).toBeNull()
+  })
+
+  it('offers the probe and the requeue to admins', () => {
+    render(<QueueSummaryCard summary={pausedSummary} canManage />)
+
+    expect(screen.getByRole('button', { name: /Jetzt erneut prüfen/ })).toBeDefined()
+    expect(screen.getByRole('button', { name: /Wieder einreihen/ })).toBeDefined()
+    expect(screen.getByText('312')).toBeDefined()
+  })
+
+  it('offers no probe while the probe already runs', () => {
+    const probing: QueueSummary = {
+      ...pausedSummary,
+      provider_pauses: [{ ...pausedSummary.provider_pauses![0], phase: 'probing', resumes_at: undefined }],
+    }
+    render(<QueueSummaryCard summary={probing} canManage />)
+
+    expect(screen.queryByText('Jetzt erneut prüfen')).toBeNull()
+  })
 })

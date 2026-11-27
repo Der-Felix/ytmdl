@@ -198,6 +198,21 @@ func (m *Manager) runDispatcher(ctx context.Context) {
 type jobCandidate struct {
 	job   Job
 	ready []Item
+	// family is the provider family the job's items are paused under.
+	family string
+	// fallback allows the job's items to start during a running pause of
+	// their family because an independent provider can serve them now.
+	fallback bool
+}
+
+// admit asks the provider pause whether an item of the candidate may start.
+// A result staged earlier only needs the move into the library and never
+// contacts a provider, so no pause holds it.
+func (m *Manager) admit(c *jobCandidate, item Item) bool {
+	if item.StagedSHA256 != "" {
+		return true
+	}
+	return m.providerPauses().Admit(c.family, item.ID, c.fallback)
 }
 
 // EffectivePriority returns the priority rank (0=low, 1=normal, 2=high, 3=urgent).
@@ -243,6 +258,9 @@ func (m *Manager) dispatch(ctx context.Context) {
 			continue
 		}
 		for idx, item := range c.ready {
+			if _, running := m.inFlight.Load(item.ID); running || !m.admit(c, item) {
+				continue
+			}
 			if _, running := m.inFlight.LoadOrStore(item.ID, c.job.ID); !running {
 				m.activeWorkers.Add(1)
 				activePerJob[c.job.ID]++
@@ -264,6 +282,10 @@ func (m *Manager) dispatch(ctx context.Context) {
 				return
 			}
 			item := c.ready[idx]
+			if _, running := m.inFlight.Load(item.ID); running || !m.admit(c, item) {
+				idx++
+				continue
+			}
 			if _, running := m.inFlight.LoadOrStore(item.ID, c.job.ID); !running {
 				m.activeWorkers.Add(1)
 				activePerJob[c.job.ID]++
@@ -346,6 +368,7 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 
 		var readyItems []Item
 		allTerminal := true
+		family, pauseHeld, fallback := m.pauseGate(ctx, job, gates)
 
 		for _, it := range items {
 			if !it.Status.Terminal() {
@@ -354,6 +377,13 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 
 			// If item is already running, do not count as ready to be launched again
 			if _, running := m.inFlight.Load(it.ID); running {
+				continue
+			}
+
+			// A paused provider family starts nothing. Staged results only
+			// need the library, and terminal items are not work.
+			if pauseHeld && it.StagedSHA256 == "" && !it.Status.Terminal() {
+				heldTotal++
 				continue
 			}
 
@@ -404,8 +434,10 @@ func (m *Manager) collectCandidates(ctx context.Context) []jobCandidate {
 		if len(readyItems) > 0 {
 			readyTotal += len(readyItems)
 			candidates = append(candidates, jobCandidate{
-				job:   job,
-				ready: readyItems,
+				job:      job,
+				ready:    readyItems,
+				family:   family,
+				fallback: fallback,
 			})
 		}
 	}
@@ -438,6 +470,30 @@ func (m *Manager) providerHeld(ctx context.Context, job Job, gates map[string]bo
 		gates[key] = held
 	}
 	return held
+}
+
+// pauseGate decides for one dispatch pass how a provider pause treats a job's
+// items. held stops every item that would contact the provider. fallback lets
+// a manual job through a running pause when its resolution can use an
+// independent provider instead, exactly as the orchestrator allows it. After
+// the pause the probe is only let through when nothing else - a session pool
+// that is still cooling, for example - already says that an attempt would
+// wait: the probe would learn nothing, and the pause stays visible instead.
+func (m *Manager) pauseGate(ctx context.Context, job Job, gates map[string]bool) (family string, held, fallback bool) {
+	family = m.mediaFamilyOf(job)
+	switch m.providerPauses().Phase(family) {
+	case PausePhaseOpen:
+		return family, false, false
+	case PausePhasePaused:
+		if resolutionOrigin(job) == orchestrator.OriginManual && !m.providerHeld(ctx, job, gates) {
+			return family, false, true
+		}
+		return family, true, false
+	case PausePhaseProbing:
+		return family, true, false
+	default: // probe ready
+		return family, m.providerHeld(ctx, job, gates), false
+	}
 }
 
 // runThroughputReporter logs one summary per interval: new verified
@@ -500,6 +556,8 @@ func (m *Manager) startWorker(job Job, item Item) {
 			if m.workers != nil {
 				m.workers.Clear(item.ID)
 			}
+			// A probe that ended without a verdict frees the probe slot.
+			m.providerPauses().Finished(m.mediaFamilyOf(job), item.ID)
 			m.activeWorkers.Add(-1)
 			m.inFlight.Delete(item.ID)
 			m.wg.Done()

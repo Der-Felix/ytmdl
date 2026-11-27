@@ -75,6 +75,9 @@ func (f *fakeJobStore) ResetItemForRetry(context.Context, string, string) error 
 func (f *fakeJobStore) ResetFailedItemsInJob(context.Context, string) (int, int, error) {
 	return 0, 0, nil
 }
+func (f *fakeJobStore) ResetFailedItems(context.Context, jobs.FailedItemFilter) (int, int, error) {
+	return 0, 0, nil
+}
 func (f *fakeJobStore) AddItems(context.Context, string, []jobs.Item) error { return nil }
 func (f *fakeJobStore) ListItems(context.Context, string) ([]jobs.Item, error) {
 	return nil, nil

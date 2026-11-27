@@ -93,7 +93,9 @@ for the one-time exchange, limits and account permissions.
 | Method | Endpoint | Access | Purpose |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/v1/jobs` | User | List jobs with status, priority, and progress. Supports `view=all\|active\|queued\|paused\|done\|failed` together with `status`, `type`, `priority`, `limit` and `offset`. Group filters apply before pagination; `meta.total` counts matching jobs. Paused overlaps queued/active; done includes completed/cancelled. Unknown groups return `INVALID_REQUEST`. |
-| `GET` | `/api/v1/jobs/summary` | User | Global queue counters (active, queued, paused, done, failed) used by the Downloads tab badges. |
+| `GET` | `/api/v1/jobs/summary` | User | Global queue counters (active, queued, paused, done, failed) used by the Downloads tab badges, the estimate, and `provider_pauses` (provider, `reason_code`, `phase` `paused`/`probe_ready`/`probing`, German `message`, `resumes_at`, `level`) plus `blocked_failed_items`. During a provider pause `eta_confidence` is `provider_paused` and `eta_text` names it ("YouTube pausiert bis 14:32"). |
+| `POST` | `/api/v1/jobs/provider-pause/probe` | Admin | End a running provider pause now and let a single probe item through. Returns `pause_ended` and the new summary. Session cooldowns are left to the session pool. |
+| `POST` | `/api/v1/jobs/retry-blocked` | Admin | Requeue, across all jobs, every failed item whose error is a provider block (`SESSION_BOT_CHALLENGE`, `SESSION_AUTH_FAILED`, `SESSION_RATE_LIMITED`, `SESSION_UNAVAILABLE`, `PROVIDER_RATE_LIMITED`) with fresh attempts. Optional body `{"include_zero_score_matches": true}` also requeues `MATCH_FAILED` items whose best score was 0.0. Returns `items` and `jobs`. |
 | `GET` | `/api/v1/jobs/{id}` | User | Inspect job items, attempts, and error details. |
 | `PATCH` | `/api/v1/jobs/{id}` | User | Update job priority and/or paused state (`{"priority": "...", "paused": true}`). |
 | `POST` | `/api/v1/jobs/{id}/pause` | User | Pause a specific job. |
