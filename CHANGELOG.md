@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.11.1 — 2026-11-27
+
+A YouTube block now pauses the provider instead of failing tracks, and the Downloads page explains the pause.
 
 ### Changes
 
@@ -8,6 +10,17 @@
 - **The queue says why it stands still:** the Downloads page's queue card shows the pause in German ("YouTube verlangt eine Bot-Prüfung. Downloads pausieren bis 14:32, dann wird erneut geprüft.") and the estimate reads "YouTube pausiert bis 14:32" instead of "Berechnung läuft …". Admins can end the pause early with **Jetzt erneut prüfen**, which sends the probe. `GET /api/v1/jobs/summary` adds `provider_pauses` and `blocked_failed_items`; `POST /api/v1/jobs/provider-pause/probe` is the new action.
 - **Tracks a block already cost can be requeued:** the queue card counts the tracks that failed for good with a block code and offers **Wieder einreihen** (admins), which puts all of them back with fresh attempts across jobs (`POST /api/v1/jobs/retry-blocked`). Nothing is requeued automatically. `MATCH_FAILED` failures with a best score of 0.0 were often the same block seen through the search; they are only requeued on request (`{"include_zero_score_matches": true}`).
 - A bot challenge or rate limit while the YouTube search looks up a candidate's runtime is now the search's answer. It used to be swallowed, which left candidates without runtime and artist, scored them 0.0 and failed the track for good with `MATCH_FAILED`.
+
+### Upgrade from v1.11.0
+
+Use the checksum-verified v1.11.1 CLI and Compose files from this release. Preserve
+private configuration, proxy settings, mounts, cookies and the database volume.
+Run `ytmdlctl update --channel stable --target 1.11.1 --dry-run` before
+`ytmdlctl update --channel stable --target 1.11.1`. The database stays at schema 24;
+there is no migration. Tracks that failed because the provider blocked requests can be
+requeued by an admin with **Wieder einreihen** on the Downloads page. Keep a verified
+backup. Protect the media separately; the database dump does not contain music files.
+With the single image, pull the image and recreate the stack instead.
 
 ## 1.11.0 — 2026-11-26
 
