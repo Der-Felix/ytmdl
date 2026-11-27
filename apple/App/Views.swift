@@ -765,6 +765,9 @@ struct LibraryView: View {
                         } description: { Text(message) } actions: {
                             Button("Erneut laden", systemImage: "arrow.clockwise") { Task { await model.loadLibrary() } }
                                 .buttonStyle(.borderedProminent).accessibilityIdentifier("library-retry")
+                                #if os(tvOS)
+                                .tint(TVTheme.accent)
+                                #endif
                         }.accessibilityIdentifier("library-error")
                     } else {
                         ListenSectionFailure(message: message) { Task { await model.loadLibrary() } }
@@ -1399,6 +1402,10 @@ struct CollectionView: View {
                 #else
                 HStack {
                     Button("Abspielen", systemImage: "play.fill") { play(tracks) }.buttonStyle(.borderedProminent).disabled(tracks.isEmpty)
+                        #if os(tvOS)
+                        // Under the white content tint the label would be white on white.
+                        .tint(TVTheme.accent)
+                        #endif
                     Button("Zufall", systemImage: "shuffle") { play(tracks.shuffled()) }.buttonStyle(.bordered).disabled(tracks.isEmpty)
                 }.padding(.vertical, 12)
                 #endif

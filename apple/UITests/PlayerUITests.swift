@@ -1801,17 +1801,26 @@ final class PlayerUITests: XCTestCase {
 
         // Without input the controls fade; cover, title and progress stay.
         let next = app.buttons["tv-np-next"]
-        let rested = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: next)
+        // Faded controls stay in the tree, disabled, so they take no press.
+        let rested = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == false"), object: next)
         XCTAssertEqual(XCTWaiter.wait(for: [rested], timeout: 25), .completed, "The controls fade after a while without input.")
         XCTAssertTrue(title.exists && app.staticTexts["playbackElapsed"].exists, "Title and progress stay while resting.")
+        Thread.sleep(forTimeInterval: 1)
         attach(app, name: "TV 04 resting")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(next.waitForExistence(timeout: 5), "Any press brings the controls back.")
+        let woke = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: next)
+        XCTAssertEqual(XCTWaiter.wait(for: [woke], timeout: 5), .completed, "Any press brings the controls back.")
+        let toggleFocused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [toggleFocused], timeout: 5), .completed, "Waking returns the focus to play/pause.")
 
         // Up from the transport onto the scrubber; right seeks, faster when repeated.
         let elapsed = app.staticTexts["playbackElapsed"]
-        let transport: Set<String> = ["tv-np-shuffle", "tv-np-previous", "tv-np-toggle", "tv-np-next", "tv-player-repeat", "tv-np-favorite"]
-        for _ in 0..<3 where transport.contains(focusedIdentifier(app)) { XCUIRemote.shared.press(.up) }
+        let scrubber = app.descendants(matching: .any)["tv-np-scrubber"].firstMatch
+        for _ in 0..<3 {
+            if scrubber.hasFocus { break }
+            XCUIRemote.shared.press(.up); Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(scrubber.hasFocus, "Up from the transport reaches the scrubber (focused: \(focusedIdentifier(app))).")
         let before = seconds(elapsed.label)
         XCUIRemote.shared.press(.right); XCUIRemote.shared.press(.right); XCUIRemote.shared.press(.right)
         let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.seconds(elapsed.label) >= before + 25 }, object: nil)

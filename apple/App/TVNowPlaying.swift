@@ -290,7 +290,9 @@ struct TVNowPlayingView: View {
         .onPlayPauseCommand { player.remoteToggle(); touch() }
         .onExitCommand { back() }
         .onChange(of: focus) { _, new in
-            guard let new, new != .wake else { return }
+            // While resting the controls are disabled and the focus engine
+            // moves on by itself; that is not where the listener was.
+            guard let new, new != .wake, !resting else { return }
             restoreFocus = new
             touch()
         }
@@ -319,6 +321,7 @@ struct TVNowPlayingView: View {
     private func touch() { inputRevision &+= 1 }
     private func act(_ action: () -> Void) { action(); touch() }
     private func rest() {
+        if let focus, focus != .wake { restoreFocus = focus }
         withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .easeInOut(duration: 0.8)) { resting = true }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(120))
