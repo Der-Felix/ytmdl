@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>YTMDL Cookie Export</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        width: 300px;
+        margin: 0;
+        padding: 16px;
+        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      h1 { margin: 0 0 6px; font-size: 15px; }
+      p { margin: 0 0 12px; opacity: 0.8; }
+      button {
+        width: 100%;
+        padding: 9px 12px;
+        border: 0;
+        border-radius: 8px;
+        background: #e0296a;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+      #status { margin: 12px 0 0; min-height: 1.45em; }
+      #status[data-kind="error"] { color: #d92d20; opacity: 1; }
+      #status[data-kind="ok"] { color: #12915a; opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <h1>YTMDL Cookie Export</h1>
+    <p>
+      Speichert die Cookies von youtube.com aus diesem Fenster als
+      <code>cookies.txt</code>. Es wird nichts übertragen.
+    </p>
+    <button id="export" type="button">cookies.txt speichern</button>
+    <p id="status" role="status" aria-live="polite"></p>
+    <script src="popup.js"></script>
+  </body>
+</html>
