@@ -65,8 +65,12 @@ New file: `App/TVNowPlaying.swift` (`#if os(tvOS)`, registered for all three app
   the command center no longer drops foreground presses.
 - **Errors:** `ConnectionProblem` (core, `Models.swift`) maps `URLError` codes and
   `DecodingError`; `AppModel.describe` uses it after `PlayerError`/`VaultError`. The tvOS tint
-  was `.white`, which drew alert button labels white on the white focused platter; it is now
-  `TVTheme.accent`.
+  was `.white`, which drew alert button labels white on the white focused platter. The app
+  tint is now `TVTheme.accent` (root alert, connect screen), while the tab view and Jetzt läuft
+  set `.white` again, because tvOS lists and plain buttons draw their text in the tint. Alerts
+  and dialogs inside those pages sit on a `Color.clear` carrier in `.background` with
+  `.tint(TVTheme.accent)` (Jetzt läuft, sign-out, playlist delete); `.borderedProminent`
+  buttons on tvOS pages take the accent too.
 - **Tests:** core `connectionFailuresSayWhatIsWrong`, `remoteScrubbingAcceleratesOnQuickPressesInOneDirection`;
   tvOS UI `testTVNowPlayingOpensByItselfAndStaysVisible`, `testTVMainScreensForReview`,
   `testTVConnectErrorNamesTheCauseAndShowsItsButton` (a loopback port without a server). The
