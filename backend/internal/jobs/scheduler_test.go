@@ -3,10 +3,12 @@ package jobs
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"ytdm/backend/internal/apperr"
 	"ytdm/backend/internal/music"
 )
 
@@ -322,6 +324,38 @@ func (s *memorySchedulerStore) ResetFailedItemsInJob(_ context.Context, jobID st
 		}
 	}
 	return retried, skipped, nil
+}
+
+func (s *memorySchedulerStore) ResetFailedItems(_ context.Context, filter FailedItemFilter) (int, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	codes := map[string]bool{}
+	for _, code := range filter.Codes {
+		codes[code] = true
+	}
+	items, touched := 0, map[string]bool{}
+	for jobID := range s.items {
+		for i := range s.items[jobID] {
+			it := &s.items[jobID][i]
+			if it.Status != ItemFailed {
+				continue
+			}
+			zeroScore := filter.ZeroScoreMatchFailures && it.ErrorCode == string(apperr.CodeMatchFailed) &&
+				strings.Contains(it.ErrorMessage, "(best score 0.0, required ")
+			if !codes[it.ErrorCode] && !zeroScore {
+				continue
+			}
+			it.Status, it.Attempts, it.ErrorCode, it.ErrorMessage, it.NextRetryAt = ItemPending, 0, "", "", nil
+			items++
+			touched[jobID] = true
+		}
+	}
+	for jobID := range touched {
+		if j := s.jobs[jobID]; j != nil && j.Status.Terminal() {
+			j.Status = StatusQueued
+		}
+	}
+	return items, len(touched), nil
 }
 
 // Unused methods to satisfy Store interface

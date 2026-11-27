@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+- **A provider block pauses the provider instead of failing tracks:** when YouTube answers with a bot challenge, a sign-in demand or a rate limit, the queue pauses YouTube for every worker instead of charging the block to the track. Tracks go back to waiting without spending an attempt (a sign-in demand still spends one, since it can belong to a single track), no further YouTube request is started during the pause, and other providers keep downloading. Pauses escalate on consecutive blocks — 5, 15, 30, then 60 minutes for a bot challenge or sign-in demand, 1, 2, then 5 minutes for a rate limit — and after each pause a single track probes; only a successful download reopens YouTube for all workers and resets the escalation. With several managed sessions, a refused session goes into its own cooldown and the track moves to another session without a pause. The log has one line when a pause starts, escalates and ends instead of two lines per track.
+- **The queue says why it stands still:** the Downloads page's queue card shows the pause in German ("YouTube verlangt eine Bot-Prüfung. Downloads pausieren bis 14:32, dann wird erneut geprüft.") and the estimate reads "YouTube pausiert bis 14:32" instead of "Berechnung läuft …". Admins can end the pause early with **Jetzt erneut prüfen**, which sends the probe. `GET /api/v1/jobs/summary` adds `provider_pauses` and `blocked_failed_items`; `POST /api/v1/jobs/provider-pause/probe` is the new action.
+- **Tracks a block already cost can be requeued:** the queue card counts the tracks that failed for good with a block code and offers **Wieder einreihen** (admins), which puts all of them back with fresh attempts across jobs (`POST /api/v1/jobs/retry-blocked`). Nothing is requeued automatically. `MATCH_FAILED` failures with a best score of 0.0 were often the same block seen through the search; they are only requeued on request (`{"include_zero_score_matches": true}`).
+- A bot challenge or rate limit while the YouTube search looks up a candidate's runtime is now the search's answer. It used to be swallowed, which left candidates without runtime and artist, scored them 0.0 and failed the track for good with `MATCH_FAILED`.
+
 ## 1.11.0 — 2026-11-26
 
 More mixes, radio stations, listening statistics, lyrics search and "less of this" exclusions on the server, plus the Apple app's listening work.

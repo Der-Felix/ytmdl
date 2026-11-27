@@ -47,6 +47,29 @@ type QueueCounts struct {
 	QueuedJobs        int
 	DoneJobs          int
 	FailedJobs        int
+	// BlockedFailedItems counts items that failed for good with one of the
+	// ProviderBlockCodes: work a provider block cost, which can be requeued.
+	BlockedFailedItems int
+}
+
+// ProviderPause is a provider-wide pause as the queue summary reports it.
+type ProviderPause struct {
+	// Provider is the paused provider family, for example "youtube".
+	Provider string `json:"provider"`
+	// ReasonCode is the error code that started or last escalated the pause.
+	ReasonCode string `json:"reason_code"`
+	// Phase is "paused" while no item starts, "probe_ready" once the next
+	// item is let through as the probe, and "probing" while it runs.
+	Phase PausePhase `json:"phase"`
+	// Message explains the pause in German, for display.
+	Message string `json:"message"`
+	// ResumesAt is when the family is probed again. It is the later of the
+	// pause's own end and any session cooldown that keeps holding it.
+	ResumesAt *time.Time `json:"resumes_at,omitempty"`
+	// Since is when the first block of this series was met.
+	Since time.Time `json:"since"`
+	// Level counts the consecutive blocks without a successful download.
+	Level int `json:"level"`
 }
 
 // QueueSummary holds the aggregated live queue preview and ETA statistics.
@@ -70,6 +93,12 @@ type QueueSummary struct {
 	StorageHealthy         bool                  `json:"storage_healthy"`
 	Current                []ActiveWorkerPreview `json:"current"`
 	Next                   []NextUpJob           `json:"next"`
+	// ProviderPauses lists the provider families that are paused after a
+	// block; empty when every provider is open.
+	ProviderPauses []ProviderPause `json:"provider_pauses"`
+	// BlockedFailedItems counts failed items that a provider block cost and
+	// that POST /jobs/retry-blocked puts back into the queue.
+	BlockedFailedItems int `json:"blocked_failed_items"`
 }
 
 // CalculateETA computes the estimated remaining time for runnable items based on recent throughput.

@@ -103,6 +103,10 @@ func (w *worker) process(ctx context.Context, job Job, item Item) {
 		m.publishItem(job, item, ItemWaitingSpace, 0, err)
 		return
 
+	case isProviderBlock(err):
+		w.holdForProviderBlock(ctx, job, item, err, logger)
+		return
+
 	case apperr.IsSessionWait(err):
 		delay, ok := apperr.RetryAfter(err)
 		if !ok || delay < 5*time.Second {
@@ -182,6 +186,82 @@ func (m *Manager) retryDelay(job Job, attempt int, err error) time.Duration {
 		}
 	}
 	return delay
+}
+
+// sessionRotator is implemented by an orchestrator whose session pool can tell
+// whether a session is still usable after one was refused.
+type sessionRotator interface {
+	HasUsableSession() bool
+}
+
+// isProviderBlock reports an error that pauses the item's provider family.
+func isProviderBlock(err error) bool {
+	pauses, _ := providerBlock(err)
+	return pauses
+}
+
+// holdForProviderBlock puts an item that met a provider block back to waiting
+// and pauses the provider family for every worker. A session-scoped refusal
+// does not pause the family while the session pool still holds another usable
+// session: the pool has put the refused session into its own cooldown, and the
+// item simply tries again on another one.
+func (w *worker) holdForProviderBlock(ctx context.Context, job Job, item Item, err error, logger *slog.Logger) {
+	m := w.manager
+	code := apperr.CodeOf(err)
+	_, consumes := providerBlock(err)
+
+	family := m.mediaFamilyOf(job)
+	if apperr.ScopeOf(err) == apperr.ScopeSession || family == "" {
+		// Sessions exist for the YouTube family only.
+		family = CanonicalCooldownKey("youtube")
+	}
+
+	var delay time.Duration
+	rotator, canRotate := m.getOrchestrator().(sessionRotator)
+	if apperr.ScopeOf(err) == apperr.ScopeSession && canRotate && rotator.HasUsableSession() {
+		delay = spreadAfter(sessionRotationDelay)
+		logger.Debug("session refused the item, another session takes over",
+			logging.KeyErrorCode, string(code))
+	} else {
+		until := m.providerPauses().Block(family, code, item.ID)
+		delay = until.Sub(m.now())
+		if delay < 5*time.Second {
+			delay = 5 * time.Second
+		}
+		delay = spreadAfter(delay)
+	}
+
+	attempts := item.Attempts
+	if consumes {
+		attempts++
+		maxAttempts := item.MaxAttempts
+		if maxAttempts <= 0 {
+			maxAttempts = 5
+		}
+		if attempts >= maxAttempts {
+			logger.Error("item exhausted all retry attempts",
+				"attempts", attempts, "max_attempts", maxAttempts,
+				logging.KeyErrorCode, string(code))
+			w.finishItem(job, item, ItemFailed, err)
+			return
+		}
+	}
+
+	nextRetry := m.now().Add(delay)
+	// One line per pause is logged by the pause itself; the items it holds
+	// are only traced.
+	logger.Debug("item waiting for the provider pause",
+		"attempt_consumed", consumes,
+		"retry_in_ms", delay.Milliseconds(),
+		logging.KeyErrorCode, string(code))
+	_ = m.updateItem(ctx, item.ID, ItemUpdate{
+		Status:       ItemRetryWait,
+		Attempts:     &attempts,
+		NextRetryAt:  &nextRetry,
+		ErrorCode:    string(code),
+		ErrorMessage: apperr.MessageOf(err),
+	})
+	m.publishItem(job, item, ItemRetryWait, 0, err)
 }
 
 // mediaProviderOf names the media provider a job resolves with; a job without
@@ -381,6 +461,9 @@ func (w *worker) attempt(ctx context.Context, job Job, item Item, logger *slog.L
 		return ItemFailed, err
 	}
 	orch.RecordDownloadOutcome(ctx, source.SessionID, nil)
+	// A verified download is the success that ends a provider pause after its
+	// probe and resets the pause escalation.
+	m.providerPauses().Succeeded(result.Candidate.Provider)
 
 	// 7. Tagging
 	if err := m.updateItem(ctx, item.ID, ItemUpdate{Status: ItemTagging}); err != nil {

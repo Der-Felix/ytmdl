@@ -147,6 +147,10 @@ type Manager struct {
 	runs     sync.Map // job id -> *jobRun
 	workers  *WorkerTracker
 
+	// pauses holds the provider-wide pauses; use providerPauses().
+	pausesOnce sync.Once
+	pauses     *providerPauses
+
 	wg        sync.WaitGroup
 	ctx       context.Context
 	stop      context.CancelFunc
@@ -963,6 +967,9 @@ func (m *Manager) WakeSessionWaiters(ctx context.Context) (int, error) {
 	if m.cooldown != nil {
 		m.cooldown.Clear("youtube")
 	}
+	// A recovered session ends a running provider pause the same way: the
+	// next item probes instead of the whole queue starting at once.
+	m.providerPauses().ProbeNow("youtube")
 	count, err := m.store.WakeSessionWaiters(ctx)
 	if err != nil {
 		return 0, err
@@ -1079,6 +1086,8 @@ func (m *Manager) GetQueueSummary(ctx context.Context) (*QueueSummary, error) {
 	var confidence, etaText string
 	var throughput float64
 
+	pauses := m.providerPauseViews(ctx)
+
 	if isPaused {
 		confidence = "paused"
 		etaText = "Queue pausiert"
@@ -1092,6 +1101,14 @@ func (m *Manager) GetQueueSummary(ctx context.Context) (*QueueSummary, error) {
 			counts.CompletedLast6h,
 			storageHealthy,
 		)
+		// A provider pause is the reason open work does not move; an
+		// estimate from the throughput before the block would be wrong. A
+		// missing library still takes precedence: it holds everything.
+		if len(pauses) > 0 && storageHealthy && counts.RunnableItems > 0 {
+			etaSec, throughput = nil, 0
+			confidence = "provider_paused"
+			etaText = providerPauseETAText(pauses[0], m.displayLocation(), m.now())
+		}
 	}
 
 	return &QueueSummary{
@@ -1114,7 +1131,20 @@ func (m *Manager) GetQueueSummary(ctx context.Context) (*QueueSummary, error) {
 		StorageHealthy:         storageHealthy,
 		Current:                activeWorkers,
 		Next:                   nextJobs,
+		ProviderPauses:         pauses,
+		BlockedFailedItems:     counts.BlockedFailedItems,
 	}, nil
+}
+
+// displayLocation is the time zone pause times are shown in: the download
+// schedule's zone when one is set, otherwise the server's.
+func (m *Manager) displayLocation() *time.Location {
+	if tz := m.ScheduleTimezone(); tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			return loc
+		}
+	}
+	return time.Local
 }
 
 func ptr[T any](value T) *T { return &value }

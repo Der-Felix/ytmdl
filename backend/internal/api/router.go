@@ -174,6 +174,9 @@ func NewRouter(opts RouterOptions) (http.Handler, error) {
 					mutating.Group(func(admin chi.Router) {
 						admin.Use(middleware.RequireAdmin)
 						admin.Delete("/history", h.DeleteJobHistory)
+						// Queue-wide actions after a provider block.
+						admin.Post("/retry-blocked", h.RetryBlockedFailures)
+						admin.Post("/provider-pause/probe", h.ProbeProvider)
 					})
 				})
 			})

@@ -53,6 +53,18 @@ func NewMediaCooldownManager() *MediaCooldownManager {
 
 // Trigger sets a global rate limit cooldown for provider.
 func (m *MediaCooldownManager) Trigger(provider string, duration time.Duration) time.Duration {
+	return m.trigger(provider, duration, maxCooldown)
+}
+
+// Hold pauses provider for a queue-wide provider pause. Unlike Trigger it is
+// not capped at the short rate-limit maximum: a pause after a bot challenge
+// may last up to maxProviderPause. The orchestrator reads the same cooldown,
+// so attempts already running stop sending requests into the block.
+func (m *MediaCooldownManager) Hold(provider string, duration time.Duration) time.Duration {
+	return m.trigger(provider, duration, maxProviderPause)
+}
+
+func (m *MediaCooldownManager) trigger(provider string, duration, limit time.Duration) time.Duration {
 	key := CanonicalCooldownKey(provider)
 	if key == "" {
 		return 0
@@ -60,8 +72,8 @@ func (m *MediaCooldownManager) Trigger(provider string, duration time.Duration) 
 
 	if duration <= 0 {
 		duration = defaultCooldown
-	} else if duration > maxCooldown {
-		duration = maxCooldown
+	} else if duration > limit {
+		duration = limit
 	}
 
 	m.mu.Lock()

@@ -30,6 +30,10 @@ type Store interface {
 	DeleteHistory(ctx context.Context, olderThan time.Time, allowedStatuses []Status) (int, int, error)
 	ResetItemForRetry(ctx context.Context, jobID, itemID string) error
 	ResetFailedItemsInJob(ctx context.Context, jobID string) (int, int, error)
+	// ResetFailedItems puts the failed items filter selects, across all
+	// jobs, back into the queue and requeues their finished jobs. It returns
+	// the number of items and of jobs they belong to.
+	ResetFailedItems(ctx context.Context, filter FailedItemFilter) (int, int, error)
 
 	AddItems(ctx context.Context, jobID string, items []Item) error
 	ListItems(ctx context.Context, jobID string) ([]Item, error)

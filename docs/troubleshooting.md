@@ -68,6 +68,54 @@ Each entry follows **Symptom → Cause → Diagnose → Fix → Verify**.
 - **Verify:** After the cooldown, the item moves to `downloading` on its own; a
   successful download clears the session's protection immediately.
 
+### The queue says "YouTube verlangt eine Bot-Prüfung" or "YouTube pausiert bis …"
+
+- **Symptom:** The *Deine Warteschlange* card shows a yellow notice such as
+  *YouTube verlangt eine Bot-Prüfung. Downloads pausieren bis 14:32, dann wird
+  erneut geprüft.* and the estimate reads *YouTube pausiert bis 14:32*. The log
+  has one `provider paused for all workers` line.
+- **Cause:** YouTube refused requests for reasons that concern the whole server,
+  not a track: a bot challenge (`SESSION_BOT_CHALLENGE`), a sign-in demand
+  (`SESSION_AUTH_FAILED`) or a rate limit (`SESSION_RATE_LIMITED`,
+  `PROVIDER_RATE_LIMITED`). The queue then pauses the provider for every worker
+  instead of charging the block to the tracks:
+
+  | Answer | Pause (consecutive blocks) | Attempt spent? |
+  | :--- | :--- | :--- |
+  | `SESSION_BOT_CHALLENGE` | 5 → 15 → 30 → 60 min (cap) | no |
+  | `SESSION_AUTH_FAILED` | 5 → 15 → 30 → 60 min (cap) | yes (may be one track's own sign-in gate) |
+  | `SESSION_RATE_LIMITED`, `PROVIDER_RATE_LIMITED` | 1 → 2 → 5 min (cap) | no |
+  | `PROVIDER_UNAVAILABLE` (network, timeouts) | no pause beyond the existing 60 s cooldown | yes |
+
+  While paused, no track of that provider is started and yt-dlp is not called
+  for it; other providers keep downloading, and a manual job may still fall
+  back to SoundCloud. When the pause ends, a single track is let through as a
+  probe (*Ein einzelner Download prüft gerade …*). If it downloads, the provider
+  reopens for all workers and the escalation starts over; if it meets the block
+  again, the next, longer pause follows (`provider pause escalated`). The tracks
+  that met the block wait in `retry_wait` and keep their attempts.
+- **Managed sessions:** if you have configured several sessions and only one of
+  them is refused, that session goes into its own cooldown (24 h / 72 h for a bot
+  challenge, see above) and the track is retried on another session without a
+  provider pause. The provider pause starts only when no usable session is left,
+  and it lasts at least as long as the session cooldowns: the probe waits for
+  them, and the notice shows the later time.
+- **Fix:** Usually none. An admin can press **Jetzt erneut prüfen** to end the
+  pause early and send the probe now (`POST /api/v1/jobs/provider-pause/probe`);
+  a probe that meets the block again pauses for the next step. A session in its
+  own cooldown is checked on **Settings → Media Sources**.
+- **Tracks that failed before this behaviour existed:** the card shows *N Tracks
+  sind endgültig fehlgeschlagen, weil der Anbieter Anfragen gesperrt hat* with
+  **Wieder einreihen** (admins). It puts every failed track with one of the codes
+  above back into the queue with fresh attempts, across all jobs
+  (`POST /api/v1/jobs/retry-blocked`). Nothing is requeued automatically.
+  `MATCH_FAILED … (best score 0.0 …)` failures from the same time were usually the
+  same block seen through the search; they cannot be told apart from a genuine
+  mismatch reliably, so they are only requeued on request:
+  `POST /api/v1/jobs/retry-blocked` with `{"include_zero_score_matches": true}`.
+- **Verify:** After a successful probe the log shows `provider pause ended: the
+  probe succeeded`, the notice disappears and the estimate returns.
+
 ### Downloads never start, everything stays "In Warteschlange"
 
 - **Cause:** The queue is globally paused (storage maintenance, or the Storage

@@ -158,11 +158,12 @@ func TestRetryAfterRateLimitWaitsForTheKnownCooldown(t *testing.T) {
 	w.process(context.Background(), Job{ID: "job-1", MediaProvider: "youtube"}, store.items["item-1"])
 
 	updated := store.items["item-1"]
-	if updated.Status != ItemRetryWait || updated.Attempts != 1 {
+	// A rate limit pauses the provider family and is not charged to the item.
+	if updated.Status != ItemRetryWait || updated.Attempts != 0 {
 		t.Fatalf("status=%s attempts=%d", updated.Status, updated.Attempts)
 	}
-	// The first backoff step is about five seconds; the provider is known to
-	// be blocked for a minute, so retrying earlier would only spend an attempt.
+	// The first backoff step is about five seconds; the provider is paused
+	// for a minute, so retrying earlier would only meet the pause again.
 	wait := updated.NextRetryAt.Sub(now)
 	if wait < 59*time.Second || wait > 90*time.Second {
 		t.Fatalf("retry scheduled %v after the rate limit, want the cooldown plus a small spread", wait)

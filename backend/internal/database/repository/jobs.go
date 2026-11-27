@@ -937,6 +937,93 @@ func (r *Jobs) ResetFailedItemsInJob(ctx context.Context, jobID string) (int, in
 	return int(retried), 0, nil
 }
 
+// zeroScoreMatchPattern matches the message of a MATCH_FAILED whose best
+// candidate scored 0.0, as jobs and the orchestrator word it.
+const zeroScoreMatchPattern = `%(best score 0.0, required %`
+
+// failedItemCondition builds the WHERE condition that selects the failed
+// items of filter. Placeholders start at $first; the arguments follow in order.
+func failedItemCondition(filter jobs.FailedItemFilter, first int) (string, []any) {
+	var (
+		parts []string
+		args  []any
+	)
+	if len(filter.Codes) > 0 {
+		placeholders := make([]string, len(filter.Codes))
+		for i, code := range filter.Codes {
+			placeholders[i] = "$" + strconv.Itoa(first+len(args))
+			args = append(args, code)
+		}
+		parts = append(parts, "error_code IN ("+strings.Join(placeholders, ", ")+")")
+	}
+	if filter.ZeroScoreMatchFailures {
+		codeAt := "$" + strconv.Itoa(first+len(args))
+		args = append(args, string(apperr.CodeMatchFailed))
+		patternAt := "$" + strconv.Itoa(first+len(args))
+		args = append(args, zeroScoreMatchPattern)
+		parts = append(parts, "(error_code = "+codeAt+" AND error_message LIKE "+patternAt+")")
+	}
+	if len(parts) == 0 {
+		return "FALSE", nil
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
+// ResetFailedItems puts every failed item that filter selects, across all
+// jobs, back into the queue as pending with a fresh attempt budget, and
+// requeues the finished jobs they belong to. Item and job changes are one
+// transaction. It returns the number of items and jobs.
+func (r *Jobs) ResetFailedItems(ctx context.Context, filter jobs.FailedItemFilter) (int, int, error) {
+	now := time.Now().UTC()
+	condition, condArgs := failedItemCondition(filter, 3)
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, wrapDB("begin reset failed items tx", err)
+	}
+	defer tx.Rollback()
+
+	// The jobs first: afterwards the items no longer carry the failure that
+	// selects them.
+	jobArgs := append([]any{now, string(jobs.ItemFailed)}, condArgs...)
+	jobArgs = append(jobArgs,
+		string(jobs.StatusQueued), string(jobs.StatusFailed), string(jobs.StatusCompleted), string(jobs.StatusCancelled))
+	n := 2 + len(condArgs)
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE jobs
+		SET status = $`+strconv.Itoa(n+1)+`, error_code = '', error_message = '', updated_at = $1, finished_at = NULL
+		WHERE id IN (SELECT DISTINCT job_id FROM job_items WHERE status = $2 AND `+condition+`)
+		  AND status IN ($`+strconv.Itoa(n+2)+`, $`+strconv.Itoa(n+3)+`, $`+strconv.Itoa(n+4)+`)`,
+		jobArgs...); err != nil {
+		return 0, 0, wrapDB("requeue jobs of blocked items", err)
+	}
+
+	itemArgs := append([]any{now, string(jobs.ItemFailed)}, condArgs...)
+	itemArgs = append(itemArgs, string(jobs.ItemPending))
+	var items, touchedJobs int
+	err = tx.QueryRowContext(ctx, `
+		WITH reset AS (
+			UPDATE job_items
+			SET status = $`+strconv.Itoa(n+1)+`,
+			    attempts = 0,
+			    error_code = '',
+			    error_message = '',
+			    next_retry_at = NULL,
+			    updated_at = $1
+			WHERE status = $2 AND `+condition+`
+			RETURNING job_id
+		)
+		SELECT count(*), count(DISTINCT job_id) FROM reset`,
+		itemArgs...).Scan(&items, &touchedJobs)
+	if err != nil {
+		return 0, 0, wrapDB("reset blocked items", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, wrapDB("commit reset blocked items", err)
+	}
+	return items, touchedJobs, nil
+}
+
 // WakeSessionWaiters advances next_retry_at to now for any items currently in retry_wait
 // due to session unavailability whose cooldown has not yet elapsed.
 func (r *Jobs) WakeSessionWaiters(ctx context.Context) (int, error) {
@@ -961,6 +1048,7 @@ func (r *Jobs) WakeSessionWaiters(ctx context.Context) (int, error) {
 // QueueCounts returns aggregated item counts and completion metrics for queue preview.
 func (r *Jobs) QueueCounts(ctx context.Context) (jobs.QueueCounts, error) {
 	var counts jobs.QueueCounts
+	blockedCondition, blockedArgs := failedItemCondition(jobs.BlockedFailureFilter(), 13)
 	row := r.db.QueryRowContext(ctx, `
 		SELECT
 			COALESCE((
@@ -1021,12 +1109,19 @@ func (r *Jobs) QueueCounts(ctx context.Context) (jobs.QueueCounts, error) {
 			COALESCE((SELECT count(*) FROM jobs WHERE status NOT IN ($1, $2, $3, $11)), 0) AS active_jobs,
 			COALESCE((SELECT count(*) FROM jobs WHERE status = $11), 0) AS queued_jobs,
 			COALESCE((SELECT count(*) FROM jobs WHERE status IN ($1, $3)), 0) AS done_jobs,
-			COALESCE((SELECT count(*) FROM jobs WHERE status = $2), 0) AS failed_jobs
-	`,
+			COALESCE((SELECT count(*) FROM jobs WHERE status = $2), 0) AS failed_jobs,
+			COALESCE((
+				SELECT count(*)
+				FROM job_items
+				WHERE status = $12 AND `+blockedCondition+`
+			), 0) AS blocked_failed_items
+	`, append([]any{
 		string(jobs.StatusCompleted), string(jobs.StatusFailed), string(jobs.StatusCancelled),
 		string(jobs.ItemPending), string(jobs.ItemMatching), string(jobs.ItemDownloading), string(jobs.ItemTagging), string(jobs.ItemFinalizing), string(jobs.ItemRetryWait),
 		string(jobs.ItemCompleted),
 		string(jobs.StatusQueued),
+		string(jobs.ItemFailed),
+	}, blockedArgs...)...,
 	)
 
 	err := row.Scan(
@@ -1043,6 +1138,7 @@ func (r *Jobs) QueueCounts(ctx context.Context) (jobs.QueueCounts, error) {
 		&counts.QueuedJobs,
 		&counts.DoneJobs,
 		&counts.FailedJobs,
+		&counts.BlockedFailedItems,
 	)
 	if err != nil {
 		return jobs.QueueCounts{}, wrapDB("get queue counts", err)
