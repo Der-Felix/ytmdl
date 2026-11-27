@@ -121,7 +121,7 @@ func NewService(opts ServiceOptions) *Service {
 // ListSessions returns a deterministically ordered list of all media sessions.
 // Ordering: enabled first, then case-insensitive name ascending, then ID ascending.
 func (s *Service) ListSessions(ctx context.Context) ([]SessionView, error) {
-	var views []SessionView
+	views := []SessionView{}
 
 	if s.repo != nil {
 		sessions, err := s.repo.ListSessions(ctx, Filter{})

@@ -52,6 +52,21 @@ describe('MediaSessionsPanel - List & States', () => {
     expect(screen.getByText('Anonymer Modus')).toBeDefined()
   })
 
+  it('renders the empty state when the server answers null for no sessions', async () => {
+    // Servers up to 1.11.1 encoded an empty session list as null, which
+    // crashed the whole settings page.
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ data: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    render(<MediaSessionsPanel />)
+
+    expect(await screen.findByText('Keine YouTube-Session eingerichtet')).toBeDefined()
+  })
+
   it('renders a healthy configured session', async () => {
     const session = createMockSession({ name: 'Haupt-Account' })
     globalThis.fetch = (async () => {

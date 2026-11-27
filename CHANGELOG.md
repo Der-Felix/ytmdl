@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+- **The server settings open again without a media session:** with no managed session configured, the session list was answered as `null` instead of an empty list, and the web app's settings page went blank on it. The server now answers an empty list and the page also accepts the old answer.
+- The Downloads page drops the "Pause beendet …" line once the probe it announced has paused the provider again.
+
 ## 1.11.1 — 2026-11-27
 
 A YouTube block now pauses the provider instead of failing tracks, and the Downloads page explains the pause.
